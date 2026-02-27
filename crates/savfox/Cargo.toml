@@ -9,10 +9,6 @@ publish = false
 description = "Compatibility crate that re-exports savfox-cli."
 readme = "README.md"
 
-[[bin]]
-name = "savfox"
-path = "src/main.rs"
-
 [lib]
 name = "savfox"
 path = "src/lib.rs"
