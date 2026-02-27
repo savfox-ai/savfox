@@ -6,13 +6,11 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 publish = false
-autobins = false
-description = "Placeholder crate for the Savfox project."
+description = "Compatibility crate that re-exports savfox-cli."
 readme = "README.md"
-
-[[bin]]
-name = "savfox-placeholder"
-path = "src/main.rs"
 
 [lints]
 workspace = true
+
+[dependencies]
+savfox-cli = { workspace = true }
