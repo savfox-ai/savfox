@@ -1,0 +1,33 @@
+﻿[package]
+edition.workspace = true
+license.workspace = true
+name = "savfox-link-understanding"
+version.workspace = true
+
+[lib]
+doctest = false
+name = "savfox_link_understanding"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+futures = { workspace = true }
+once_cell = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+scraper = "0.22"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

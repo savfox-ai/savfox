@@ -1,0 +1,7 @@
+﻿# savfox-windows-sandbox
+
+Windows-specific process sandboxing for Savfox. This crate implements restricted-token process execution on Windows, providing two sandbox policies: `ReadOnly` (no filesystem writes) and `WorkspaceWrite` (writes allowed only to the workspace and designated roots). On non-Windows platforms, it compiles to a stub that returns an error.
+
+The sandbox works by creating a restricted Windows security token with custom capability SIDs, then spawning the child process via `CreateProcessAsUserW` under that token. ACL entries are dynamically added to allow or deny filesystem access for the sandbox SID on specific paths. Network access can be blocked by injecting environment-level restrictions. The crate manages stdio piping (stdin/stdout/stderr) between the parent and sandboxed child, supports configurable timeouts, and captures the child's output and exit code in a `CaptureResult`.
+
+Supporting modules handle ACL manipulation (`acl`), capability SID creation and persistence (`cap`), DPAPI-based secret protection (`dpapi`), sandbox user hiding (`hide_users`), credential identity management (`identity`), elevated setup orchestration (`setup_orchestrator`), firewall rules, and Windows token restriction (`token`). The `savfox-windows-sandbox-setup` binary performs the one-time elevated setup required to create sandbox users and configure the system. A `savfox-command-runner` binary is also provided for launching commands within the sandbox context.

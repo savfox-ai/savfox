@@ -1,0 +1,25 @@
+﻿[package]
+name = "savfox-cloud-requirements"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+savfox-backend-client = { workspace = true }
+savfox-core = { workspace = true }
+savfox-otel = { workspace = true }
+savfox-protocol = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
+pretty_assertions = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "test-util", "time"] }

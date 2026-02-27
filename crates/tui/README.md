@@ -1,0 +1,7 @@
+﻿# savfox-tui
+
+The interactive terminal user interface for Savfox, built on `ratatui` and `crossterm`. This crate implements the full-screen TUI experience including the chat composer, markdown rendering, diff display, approval modals, status indicators, onboarding/login screens, session resume/fork pickers, and model/personality selection overlays.
+
+The main entry point is `run_main`, which bootstraps configuration loading, tracing/logging setup (file, OpenTelemetry, feedback, and SQLite log layers), authentication, onboarding flows, and then launches the ratatui application loop. It handles alternate screen mode detection (with auto-detection for terminal multiplexers like Zellij), working directory resolution for resumed/forked sessions, and post-exit cleanup including terminal restoration and session log finalization.
+
+The crate is organized into many internal modules covering specific UI concerns: `chat_screen` (main chat display and agent interaction), `bottom_pane` (composer, approval overlays, feedback, skills toggles), `markdown` / `markdown_render` / `markdown_stream` (incremental markdown-to-terminal rendering), `diff_render` (unified diff display), `status` (status bar and cards), `onboarding` (welcome/trust/auth screens), `resume_picker` (session history browser), `slash_command` (slash command handling), `tooltips`, `shimmer` (loading animations), and more. It also exports `Cli` (the clap argument struct), `ComposerInput` (reusable input widget), and `render_markdown_text` for use by other crates.

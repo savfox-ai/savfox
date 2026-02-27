@@ -1,0 +1,23 @@
+﻿---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+               ██████  ██    ██ ████████ ██████  ██████  ██    ██
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+              ██    ██ ██    ██    ██    ██████ ██    ██   ████
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+               ██████   ██████     ██    ██      ██████  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Experimental features
+  Toggle experimental features. Changes are saved to config.toml.
+
+› [ ] Ghost snapshots  Capture undo snapshots each turn.
+  [x] Shell tool       Allow the model to run shell commands.
+
+  Press space to select or enter to save for next conversation

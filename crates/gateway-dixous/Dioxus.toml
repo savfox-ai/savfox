@@ -1,0 +1,12 @@
+﻿[application]
+name = "savfox-gateway-dioxus"
+default_platform = "web"
+out_dir = "dist"
+asset_dir = "assets"
+
+[web.app]
+title = "Savfox | AI Assistant"
+
+[web.wasm_opt]
+level = "0"
+

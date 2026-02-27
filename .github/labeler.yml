@@ -1,0 +1,53 @@
+﻿# Auto-labeling rules for PRs
+
+core:
+  - changed-files:
+      - any-glob-to-any-file: "crates/core/**"
+
+gateway:
+  - changed-files:
+      - any-glob-to-any-file: "crates/gateway-server/**"
+
+web-ui:
+  - changed-files:
+      - any-glob-to-any-file: "crates/gateway-dixous/**"
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file: "crates/savfox-cli/**"
+
+api:
+  - changed-files:
+      - any-glob-to-any-file: "crates/codex-api/**"
+
+bridges:
+  - changed-files:
+      - any-glob-to-any-file: "crates/gateway-server/src/bridges/**"
+
+memory:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/memory/**"
+          - "crates/core/src/md_memory/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file: "docs/**"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "Dockerfile*"
+          - "docker-compose.yml"
+
+plugin:
+  - changed-files:
+      - any-glob-to-any-file: "crates/plugin-sdk/**"
+
+skills:
+  - changed-files:
+      - any-glob-to-any-file: "crates/skill-registry/**"

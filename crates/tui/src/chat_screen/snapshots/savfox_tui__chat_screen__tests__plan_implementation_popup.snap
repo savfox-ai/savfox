@@ -1,0 +1,22 @@
+﻿---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+               ██████  ██    ██ ████████ ██████  ██████  ██    ██
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+              ██    ██ ██    ██    ██    ██████ ██    ██   ████
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+               ██████   ██████     ██    ██      ██████  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Implement this plan?
+
+› 1. Yes, implement this plan  Switch to Code and start coding.
+  2. No, stay in Plan mode     Continue planning with the model.
+
+  Press enter to confirm or esc to go back

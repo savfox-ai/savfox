@@ -1,0 +1,11 @@
+﻿---
+source: tui/src/chat_screen/tests.rs
+expression: terminal.backend()
+---
+"                                                                                "
+"• Booting MCP server: alpha (0s • esc to interrupt)                             "
+"                                                                                "
+"                                                                                "
+"› Ask Savfox to do anything                                                      "
+"                                                                                "
+"  ? for shortcuts                                            100% context left  "

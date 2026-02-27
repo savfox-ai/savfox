@@ -1,0 +1,26 @@
+﻿---
+source: crates/tui/src/chat_screen/tests.rs
+expression: contents
+---
+                         ██████  ██    ██ ████████ ██████  ██████  ██    ██
+                        ██    ██ ██    ██    ██    ██     ██    ██  ██  ██ 
+                        ██    ██ ██    ██    ██    ██████ ██    ██   ████  
+                        ██    ██ ██    ██    ██    ██     ██    ██  ██  ██ 
+                         ██████   ██████     ██    ██      ██████  ██    ██
+
+                                          Welcome to Savfox
+                                      Your AI coding assistant
+
+
+
+
+  Would you like to run the following command?
+
+  $ python - <<'PY'
+  print('hello')
+  PY
+
+› 1. Yes, proceed (y)
+  2. No, and tell Savfox what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

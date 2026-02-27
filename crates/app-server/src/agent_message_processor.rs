@@ -1,0 +1,5369 @@
+﻿use crate::bespoke_event_handling::apply_bespoke_event_handling;
+use crate::error_code::INTERNAL_ERROR_CODE;
+use crate::error_code::INVALID_REQUEST_ERROR_CODE;
+use crate::fuzzy_file_search::run_fuzzy_file_search;
+use crate::models::supported_models;
+use crate::outgoing_message::OutgoingMessageSender;
+use crate::outgoing_message::OutgoingNotification;
+use chrono::DateTime;
+use chrono::SecondsFormat;
+use chrono::Utc;
+use savfox_app_server_protocol::Account;
+use savfox_app_server_protocol::AccountLoginCompletedNotification;
+use savfox_app_server_protocol::AccountUpdatedNotification;
+use savfox_app_server_protocol::AddConversationListenerParams;
+use savfox_app_server_protocol::AddConversationSubscriptionResponse;
+use savfox_app_server_protocol::AppsListParams;
+use savfox_app_server_protocol::AppsListResponse;
+use savfox_app_server_protocol::ArchiveConversationParams;
+use savfox_app_server_protocol::ArchiveConversationResponse;
+use savfox_app_server_protocol::AskForApproval;
+use savfox_app_server_protocol::AuthMode;
+use savfox_app_server_protocol::AuthStatusChangeNotification;
+use savfox_app_server_protocol::CancelLoginAccountParams;
+use savfox_app_server_protocol::CancelLoginAccountResponse;
+use savfox_app_server_protocol::CancelLoginAccountStatus;
+use savfox_app_server_protocol::CancelLoginChatGptResponse;
+use savfox_app_server_protocol::ClientRequest;
+use savfox_app_server_protocol::CollaborationModeListParams;
+use savfox_app_server_protocol::CollaborationModeListResponse;
+use savfox_app_server_protocol::CommandExecParams;
+use savfox_app_server_protocol::ConversationGitInfo;
+use savfox_app_server_protocol::ConversationSummary;
+use savfox_app_server_protocol::DynamicToolSpec as ApiDynamicToolSpec;
+use savfox_app_server_protocol::ExecOneOffCommandResponse;
+use savfox_app_server_protocol::FeedbackUploadParams;
+use savfox_app_server_protocol::FeedbackUploadResponse;
+use savfox_app_server_protocol::ForkConversationParams;
+use savfox_app_server_protocol::ForkConversationResponse;
+use savfox_app_server_protocol::FuzzyFileSearchParams;
+use savfox_app_server_protocol::FuzzyFileSearchResponse;
+use savfox_app_server_protocol::GetAccountParams;
+use savfox_app_server_protocol::GetAccountRateLimitsResponse;
+use savfox_app_server_protocol::GetAccountResponse;
+use savfox_app_server_protocol::GetAuthStatusParams;
+use savfox_app_server_protocol::GetAuthStatusResponse;
+use savfox_app_server_protocol::GetConversationSummaryParams;
+use savfox_app_server_protocol::GetConversationSummaryResponse;
+use savfox_app_server_protocol::GetUserAgentResponse;
+use savfox_app_server_protocol::GetUserSavedConfigResponse;
+use savfox_app_server_protocol::GitDiffToRemoteResponse;
+use savfox_app_server_protocol::GitInfo as ApiGitInfo;
+use savfox_app_server_protocol::InputItem as WireInputItem;
+use savfox_app_server_protocol::InterruptConversationParams;
+use savfox_app_server_protocol::JSONRPCErrorError;
+use savfox_app_server_protocol::ListConversationsParams;
+use savfox_app_server_protocol::ListConversationsResponse;
+use savfox_app_server_protocol::ListMcpServerStatusParams;
+use savfox_app_server_protocol::ListMcpServerStatusResponse;
+use savfox_app_server_protocol::LoginAccountParams;
+use savfox_app_server_protocol::LoginAccountResponse;
+use savfox_app_server_protocol::LoginApiKeyParams;
+use savfox_app_server_protocol::LoginApiKeyResponse;
+use savfox_app_server_protocol::LoginChatGptCompleteNotification;
+use savfox_app_server_protocol::LoginChatGptResponse;
+use savfox_app_server_protocol::LogoutAccountResponse;
+use savfox_app_server_protocol::LogoutChatGptResponse;
+use savfox_app_server_protocol::McpServerOauthLoginCompletedNotification;
+use savfox_app_server_protocol::McpServerOauthLoginParams;
+use savfox_app_server_protocol::McpServerOauthLoginResponse;
+use savfox_app_server_protocol::McpServerRefreshResponse;
+use savfox_app_server_protocol::McpServerStatus;
+use savfox_app_server_protocol::MockExperimentalMethodParams;
+use savfox_app_server_protocol::MockExperimentalMethodResponse;
+use savfox_app_server_protocol::ModelListParams;
+use savfox_app_server_protocol::ModelListResponse;
+use savfox_app_server_protocol::NewConversationParams;
+use savfox_app_server_protocol::NewConversationResponse;
+use savfox_app_server_protocol::RemoveConversationListenerParams;
+use savfox_app_server_protocol::RemoveConversationSubscriptionResponse;
+use savfox_app_server_protocol::RequestId;
+use savfox_app_server_protocol::ResumeConversationParams;
+use savfox_app_server_protocol::ResumeConversationResponse;
+use savfox_app_server_protocol::ReviewDelivery as ApiReviewDelivery;
+use savfox_app_server_protocol::ReviewStartParams;
+use savfox_app_server_protocol::ReviewStartResponse;
+use savfox_app_server_protocol::ReviewTarget as ApiReviewTarget;
+use savfox_app_server_protocol::SandboxMode;
+use savfox_app_server_protocol::SendUserMessageParams;
+use savfox_app_server_protocol::SendUserMessageResponse;
+use savfox_app_server_protocol::SendUserTurnParams;
+use savfox_app_server_protocol::SendUserTurnResponse;
+use savfox_app_server_protocol::ServerNotification;
+use savfox_app_server_protocol::Session;
+use savfox_app_server_protocol::SessionArchiveParams;
+use savfox_app_server_protocol::SessionArchiveResponse;
+use savfox_app_server_protocol::SessionConfiguredNotification;
+use savfox_app_server_protocol::SessionForkParams;
+use savfox_app_server_protocol::SessionForkResponse;
+use savfox_app_server_protocol::SessionItem;
+use savfox_app_server_protocol::SessionListParams;
+use savfox_app_server_protocol::SessionListResponse;
+use savfox_app_server_protocol::SessionLoadedListParams;
+use savfox_app_server_protocol::SessionLoadedListResponse;
+use savfox_app_server_protocol::SessionReadParams;
+use savfox_app_server_protocol::SessionReadResponse;
+use savfox_app_server_protocol::SessionResumeParams;
+use savfox_app_server_protocol::SessionResumeResponse;
+use savfox_app_server_protocol::SessionRollbackParams;
+use savfox_app_server_protocol::SessionSetNameParams;
+use savfox_app_server_protocol::SessionSetNameResponse;
+use savfox_app_server_protocol::SessionSortKey;
+use savfox_app_server_protocol::SessionSourceKind;
+use savfox_app_server_protocol::SessionStartParams;
+use savfox_app_server_protocol::SessionStartResponse;
+use savfox_app_server_protocol::SessionStartedNotification;
+use savfox_app_server_protocol::SessionUnarchiveParams;
+use savfox_app_server_protocol::SessionUnarchiveResponse;
+use savfox_app_server_protocol::SetDefaultModelParams;
+use savfox_app_server_protocol::SetDefaultModelResponse;
+use savfox_app_server_protocol::SkillsConfigWriteParams;
+use savfox_app_server_protocol::SkillsConfigWriteResponse;
+use savfox_app_server_protocol::SkillsListParams;
+use savfox_app_server_protocol::SkillsListResponse;
+use savfox_app_server_protocol::Turn;
+use savfox_app_server_protocol::TurnError;
+use savfox_app_server_protocol::TurnInterruptParams;
+use savfox_app_server_protocol::TurnStartParams;
+use savfox_app_server_protocol::TurnStartResponse;
+use savfox_app_server_protocol::TurnStartedNotification;
+use savfox_app_server_protocol::TurnStatus;
+use savfox_app_server_protocol::UserInfoResponse;
+use savfox_app_server_protocol::UserInput as V2UserInput;
+use savfox_app_server_protocol::UserSavedConfig;
+use savfox_app_server_protocol::build_turns_from_event_msgs;
+use savfox_backend_client::Client as BackendClient;
+use savfox_chatgpt::connectors;
+use savfox_core::AuthManager;
+use savfox_core::Cursor as RolloutCursor;
+use savfox_core::InitialHistory;
+use savfox_core::NewSession;
+use savfox_core::SavfoxAuth;
+use savfox_core::SavfoxSession;
+use savfox_core::RolloutRecorder;
+use savfox_core::SessionConfigSnapshot;
+use savfox_core::SessionManager;
+use savfox_core::SessionMeta;
+use savfox_core::SessionSortKey as CoreSessionSortKey;
+use savfox_core::auth::CLIENT_ID;
+use savfox_core::auth::login_with_api_key;
+use savfox_core::auth::login_with_chatgpt_auth_tokens;
+use savfox_core::config::Config;
+use savfox_core::config::ConfigOverrides;
+use savfox_core::config::ConfigService;
+use savfox_core::config::edit::ConfigEdit;
+use savfox_core::config::edit::ConfigEditsBuilder;
+use savfox_core::config::types::McpServerTransportConfig;
+use savfox_core::config_loader::CloudRequirementsLoader;
+use savfox_core::default_client::get_savfox_user_agent;
+use savfox_core::error::SavfoxError;
+use savfox_core::exec::ExecParams;
+use savfox_core::exec_env::create_env;
+use savfox_core::features::Feature;
+use savfox_core::find_archived_session_path_by_id_str;
+use savfox_core::find_session_path_by_id_str;
+use savfox_core::git_info::git_diff_to_remote;
+use savfox_core::mcp::collect_mcp_snapshot;
+use savfox_core::mcp::group_tools_by_server;
+use savfox_core::parse_cursor;
+use savfox_core::protocol::EventMsg;
+use savfox_core::protocol::Op;
+use savfox_core::protocol::ReviewDelivery as CoreReviewDelivery;
+use savfox_core::protocol::ReviewRequest;
+use savfox_core::protocol::ReviewTarget as CoreReviewTarget;
+use savfox_core::protocol::SessionConfiguredEvent;
+use savfox_core::read_head_for_summary;
+use savfox_core::read_session_meta_line;
+use savfox_core::rollout_date_parts;
+use savfox_core::sandboxing::SandboxPermissions;
+use savfox_core::state_db::get_state_db;
+use savfox_core::token_data::parse_id_token;
+use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
+use savfox_feedback::SavfoxFeedback;
+use savfox_login_oauth::ServerOptions as LoginServerOptions;
+use savfox_login_oauth::complete_device_code_login;
+use savfox_login_oauth::request_device_code;
+use savfox_login_oauth::ShutdownHandle;
+use savfox_login_oauth::run_login_server;
+use savfox_protocol::SessionId;
+use savfox_protocol::config_types::ForcedLoginMethod;
+use savfox_protocol::config_types::Personality;
+use savfox_protocol::config_types::WindowsSandboxLevel;
+use savfox_protocol::dynamic_tools::DynamicToolSpec as CoreDynamicToolSpec;
+use savfox_protocol::items::TurnItem;
+use savfox_protocol::models::ResponseItem;
+use savfox_protocol::protocol::AgentStatus;
+use savfox_protocol::protocol::GitInfo as CoreGitInfo;
+use savfox_protocol::protocol::McpAuthStatus as CoreMcpAuthStatus;
+use savfox_protocol::protocol::McpServerRefreshConfig;
+use savfox_protocol::protocol::RateLimitSnapshot as CoreRateLimitSnapshot;
+use savfox_protocol::protocol::RolloutItem;
+use savfox_protocol::protocol::SessionMetaLine;
+use savfox_protocol::protocol::USER_MESSAGE_BEGIN;
+use savfox_protocol::user_input::UserInput as CoreInputItem;
+use savfox_rmcp_client::perform_oauth_login_return_url;
+use savfox_utils_json_to_toml::json_to_toml;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::fs::FileTimes;
+use std::fs::OpenOptions;
+use std::io::Error as IoError;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::SystemTime;
+use tokio::sync::Mutex;
+use tokio::sync::broadcast;
+use tokio::sync::oneshot;
+use toml::Value as TomlValue;
+use tracing::error;
+use tracing::info;
+use tracing::warn;
+use uuid::Uuid;
+
+use crate::filters::compute_source_filters;
+use crate::filters::source_kind_matches;
+
+type PendingInterruptQueue = Vec<(RequestId, ApiVersion)>;
+pub(crate) type PendingInterrupts = Arc<Mutex<HashMap<SessionId, PendingInterruptQueue>>>;
+
+pub(crate) type PendingRollbacks = Arc<Mutex<HashMap<SessionId, RequestId>>>;
+
+/// Per-conversation accumulation of the latest states e.g. error message while a turn runs.
+#[derive(Default, Clone)]
+pub(crate) struct TurnSummary {
+    pub(crate) file_change_started: HashSet<String>,
+    pub(crate) last_error: Option<TurnError>,
+}
+
+pub(crate) type TurnSummaryStore = Arc<Mutex<HashMap<SessionId, TurnSummary>>>;
+
+const SESSION_LIST_DEFAULT_LIMIT: usize = 25;
+const SESSION_LIST_MAX_LIMIT: usize = 100;
+
+// Duration before a ChatGPT login attempt is abandoned.
+const LOGIN_CHATGPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+struct ActiveLogin {
+    shutdown_handle: ShutdownHandle,
+    login_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum CancelLoginError {
+    NotFound(Uuid),
+}
+
+impl Drop for ActiveLogin {
+    fn drop(&mut self) {
+        self.shutdown_handle.shutdown();
+    }
+}
+
+/// Handles JSON-RPC messages for Savfox sessions (and legacy conversation APIs).
+pub(crate) struct SavfoxMessageProcessor {
+    auth_manager: Arc<AuthManager>,
+    session_manager: Arc<SessionManager>,
+    outgoing: Arc<OutgoingMessageSender>,
+    savfox_linux_sandbox_exe: Option<PathBuf>,
+    config: Arc<Config>,
+    cli_overrides: Vec<(String, TomlValue)>,
+    cloud_requirements: CloudRequirementsLoader,
+    conversation_listeners: HashMap<Uuid, oneshot::Sender<()>>,
+    listener_session_ids_by_subscription: HashMap<Uuid, SessionId>,
+    active_login: Arc<Mutex<Option<ActiveLogin>>>,
+    // Queue of pending interrupt requests per conversation. We reply when TurnAborted arrives.
+    pending_interrupts: PendingInterrupts,
+    // Queue of pending rollback requests per conversation. We reply when SessionRollback arrives.
+    pending_rollbacks: PendingRollbacks,
+    turn_summary_store: TurnSummaryStore,
+    pending_fuzzy_searches: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    feedback: SavfoxFeedback,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ApiVersion {
+    V1,
+    V2,
+}
+
+pub(crate) struct SavfoxMessageProcessorArgs {
+    pub(crate) auth_manager: Arc<AuthManager>,
+    pub(crate) session_manager: Arc<SessionManager>,
+    pub(crate) outgoing: Arc<OutgoingMessageSender>,
+    pub(crate) savfox_linux_sandbox_exe: Option<PathBuf>,
+    pub(crate) config: Arc<Config>,
+    pub(crate) cli_overrides: Vec<(String, TomlValue)>,
+    pub(crate) cloud_requirements: CloudRequirementsLoader,
+    pub(crate) feedback: SavfoxFeedback,
+}
+
+impl SavfoxMessageProcessor {
+    async fn load_session(
+        &self,
+        session_id: &str,
+    ) -> Result<(SessionId, Arc<SavfoxSession>), JSONRPCErrorError> {
+        // Resolve the core conversation handle from a v2 session id string.
+        let session_id = SessionId::from_string(session_id).map_err(|err| JSONRPCErrorError {
+            code: INVALID_REQUEST_ERROR_CODE,
+            message: format!("invalid session id: {err}"),
+            data: None,
+        })?;
+
+        let session = self
+            .session_manager
+            .get_session(session_id)
+            .await
+            .map_err(|_| JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("session not found: {session_id}"),
+                data: None,
+            })?;
+
+        Ok((session_id, session))
+    }
+    pub fn new(args: SavfoxMessageProcessorArgs) -> Self {
+        let SavfoxMessageProcessorArgs {
+            auth_manager,
+            session_manager,
+            outgoing,
+            savfox_linux_sandbox_exe,
+            config,
+            cli_overrides,
+            cloud_requirements,
+            feedback,
+        } = args;
+        Self {
+            auth_manager,
+            session_manager,
+            outgoing,
+            savfox_linux_sandbox_exe,
+            config,
+            cli_overrides,
+            cloud_requirements,
+            conversation_listeners: HashMap::new(),
+            listener_session_ids_by_subscription: HashMap::new(),
+            active_login: Arc::new(Mutex::new(None)),
+            pending_interrupts: Arc::new(Mutex::new(HashMap::new())),
+            pending_rollbacks: Arc::new(Mutex::new(HashMap::new())),
+            turn_summary_store: Arc::new(Mutex::new(HashMap::new())),
+            pending_fuzzy_searches: Arc::new(Mutex::new(HashMap::new())),
+            feedback,
+        }
+    }
+
+    async fn load_latest_config(&self) -> Result<Config, JSONRPCErrorError> {
+        savfox_core::config::ConfigBuilder::default()
+            .cli_overrides(self.cli_overrides.clone())
+            .cloud_requirements(self.cloud_requirements.clone())
+            .build()
+            .await
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to reload config: {err}"),
+                data: None,
+            })
+    }
+
+    fn review_request_from_target(
+        target: ApiReviewTarget,
+    ) -> Result<(ReviewRequest, String), JSONRPCErrorError> {
+        fn invalid_request(message: String) -> JSONRPCErrorError {
+            JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message,
+                data: None,
+            }
+        }
+
+        let cleaned_target = match target {
+            ApiReviewTarget::UncommittedChanges => ApiReviewTarget::UncommittedChanges,
+            ApiReviewTarget::BaseBranch { branch } => {
+                let branch = branch.trim().to_string();
+                if branch.is_empty() {
+                    return Err(invalid_request("branch must not be empty".to_string()));
+                }
+                ApiReviewTarget::BaseBranch { branch }
+            }
+            ApiReviewTarget::Commit { sha, title } => {
+                let sha = sha.trim().to_string();
+                if sha.is_empty() {
+                    return Err(invalid_request("sha must not be empty".to_string()));
+                }
+                let title = title
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty());
+                ApiReviewTarget::Commit { sha, title }
+            }
+            ApiReviewTarget::Custom { instructions } => {
+                let trimmed = instructions.trim().to_string();
+                if trimmed.is_empty() {
+                    return Err(invalid_request(
+                        "instructions must not be empty".to_string(),
+                    ));
+                }
+                ApiReviewTarget::Custom {
+                    instructions: trimmed,
+                }
+            }
+        };
+
+        let core_target = match cleaned_target {
+            ApiReviewTarget::UncommittedChanges => CoreReviewTarget::UncommittedChanges,
+            ApiReviewTarget::BaseBranch { branch } => CoreReviewTarget::BaseBranch { branch },
+            ApiReviewTarget::Commit { sha, title } => CoreReviewTarget::Commit { sha, title },
+            ApiReviewTarget::Custom { instructions } => CoreReviewTarget::Custom { instructions },
+        };
+
+        let hint = savfox_core::review_prompts::user_facing_hint(&core_target);
+        let review_request = ReviewRequest {
+            target: core_target,
+            user_facing_hint: Some(hint.clone()),
+        };
+
+        Ok((review_request, hint))
+    }
+
+    pub async fn process_request(&mut self, request: ClientRequest) {
+        match request {
+            ClientRequest::Initialize { .. } => {
+                panic!("Initialize should be handled in MessageProcessor");
+            }
+            // === v2 Session/Turn APIs ===
+            ClientRequest::SessionStart { request_id, params } => {
+                self.session_start(request_id, params).await;
+            }
+            ClientRequest::SessionResume { request_id, params } => {
+                self.session_resume(request_id, params).await;
+            }
+            ClientRequest::SessionFork { request_id, params } => {
+                self.session_fork(request_id, params).await;
+            }
+            ClientRequest::SessionArchive { request_id, params } => {
+                self.session_archive(request_id, params).await;
+            }
+            ClientRequest::SessionSetName { request_id, params } => {
+                self.session_set_name(request_id, params).await;
+            }
+            ClientRequest::SessionUnarchive { request_id, params } => {
+                self.session_unarchive(request_id, params).await;
+            }
+            ClientRequest::SessionRollback { request_id, params } => {
+                self.session_rollback(request_id, params).await;
+            }
+            ClientRequest::SessionList { request_id, params } => {
+                self.session_list(request_id, params).await;
+            }
+            ClientRequest::SessionLoadedList { request_id, params } => {
+                self.session_loaded_list(request_id, params).await;
+            }
+            ClientRequest::SessionRead { request_id, params } => {
+                self.session_read(request_id, params).await;
+            }
+            ClientRequest::SkillsList { request_id, params } => {
+                self.skills_list(request_id, params).await;
+            }
+            ClientRequest::AppsList { request_id, params } => {
+                self.apps_list(request_id, params).await;
+            }
+            ClientRequest::SkillsConfigWrite { request_id, params } => {
+                self.skills_config_write(request_id, params).await;
+            }
+            ClientRequest::TurnStart { request_id, params } => {
+                self.turn_start(request_id, params).await;
+            }
+            ClientRequest::TurnInterrupt { request_id, params } => {
+                self.turn_interrupt(request_id, params).await;
+            }
+            ClientRequest::ReviewStart { request_id, params } => {
+                self.review_start(request_id, params).await;
+            }
+            ClientRequest::NewConversation { request_id, params } => {
+                // Do not tokio::spawn() to process new_conversation()
+                // asynchronously because we need to ensure the conversation is
+                // created before processing any subsequent messages.
+                self.process_new_conversation(request_id, params).await;
+            }
+            ClientRequest::GetConversationSummary { request_id, params } => {
+                self.get_session_summary(request_id, params).await;
+            }
+            ClientRequest::ListConversations { request_id, params } => {
+                self.handle_list_conversations(request_id, params).await;
+            }
+            ClientRequest::ModelList { request_id, params } => {
+                let outgoing = self.outgoing.clone();
+                let session_manager = self.session_manager.clone();
+                let config = self.config.clone();
+
+                tokio::spawn(async move {
+                    Self::list_models(outgoing, session_manager, config, request_id, params).await;
+                });
+            }
+            ClientRequest::CollaborationModeList { request_id, params } => {
+                let outgoing = self.outgoing.clone();
+                let session_manager = self.session_manager.clone();
+
+                tokio::spawn(async move {
+                    Self::list_collaboration_modes(outgoing, session_manager, request_id, params)
+                        .await;
+                });
+            }
+            ClientRequest::MockExperimentalMethod { request_id, params } => {
+                self.mock_experimental_method(request_id, params).await;
+            }
+            ClientRequest::McpServerOauthLogin { request_id, params } => {
+                self.mcp_server_oauth_login(request_id, params).await;
+            }
+            ClientRequest::McpServerRefresh { request_id, params } => {
+                self.mcp_server_refresh(request_id, params).await;
+            }
+            ClientRequest::McpServerStatusList { request_id, params } => {
+                self.list_mcp_server_status(request_id, params).await;
+            }
+            ClientRequest::LoginAccount { request_id, params } => {
+                self.login_v2(request_id, params).await;
+            }
+            ClientRequest::LogoutAccount {
+                request_id,
+                params: _,
+            } => {
+                self.logout_v2(request_id).await;
+            }
+            ClientRequest::CancelLoginAccount { request_id, params } => {
+                self.cancel_login_v2(request_id, params).await;
+            }
+            ClientRequest::GetAccount { request_id, params } => {
+                self.get_account(request_id, params).await;
+            }
+            ClientRequest::ResumeConversation { request_id, params } => {
+                self.handle_resume_conversation(request_id, params).await;
+            }
+            ClientRequest::ForkConversation { request_id, params } => {
+                self.handle_fork_conversation(request_id, params).await;
+            }
+            ClientRequest::ArchiveConversation { request_id, params } => {
+                self.archive_conversation(request_id, params).await;
+            }
+            ClientRequest::SendUserMessage { request_id, params } => {
+                self.send_user_message(request_id, params).await;
+            }
+            ClientRequest::SendUserTurn { request_id, params } => {
+                self.send_user_turn(request_id, params).await;
+            }
+            ClientRequest::InterruptConversation { request_id, params } => {
+                self.interrupt_conversation(request_id, params).await;
+            }
+            ClientRequest::AddConversationListener { request_id, params } => {
+                self.add_conversation_listener(request_id, params).await;
+            }
+            ClientRequest::RemoveConversationListener { request_id, params } => {
+                self.remove_session_listener(request_id, params).await;
+            }
+            ClientRequest::GitDiffToRemote { request_id, params } => {
+                self.git_diff_to_origin(request_id, params.cwd).await;
+            }
+            ClientRequest::LoginApiKey { request_id, params } => {
+                self.login_api_key_v1(request_id, params).await;
+            }
+            ClientRequest::LoginChatGpt {
+                request_id,
+                params: _,
+            } => {
+                self.login_chatgpt_v1(request_id).await;
+            }
+            ClientRequest::CancelLoginChatGpt { request_id, params } => {
+                self.cancel_login_chatgpt(request_id, params.login_id).await;
+            }
+            ClientRequest::LogoutChatGpt {
+                request_id,
+                params: _,
+            } => {
+                self.logout_v1(request_id).await;
+            }
+            ClientRequest::GetAuthStatus { request_id, params } => {
+                self.get_auth_status(request_id, params).await;
+            }
+            ClientRequest::GetUserSavedConfig {
+                request_id,
+                params: _,
+            } => {
+                self.get_user_saved_config(request_id).await;
+            }
+            ClientRequest::SetDefaultModel { request_id, params } => {
+                self.set_default_model(request_id, params).await;
+            }
+            ClientRequest::GetUserAgent {
+                request_id,
+                params: _,
+            } => {
+                self.get_user_agent(request_id).await;
+            }
+            ClientRequest::UserInfo {
+                request_id,
+                params: _,
+            } => {
+                self.get_user_info(request_id).await;
+            }
+            ClientRequest::FuzzyFileSearch { request_id, params } => {
+                self.fuzzy_file_search(request_id, params).await;
+            }
+            ClientRequest::OneOffCommandExec { request_id, params } => {
+                self.exec_one_off_command(request_id, params).await;
+            }
+            ClientRequest::ExecOneOffCommand { request_id, params } => {
+                self.exec_one_off_command(request_id, params.into()).await;
+            }
+            ClientRequest::ConfigRead { .. }
+            | ClientRequest::ConfigValueWrite { .. }
+            | ClientRequest::ConfigBatchWrite { .. } => {
+                warn!("Config request reached SavfoxMessageProcessor unexpectedly");
+            }
+            ClientRequest::ConfigRequirementsRead { .. } => {
+                warn!("ConfigRequirementsRead request reached SavfoxMessageProcessor unexpectedly");
+            }
+            ClientRequest::GetAccountRateLimits {
+                request_id,
+                params: _,
+            } => {
+                self.get_account_rate_limits(request_id).await;
+            }
+            ClientRequest::FeedbackUpload { request_id, params } => {
+                self.upload_feedback(request_id, params).await;
+            }
+        }
+    }
+
+    async fn login_v2(&mut self, request_id: RequestId, params: LoginAccountParams) {
+        match params {
+            LoginAccountParams::ApiKey { api_key } => {
+                self.login_api_key_v2(request_id, LoginApiKeyParams { api_key })
+                    .await;
+            }
+            LoginAccountParams::Chatgpt => {
+                self.login_chatgpt_v2(request_id).await;
+            }
+            LoginAccountParams::DeviceCode => {
+                self.login_device_code_v2(request_id).await;
+            }
+            LoginAccountParams::ChatgptAuthTokens {
+                id_token,
+                access_token,
+            } => {
+                self.login_chatgpt_auth_tokens(request_id, id_token, access_token)
+                    .await;
+            }
+        }
+    }
+
+    fn external_auth_active_error(&self) -> JSONRPCErrorError {
+        JSONRPCErrorError {
+            code: INVALID_REQUEST_ERROR_CODE,
+            message: "External auth is active. Use account/login/start (chatgptAuthTokens) to update it or account/logout to clear it."
+                .to_string(),
+            data: None,
+        }
+    }
+
+    async fn login_api_key_common(
+        &mut self,
+        params: &LoginApiKeyParams,
+    ) -> std::result::Result<(), JSONRPCErrorError> {
+        if self.auth_manager.is_external_auth_active() {
+            return Err(self.external_auth_active_error());
+        }
+
+        if matches!(
+            self.config.forced_login_method,
+            Some(ForcedLoginMethod::Chatgpt)
+        ) {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "API key login is disabled. Use ChatGPT login instead.".to_string(),
+                data: None,
+            });
+        }
+
+        // Cancel any active login attempt.
+        {
+            let mut guard = self.active_login.lock().await;
+            if let Some(active) = guard.take() {
+                drop(active);
+            }
+        }
+
+        match login_with_api_key(
+            &self.config.savfox_home,
+            &params.api_key,
+            self.config.cli_auth_credentials_store_mode,
+        ) {
+            Ok(()) => {
+                self.auth_manager.reload();
+                Ok(())
+            }
+            Err(err) => Err(JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to save api key: {err}"),
+                data: None,
+            }),
+        }
+    }
+
+    async fn login_api_key_v1(&mut self, request_id: RequestId, params: LoginApiKeyParams) {
+        match self.login_api_key_common(&params).await {
+            Ok(()) => {
+                self.outgoing
+                    .send_response(request_id, LoginApiKeyResponse {})
+                    .await;
+
+                let payload = AuthStatusChangeNotification {
+                    auth_method: self
+                        .auth_manager
+                        .auth_cached()
+                        .as_ref()
+                        .map(SavfoxAuth::api_auth_mode),
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::AuthStatusChange(payload))
+                    .await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn login_api_key_v2(&mut self, request_id: RequestId, params: LoginApiKeyParams) {
+        match self.login_api_key_common(&params).await {
+            Ok(()) => {
+                let response = savfox_app_server_protocol::LoginAccountResponse::ApiKey {};
+                self.outgoing.send_response(request_id, response).await;
+
+                let payload_login_completed = AccountLoginCompletedNotification {
+                    login_id: None,
+                    success: true,
+                    error: None,
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::AccountLoginCompleted(
+                        payload_login_completed,
+                    ))
+                    .await;
+
+                let payload_v2 = AccountUpdatedNotification {
+                    auth_mode: self
+                        .auth_manager
+                        .auth_cached()
+                        .as_ref()
+                        .map(SavfoxAuth::api_auth_mode),
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::AccountUpdated(payload_v2))
+                    .await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    // Build options for a ChatGPT login attempt; performs validation.
+    async fn login_chatgpt_common(
+        &self,
+    ) -> std::result::Result<LoginServerOptions, JSONRPCErrorError> {
+        let config = self.config.as_ref();
+
+        if self.auth_manager.is_external_auth_active() {
+            return Err(self.external_auth_active_error());
+        }
+
+        if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "ChatGPT login is disabled. Use API key login instead.".to_string(),
+                data: None,
+            });
+        }
+
+        Ok(LoginServerOptions {
+            open_browser: false,
+            ..LoginServerOptions::new(
+                config.savfox_home.clone(),
+                CLIENT_ID.to_string(),
+                config.forced_chatgpt_workspace_id.clone(),
+                config.cli_auth_credentials_store_mode,
+            )
+        })
+    }
+
+    // Deprecated in favor of login_chatgpt_v2.
+    async fn login_chatgpt_v1(&mut self, request_id: RequestId) {
+        match self.login_chatgpt_common().await {
+            Ok(opts) => match run_login_server(opts) {
+                Ok(server) => {
+                    let login_id = Uuid::new_v4();
+                    let shutdown_handle = server.cancel_handle();
+
+                    // Replace active login if present.
+                    {
+                        let mut guard = self.active_login.lock().await;
+                        if let Some(existing) = guard.take() {
+                            drop(existing);
+                        }
+                        *guard = Some(ActiveLogin {
+                            shutdown_handle: shutdown_handle.clone(),
+                            login_id,
+                        });
+                    }
+
+                    // Spawn background task to monitor completion.
+                    let outgoing_clone = self.outgoing.clone();
+                    let active_login = self.active_login.clone();
+                    let auth_manager = self.auth_manager.clone();
+                    let auth_url = server.auth_url.clone();
+                    tokio::spawn(async move {
+                        let (success, error_msg) = match tokio::time::timeout(
+                            LOGIN_CHATGPT_TIMEOUT,
+                            server.block_until_done(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(())) => (true, None),
+                            Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
+                            Err(_elapsed) => {
+                                shutdown_handle.shutdown();
+                                (false, Some("Login timed out".to_string()))
+                            }
+                        };
+
+                        let payload = LoginChatGptCompleteNotification {
+                            login_id,
+                            success,
+                            error: error_msg.clone(),
+                        };
+                        outgoing_clone
+                            .send_server_notification(ServerNotification::LoginChatGptComplete(
+                                payload,
+                            ))
+                            .await;
+
+                        if success {
+                            auth_manager.reload();
+
+                            // Notify clients with the actual current auth mode.
+                            let current_auth_method = auth_manager
+                                .auth_cached()
+                                .as_ref()
+                                .map(SavfoxAuth::api_auth_mode);
+                            let payload = AuthStatusChangeNotification {
+                                auth_method: current_auth_method,
+                            };
+                            outgoing_clone
+                                .send_server_notification(ServerNotification::AuthStatusChange(
+                                    payload,
+                                ))
+                                .await;
+                        }
+
+                        // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
+                        let mut guard = active_login.lock().await;
+                        if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
+                            *guard = None;
+                        }
+                    });
+
+                    let response = LoginChatGptResponse { login_id, auth_url };
+                    self.outgoing.send_response(request_id, response).await;
+                }
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!("failed to start login server: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                }
+            },
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn login_chatgpt_v2(&mut self, request_id: RequestId) {
+        match self.login_chatgpt_common().await {
+            Ok(opts) => match run_login_server(opts) {
+                Ok(server) => {
+                    let login_id = Uuid::new_v4();
+                    let shutdown_handle = server.cancel_handle();
+
+                    // Replace active login if present.
+                    {
+                        let mut guard = self.active_login.lock().await;
+                        if let Some(existing) = guard.take() {
+                            drop(existing);
+                        }
+                        *guard = Some(ActiveLogin {
+                            shutdown_handle: shutdown_handle.clone(),
+                            login_id,
+                        });
+                    }
+
+                    // Spawn background task to monitor completion.
+                    let outgoing_clone = self.outgoing.clone();
+                    let active_login = self.active_login.clone();
+                    let auth_manager = self.auth_manager.clone();
+                    let auth_url = server.auth_url.clone();
+                    tokio::spawn(async move {
+                        let (success, error_msg) = match tokio::time::timeout(
+                            LOGIN_CHATGPT_TIMEOUT,
+                            server.block_until_done(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(())) => (true, None),
+                            Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
+                            Err(_elapsed) => {
+                                shutdown_handle.shutdown();
+                                (false, Some("Login timed out".to_string()))
+                            }
+                        };
+
+                        let payload_v2 = AccountLoginCompletedNotification {
+                            login_id: Some(login_id.to_string()),
+                            success,
+                            error: error_msg,
+                        };
+                        outgoing_clone
+                            .send_server_notification(ServerNotification::AccountLoginCompleted(
+                                payload_v2,
+                            ))
+                            .await;
+
+                        if success {
+                            auth_manager.reload();
+
+                            // Notify clients with the actual current auth mode.
+                            let current_auth_method = auth_manager
+                                .auth_cached()
+                                .as_ref()
+                                .map(SavfoxAuth::api_auth_mode);
+                            let payload_v2 = AccountUpdatedNotification {
+                                auth_mode: current_auth_method,
+                            };
+                            outgoing_clone
+                                .send_server_notification(ServerNotification::AccountUpdated(
+                                    payload_v2,
+                                ))
+                                .await;
+                        }
+
+                        // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
+                        let mut guard = active_login.lock().await;
+                        if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
+                            *guard = None;
+                        }
+                    });
+
+                    let response = savfox_app_server_protocol::LoginAccountResponse::Chatgpt {
+                        login_id: login_id.to_string(),
+                        auth_url,
+                    };
+                    self.outgoing.send_response(request_id, response).await;
+                }
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!("failed to start login server: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                }
+            },
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn login_device_code_v2(&mut self, request_id: RequestId) {
+        match self.login_chatgpt_common().await {
+            Ok(opts) => match request_device_code(&opts).await {
+                Ok(device_code) => {
+                    let login_id = Uuid::new_v4();
+                    let response = LoginAccountResponse::DeviceCode {
+                        login_id: login_id.to_string(),
+                        verification_url: device_code.verification_url.clone(),
+                        user_code: device_code.user_code.clone(),
+                    };
+                    self.outgoing.send_response(request_id, response).await;
+
+                    let auth_manager = self.auth_manager.clone();
+                    let outgoing_clone = self.outgoing.clone();
+                    tokio::spawn(async move {
+                        let result = tokio::time::timeout(
+                            Duration::from_secs(900),
+                            complete_device_code_login(opts, device_code),
+                        )
+                        .await;
+
+                        let (success, error_msg) = match result {
+                            Ok(Ok(())) => {
+                                auth_manager.reload();
+                                (true, None)
+                            }
+                            Ok(Err(err)) => {
+                                (false, Some(format!("Device code login error: {err}")))
+                            }
+                            Err(_) => (false, Some("Device code login timed out".to_string())),
+                        };
+
+                        let payload_login_completed = AccountLoginCompletedNotification {
+                            login_id: Some(login_id.to_string()),
+                            success,
+                            error: error_msg,
+                        };
+                        outgoing_clone
+                            .send_server_notification(ServerNotification::AccountLoginCompleted(
+                                payload_login_completed,
+                            ))
+                            .await;
+
+                        if success {
+                            let current_auth_method = auth_manager
+                                .auth_cached()
+                                .as_ref()
+                                .map(SavfoxAuth::api_auth_mode);
+                            let payload_updated = AccountUpdatedNotification {
+                                auth_mode: current_auth_method,
+                            };
+                            outgoing_clone
+                                .send_server_notification(ServerNotification::AccountUpdated(
+                                    payload_updated,
+                                ))
+                                .await;
+                        }
+                    });
+                }
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!("failed to request device code: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                }
+            },
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn cancel_login_chatgpt_common(
+        &mut self,
+        login_id: Uuid,
+    ) -> std::result::Result<(), CancelLoginError> {
+        let mut guard = self.active_login.lock().await;
+        if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
+            if let Some(active) = guard.take() {
+                drop(active);
+            }
+            Ok(())
+        } else {
+            Err(CancelLoginError::NotFound(login_id))
+        }
+    }
+
+    async fn cancel_login_chatgpt(&mut self, request_id: RequestId, login_id: Uuid) {
+        match self.cancel_login_chatgpt_common(login_id).await {
+            Ok(()) => {
+                self.outgoing
+                    .send_response(request_id, CancelLoginChatGptResponse {})
+                    .await;
+            }
+            Err(CancelLoginError::NotFound(missing_login_id)) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("login id not found: {missing_login_id}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn cancel_login_v2(&mut self, request_id: RequestId, params: CancelLoginAccountParams) {
+        let login_id = params.login_id;
+        match Uuid::parse_str(&login_id) {
+            Ok(uuid) => {
+                let status = match self.cancel_login_chatgpt_common(uuid).await {
+                    Ok(()) => CancelLoginAccountStatus::Canceled,
+                    Err(CancelLoginError::NotFound(_)) => CancelLoginAccountStatus::NotFound,
+                };
+                let response = CancelLoginAccountResponse { status };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(_) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid login id: {login_id}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn login_chatgpt_auth_tokens(
+        &mut self,
+        request_id: RequestId,
+        id_token: String,
+        access_token: String,
+    ) {
+        if matches!(
+            self.config.forced_login_method,
+            Some(ForcedLoginMethod::Api)
+        ) {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "External ChatGPT auth is disabled. Use API key login instead."
+                    .to_string(),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        // Cancel any active login attempt to avoid persisting managed auth state.
+        {
+            let mut guard = self.active_login.lock().await;
+            if let Some(active) = guard.take() {
+                drop(active);
+            }
+        }
+
+        let id_token_info = match parse_id_token(&id_token) {
+            Ok(info) => info,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid id token: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        if let Some(expected_workspace) = self.config.forced_chatgpt_workspace_id.as_deref()
+            && id_token_info.chatgpt_account_id.as_deref() != Some(expected_workspace)
+        {
+            let account_id = id_token_info.chatgpt_account_id;
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!(
+                    "External auth must use workspace {expected_workspace}, but received {account_id:?}."
+                ),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        if let Err(err) =
+            login_with_chatgpt_auth_tokens(&self.config.savfox_home, &id_token, &access_token)
+        {
+            let error = JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to set external auth: {err}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+        self.auth_manager.reload();
+
+        self.outgoing
+            .send_response(request_id, LoginAccountResponse::ChatgptAuthTokens {})
+            .await;
+
+        let payload_login_completed = AccountLoginCompletedNotification {
+            login_id: None,
+            success: true,
+            error: None,
+        };
+        self.outgoing
+            .send_server_notification(ServerNotification::AccountLoginCompleted(
+                payload_login_completed,
+            ))
+            .await;
+
+        let payload_v2 = AccountUpdatedNotification {
+            auth_mode: self.auth_manager.get_auth_mode(),
+        };
+        self.outgoing
+            .send_server_notification(ServerNotification::AccountUpdated(payload_v2))
+            .await;
+    }
+
+    async fn logout_common(&mut self) -> std::result::Result<Option<AuthMode>, JSONRPCErrorError> {
+        // Cancel any active login attempt.
+        {
+            let mut guard = self.active_login.lock().await;
+            if let Some(active) = guard.take() {
+                drop(active);
+            }
+        }
+
+        if let Err(err) = self.auth_manager.logout() {
+            return Err(JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("logout failed: {err}"),
+                data: None,
+            });
+        }
+
+        // Reflect the current auth method after logout (likely None).
+        Ok(self
+            .auth_manager
+            .auth_cached()
+            .as_ref()
+            .map(SavfoxAuth::api_auth_mode))
+    }
+
+    async fn logout_v1(&mut self, request_id: RequestId) {
+        match self.logout_common().await {
+            Ok(current_auth_method) => {
+                self.outgoing
+                    .send_response(request_id, LogoutChatGptResponse {})
+                    .await;
+
+                let payload = AuthStatusChangeNotification {
+                    auth_method: current_auth_method,
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::AuthStatusChange(payload))
+                    .await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn logout_v2(&mut self, request_id: RequestId) {
+        match self.logout_common().await {
+            Ok(current_auth_method) => {
+                self.outgoing
+                    .send_response(request_id, LogoutAccountResponse {})
+                    .await;
+
+                let payload_v2 = AccountUpdatedNotification {
+                    auth_mode: current_auth_method,
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::AccountUpdated(payload_v2))
+                    .await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn refresh_token_if_requested(&self, do_refresh: bool) {
+        if self.auth_manager.is_external_auth_active() {
+            return;
+        }
+        if do_refresh && let Err(err) = self.auth_manager.refresh_token().await {
+            tracing::warn!("failed to refresh token while getting account: {err}");
+        }
+    }
+
+    async fn get_auth_status(&self, request_id: RequestId, params: GetAuthStatusParams) {
+        let include_token = params.include_token.unwrap_or(false);
+        let do_refresh = params.refresh_token.unwrap_or(false);
+
+        self.refresh_token_if_requested(do_refresh).await;
+
+        // Determine whether auth is required based on the active model provider.
+        // If a custom provider is configured with `requires_openai_auth == false`,
+        // then no auth step is required; otherwise, default to requiring auth.
+        let requires_openai_auth = self.config.model_provider.requires_openai_auth;
+
+        let response = if !requires_openai_auth {
+            GetAuthStatusResponse {
+                auth_method: None,
+                auth_token: None,
+                requires_openai_auth: Some(false),
+            }
+        } else {
+            match self.auth_manager.auth().await {
+                Some(auth) => {
+                    let auth_mode = auth.api_auth_mode();
+                    let (reported_auth_method, token_opt) = match auth.get_token() {
+                        Ok(token) if !token.is_empty() => {
+                            let tok = if include_token { Some(token) } else { None };
+                            (Some(auth_mode), tok)
+                        }
+                        Ok(_) => (None, None),
+                        Err(err) => {
+                            tracing::warn!("failed to get token for auth status: {err}");
+                            (None, None)
+                        }
+                    };
+                    GetAuthStatusResponse {
+                        auth_method: reported_auth_method,
+                        auth_token: token_opt,
+                        requires_openai_auth: Some(true),
+                    }
+                }
+                None => GetAuthStatusResponse {
+                    auth_method: None,
+                    auth_token: None,
+                    requires_openai_auth: Some(true),
+                },
+            }
+        };
+
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn get_account(&self, request_id: RequestId, params: GetAccountParams) {
+        let do_refresh = params.refresh_token;
+
+        self.refresh_token_if_requested(do_refresh).await;
+
+        // Whether auth is required for the active model provider.
+        let requires_openai_auth = self.config.model_provider.requires_openai_auth;
+
+        if !requires_openai_auth {
+            let response = GetAccountResponse {
+                account: None,
+                requires_openai_auth,
+            };
+            self.outgoing.send_response(request_id, response).await;
+            return;
+        }
+
+        let account = match self.auth_manager.auth_cached() {
+            Some(auth) => Some(match auth {
+                SavfoxAuth::ApiKey(_) => Account::ApiKey {},
+                SavfoxAuth::Chatgpt(_) | SavfoxAuth::ChatgptAuthTokens(_) => {
+                    let email = auth.get_account_email();
+                    let plan_type = auth.account_plan_type();
+
+                    match (email, plan_type) {
+                        (Some(email), Some(plan_type)) => Account::Chatgpt { email, plan_type },
+                        _ => {
+                            let error = JSONRPCErrorError {
+                                code: INVALID_REQUEST_ERROR_CODE,
+                                message:
+                                    "email and plan type are required for chatgpt authentication"
+                                        .to_string(),
+                                data: None,
+                            };
+                            self.outgoing.send_error(request_id, error).await;
+                            return;
+                        }
+                    }
+                }
+            }),
+            None => None,
+        };
+
+        let response = GetAccountResponse {
+            account,
+            requires_openai_auth,
+        };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn get_user_agent(&self, request_id: RequestId) {
+        let user_agent = get_savfox_user_agent();
+        let response = GetUserAgentResponse { user_agent };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn get_account_rate_limits(&self, request_id: RequestId) {
+        match self.fetch_account_rate_limits().await {
+            Ok(rate_limits) => {
+                let response = GetAccountRateLimitsResponse {
+                    rate_limits: rate_limits.into(),
+                };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn fetch_account_rate_limits(&self) -> Result<CoreRateLimitSnapshot, JSONRPCErrorError> {
+        let Some(auth) = self.auth_manager.auth().await else {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "savfox account authentication required to read rate limits".to_string(),
+                data: None,
+            });
+        };
+
+        if !auth.is_chatgpt_auth() {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "chatgpt authentication required to read rate limits".to_string(),
+                data: None,
+            });
+        }
+
+        let client = BackendClient::from_auth(self.config.chatgpt_base_url.clone(), &auth)
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to construct backend client: {err}"),
+                data: None,
+            })?;
+
+        client
+            .get_rate_limits()
+            .await
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to fetch savfox rate limits: {err}"),
+                data: None,
+            })
+    }
+
+    async fn get_user_saved_config(&self, request_id: RequestId) {
+        let service = ConfigService::new_with_defaults(self.config.savfox_home.clone());
+        let user_saved_config: UserSavedConfig = match service.load_user_saved_config().await {
+            Ok(config) => config,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: err.to_string(),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let response = GetUserSavedConfigResponse {
+            config: user_saved_config,
+        };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn get_user_info(&self, request_id: RequestId) {
+        // Read alleged user email from cached auth (best-effort; not verified).
+        let alleged_user_email = self
+            .auth_manager
+            .auth_cached()
+            .and_then(|a| a.get_account_email());
+
+        let response = UserInfoResponse { alleged_user_email };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn set_default_model(&self, request_id: RequestId, params: SetDefaultModelParams) {
+        let SetDefaultModelParams {
+            model,
+            reasoning_effort,
+        } = params;
+
+        match ConfigEditsBuilder::new(&self.config.savfox_home)
+            .with_profile(self.config.active_profile.as_deref())
+            .set_model(model.as_deref(), reasoning_effort)
+            .apply()
+            .await
+        {
+            Ok(()) => {
+                let response = SetDefaultModelResponse {};
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to persist model selection: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn exec_one_off_command(&self, request_id: RequestId, params: CommandExecParams) {
+        tracing::debug!("ExecOneOffCommand params: {params:?}");
+
+        if params.command.is_empty() {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "command must not be empty".to_string(),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        let cwd = params.cwd.unwrap_or_else(|| self.config.cwd.clone());
+        let env = create_env(&self.config.shell_environment_policy);
+        let timeout_ms = params
+            .timeout_ms
+            .and_then(|timeout_ms| u64::try_from(timeout_ms).ok());
+        let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
+        let exec_params = ExecParams {
+            command: params.command,
+            cwd,
+            expiration: timeout_ms.into(),
+            env,
+            sandbox_permissions: SandboxPermissions::UseDefault,
+            windows_sandbox_level,
+            justification: None,
+            arg0: None,
+        };
+
+        let requested_policy = params.sandbox_policy.map(|policy| policy.to_core());
+        let effective_policy = match requested_policy {
+            Some(policy) => match self.config.sandbox_policy.can_set(&policy) {
+                Ok(()) => policy,
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid sandbox policy: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            },
+            None => self.config.sandbox_policy.get().clone(),
+        };
+
+        let savfox_linux_sandbox_exe = self.config.savfox_linux_sandbox_exe.clone();
+        let outgoing = self.outgoing.clone();
+        let req_id = request_id;
+        let sandbox_cwd = self.config.cwd.clone();
+
+        tokio::spawn(async move {
+            match savfox_core::exec::process_exec_tool_call(
+                exec_params,
+                &effective_policy,
+                sandbox_cwd.as_path(),
+                &savfox_linux_sandbox_exe,
+                None,
+            )
+            .await
+            {
+                Ok(output) => {
+                    let response = ExecOneOffCommandResponse {
+                        exit_code: output.exit_code,
+                        stdout: output.stdout.text,
+                        stderr: output.stderr.text,
+                    };
+                    outgoing.send_response(req_id, response).await;
+                }
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!("exec failed: {err}"),
+                        data: None,
+                    };
+                    outgoing.send_error(req_id, error).await;
+                }
+            }
+        });
+    }
+
+    async fn process_new_conversation(
+        &mut self,
+        request_id: RequestId,
+        params: NewConversationParams,
+    ) {
+        let NewConversationParams {
+            model,
+            model_provider,
+            profile,
+            cwd,
+            approval_policy,
+            sandbox: sandbox_mode,
+            config: request_overrides,
+            base_instructions,
+            developer_instructions,
+            compact_prompt,
+            include_apply_patch_tool,
+        } = params;
+
+        let typesafe_overrides = ConfigOverrides {
+            model,
+            config_profile: profile,
+            cwd: cwd.clone().map(PathBuf::from),
+            approval_policy,
+            sandbox_mode,
+            model_provider,
+            savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+            base_instructions,
+            developer_instructions,
+            compact_prompt,
+            include_apply_patch_tool,
+            ..Default::default()
+        };
+
+        // Persist windows sandbox feature.
+        // TODO: persist default config in general.
+        let mut request_overrides = request_overrides.unwrap_or_default();
+        if cfg!(windows) && self.config.features.enabled(Feature::WindowsSandbox) {
+            request_overrides.insert(
+                "features.experimental_windows_sandbox".to_string(),
+                serde_json::json!(true),
+            );
+        }
+
+        let config = match derive_config_from_params(
+            &self.cli_overrides,
+            Some(request_overrides),
+            typesafe_overrides,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("error deriving config: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        match self.session_manager.start_session(config).await {
+            Ok(new_session) => {
+                let NewSession {
+                    session_id,
+                    session_configured,
+                    ..
+                } = new_session;
+                let rollout_path = match session_configured.rollout_path {
+                    Some(path) => path,
+                    None => {
+                        let error = JSONRPCErrorError {
+                            code: INTERNAL_ERROR_CODE,
+                            message: "rollout path missing for v1 conversation".to_string(),
+                            data: None,
+                        };
+                        self.outgoing.send_error(request_id, error).await;
+                        return;
+                    }
+                };
+                let response = NewConversationResponse {
+                    conversation_id: session_id,
+                    model: session_configured.model,
+                    reasoning_effort: session_configured.reasoning_effort,
+                    rollout_path,
+                };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error creating conversation: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn session_start(&mut self, request_id: RequestId, params: SessionStartParams) {
+        let SessionStartParams {
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            config,
+            base_instructions,
+            developer_instructions,
+            dynamic_tools,
+            mock_experimental_field: _mock_experimental_field,
+            experimental_raw_events,
+            personality,
+            ephemeral,
+        } = params;
+        let mut typesafe_overrides = self.build_session_config_overrides(
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            base_instructions,
+            developer_instructions,
+            personality,
+        );
+        typesafe_overrides.ephemeral = ephemeral;
+
+        let config = match derive_config_from_params(
+            &self.cli_overrides,
+            config,
+            typesafe_overrides,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("error deriving config: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let dynamic_tools = dynamic_tools.unwrap_or_default();
+        let core_dynamic_tools = if dynamic_tools.is_empty() {
+            Vec::new()
+        } else {
+            let snapshot = collect_mcp_snapshot(&config).await;
+            let mcp_tool_names = snapshot.tools.keys().cloned().collect::<HashSet<_>>();
+            if let Err(message) = validate_dynamic_tools(&dynamic_tools, &mcp_tool_names) {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message,
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+            dynamic_tools
+                .into_iter()
+                .map(|tool| CoreDynamicToolSpec {
+                    name: tool.name,
+                    description: tool.description,
+                    input_schema: tool.input_schema,
+                })
+                .collect()
+        };
+
+        match self
+            .session_manager
+            .start_session_with_tools(config, core_dynamic_tools)
+            .await
+        {
+            Ok(new_conv) => {
+                let NewSession {
+                    session_id,
+                    session,
+                    session_configured,
+                    ..
+                } = new_conv;
+                let config_snapshot = session.config_snapshot().await;
+                let fallback_provider = self.config.model_provider_id.as_str();
+
+                // A bit hacky, but the summary contains a lot of useful information for the session
+                // that unfortunately does not get returned from session_manager.start_session().
+                let session = match session_configured.rollout_path.as_ref() {
+                    Some(rollout_path) => {
+                        match read_summary_from_rollout(rollout_path.as_path(), fallback_provider)
+                            .await
+                        {
+                            Ok(summary) => summary_to_session(summary),
+                            Err(err) => {
+                                self.send_internal_error(
+                                    request_id,
+                                    format!(
+                                        "failed to load rollout `{}` for session {session_id}: {err}",
+                                        rollout_path.display()
+                                    ),
+                                )
+                                .await;
+                                return;
+                            }
+                        }
+                    }
+                    None => build_ephemeral_session(session_id, &config_snapshot),
+                };
+
+                let response = SessionStartResponse {
+                    session: session.clone(),
+                    model: config_snapshot.model,
+                    model_provider: config_snapshot.model_provider_id,
+                    cwd: config_snapshot.cwd,
+                    approval_policy: config_snapshot.approval_policy.into(),
+                    sandbox: config_snapshot.sandbox_policy.into(),
+                    reasoning_effort: config_snapshot.reasoning_effort,
+                };
+
+                // Auto-attach a session listener when starting a session.
+                // Use the same behavior as the v1 API, with opt-in support for raw item events.
+                if let Err(err) = self
+                    .attach_conversation_listener(
+                        session_id,
+                        experimental_raw_events,
+                        ApiVersion::V2,
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        "failed to attach listener for session {}: {}",
+                        session_id,
+                        err.message
+                    );
+                }
+
+                self.outgoing.send_response(request_id, response).await;
+
+                let notif = SessionStartedNotification { session };
+                self.outgoing
+                    .send_server_notification(ServerNotification::SessionStarted(notif))
+                    .await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error creating session: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_session_config_overrides(
+        &self,
+        model: Option<String>,
+        model_provider: Option<String>,
+        cwd: Option<String>,
+        approval_policy: Option<savfox_app_server_protocol::AskForApproval>,
+        sandbox: Option<SandboxMode>,
+        base_instructions: Option<String>,
+        developer_instructions: Option<String>,
+        personality: Option<Personality>,
+    ) -> ConfigOverrides {
+        ConfigOverrides {
+            model,
+            model_provider,
+            cwd: cwd.map(PathBuf::from),
+            approval_policy: approval_policy
+                .map(savfox_app_server_protocol::AskForApproval::to_core),
+            sandbox_mode: sandbox.map(SandboxMode::to_core),
+            savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+            base_instructions,
+            developer_instructions,
+            personality,
+            ..Default::default()
+        }
+    }
+
+    async fn session_archive(&mut self, request_id: RequestId, params: SessionArchiveParams) {
+        // TODO(jif) mostly rewrite this using sqlite after phase 1
+        let session_id = match SessionId::from_string(&params.session_id) {
+            Ok(id) => id,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid session id: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let rollout_path =
+            match find_session_path_by_id_str(&self.config.savfox_home, &session_id.to_string())
+                .await
+            {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("no rollout found for session id {session_id}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("failed to locate session id {session_id}: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            };
+
+        match self.archive_session_common(session_id, &rollout_path).await {
+            Ok(()) => {
+                let response = SessionArchiveResponse {};
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn session_set_name(&self, request_id: RequestId, params: SessionSetNameParams) {
+        let SessionSetNameParams { session_id, name } = params;
+        let Some(name) = savfox_core::util::normalize_session_name(&name) else {
+            self.send_invalid_request_error(
+                request_id,
+                "session name must not be empty".to_string(),
+            )
+            .await;
+            return;
+        };
+
+        let (_, session) = match self.load_session(&session_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        if let Err(err) = session.submit(Op::SetSessionName { name }).await {
+            self.send_internal_error(request_id, format!("failed to set session name: {err}"))
+                .await;
+            return;
+        }
+
+        self.outgoing
+            .send_response(request_id, SessionSetNameResponse {})
+            .await;
+    }
+
+    async fn session_unarchive(&mut self, request_id: RequestId, params: SessionUnarchiveParams) {
+        // TODO(jif) mostly rewrite this using sqlite after phase 1
+        let session_id = match SessionId::from_string(&params.session_id) {
+            Ok(id) => id,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid session id: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let archived_path = match find_archived_session_path_by_id_str(
+            &self.config.savfox_home,
+            &session_id.to_string(),
+        )
+        .await
+        {
+            Ok(Some(path)) => path,
+            Ok(None) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("no archived rollout found for session id {session_id}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("failed to locate archived session id {session_id}: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let rollout_path_display = archived_path.display().to_string();
+        let fallback_provider = self.config.model_provider_id.clone();
+        let state_db_ctx = get_state_db(&self.config, None).await;
+        let archived_folder = self
+            .config
+            .savfox_home
+            .join(savfox_core::ARCHIVED_SESSIONS_SUBDIR);
+
+        let result: Result<Session, JSONRPCErrorError> = async {
+            let canonical_archived_dir = tokio::fs::canonicalize(&archived_folder).await.map_err(
+                |err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!(
+                        "failed to unarchive session: unable to resolve archived directory: {err}"
+                    ),
+                    data: None,
+                },
+            )?;
+            let canonical_rollout_path = tokio::fs::canonicalize(&archived_path).await;
+            let canonical_rollout_path = if let Ok(path) = canonical_rollout_path
+                && path.starts_with(&canonical_archived_dir)
+            {
+                path
+            } else {
+                return Err(JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!(
+                        "rollout path `{rollout_path_display}` must be in archived directory"
+                    ),
+                    data: None,
+                });
+            };
+
+            let required_suffix = format!("{session_id}.jsonl");
+            let Some(file_name) = canonical_rollout_path.file_name().map(OsStr::to_owned) else {
+                return Err(JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("rollout path `{rollout_path_display}` missing file name"),
+                    data: None,
+                });
+            };
+            if !file_name
+                .to_string_lossy()
+                .ends_with(required_suffix.as_str())
+            {
+                return Err(JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!(
+                        "rollout path `{rollout_path_display}` does not match session id {session_id}"
+                    ),
+                    data: None,
+                });
+            }
+
+            let Some((year, month, day)) = rollout_date_parts(&file_name) else {
+                return Err(JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!(
+                        "rollout path `{rollout_path_display}` missing filename timestamp"
+                    ),
+                    data: None,
+                });
+            };
+
+            let sessions_folder = self.config.savfox_home.join(savfox_core::SESSIONS_SUBDIR);
+            let dest_dir = sessions_folder.join(year).join(month).join(day);
+            let restored_path = dest_dir.join(&file_name);
+            tokio::fs::create_dir_all(&dest_dir)
+                .await
+                .map_err(|err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to unarchive session: {err}"),
+                    data: None,
+                })?;
+            tokio::fs::rename(&canonical_rollout_path, &restored_path)
+                .await
+                .map_err(|err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to unarchive session: {err}"),
+                    data: None,
+                })?;
+            tokio::task::spawn_blocking({
+                let restored_path = restored_path.clone();
+                move || -> std::io::Result<()> {
+                    let times = FileTimes::new().set_modified(SystemTime::now());
+                    OpenOptions::new()
+                        .append(true)
+                        .open(&restored_path)?
+                        .set_times(times)?;
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to update unarchived session timestamp: {err}"),
+                data: None,
+            })?
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to update unarchived session timestamp: {err}"),
+                data: None,
+            })?;
+            if let Some(ctx) = state_db_ctx {
+                let _ = ctx
+                    .mark_unarchived(session_id, restored_path.as_path())
+                    .await;
+            }
+            let summary =
+                read_summary_from_rollout(restored_path.as_path(), fallback_provider.as_str())
+                    .await
+                    .map_err(|err| JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!("failed to read unarchived session: {err}"),
+                        data: None,
+                    })?;
+            Ok(summary_to_session(summary))
+        }
+        .await;
+
+        match result {
+            Ok(session) => {
+                let response = SessionUnarchiveResponse { session };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn session_rollback(&mut self, request_id: RequestId, params: SessionRollbackParams) {
+        let SessionRollbackParams {
+            session_id,
+            num_turns,
+        } = params;
+
+        if num_turns == 0 {
+            self.send_invalid_request_error(request_id, "numTurns must be >= 1".to_string())
+                .await;
+            return;
+        }
+
+        let (session_id, session) = match self.load_session(&session_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        {
+            let mut map = self.pending_rollbacks.lock().await;
+            if map.contains_key(&session_id) {
+                self.send_invalid_request_error(
+                    request_id,
+                    "rollback already in progress for this session".to_string(),
+                )
+                .await;
+                return;
+            }
+
+            map.insert(session_id, request_id.clone());
+        }
+
+        if let Err(err) = session.submit(Op::SessionRollback { num_turns }).await {
+            // No SessionRollback event will arrive if an error occurs.
+            // Clean up and reply immediately.
+            let mut map = self.pending_rollbacks.lock().await;
+            map.remove(&session_id);
+
+            self.send_internal_error(request_id, format!("failed to start rollback: {err}"))
+                .await;
+        }
+    }
+
+    async fn session_list(&self, request_id: RequestId, params: SessionListParams) {
+        let SessionListParams {
+            cursor,
+            limit,
+            sort_key,
+            model_providers,
+            source_kinds,
+            archived,
+        } = params;
+
+        let requested_page_size = limit
+            .map(|value| value as usize)
+            .unwrap_or(SESSION_LIST_DEFAULT_LIMIT)
+            .clamp(1, SESSION_LIST_MAX_LIMIT);
+        let core_sort_key = match sort_key.unwrap_or(SessionSortKey::CreatedAt) {
+            SessionSortKey::CreatedAt => CoreSessionSortKey::CreatedAt,
+            SessionSortKey::UpdatedAt => CoreSessionSortKey::UpdatedAt,
+        };
+        let (summaries, next_cursor) = match self
+            .list_sessions_common(
+                requested_page_size,
+                cursor,
+                model_providers,
+                source_kinds,
+                core_sort_key,
+                archived.unwrap_or(false),
+            )
+            .await
+        {
+            Ok(r) => r,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let data = summaries.into_iter().map(summary_to_session).collect();
+        let response = SessionListResponse { data, next_cursor };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn session_loaded_list(&self, request_id: RequestId, params: SessionLoadedListParams) {
+        let SessionLoadedListParams { cursor, limit } = params;
+        let mut data = self
+            .session_manager
+            .list_session_ids()
+            .await
+            .into_iter()
+            .map(|session_id| session_id.to_string())
+            .collect::<Vec<_>>();
+
+        if data.is_empty() {
+            let response = SessionLoadedListResponse {
+                data,
+                next_cursor: None,
+            };
+            self.outgoing.send_response(request_id, response).await;
+            return;
+        }
+
+        data.sort();
+        let total = data.len();
+        let start = match cursor {
+            Some(cursor) => {
+                let cursor = match SessionId::from_string(&cursor) {
+                    Ok(id) => id.to_string(),
+                    Err(_) => {
+                        let error = JSONRPCErrorError {
+                            code: INVALID_REQUEST_ERROR_CODE,
+                            message: format!("invalid cursor: {cursor}"),
+                            data: None,
+                        };
+                        self.outgoing.send_error(request_id, error).await;
+                        return;
+                    }
+                };
+                match data.binary_search(&cursor) {
+                    Ok(idx) => idx + 1,
+                    Err(idx) => idx,
+                }
+            }
+            None => 0,
+        };
+
+        let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;
+        let end = start.saturating_add(effective_limit).min(total);
+        let page = data[start..end].to_vec();
+        let next_cursor = page.last().filter(|_| end < total).cloned();
+
+        let response = SessionLoadedListResponse {
+            data: page,
+            next_cursor,
+        };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn session_read(&mut self, request_id: RequestId, params: SessionReadParams) {
+        let SessionReadParams {
+            session_id,
+            include_turns,
+        } = params;
+
+        let session_uuid = match SessionId::from_string(&session_id) {
+            Ok(id) => id,
+            Err(err) => {
+                self.send_invalid_request_error(request_id, format!("invalid session id: {err}"))
+                    .await;
+                return;
+            }
+        };
+
+        let rollout_path =
+            match find_session_path_by_id_str(&self.config.savfox_home, &session_uuid.to_string())
+                .await
+            {
+                Ok(Some(path)) => Some(path),
+                Ok(None) => None,
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to locate session id {session_uuid}: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+        let mut session = if let Some(rollout_path) = rollout_path.as_ref() {
+            let fallback_provider = self.config.model_provider_id.as_str();
+            match read_summary_from_rollout(rollout_path, fallback_provider).await {
+                Ok(summary) => summary_to_session(summary),
+                Err(err) => {
+                    self.send_internal_error(
+                        request_id,
+                        format!(
+                            "failed to load rollout `{}` for session {session_uuid}: {err}",
+                            rollout_path.display()
+                        ),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else {
+            let Ok(session) = self.session_manager.get_session(session_uuid).await else {
+                self.send_invalid_request_error(
+                    request_id,
+                    format!("session not loaded: {session_uuid}"),
+                )
+                .await;
+                return;
+            };
+            let config_snapshot = session.config_snapshot().await;
+            if include_turns {
+                self.send_invalid_request_error(
+                    request_id,
+                    "ephemeral sessions do not support includeTurns".to_string(),
+                )
+                .await;
+                return;
+            }
+            build_ephemeral_session(session_uuid, &config_snapshot)
+        };
+
+        if include_turns && let Some(rollout_path) = rollout_path.as_ref() {
+            match read_event_msgs_from_rollout(rollout_path).await {
+                Ok(events) => {
+                    session.turns = build_turns_from_event_msgs(&events);
+                }
+                Err(err) => {
+                    self.send_internal_error(
+                        request_id,
+                        format!(
+                            "failed to load rollout `{}` for session {session_uuid}: {err}",
+                            rollout_path.display()
+                        ),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        }
+
+        let response = SessionReadResponse { session };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    pub(crate) fn session_created_receiver(&self) -> broadcast::Receiver<SessionId> {
+        self.session_manager.subscribe_session_created()
+    }
+
+    /// Best-effort: attach a listener for session_id if missing.
+    pub(crate) async fn try_attach_session_listener(&mut self, session_id: SessionId) {
+        if self
+            .listener_session_ids_by_subscription
+            .values()
+            .any(|entry| *entry == session_id)
+        {
+            return;
+        }
+
+        if let Err(err) = self
+            .attach_conversation_listener(session_id, false, ApiVersion::V2)
+            .await
+        {
+            warn!(
+                "failed to attach listener for session {session_id}: {message}",
+                message = err.message
+            );
+        }
+    }
+
+    async fn session_resume(&mut self, request_id: RequestId, params: SessionResumeParams) {
+        let SessionResumeParams {
+            session_id,
+            history,
+            path,
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            config: request_overrides,
+            base_instructions,
+            developer_instructions,
+            personality,
+        } = params;
+
+        let session_history = if let Some(history) = history {
+            if history.is_empty() {
+                self.send_invalid_request_error(
+                    request_id,
+                    "history must not be empty".to_string(),
+                )
+                .await;
+                return;
+            }
+            InitialHistory::Forked(history.into_iter().map(RolloutItem::ResponseItem).collect())
+        } else if let Some(path) = path {
+            match RolloutRecorder::get_rollout_history(&path).await {
+                Ok(initial_history) => initial_history,
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to load rollout `{}`: {err}", path.display()),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else {
+            let existing_session_id = match SessionId::from_string(&session_id) {
+                Ok(id) => id,
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid session id: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            };
+
+            let path = match find_session_path_by_id_str(
+                &self.config.savfox_home,
+                &existing_session_id.to_string(),
+            )
+            .await
+            {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("no rollout found for session id {existing_session_id}"),
+                    )
+                    .await;
+                    return;
+                }
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to locate session id {existing_session_id}: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            match RolloutRecorder::get_rollout_history(&path).await {
+                Ok(initial_history) => initial_history,
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to load rollout `{}`: {err}", path.display()),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        };
+
+        let history_cwd = session_history.session_cwd();
+        let typesafe_overrides = self.build_session_config_overrides(
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            base_instructions,
+            developer_instructions,
+            personality,
+        );
+
+        // Derive a Config using the same logic as new conversation, honoring overrides if provided.
+        let config = match derive_config_for_cwd(
+            &self.cli_overrides,
+            request_overrides,
+            typesafe_overrides,
+            history_cwd,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("error deriving config: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let fallback_model_provider = config.model_provider_id.clone();
+
+        match self
+            .session_manager
+            .resume_session_with_history(config, session_history, self.auth_manager.clone())
+            .await
+        {
+            Ok(NewSession {
+                session_id,
+                session_configured,
+                ..
+            }) => {
+                let SessionConfiguredEvent {
+                    rollout_path,
+                    initial_messages,
+                    ..
+                } = session_configured;
+                let Some(rollout_path) = rollout_path else {
+                    self.send_internal_error(
+                        request_id,
+                        format!("rollout path missing for session {session_id}"),
+                    )
+                    .await;
+                    return;
+                };
+                // Auto-attach a session listener when resuming a session.
+                if let Err(err) = self
+                    .attach_conversation_listener(session_id, false, ApiVersion::V2)
+                    .await
+                {
+                    tracing::warn!(
+                        "failed to attach listener for session {}: {}",
+                        session_id,
+                        err.message
+                    );
+                }
+
+                let mut session = match read_summary_from_rollout(
+                    rollout_path.as_path(),
+                    fallback_model_provider.as_str(),
+                )
+                .await
+                {
+                    Ok(summary) => summary_to_session(summary),
+                    Err(err) => {
+                        self.send_internal_error(
+                            request_id,
+                            format!(
+                                "failed to load rollout `{}` for session {session_id}: {err}",
+                                rollout_path.display()
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                };
+                session.turns = initial_messages
+                    .as_deref()
+                    .map_or_else(Vec::new, build_turns_from_event_msgs);
+
+                let response = SessionResumeResponse {
+                    session,
+                    model: session_configured.model,
+                    model_provider: session_configured.model_provider_id,
+                    cwd: session_configured.cwd,
+                    approval_policy: session_configured.approval_policy.into(),
+                    sandbox: session_configured.sandbox_policy.into(),
+                    reasoning_effort: session_configured.reasoning_effort,
+                };
+
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error resuming session: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn session_fork(&mut self, request_id: RequestId, params: SessionForkParams) {
+        let SessionForkParams {
+            session_id,
+            path,
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            config: cli_overrides,
+            base_instructions,
+            developer_instructions,
+        } = params;
+
+        let rollout_path = if let Some(path) = path {
+            path
+        } else {
+            let existing_session_id = match SessionId::from_string(&session_id) {
+                Ok(id) => id,
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid session id: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            };
+
+            match find_session_path_by_id_str(
+                &self.config.savfox_home,
+                &existing_session_id.to_string(),
+            )
+            .await
+            {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("no rollout found for session id {existing_session_id}"),
+                    )
+                    .await;
+                    return;
+                }
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to locate session id {existing_session_id}: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        };
+
+        let history_cwd = match read_session_meta_line(&rollout_path).await {
+            Ok(meta_line) => Some(meta_line.meta.cwd),
+            Err(err) => {
+                let rollout_path = rollout_path.display();
+                warn!("failed to read session metadata from rollout {rollout_path}: {err}");
+                None
+            }
+        };
+
+        // Persist windows sandbox feature.
+        let mut cli_overrides = cli_overrides.unwrap_or_default();
+        if cfg!(windows) && self.config.features.enabled(Feature::WindowsSandbox) {
+            cli_overrides.insert(
+                "features.experimental_windows_sandbox".to_string(),
+                serde_json::json!(true),
+            );
+        }
+        let request_overrides = if cli_overrides.is_empty() {
+            None
+        } else {
+            Some(cli_overrides)
+        };
+        let typesafe_overrides = self.build_session_config_overrides(
+            model,
+            model_provider,
+            cwd,
+            approval_policy,
+            sandbox,
+            base_instructions,
+            developer_instructions,
+            None,
+        );
+        // Derive a Config using the same logic as new conversation, honoring overrides if provided.
+        let config = match derive_config_for_cwd(
+            &self.cli_overrides,
+            request_overrides,
+            typesafe_overrides,
+            history_cwd,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(config) => config,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("error deriving config: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let fallback_model_provider = config.model_provider_id.clone();
+
+        let NewSession {
+            session_id,
+            session_configured,
+            ..
+        } = match self
+            .session_manager
+            .fork_session(usize::MAX, config, rollout_path.clone())
+            .await
+        {
+            Ok(session) => session,
+            Err(err) => {
+                let (code, message) = match err {
+                    SavfoxError::Io(_) | SavfoxError::Json(_) => (
+                        INVALID_REQUEST_ERROR_CODE,
+                        format!("failed to load rollout `{}`: {err}", rollout_path.display()),
+                    ),
+                    SavfoxError::InvalidRequest(message) => (INVALID_REQUEST_ERROR_CODE, message),
+                    _ => (INTERNAL_ERROR_CODE, format!("error forking session: {err}")),
+                };
+                let error = JSONRPCErrorError {
+                    code,
+                    message,
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let SessionConfiguredEvent {
+            rollout_path,
+            initial_messages,
+            ..
+        } = session_configured;
+        let Some(rollout_path) = rollout_path else {
+            self.send_internal_error(
+                request_id,
+                format!("rollout path missing for session {session_id}"),
+            )
+            .await;
+            return;
+        };
+        // Auto-attach a conversation listener when forking a session.
+        if let Err(err) = self
+            .attach_conversation_listener(session_id, false, ApiVersion::V2)
+            .await
+        {
+            tracing::warn!(
+                "failed to attach listener for session {}: {}",
+                session_id,
+                err.message
+            );
+        }
+
+        let mut session = match read_summary_from_rollout(
+            rollout_path.as_path(),
+            fallback_model_provider.as_str(),
+        )
+        .await
+        {
+            Ok(summary) => summary_to_session(summary),
+            Err(err) => {
+                self.send_internal_error(
+                    request_id,
+                    format!(
+                        "failed to load rollout `{}` for session {session_id}: {err}",
+                        rollout_path.display()
+                    ),
+                )
+                .await;
+                return;
+            }
+        };
+        session.turns = initial_messages
+            .as_deref()
+            .map_or_else(Vec::new, build_turns_from_event_msgs);
+
+        let response = SessionForkResponse {
+            session: session.clone(),
+            model: session_configured.model,
+            model_provider: session_configured.model_provider_id,
+            cwd: session_configured.cwd,
+            approval_policy: session_configured.approval_policy.into(),
+            sandbox: session_configured.sandbox_policy.into(),
+            reasoning_effort: session_configured.reasoning_effort,
+        };
+
+        self.outgoing.send_response(request_id, response).await;
+
+        let notif = SessionStartedNotification { session };
+        self.outgoing
+            .send_server_notification(ServerNotification::SessionStarted(notif))
+            .await;
+    }
+
+    async fn get_session_summary(
+        &self,
+        request_id: RequestId,
+        params: GetConversationSummaryParams,
+    ) {
+        let path = match params {
+            GetConversationSummaryParams::RolloutPath { rollout_path } => {
+                if rollout_path.is_relative() {
+                    self.config.savfox_home.join(&rollout_path)
+                } else {
+                    rollout_path
+                }
+            }
+            GetConversationSummaryParams::SessionId { conversation_id } => {
+                match savfox_core::find_session_path_by_id_str(
+                    &self.config.savfox_home,
+                    &conversation_id.to_string(),
+                )
+                .await
+                {
+                    Ok(Some(p)) => p,
+                    _ => {
+                        let error = JSONRPCErrorError {
+                            code: INVALID_REQUEST_ERROR_CODE,
+                            message: format!(
+                                "no rollout found for conversation id {conversation_id}"
+                            ),
+                            data: None,
+                        };
+                        self.outgoing.send_error(request_id, error).await;
+                        return;
+                    }
+                }
+            }
+        };
+
+        let fallback_provider = self.config.model_provider_id.as_str();
+        match read_summary_from_rollout(&path, fallback_provider).await {
+            Ok(summary) => {
+                let response = GetConversationSummaryResponse { summary };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!(
+                        "failed to load conversation summary from {}: {}",
+                        path.display(),
+                        err
+                    ),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn handle_list_conversations(
+        &self,
+        request_id: RequestId,
+        params: ListConversationsParams,
+    ) {
+        let ListConversationsParams {
+            page_size,
+            cursor,
+            model_providers,
+        } = params;
+        let requested_page_size = page_size
+            .unwrap_or(SESSION_LIST_DEFAULT_LIMIT)
+            .clamp(1, SESSION_LIST_MAX_LIMIT);
+
+        match self
+            .list_sessions_common(
+                requested_page_size,
+                cursor,
+                model_providers,
+                None,
+                CoreSessionSortKey::UpdatedAt,
+                false,
+            )
+            .await
+        {
+            Ok((items, next_cursor)) => {
+                let response = ListConversationsResponse { items, next_cursor };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+            }
+        };
+    }
+
+    async fn list_sessions_common(
+        &self,
+        requested_page_size: usize,
+        cursor: Option<String>,
+        model_providers: Option<Vec<String>>,
+        source_kinds: Option<Vec<SessionSourceKind>>,
+        sort_key: CoreSessionSortKey,
+        archived: bool,
+    ) -> Result<(Vec<ConversationSummary>, Option<String>), JSONRPCErrorError> {
+        let mut cursor_obj: Option<RolloutCursor> = match cursor.as_ref() {
+            Some(cursor_str) => {
+                Some(parse_cursor(cursor_str).ok_or_else(|| JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid cursor: {cursor_str}"),
+                    data: None,
+                })?)
+            }
+            None => None,
+        };
+        let mut last_cursor = cursor_obj.clone();
+        let mut remaining = requested_page_size;
+        let mut items = Vec::with_capacity(requested_page_size);
+        let mut next_cursor: Option<String> = None;
+
+        let model_provider_filter = match model_providers {
+            Some(providers) => {
+                if providers.is_empty() {
+                    None
+                } else {
+                    Some(providers)
+                }
+            }
+            None => Some(vec![self.config.model_provider_id.clone()]),
+        };
+        let fallback_provider = self.config.model_provider_id.clone();
+        let (allowed_sources_vec, source_kind_filter) = compute_source_filters(source_kinds);
+        let allowed_sources = allowed_sources_vec.as_slice();
+
+        while remaining > 0 {
+            let page_size = remaining.min(SESSION_LIST_MAX_LIMIT);
+            let page = if archived {
+                RolloutRecorder::list_archived_sessions(
+                    &self.config.savfox_home,
+                    page_size,
+                    cursor_obj.as_ref(),
+                    sort_key,
+                    allowed_sources,
+                    model_provider_filter.as_deref(),
+                    fallback_provider.as_str(),
+                )
+                .await
+                .map_err(|err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to list sessions: {err}"),
+                    data: None,
+                })?
+            } else {
+                RolloutRecorder::list_sessions(
+                    &self.config.savfox_home,
+                    page_size,
+                    cursor_obj.as_ref(),
+                    sort_key,
+                    allowed_sources,
+                    model_provider_filter.as_deref(),
+                    fallback_provider.as_str(),
+                )
+                .await
+                .map_err(|err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to list sessions: {err}"),
+                    data: None,
+                })?
+            };
+
+            let mut filtered = page
+                .items
+                .into_iter()
+                .filter_map(|it| {
+                    let updated_at = it.updated_at.clone();
+                    let session_meta_line = it.head.first().and_then(|first| {
+                        serde_json::from_value::<SessionMetaLine>(first.clone()).ok()
+                    })?;
+                    extract_conversation_summary(
+                        it.path,
+                        &it.head,
+                        &session_meta_line.meta,
+                        session_meta_line.git.as_ref(),
+                        fallback_provider.as_str(),
+                        updated_at,
+                    )
+                })
+                .filter(|summary| {
+                    source_kind_filter
+                        .as_ref()
+                        .is_none_or(|filter| source_kind_matches(&summary.source, filter))
+                })
+                .collect::<Vec<_>>();
+            if filtered.len() > remaining {
+                filtered.truncate(remaining);
+            }
+            items.extend(filtered);
+            remaining = requested_page_size.saturating_sub(items.len());
+
+            // Encode RolloutCursor into the JSON-RPC string form returned to clients.
+            let next_cursor_value = page.next_cursor.clone();
+            next_cursor = next_cursor_value
+                .as_ref()
+                .and_then(|cursor| serde_json::to_value(cursor).ok())
+                .and_then(|value| value.as_str().map(str::to_owned));
+            if remaining == 0 {
+                break;
+            }
+
+            match next_cursor_value {
+                Some(cursor_val) if remaining > 0 => {
+                    // Break if our pagination would reuse the same cursor again; this avoids
+                    // an infinite loop when filtering drops everything on the page.
+                    if last_cursor.as_ref() == Some(&cursor_val) {
+                        next_cursor = None;
+                        break;
+                    }
+                    last_cursor = Some(cursor_val.clone());
+                    cursor_obj = Some(cursor_val);
+                }
+                _ => break,
+            }
+        }
+
+        Ok((items, next_cursor))
+    }
+
+    async fn list_models(
+        outgoing: Arc<OutgoingMessageSender>,
+        session_manager: Arc<SessionManager>,
+        config: Arc<Config>,
+        request_id: RequestId,
+        params: ModelListParams,
+    ) {
+        let ModelListParams { limit, cursor } = params;
+        let mut config = (*config).clone();
+        config.features.enable(Feature::RemoteModels);
+        let models = supported_models(session_manager, &config).await;
+        let total = models.len();
+
+        if total == 0 {
+            let response = ModelListResponse {
+                data: Vec::new(),
+                next_cursor: None,
+            };
+            outgoing.send_response(request_id, response).await;
+            return;
+        }
+
+        let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;
+        let effective_limit = effective_limit.min(total);
+        let start = match cursor {
+            Some(cursor) => match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid cursor: {cursor}"),
+                        data: None,
+                    };
+                    outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            },
+            None => 0,
+        };
+
+        if start > total {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("cursor {start} exceeds total models {total}"),
+                data: None,
+            };
+            outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        let end = start.saturating_add(effective_limit).min(total);
+        let items = models[start..end].to_vec();
+        let next_cursor = if end < total {
+            Some(end.to_string())
+        } else {
+            None
+        };
+        let response = ModelListResponse {
+            data: items,
+            next_cursor,
+        };
+        outgoing.send_response(request_id, response).await;
+    }
+
+    async fn list_collaboration_modes(
+        outgoing: Arc<OutgoingMessageSender>,
+        session_manager: Arc<SessionManager>,
+        request_id: RequestId,
+        params: CollaborationModeListParams,
+    ) {
+        let CollaborationModeListParams {} = params;
+        let items = session_manager.list_collaboration_modes();
+        let response = CollaborationModeListResponse { data: items };
+        outgoing.send_response(request_id, response).await;
+    }
+
+    async fn mock_experimental_method(
+        &self,
+        request_id: RequestId,
+        params: MockExperimentalMethodParams,
+    ) {
+        let MockExperimentalMethodParams { value } = params;
+        let response = MockExperimentalMethodResponse { echoed: value };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn mcp_server_refresh(&self, request_id: RequestId, _params: Option<()>) {
+        let config = match self.load_latest_config().await {
+            Ok(config) => config,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let mcp_servers = match serde_json::to_value(config.mcp_servers.get()) {
+            Ok(value) => value,
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to serialize MCP servers: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let mcp_oauth_credentials_store_mode =
+            match serde_json::to_value(config.mcp_oauth_credentials_store_mode) {
+                Ok(value) => value,
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INTERNAL_ERROR_CODE,
+                        message: format!(
+                            "failed to serialize MCP OAuth credentials store mode: {err}"
+                        ),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            };
+
+        let refresh_config = McpServerRefreshConfig {
+            mcp_servers,
+            mcp_oauth_credentials_store_mode,
+        };
+
+        // Refresh requests are queued per session; each session rebuilds MCP connections on its next
+        // active turn to avoid work for sessions that never resume.
+        let session_manager = Arc::clone(&self.session_manager);
+        session_manager.refresh_mcp_servers(refresh_config).await;
+        let response = McpServerRefreshResponse {};
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn mcp_server_oauth_login(
+        &self,
+        request_id: RequestId,
+        params: McpServerOauthLoginParams,
+    ) {
+        let config = match self.load_latest_config().await {
+            Ok(config) => config,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let McpServerOauthLoginParams {
+            name,
+            scopes,
+            timeout_secs,
+        } = params;
+
+        let Some(server) = config.mcp_servers.get().get(&name) else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("No MCP server named '{name}' found."),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        };
+
+        let (url, http_headers, env_http_headers) = match &server.transport {
+            McpServerTransportConfig::StreamableHttp {
+                url,
+                http_headers,
+                env_http_headers,
+                ..
+            } => (url.clone(), http_headers.clone(), env_http_headers.clone()),
+            _ => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: "OAuth login is only supported for streamable HTTP servers."
+                        .to_string(),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let scopes = scopes.or_else(|| server.scopes.clone());
+
+        match perform_oauth_login_return_url(
+            &name,
+            &url,
+            config.mcp_oauth_credentials_store_mode,
+            http_headers,
+            env_http_headers,
+            scopes.as_deref().unwrap_or_default(),
+            timeout_secs,
+            config.mcp_oauth_callback_port,
+        )
+        .await
+        {
+            Ok(handle) => {
+                let authorization_url = handle.authorization_url().to_string();
+                let notification_name = name.clone();
+                let outgoing = Arc::clone(&self.outgoing);
+
+                tokio::spawn(async move {
+                    let (success, error) = match handle.wait().await {
+                        Ok(()) => (true, None),
+                        Err(err) => (false, Some(err.to_string())),
+                    };
+
+                    let notification = ServerNotification::McpServerOauthLoginCompleted(
+                        McpServerOauthLoginCompletedNotification {
+                            name: notification_name,
+                            success,
+                            error,
+                        },
+                    );
+                    outgoing.send_server_notification(notification).await;
+                });
+
+                let response = McpServerOauthLoginResponse { authorization_url };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to login to MCP server '{name}': {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn list_mcp_server_status(
+        &self,
+        request_id: RequestId,
+        params: ListMcpServerStatusParams,
+    ) {
+        let outgoing = Arc::clone(&self.outgoing);
+        let config = match self.load_latest_config().await {
+            Ok(config) => config,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        tokio::spawn(async move {
+            Self::list_mcp_server_status_task(outgoing, request_id, params, config).await;
+        });
+    }
+
+    async fn list_mcp_server_status_task(
+        outgoing: Arc<OutgoingMessageSender>,
+        request_id: RequestId,
+        params: ListMcpServerStatusParams,
+        config: Config,
+    ) {
+        let snapshot = collect_mcp_snapshot(&config).await;
+
+        let tools_by_server = group_tools_by_server(&snapshot.tools);
+
+        let mut server_names: Vec<String> = config
+            .mcp_servers
+            .keys()
+            .cloned()
+            .chain(snapshot.auth_statuses.keys().cloned())
+            .chain(snapshot.resources.keys().cloned())
+            .chain(snapshot.resource_templates.keys().cloned())
+            .collect();
+        server_names.sort();
+        server_names.dedup();
+
+        let total = server_names.len();
+        let limit = params.limit.unwrap_or(total as u32).max(1) as usize;
+        let effective_limit = limit.min(total);
+        let start = match params.cursor {
+            Some(cursor) => match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid cursor: {cursor}"),
+                        data: None,
+                    };
+                    outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            },
+            None => 0,
+        };
+
+        if start > total {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("cursor {start} exceeds total MCP servers {total}"),
+                data: None,
+            };
+            outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        let end = start.saturating_add(effective_limit).min(total);
+
+        let data: Vec<McpServerStatus> = server_names[start..end]
+            .iter()
+            .map(|name| McpServerStatus {
+                name: name.clone(),
+                tools: tools_by_server.get(name).cloned().unwrap_or_default(),
+                resources: snapshot.resources.get(name).cloned().unwrap_or_default(),
+                resource_templates: snapshot
+                    .resource_templates
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_default(),
+                auth_status: snapshot
+                    .auth_statuses
+                    .get(name)
+                    .cloned()
+                    .unwrap_or(CoreMcpAuthStatus::Unsupported)
+                    .into(),
+            })
+            .collect();
+
+        let next_cursor = if end < total {
+            Some(end.to_string())
+        } else {
+            None
+        };
+
+        let response = ListMcpServerStatusResponse { data, next_cursor };
+
+        outgoing.send_response(request_id, response).await;
+    }
+
+    async fn handle_resume_conversation(
+        &self,
+        request_id: RequestId,
+        params: ResumeConversationParams,
+    ) {
+        let ResumeConversationParams {
+            path,
+            conversation_id,
+            history,
+            overrides,
+        } = params;
+
+        let session_history = if let Some(path) = path {
+            match RolloutRecorder::get_rollout_history(&path).await {
+                Ok(initial_history) => initial_history,
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to load rollout `{}`: {err}", path.display()),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else if let Some(conversation_id) = conversation_id {
+            match find_session_path_by_id_str(
+                &self.config.savfox_home,
+                &conversation_id.to_string(),
+            )
+            .await
+            {
+                Ok(Some(found_path)) => {
+                    match RolloutRecorder::get_rollout_history(&found_path).await {
+                        Ok(initial_history) => initial_history,
+                        Err(err) => {
+                            self.send_invalid_request_error(
+                                request_id,
+                                format!(
+                                    "failed to load rollout `{}` for conversation {conversation_id}: {err}",
+                                    found_path.display()
+                                ),
+                            ).await;
+                            return;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("no rollout found for conversation id {conversation_id}"),
+                    )
+                    .await;
+                    return;
+                }
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to locate conversation id {conversation_id}: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else {
+            match history {
+                Some(history) if !history.is_empty() => InitialHistory::Forked(
+                    history.into_iter().map(RolloutItem::ResponseItem).collect(),
+                ),
+                Some(_) | None => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        "either path, conversation id or non empty history must be provided"
+                            .to_string(),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        };
+
+        let history_cwd = session_history.session_cwd();
+        let (typesafe_overrides, request_overrides) = match overrides {
+            Some(overrides) => {
+                let NewConversationParams {
+                    model,
+                    model_provider,
+                    profile,
+                    cwd,
+                    approval_policy,
+                    sandbox: sandbox_mode,
+                    config: request_overrides,
+                    base_instructions,
+                    developer_instructions,
+                    compact_prompt,
+                    include_apply_patch_tool,
+                } = overrides;
+
+                // Persist windows sandbox feature.
+                let mut request_overrides = request_overrides.unwrap_or_default();
+                if cfg!(windows) && self.config.features.enabled(Feature::WindowsSandbox) {
+                    request_overrides.insert(
+                        "features.experimental_windows_sandbox".to_string(),
+                        serde_json::json!(true),
+                    );
+                }
+
+                let typesafe_overrides = ConfigOverrides {
+                    model,
+                    config_profile: profile,
+                    cwd: cwd.map(PathBuf::from),
+                    approval_policy,
+                    sandbox_mode,
+                    model_provider,
+                    savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+                    base_instructions,
+                    developer_instructions,
+                    compact_prompt,
+                    include_apply_patch_tool,
+                    ..Default::default()
+                };
+                (typesafe_overrides, Some(request_overrides))
+            }
+            None => (
+                ConfigOverrides {
+                    savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+                    ..Default::default()
+                },
+                None,
+            ),
+        };
+
+        let config = match derive_config_for_cwd(
+            &self.cli_overrides,
+            request_overrides,
+            typesafe_overrides,
+            history_cwd,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                self.send_invalid_request_error(
+                    request_id,
+                    format!("error deriving config: {err}"),
+                )
+                .await;
+                return;
+            }
+        };
+
+        match self
+            .session_manager
+            .resume_session_with_history(config, session_history, self.auth_manager.clone())
+            .await
+        {
+            Ok(NewSession {
+                session_id,
+                session_configured,
+                ..
+            }) => {
+                let rollout_path = match session_configured.rollout_path.clone() {
+                    Some(path) => path,
+                    None => {
+                        let error = JSONRPCErrorError {
+                            code: INTERNAL_ERROR_CODE,
+                            message: "rollout path missing for resumed conversation".to_string(),
+                            data: None,
+                        };
+                        self.outgoing.send_error(request_id, error).await;
+                        return;
+                    }
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::SessionConfigured(
+                        SessionConfiguredNotification {
+                            session_id: session_configured.session_id,
+                            model: session_configured.model.clone(),
+                            reasoning_effort: session_configured.reasoning_effort,
+                            history_log_id: session_configured.history_log_id,
+                            history_entry_count: session_configured.history_entry_count,
+                            initial_messages: session_configured.initial_messages.clone(),
+                            rollout_path: rollout_path.clone(),
+                        },
+                    ))
+                    .await;
+                let initial_messages = session_configured
+                    .initial_messages
+                    .map(|msgs| msgs.into_iter().collect());
+
+                // Reply with session id + model and initial messages (when present)
+                let response = ResumeConversationResponse {
+                    conversation_id: session_id,
+                    model: session_configured.model.clone(),
+                    initial_messages,
+                    rollout_path,
+                };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("error resuming conversation: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn handle_fork_conversation(
+        &self,
+        request_id: RequestId,
+        params: ForkConversationParams,
+    ) {
+        let ForkConversationParams {
+            path,
+            conversation_id,
+            overrides,
+        } = params;
+
+        // Derive a Config using the same logic as new conversation, honoring overrides if provided.
+        let rollout_path = if let Some(path) = path {
+            path
+        } else if let Some(conversation_id) = conversation_id {
+            match find_session_path_by_id_str(
+                &self.config.savfox_home,
+                &conversation_id.to_string(),
+            )
+            .await
+            {
+                Ok(Some(found_path)) => found_path,
+                Ok(None) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("no rollout found for conversation id {conversation_id}"),
+                    )
+                    .await;
+                    return;
+                }
+                Err(err) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("failed to locate conversation id {conversation_id}: {err}"),
+                    )
+                    .await;
+                    return;
+                }
+            }
+        } else {
+            self.send_invalid_request_error(
+                request_id,
+                "either path or conversation id must be provided".to_string(),
+            )
+            .await;
+            return;
+        };
+
+        let history_cwd = match read_session_meta_line(&rollout_path).await {
+            Ok(meta_line) => Some(meta_line.meta.cwd),
+            Err(err) => {
+                let rollout_path = rollout_path.display();
+                warn!("failed to read session metadata from rollout {rollout_path}: {err}");
+                None
+            }
+        };
+
+        let (typesafe_overrides, request_overrides) = match overrides {
+            Some(overrides) => {
+                let NewConversationParams {
+                    model,
+                    model_provider,
+                    profile,
+                    cwd,
+                    approval_policy,
+                    sandbox: sandbox_mode,
+                    config: cli_overrides,
+                    base_instructions,
+                    developer_instructions,
+                    compact_prompt,
+                    include_apply_patch_tool,
+                } = overrides;
+
+                // Persist windows sandbox feature.
+                let mut cli_overrides = cli_overrides.unwrap_or_default();
+                if cfg!(windows) && self.config.features.enabled(Feature::WindowsSandbox) {
+                    cli_overrides.insert(
+                        "features.experimental_windows_sandbox".to_string(),
+                        serde_json::json!(true),
+                    );
+                }
+                let request_overrides = if cli_overrides.is_empty() {
+                    None
+                } else {
+                    Some(cli_overrides)
+                };
+
+                let overrides = ConfigOverrides {
+                    model,
+                    config_profile: profile,
+                    cwd: cwd.map(PathBuf::from),
+                    approval_policy,
+                    sandbox_mode,
+                    model_provider,
+                    savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+                    base_instructions,
+                    developer_instructions,
+                    compact_prompt,
+                    include_apply_patch_tool,
+                    ..Default::default()
+                };
+
+                (overrides, request_overrides)
+            }
+            None => (
+                ConfigOverrides {
+                    savfox_linux_sandbox_exe: self.savfox_linux_sandbox_exe.clone(),
+                    ..Default::default()
+                },
+                None,
+            ),
+        };
+
+        let config = match derive_config_for_cwd(
+            &self.cli_overrides,
+            request_overrides,
+            typesafe_overrides,
+            history_cwd,
+            &self.cloud_requirements,
+        )
+        .await
+        {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                self.send_invalid_request_error(
+                    request_id,
+                    format!("error deriving config: {err}"),
+                )
+                .await;
+                return;
+            }
+        };
+
+        let NewSession {
+            session_id,
+            session_configured,
+            ..
+        } = match self
+            .session_manager
+            .fork_session(usize::MAX, config, rollout_path.clone())
+            .await
+        {
+            Ok(session) => session,
+            Err(err) => {
+                let (code, message) = match err {
+                    SavfoxError::Io(_) | SavfoxError::Json(_) => (
+                        INVALID_REQUEST_ERROR_CODE,
+                        format!("failed to load rollout `{}`: {err}", rollout_path.display()),
+                    ),
+                    SavfoxError::InvalidRequest(message) => (INVALID_REQUEST_ERROR_CODE, message),
+                    _ => (
+                        INTERNAL_ERROR_CODE,
+                        format!("error forking conversation: {err}"),
+                    ),
+                };
+                let error = JSONRPCErrorError {
+                    code,
+                    message,
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let rollout_path = match session_configured.rollout_path.clone() {
+            Some(path) => path,
+            None => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: "rollout path missing for forked conversation".to_string(),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        self.outgoing
+            .send_server_notification(ServerNotification::SessionConfigured(
+                SessionConfiguredNotification {
+                    session_id: session_configured.session_id,
+                    model: session_configured.model.clone(),
+                    reasoning_effort: session_configured.reasoning_effort,
+                    history_log_id: session_configured.history_log_id,
+                    history_entry_count: session_configured.history_entry_count,
+                    initial_messages: session_configured.initial_messages.clone(),
+                    rollout_path: rollout_path.clone(),
+                },
+            ))
+            .await;
+        let initial_messages = session_configured
+            .initial_messages
+            .map(|msgs| msgs.into_iter().collect());
+
+        // Reply with conversation id + model and initial messages (when present)
+        let response = ForkConversationResponse {
+            conversation_id: session_id,
+            model: session_configured.model.clone(),
+            initial_messages,
+            rollout_path,
+        };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn send_invalid_request_error(&self, request_id: RequestId, message: String) {
+        let error = JSONRPCErrorError {
+            code: INVALID_REQUEST_ERROR_CODE,
+            message,
+            data: None,
+        };
+        self.outgoing.send_error(request_id, error).await;
+    }
+
+    async fn send_internal_error(&self, request_id: RequestId, message: String) {
+        let error = JSONRPCErrorError {
+            code: INTERNAL_ERROR_CODE,
+            message,
+            data: None,
+        };
+        self.outgoing.send_error(request_id, error).await;
+    }
+
+    async fn archive_conversation(
+        &mut self,
+        request_id: RequestId,
+        params: ArchiveConversationParams,
+    ) {
+        let ArchiveConversationParams {
+            conversation_id: session_id,
+            rollout_path,
+        } = params;
+
+        match self.archive_session_common(session_id, &rollout_path).await {
+            Ok(()) => {
+                tracing::info!("session/archive succeeded for {session_id}");
+                let response = ArchiveConversationResponse {};
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                tracing::warn!("session/archive failed for {session_id}: {}", err.message);
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn archive_session_common(
+        &mut self,
+        session_id: SessionId,
+        rollout_path: &Path,
+    ) -> Result<(), JSONRPCErrorError> {
+        // Verify rollout_path is under sessions dir.
+        let rollout_folder = self.config.savfox_home.join(savfox_core::SESSIONS_SUBDIR);
+
+        let canonical_sessions_dir = match tokio::fs::canonicalize(&rollout_folder).await {
+            Ok(path) => path,
+            Err(err) => {
+                return Err(JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!(
+                        "failed to archive session: unable to resolve sessions directory: {err}"
+                    ),
+                    data: None,
+                });
+            }
+        };
+        let canonical_rollout_path = tokio::fs::canonicalize(rollout_path).await;
+        let canonical_rollout_path = if let Ok(path) = canonical_rollout_path
+            && path.starts_with(&canonical_sessions_dir)
+        {
+            path
+        } else {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!(
+                    "rollout path `{}` must be in sessions directory",
+                    rollout_path.display()
+                ),
+                data: None,
+            });
+        };
+
+        // Verify file name matches session id.
+        let required_suffix = format!("{session_id}.jsonl");
+        let Some(file_name) = canonical_rollout_path.file_name().map(OsStr::to_owned) else {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!(
+                    "rollout path `{}` missing file name",
+                    rollout_path.display()
+                ),
+                data: None,
+            });
+        };
+        if !file_name
+            .to_string_lossy()
+            .ends_with(required_suffix.as_str())
+        {
+            return Err(JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!(
+                    "rollout path `{}` does not match session id {session_id}",
+                    rollout_path.display()
+                ),
+                data: None,
+            });
+        }
+
+        let mut state_db_ctx = None;
+
+        // If the session is active, request shutdown and wait briefly.
+        if let Some(conversation) = self.session_manager.remove_session(&session_id).await {
+            if let Some(ctx) = conversation.state_db() {
+                state_db_ctx = Some(ctx);
+            }
+            info!("session {session_id} was active; shutting down");
+            // Request shutdown.
+            match conversation.submit(Op::Shutdown).await {
+                Ok(_) => {
+                    // Poll agent status rather than consuming events so attached listeners do not block shutdown.
+                    let wait_for_shutdown = async {
+                        loop {
+                            if matches!(conversation.agent_status().await, AgentStatus::Shutdown) {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                        }
+                    };
+                    if tokio::time::timeout(Duration::from_secs(10), wait_for_shutdown)
+                        .await
+                        .is_err()
+                    {
+                        warn!("session {session_id} shutdown timed out; proceeding with archive");
+                    }
+                }
+                Err(err) => {
+                    error!("failed to submit Shutdown to session {session_id}: {err}");
+                }
+            }
+        }
+
+        if state_db_ctx.is_none() {
+            state_db_ctx = get_state_db(&self.config, None).await;
+        }
+
+        // Move the rollout file to archived.
+        let result: std::io::Result<()> = async move {
+            let archive_folder = self
+                .config
+                .savfox_home
+                .join(savfox_core::ARCHIVED_SESSIONS_SUBDIR);
+            tokio::fs::create_dir_all(&archive_folder).await?;
+            let archived_path = archive_folder.join(&file_name);
+            tokio::fs::rename(&canonical_rollout_path, &archived_path).await?;
+            if let Some(ctx) = state_db_ctx {
+                let _ = ctx
+                    .mark_archived(session_id, archived_path.as_path(), Utc::now())
+                    .await;
+            }
+            Ok(())
+        }
+        .await;
+
+        result.map_err(|err| JSONRPCErrorError {
+            code: INTERNAL_ERROR_CODE,
+            message: format!("failed to archive session: {err}"),
+            data: None,
+        })
+    }
+
+    async fn send_user_message(&self, request_id: RequestId, params: SendUserMessageParams) {
+        let SendUserMessageParams {
+            conversation_id,
+            items,
+        } = params;
+        let Ok(conversation) = self.session_manager.get_session(conversation_id).await else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("conversation not found: {conversation_id}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        };
+
+        let mapped_items: Vec<CoreInputItem> = items
+            .into_iter()
+            .map(|item| match item {
+                WireInputItem::Text {
+                    text,
+                    text_elements,
+                } => CoreInputItem::Text {
+                    text,
+                    text_elements: text_elements.into_iter().map(Into::into).collect(),
+                },
+                WireInputItem::Image { image_url } => CoreInputItem::Image { image_url },
+                WireInputItem::LocalImage { path } => CoreInputItem::LocalImage { path },
+            })
+            .collect();
+
+        // Submit user input to the conversation.
+        let _ = conversation
+            .submit(Op::UserInput {
+                items: mapped_items,
+                final_output_json_schema: None,
+            })
+            .await;
+
+        // Acknowledge with an empty result.
+        self.outgoing
+            .send_response(request_id, SendUserMessageResponse {})
+            .await;
+    }
+
+    async fn send_user_turn(&self, request_id: RequestId, params: SendUserTurnParams) {
+        let SendUserTurnParams {
+            conversation_id,
+            items,
+            cwd,
+            approval_policy,
+            sandbox_policy,
+            model,
+            effort,
+            summary,
+            output_schema,
+        } = params;
+
+        let Ok(conversation) = self.session_manager.get_session(conversation_id).await else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("conversation not found: {conversation_id}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        };
+
+        let mapped_items: Vec<CoreInputItem> = items
+            .into_iter()
+            .map(|item| match item {
+                WireInputItem::Text {
+                    text,
+                    text_elements,
+                } => CoreInputItem::Text {
+                    text,
+                    text_elements: text_elements.into_iter().map(Into::into).collect(),
+                },
+                WireInputItem::Image { image_url } => CoreInputItem::Image { image_url },
+                WireInputItem::LocalImage { path } => CoreInputItem::LocalImage { path },
+            })
+            .collect();
+
+        let _ = conversation
+            .submit(Op::UserTurn {
+                items: mapped_items,
+                cwd,
+                approval_policy,
+                sandbox_policy,
+                model,
+                effort,
+                summary,
+                final_output_json_schema: output_schema,
+                collaboration_mode: None,
+                personality: None,
+            })
+            .await;
+
+        self.outgoing
+            .send_response(request_id, SendUserTurnResponse {})
+            .await;
+    }
+
+    async fn apps_list(&self, request_id: RequestId, params: AppsListParams) {
+        let AppsListParams { cursor, limit } = params;
+        let config = match self.load_latest_config().await {
+            Ok(config) => config,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        if !config.features.enabled(Feature::Apps) {
+            self.outgoing
+                .send_response(
+                    request_id,
+                    AppsListResponse {
+                        data: Vec::new(),
+                        next_cursor: None,
+                    },
+                )
+                .await;
+            return;
+        }
+
+        let connectors = match connectors::list_connectors(&config).await {
+            Ok(connectors) => connectors,
+            Err(err) => {
+                self.send_internal_error(request_id, format!("failed to list apps: {err}"))
+                    .await;
+                return;
+            }
+        };
+
+        let total = connectors.len();
+        if total == 0 {
+            self.outgoing
+                .send_response(
+                    request_id,
+                    AppsListResponse {
+                        data: Vec::new(),
+                        next_cursor: None,
+                    },
+                )
+                .await;
+            return;
+        }
+
+        let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;
+        let effective_limit = effective_limit.min(total);
+        let start = match cursor {
+            Some(cursor) => match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("invalid cursor: {cursor}"),
+                    )
+                    .await;
+                    return;
+                }
+            },
+            None => 0,
+        };
+
+        if start > total {
+            self.send_invalid_request_error(
+                request_id,
+                format!("cursor {start} exceeds total apps {total}"),
+            )
+            .await;
+            return;
+        }
+
+        let end = start.saturating_add(effective_limit).min(total);
+        let data = connectors[start..end].to_vec();
+
+        let next_cursor = if end < total {
+            Some(end.to_string())
+        } else {
+            None
+        };
+        self.outgoing
+            .send_response(request_id, AppsListResponse { data, next_cursor })
+            .await;
+    }
+
+    async fn skills_list(&self, request_id: RequestId, params: SkillsListParams) {
+        let SkillsListParams { cwds, force_reload } = params;
+        let cwds = if cwds.is_empty() {
+            vec![self.config.cwd.clone()]
+        } else {
+            cwds
+        };
+
+        let skills_manager = self.session_manager.skills_manager();
+        let mut data = Vec::new();
+        for cwd in cwds {
+            let outcome = skills_manager.skills_for_cwd(&cwd, force_reload).await;
+            let errors = errors_to_info(&outcome.errors);
+            let skills = skills_to_info(&outcome.skills, &outcome.disabled_paths);
+            data.push(savfox_app_server_protocol::SkillsListEntry {
+                cwd,
+                skills,
+                errors,
+            });
+        }
+        self.outgoing
+            .send_response(request_id, SkillsListResponse { data })
+            .await;
+    }
+
+    async fn skills_config_write(&self, request_id: RequestId, params: SkillsConfigWriteParams) {
+        let SkillsConfigWriteParams { path, enabled } = params;
+        let edits = vec![ConfigEdit::SetSkillConfig { path, enabled }];
+        let result = ConfigEditsBuilder::new(&self.config.savfox_home)
+            .with_edits(edits)
+            .apply()
+            .await;
+
+        match result {
+            Ok(()) => {
+                self.session_manager.skills_manager().clear_cache();
+                self.outgoing
+                    .send_response(
+                        request_id,
+                        SkillsConfigWriteResponse {
+                            effective_enabled: enabled,
+                        },
+                    )
+                    .await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to update skill settings: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn interrupt_conversation(
+        &mut self,
+        request_id: RequestId,
+        params: InterruptConversationParams,
+    ) {
+        let InterruptConversationParams { conversation_id } = params;
+        let Ok(conversation) = self.session_manager.get_session(conversation_id).await else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("conversation not found: {conversation_id}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        };
+
+        // Record the pending interrupt so we can reply when TurnAborted arrives.
+        {
+            let mut map = self.pending_interrupts.lock().await;
+            map.entry(conversation_id)
+                .or_default()
+                .push((request_id, ApiVersion::V1));
+        }
+
+        // Submit the interrupt; we'll respond upon TurnAborted.
+        let _ = conversation.submit(Op::Interrupt).await;
+    }
+
+    async fn turn_start(&self, request_id: RequestId, params: TurnStartParams) {
+        let (_, session) = match self.load_session(&params.session_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        // Map v2 input items to core input items.
+        let mapped_items: Vec<CoreInputItem> = params
+            .input
+            .into_iter()
+            .map(V2UserInput::into_core)
+            .collect();
+
+        let has_any_overrides = params.cwd.is_some()
+            || params.approval_policy.is_some()
+            || params.sandbox_policy.is_some()
+            || params.model.is_some()
+            || params.effort.is_some()
+            || params.summary.is_some()
+            || params.collaboration_mode.is_some()
+            || params.personality.is_some();
+
+        // If any overrides are provided, update the session turn context first.
+        if has_any_overrides {
+            let _ = session
+                .submit(Op::OverrideTurnContext {
+                    cwd: params.cwd,
+                    approval_policy: params.approval_policy.map(AskForApproval::to_core),
+                    sandbox_policy: params.sandbox_policy.map(|p| p.to_core()),
+                    windows_sandbox_level: None,
+                    model: params.model,
+                    effort: params.effort.map(Some),
+                    summary: params.summary,
+                    collaboration_mode: params.collaboration_mode,
+                    personality: params.personality,
+                })
+                .await;
+        }
+
+        // Start the turn by submitting the user input. Return its submission id as turn_id.
+        let turn_id = session
+            .submit(Op::UserInput {
+                items: mapped_items,
+                final_output_json_schema: params.output_schema,
+            })
+            .await;
+
+        match turn_id {
+            Ok(turn_id) => {
+                let turn = Turn {
+                    id: turn_id.clone(),
+                    items: vec![],
+                    error: None,
+                    status: TurnStatus::InProgress,
+                };
+
+                let response = TurnStartResponse { turn: turn.clone() };
+                self.outgoing.send_response(request_id, response).await;
+
+                // Emit v2 turn/started notification.
+                let notif = TurnStartedNotification {
+                    session_id: params.session_id,
+                    turn,
+                };
+                self.outgoing
+                    .send_server_notification(ServerNotification::TurnStarted(notif))
+                    .await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to start turn: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    fn build_review_turn(turn_id: String, display_text: &str) -> Turn {
+        let items = if display_text.is_empty() {
+            Vec::new()
+        } else {
+            vec![SessionItem::UserMessage {
+                id: turn_id.clone(),
+                content: vec![V2UserInput::Text {
+                    text: display_text.to_string(),
+                    // Review prompt display text is synthesized; no UI element ranges to preserve.
+                    text_elements: Vec::new(),
+                }],
+            }]
+        };
+
+        Turn {
+            id: turn_id,
+            items,
+            error: None,
+            status: TurnStatus::InProgress,
+        }
+    }
+
+    async fn emit_review_started(
+        &self,
+        request_id: &RequestId,
+        turn: Turn,
+        parent_session_id: String,
+        review_session_id: String,
+    ) {
+        let response = ReviewStartResponse {
+            turn: turn.clone(),
+            review_session_id,
+        };
+        self.outgoing
+            .send_response(request_id.clone(), response)
+            .await;
+
+        let notif = TurnStartedNotification {
+            session_id: parent_session_id,
+            turn,
+        };
+        self.outgoing
+            .send_server_notification(ServerNotification::TurnStarted(notif))
+            .await;
+    }
+
+    async fn start_inline_review(
+        &self,
+        request_id: &RequestId,
+        parent_session: Arc<SavfoxSession>,
+        review_request: ReviewRequest,
+        display_text: &str,
+        parent_session_id: String,
+    ) -> std::result::Result<(), JSONRPCErrorError> {
+        let turn_id = parent_session.submit(Op::Review { review_request }).await;
+
+        match turn_id {
+            Ok(turn_id) => {
+                let turn = Self::build_review_turn(turn_id, display_text);
+                self.emit_review_started(
+                    request_id,
+                    turn,
+                    parent_session_id.clone(),
+                    parent_session_id,
+                )
+                .await;
+                Ok(())
+            }
+            Err(err) => Err(JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to start review: {err}"),
+                data: None,
+            }),
+        }
+    }
+
+    async fn start_detached_review(
+        &mut self,
+        request_id: &RequestId,
+        parent_session_id: SessionId,
+        review_request: ReviewRequest,
+        display_text: &str,
+    ) -> std::result::Result<(), JSONRPCErrorError> {
+        let rollout_path =
+            find_session_path_by_id_str(&self.config.savfox_home, &parent_session_id.to_string())
+                .await
+                .map_err(|err| JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to locate session id {parent_session_id}: {err}"),
+                    data: None,
+                })?
+                .ok_or_else(|| JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("no rollout found for session id {parent_session_id}"),
+                    data: None,
+                })?;
+
+        let mut config = self.config.as_ref().clone();
+        if let Some(review_model) = &config.review_model {
+            config.model = Some(review_model.clone());
+        }
+
+        let NewSession {
+            session_id,
+            session: review_session,
+            session_configured,
+            ..
+        } = self
+            .session_manager
+            .fork_session(usize::MAX, config, rollout_path)
+            .await
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("error creating detached review session: {err}"),
+                data: None,
+            })?;
+
+        if let Err(err) = self
+            .attach_conversation_listener(session_id, false, ApiVersion::V2)
+            .await
+        {
+            tracing::warn!(
+                "failed to attach listener for review session {}: {}",
+                session_id,
+                err.message
+            );
+        }
+
+        let fallback_provider = self.config.model_provider_id.as_str();
+        if let Some(rollout_path) = review_session.rollout_path() {
+            match read_summary_from_rollout(rollout_path.as_path(), fallback_provider).await {
+                Ok(summary) => {
+                    let session = summary_to_session(summary);
+                    let notif = SessionStartedNotification { session };
+                    self.outgoing
+                        .send_server_notification(ServerNotification::SessionStarted(notif))
+                        .await;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "failed to load summary for review session {}: {}",
+                        session_configured.session_id,
+                        err
+                    );
+                }
+            }
+        } else {
+            tracing::warn!(
+                "review session {} has no rollout path",
+                session_configured.session_id
+            );
+        }
+
+        let turn_id = review_session
+            .submit(Op::Review { review_request })
+            .await
+            .map_err(|err| JSONRPCErrorError {
+                code: INTERNAL_ERROR_CODE,
+                message: format!("failed to start detached review turn: {err}"),
+                data: None,
+            })?;
+
+        let turn = Self::build_review_turn(turn_id, display_text);
+        let review_session_id = session_id.to_string();
+        self.emit_review_started(
+            request_id,
+            turn,
+            review_session_id.clone(),
+            review_session_id,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    async fn review_start(&mut self, request_id: RequestId, params: ReviewStartParams) {
+        let ReviewStartParams {
+            session_id,
+            target,
+            delivery,
+        } = params;
+        let (parent_session_id, parent_session) = match self.load_session(&session_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        let (review_request, display_text) = match Self::review_request_from_target(target) {
+            Ok(value) => value,
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+                return;
+            }
+        };
+
+        let delivery = delivery.unwrap_or(ApiReviewDelivery::Inline).to_core();
+        match delivery {
+            CoreReviewDelivery::Inline => {
+                if let Err(err) = self
+                    .start_inline_review(
+                        &request_id,
+                        parent_session,
+                        review_request,
+                        display_text.as_str(),
+                        session_id.clone(),
+                    )
+                    .await
+                {
+                    self.outgoing.send_error(request_id, err).await;
+                }
+            }
+            CoreReviewDelivery::Detached => {
+                if let Err(err) = self
+                    .start_detached_review(
+                        &request_id,
+                        parent_session_id,
+                        review_request,
+                        display_text.as_str(),
+                    )
+                    .await
+                {
+                    self.outgoing.send_error(request_id, err).await;
+                }
+            }
+        }
+    }
+
+    async fn turn_interrupt(&mut self, request_id: RequestId, params: TurnInterruptParams) {
+        let TurnInterruptParams { session_id, .. } = params;
+
+        let (session_uuid, session) = match self.load_session(&session_id).await {
+            Ok(v) => v,
+            Err(error) => {
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        // Record the pending interrupt so we can reply when TurnAborted arrives.
+        {
+            let mut map = self.pending_interrupts.lock().await;
+            map.entry(session_uuid)
+                .or_default()
+                .push((request_id, ApiVersion::V2));
+        }
+
+        // Submit the interrupt; we'll respond upon TurnAborted.
+        let _ = session.submit(Op::Interrupt).await;
+    }
+
+    async fn add_conversation_listener(
+        &mut self,
+        request_id: RequestId,
+        params: AddConversationListenerParams,
+    ) {
+        let AddConversationListenerParams {
+            conversation_id,
+            experimental_raw_events,
+        } = params;
+        match self
+            .attach_conversation_listener(conversation_id, experimental_raw_events, ApiVersion::V1)
+            .await
+        {
+            Ok(subscription_id) => {
+                let response = AddConversationSubscriptionResponse { subscription_id };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                self.outgoing.send_error(request_id, err).await;
+            }
+        }
+    }
+
+    async fn remove_session_listener(
+        &mut self,
+        request_id: RequestId,
+        params: RemoveConversationListenerParams,
+    ) {
+        let RemoveConversationListenerParams { subscription_id } = params;
+        match self.conversation_listeners.remove(&subscription_id) {
+            Some(sender) => {
+                // Signal the spawned task to exit and acknowledge.
+                let _ = sender.send(());
+                if let Some(session_id) = self
+                    .listener_session_ids_by_subscription
+                    .remove(&subscription_id)
+                {
+                    info!("removed listener for session {session_id}");
+                }
+                let response = RemoveConversationSubscriptionResponse {};
+                self.outgoing.send_response(request_id, response).await;
+            }
+            None => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("subscription not found: {subscription_id}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn attach_conversation_listener(
+        &mut self,
+        conversation_id: SessionId,
+        experimental_raw_events: bool,
+        api_version: ApiVersion,
+    ) -> Result<Uuid, JSONRPCErrorError> {
+        let conversation = match self.session_manager.get_session(conversation_id).await {
+            Ok(conv) => conv,
+            Err(_) => {
+                return Err(JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("session not found: {conversation_id}"),
+                    data: None,
+                });
+            }
+        };
+
+        let subscription_id = Uuid::new_v4();
+        let (cancel_tx, mut cancel_rx) = oneshot::channel();
+        self.conversation_listeners
+            .insert(subscription_id, cancel_tx);
+        self.listener_session_ids_by_subscription
+            .insert(subscription_id, conversation_id);
+
+        let outgoing_for_task = self.outgoing.clone();
+        let pending_interrupts = self.pending_interrupts.clone();
+        let pending_rollbacks = self.pending_rollbacks.clone();
+        let turn_summary_store = self.turn_summary_store.clone();
+        let api_version_for_task = api_version;
+        let fallback_model_provider = self.config.model_provider_id.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut cancel_rx => {
+                        // User has unsubscribed, so exit this task.
+                        break;
+                    }
+                    event = conversation.next_event() => {
+                        let event = match event {
+                            Ok(event) => event,
+                            Err(err) => {
+                                tracing::warn!("session.next_event() failed with: {err}");
+                                break;
+                            }
+                        };
+
+                        if let EventMsg::RawResponseItem(_) = &event.msg
+                            && !experimental_raw_events {
+                                continue;
+                            }
+
+                        // For now, we send a notification for every event,
+                        // JSON-serializing the `Event` as-is, but these should
+                        // be migrated to be variants of `ServerNotification`
+                        // instead.
+                        let event_formatted = match &event.msg {
+                            EventMsg::TurnStarted(_) => "task_started",
+                            EventMsg::TurnComplete(_) => "task_complete",
+                            _ => &event.msg.to_string(),
+                        };
+                        let mut params = match serde_json::to_value(event.clone()) {
+                            Ok(serde_json::Value::Object(map)) => map,
+                            Ok(_) => {
+                                error!("event did not serialize to an object");
+                                continue;
+                            }
+                            Err(err) => {
+                                error!("failed to serialize event: {err}");
+                                continue;
+                            }
+                        };
+                        params.insert(
+                            "conversationId".to_string(),
+                            conversation_id.to_string().into(),
+                        );
+
+                        outgoing_for_task
+                            .send_notification(OutgoingNotification {
+                                method: format!("savfox/event/{event_formatted}"),
+                                params: Some(params.into()),
+                            })
+                            .await;
+
+                        apply_bespoke_event_handling(
+                            event.clone(),
+                            conversation_id,
+                            conversation.clone(),
+                            outgoing_for_task.clone(),
+                            pending_interrupts.clone(),
+                            pending_rollbacks.clone(),
+                            turn_summary_store.clone(),
+                            api_version_for_task,
+                            fallback_model_provider.clone(),
+                        )
+                        .await;
+                    }
+                }
+            }
+        });
+        Ok(subscription_id)
+    }
+
+    async fn git_diff_to_origin(&self, request_id: RequestId, cwd: PathBuf) {
+        let diff = git_diff_to_remote(&cwd).await;
+        match diff {
+            Some(value) => {
+                let response = GitDiffToRemoteResponse {
+                    sha: value.sha,
+                    diff: value.diff,
+                };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            None => {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("failed to compute git diff to remote for cwd: {cwd:?}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn fuzzy_file_search(&mut self, request_id: RequestId, params: FuzzyFileSearchParams) {
+        let FuzzyFileSearchParams {
+            query,
+            roots,
+            cancellation_token,
+        } = params;
+
+        let cancel_flag = match cancellation_token.clone() {
+            Some(token) => {
+                let mut pending_fuzzy_searches = self.pending_fuzzy_searches.lock().await;
+                // if a cancellation_token is provided and a pending_request exists for
+                // that token, cancel it
+                if let Some(existing) = pending_fuzzy_searches.get(&token) {
+                    existing.store(true, Ordering::Relaxed);
+                }
+                let flag = Arc::new(AtomicBool::new(false));
+                pending_fuzzy_searches.insert(token.clone(), flag.clone());
+                flag
+            }
+            None => Arc::new(AtomicBool::new(false)),
+        };
+
+        let results = match query.as_str() {
+            "" => vec![],
+            _ => run_fuzzy_file_search(query, roots, cancel_flag.clone()).await,
+        };
+
+        if let Some(token) = cancellation_token {
+            let mut pending_fuzzy_searches = self.pending_fuzzy_searches.lock().await;
+            if let Some(current_flag) = pending_fuzzy_searches.get(&token)
+                && Arc::ptr_eq(current_flag, &cancel_flag)
+            {
+                pending_fuzzy_searches.remove(&token);
+            }
+        }
+
+        let response = FuzzyFileSearchResponse { files: results };
+        self.outgoing.send_response(request_id, response).await;
+    }
+
+    async fn upload_feedback(&self, request_id: RequestId, params: FeedbackUploadParams) {
+        if !self.config.feedback_enabled {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "sending feedback is disabled by configuration".to_string(),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
+        }
+
+        let FeedbackUploadParams {
+            classification,
+            reason,
+            session_id,
+            include_logs,
+        } = params;
+
+        let conversation_id = match session_id.as_deref() {
+            Some(session_id) => match SessionId::from_string(session_id) {
+                Ok(conversation_id) => Some(conversation_id),
+                Err(err) => {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid session id: {err}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            },
+            None => None,
+        };
+
+        let snapshot = self.feedback.snapshot(conversation_id);
+        let session_id = snapshot.session_id.clone();
+
+        let validated_rollout_path = if include_logs {
+            match conversation_id {
+                Some(conv_id) => self.resolve_rollout_path(conv_id).await,
+                None => None,
+            }
+        } else {
+            None
+        };
+        let session_source = self.session_manager.session_source();
+
+        let upload_result = tokio::task::spawn_blocking(move || {
+            let rollout_path_ref = validated_rollout_path.as_deref();
+            snapshot.upload_feedback(
+                &classification,
+                reason.as_deref(),
+                include_logs,
+                rollout_path_ref,
+                Some(session_source),
+            )
+        })
+        .await;
+
+        let upload_result = match upload_result {
+            Ok(result) => result,
+            Err(join_err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to upload feedback: {join_err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
+            }
+        };
+
+        match upload_result {
+            Ok(()) => {
+                let response = FeedbackUploadResponse { session_id };
+                self.outgoing.send_response(request_id, response).await;
+            }
+            Err(err) => {
+                let error = JSONRPCErrorError {
+                    code: INTERNAL_ERROR_CODE,
+                    message: format!("failed to upload feedback: {err}"),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+            }
+        }
+    }
+
+    async fn resolve_rollout_path(&self, conversation_id: SessionId) -> Option<PathBuf> {
+        match self.session_manager.get_session(conversation_id).await {
+            Ok(conv) => conv.rollout_path(),
+            Err(_) => None,
+        }
+    }
+}
+
+fn skills_to_info(
+    skills: &[savfox_core::skills::SkillMetadata],
+    disabled_paths: &std::collections::HashSet<PathBuf>,
+) -> Vec<savfox_app_server_protocol::SkillMetadata> {
+    skills
+        .iter()
+        .map(|skill| {
+            let enabled = !disabled_paths.contains(&skill.path);
+            savfox_app_server_protocol::SkillMetadata {
+                name: skill.name.clone(),
+                description: skill.description.clone(),
+                short_description: skill.short_description.clone(),
+                interface: skill.interface.clone().map(|interface| {
+                    savfox_app_server_protocol::SkillInterface {
+                        display_name: interface.display_name,
+                        short_description: interface.short_description,
+                        icon_small: interface.icon_small,
+                        icon_large: interface.icon_large,
+                        brand_color: interface.brand_color,
+                        default_prompt: interface.default_prompt,
+                    }
+                }),
+                dependencies: skill.dependencies.clone().map(|dependencies| {
+                    savfox_app_server_protocol::SkillDependencies {
+                        tools: dependencies
+                            .tools
+                            .into_iter()
+                            .map(|tool| savfox_app_server_protocol::SkillToolDependency {
+                                r#type: tool.r#type,
+                                value: tool.value,
+                                description: tool.description,
+                                transport: tool.transport,
+                                command: tool.command,
+                                url: tool.url,
+                            })
+                            .collect(),
+                    }
+                }),
+                path: skill.path.clone(),
+                scope: skill.scope.into(),
+                enabled,
+            }
+        })
+        .collect()
+}
+
+fn errors_to_info(
+    errors: &[savfox_core::skills::SkillError],
+) -> Vec<savfox_app_server_protocol::SkillErrorInfo> {
+    errors
+        .iter()
+        .map(|err| savfox_app_server_protocol::SkillErrorInfo {
+            path: err.path.clone(),
+            message: err.message.clone(),
+        })
+        .collect()
+}
+
+fn validate_dynamic_tools(
+    tools: &[ApiDynamicToolSpec],
+    mcp_tool_names: &HashSet<String>,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for tool in tools {
+        let name = tool.name.trim();
+        if name.is_empty() {
+            return Err("dynamic tool name must not be empty".to_string());
+        }
+        if name != tool.name {
+            return Err(format!(
+                "dynamic tool name has leading/trailing whitespace: {}",
+                tool.name
+            ));
+        }
+        if name == "mcp" || name.starts_with("mcp__") {
+            return Err(format!("dynamic tool name is reserved: {name}"));
+        }
+        if mcp_tool_names.contains(name) {
+            return Err(format!("dynamic tool name conflicts with MCP tool: {name}"));
+        }
+        if !seen.insert(name.to_string()) {
+            return Err(format!("duplicate dynamic tool name: {name}"));
+        }
+
+        if let Err(err) = savfox_core::parse_tool_input_schema(&tool.input_schema) {
+            return Err(format!(
+                "dynamic tool input schema is not supported for {name}: {err}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Derive the effective [`Config`] by layering three override sources.
+///
+/// Precedence (lowest to highest):
+/// - `cli_overrides`: process-wide startup `--config` flags.
+/// - `request_overrides`: per-request dotted-path overrides (`params.config`), converted JSON->TOML.
+/// - `typesafe_overrides`: Request objects such as `NewSessionParams` and
+///   `SessionStartParams` support a limited set of _explicit_ config overrides, so
+///   `typesafe_overrides` is a `ConfigOverrides` derived from the respective request object.
+///   Because the overrides are defined explicitly in the `*Params`, this takes priority over
+///   the more general "bag of config options" provided by `cli_overrides` and `request_overrides`.
+async fn derive_config_from_params(
+    cli_overrides: &[(String, TomlValue)],
+    request_overrides: Option<HashMap<String, serde_json::Value>>,
+    typesafe_overrides: ConfigOverrides,
+    cloud_requirements: &CloudRequirementsLoader,
+) -> std::io::Result<Config> {
+    let merged_cli_overrides = cli_overrides
+        .iter()
+        .cloned()
+        .chain(
+            request_overrides
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, json_to_toml(v))),
+        )
+        .collect::<Vec<_>>();
+
+    savfox_core::config::ConfigBuilder::default()
+        .cli_overrides(merged_cli_overrides)
+        .harness_overrides(typesafe_overrides)
+        .cloud_requirements(cloud_requirements.clone())
+        .build()
+        .await
+}
+
+async fn derive_config_for_cwd(
+    cli_overrides: &[(String, TomlValue)],
+    request_overrides: Option<HashMap<String, serde_json::Value>>,
+    typesafe_overrides: ConfigOverrides,
+    cwd: Option<PathBuf>,
+    cloud_requirements: &CloudRequirementsLoader,
+) -> std::io::Result<Config> {
+    let merged_cli_overrides = cli_overrides
+        .iter()
+        .cloned()
+        .chain(
+            request_overrides
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, json_to_toml(v))),
+        )
+        .collect::<Vec<_>>();
+
+    savfox_core::config::ConfigBuilder::default()
+        .cli_overrides(merged_cli_overrides)
+        .harness_overrides(typesafe_overrides)
+        .fallback_cwd(cwd)
+        .cloud_requirements(cloud_requirements.clone())
+        .build()
+        .await
+}
+
+pub(crate) async fn read_summary_from_rollout(
+    path: &Path,
+    fallback_provider: &str,
+) -> std::io::Result<ConversationSummary> {
+    let head = read_head_for_summary(path).await?;
+
+    let Some(first) = head.first() else {
+        return Err(IoError::other(format!(
+            "rollout at {} is empty",
+            path.display()
+        )));
+    };
+
+    let session_meta_line =
+        serde_json::from_value::<SessionMetaLine>(first.clone()).map_err(|_| {
+            IoError::other(format!(
+                "rollout at {} does not start with session metadata",
+                path.display()
+            ))
+        })?;
+    let SessionMetaLine {
+        meta: session_meta,
+        git,
+    } = session_meta_line;
+
+    let created_at = if session_meta.timestamp.is_empty() {
+        None
+    } else {
+        Some(session_meta.timestamp.as_str())
+    };
+    let updated_at = read_updated_at(path, created_at).await;
+    if let Some(summary) = extract_conversation_summary(
+        path.to_path_buf(),
+        &head,
+        &session_meta,
+        git.as_ref(),
+        fallback_provider,
+        updated_at.clone(),
+    ) {
+        return Ok(summary);
+    }
+
+    let timestamp = if session_meta.timestamp.is_empty() {
+        None
+    } else {
+        Some(session_meta.timestamp.clone())
+    };
+    let model_provider = session_meta
+        .model_provider_id()
+        .map(str::to_string)
+        .unwrap_or_else(|| fallback_provider.to_string());
+    let git_info = git.as_ref().map(map_git_info);
+    let updated_at = updated_at.or_else(|| timestamp.clone());
+
+    Ok(ConversationSummary {
+        conversation_id: session_meta.id,
+        timestamp,
+        updated_at,
+        path: path.to_path_buf(),
+        preview: String::new(),
+        model_provider,
+        cwd: session_meta.cwd,
+        cli_version: session_meta.cli_version,
+        source: session_meta.source,
+        git_info,
+    })
+}
+
+pub(crate) async fn read_event_msgs_from_rollout(
+    path: &Path,
+) -> std::io::Result<Vec<savfox_protocol::protocol::EventMsg>> {
+    let items = match RolloutRecorder::get_rollout_history(path).await? {
+        InitialHistory::New => Vec::new(),
+        InitialHistory::Forked(items) => items,
+        InitialHistory::Resumed(resumed) => resumed.history,
+    };
+
+    Ok(items
+        .into_iter()
+        .filter_map(|item| match item {
+            RolloutItem::EventMsg(event) => Some(event),
+            _ => None,
+        })
+        .collect())
+}
+
+fn extract_conversation_summary(
+    path: PathBuf,
+    head: &[serde_json::Value],
+    session_meta: &SessionMeta,
+    git: Option<&CoreGitInfo>,
+    fallback_provider: &str,
+    updated_at: Option<String>,
+) -> Option<ConversationSummary> {
+    let preview = head
+        .iter()
+        .filter_map(|value| serde_json::from_value::<ResponseItem>(value.clone()).ok())
+        .find_map(|item| match savfox_core::parse_turn_item(&item) {
+            Some(TurnItem::UserMessage(user)) => Some(user.message()),
+            _ => None,
+        })?;
+
+    let preview = match preview.find(USER_MESSAGE_BEGIN) {
+        Some(idx) => preview[idx + USER_MESSAGE_BEGIN.len()..].trim(),
+        None => preview.as_str(),
+    };
+
+    let timestamp = if session_meta.timestamp.is_empty() {
+        None
+    } else {
+        Some(session_meta.timestamp.clone())
+    };
+    let conversation_id = session_meta.id;
+    let model_provider = session_meta
+        .model_provider_id()
+        .map(str::to_string)
+        .unwrap_or_else(|| fallback_provider.to_string());
+    let git_info = git.map(map_git_info);
+    let updated_at = updated_at.or_else(|| timestamp.clone());
+
+    Some(ConversationSummary {
+        conversation_id,
+        timestamp,
+        updated_at,
+        path,
+        preview: preview.to_string(),
+        model_provider,
+        cwd: session_meta.cwd.clone(),
+        cli_version: session_meta.cli_version.clone(),
+        source: session_meta.source.clone(),
+        git_info,
+    })
+}
+
+fn map_git_info(git_info: &CoreGitInfo) -> ConversationGitInfo {
+    ConversationGitInfo {
+        sha: git_info.commit_hash.clone(),
+        branch: git_info.branch.clone(),
+        origin_url: git_info.repository_url.clone(),
+    }
+}
+
+fn parse_datetime(timestamp: Option<&str>) -> Option<DateTime<Utc>> {
+    timestamp.and_then(|ts| {
+        chrono::DateTime::parse_from_rfc3339(ts)
+            .ok()
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+    })
+}
+
+async fn read_updated_at(path: &Path, created_at: Option<&str>) -> Option<String> {
+    let updated_at = tokio::fs::metadata(path)
+        .await
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .map(|modified| {
+            let updated_at: DateTime<Utc> = modified.into();
+            updated_at.to_rfc3339_opts(SecondsFormat::Secs, true)
+        });
+    updated_at.or_else(|| created_at.map(str::to_string))
+}
+
+fn build_ephemeral_session(
+    session_id: SessionId,
+    config_snapshot: &SessionConfigSnapshot,
+) -> Session {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    Session {
+        id: session_id.to_string(),
+        preview: String::new(),
+        model_provider: config_snapshot.model_provider_id.clone(),
+        created_at: now,
+        updated_at: now,
+        path: None,
+        cwd: config_snapshot.cwd.clone(),
+        cli_version: env!("CARGO_PKG_VERSION").to_string(),
+        source: config_snapshot.session_source.clone().into(),
+        git_info: None,
+        turns: Vec::new(),
+    }
+}
+
+pub(crate) fn summary_to_session(summary: ConversationSummary) -> Session {
+    let ConversationSummary {
+        conversation_id,
+        path,
+        preview,
+        timestamp,
+        updated_at,
+        model_provider,
+        cwd,
+        cli_version,
+        source,
+        git_info,
+    } = summary;
+
+    let created_at = parse_datetime(timestamp.as_deref());
+    let updated_at = parse_datetime(updated_at.as_deref()).or(created_at);
+    let git_info = git_info.map(|info| ApiGitInfo {
+        sha: info.sha,
+        branch: info.branch,
+        origin_url: info.origin_url,
+    });
+
+    Session {
+        id: conversation_id.to_string(),
+        preview,
+        model_provider,
+        created_at: created_at.map(|dt| dt.timestamp()).unwrap_or(0),
+        updated_at: updated_at.map(|dt| dt.timestamp()).unwrap_or(0),
+        path: Some(path),
+        cwd,
+        cli_version,
+        source: source.into(),
+        git_info,
+        turns: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use savfox_protocol::protocol::SessionSource;
+    use pretty_assertions::assert_eq;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[test]
+    fn validate_dynamic_tools_rejects_unsupported_input_schema() {
+        let tools = vec![ApiDynamicToolSpec {
+            name: "my_tool".to_string(),
+            description: "test".to_string(),
+            input_schema: json!({"type": "null"}),
+        }];
+        let err = validate_dynamic_tools(&tools, &HashSet::new()).expect_err("invalid schema");
+        assert!(err.contains("my_tool"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_dynamic_tools_accepts_sanitizable_input_schema() {
+        let tools = vec![ApiDynamicToolSpec {
+            name: "my_tool".to_string(),
+            description: "test".to_string(),
+            // Missing `type` is common; core sanitizes these to a supported schema.
+            input_schema: json!({"properties": {}}),
+        }];
+        validate_dynamic_tools(&tools, &HashSet::new()).expect("valid schema");
+    }
+
+    #[test]
+    fn extract_conversation_summary_prefers_plain_user_messages() -> Result<()> {
+        let conversation_id = SessionId::from_string("3f941c35-29b3-493b-b0a4-e25800d9aeb0")?;
+        let timestamp = Some("2025-09-05T16:53:11.850Z".to_string());
+        let path = PathBuf::from("rollout.jsonl");
+
+        let head = vec![
+            json!({
+                "id": conversation_id.to_string(),
+                "timestamp": timestamp,
+                "cwd": "/",
+                "originator": "savfox",
+                "cli_version": "0.0.0",
+                "model_provider": "test-provider"
+            }),
+            json!({
+                "type": "message",
+                "role": "user",
+                "content": [{
+                    "type": "input_text",
+                    "text": "<user_instructions>\n<AGENTS.md contents>\n</user_instructions>".to_string(),
+                }],
+            }),
+            json!({
+                "type": "message",
+                "role": "user",
+                "content": [{
+                    "type": "input_text",
+                    "text": format!("<prior context> {USER_MESSAGE_BEGIN}Count to 5"),
+                }],
+            }),
+        ];
+
+        let session_meta = serde_json::from_value::<SessionMeta>(head[0].clone())?;
+
+        let summary = extract_conversation_summary(
+            path.clone(),
+            &head,
+            &session_meta,
+            None,
+            "test-provider",
+            timestamp.clone(),
+        )
+        .expect("summary");
+
+        let expected = ConversationSummary {
+            conversation_id,
+            timestamp: timestamp.clone(),
+            updated_at: timestamp,
+            path,
+            preview: "Count to 5".to_string(),
+            model_provider: "test-provider".to_string(),
+            cwd: PathBuf::from("/"),
+            cli_version: "0.0.0".to_string(),
+            source: SessionSource::VSCode,
+            git_info: None,
+        };
+
+        assert_eq!(summary, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_summary_from_rollout_returns_empty_preview_when_no_user_message() -> Result<()> {
+        use savfox_protocol::protocol::RolloutItem;
+        use savfox_protocol::protocol::RolloutLine;
+        use savfox_protocol::protocol::SessionMetaLine;
+        use std::fs;
+        use std::fs::FileTimes;
+
+        let temp_dir = TempDir::new()?;
+        let path = temp_dir.path().join("rollout.jsonl");
+
+        let conversation_id = SessionId::from_string("bfd12a78-5900-467b-9bc5-d3d35df08191")?;
+        let timestamp = "2025-09-05T16:53:11.850Z".to_string();
+
+        let session_meta = SessionMeta {
+            id: conversation_id,
+            timestamp: timestamp.clone(),
+            model_provider: None,
+            ..SessionMeta::default()
+        };
+
+        let line = RolloutLine {
+            timestamp: timestamp.clone(),
+            item: RolloutItem::SessionMeta(SessionMetaLine {
+                meta: session_meta.clone(),
+                git: None,
+            }),
+        };
+
+        fs::write(&path, format!("{}\n", serde_json::to_string(&line)?))?;
+        let parsed = chrono::DateTime::parse_from_rfc3339(&timestamp)?.with_timezone(&Utc);
+        let times = FileTimes::new().set_modified(parsed.into());
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)?
+            .set_times(times)?;
+
+        let summary = read_summary_from_rollout(path.as_path(), "fallback").await?;
+
+        let expected = ConversationSummary {
+            conversation_id,
+            timestamp: Some(timestamp.clone()),
+            updated_at: Some("2025-09-05T16:53:11Z".to_string()),
+            path: path.clone(),
+            preview: String::new(),
+            model_provider: "fallback".to_string(),
+            cwd: PathBuf::new(),
+            cli_version: String::new(),
+            source: SessionSource::VSCode,
+            git_info: None,
+        };
+
+        assert_eq!(summary, expected);
+        Ok(())
+    }
+}

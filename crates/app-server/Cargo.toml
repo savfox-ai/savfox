@@ -1,0 +1,67 @@
+﻿[package]
+name = "savfox-app-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "savfox-app-server"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_app_server"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+savfox-arg0 = { workspace = true }
+savfox-cloud-requirements = { workspace = true }
+savfox-common = { workspace = true, features = ["cli"] }
+savfox-core = { workspace = true }
+savfox-backend-client = { workspace = true }
+savfox-file-search = { workspace = true }
+savfox-chatgpt = { workspace = true }
+savfox-login-oauth = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-app-server-protocol = { workspace = true }
+savfox-feedback = { workspace = true }
+savfox-rmcp-client = { workspace = true }
+savfox-utils-absolute-path = { workspace = true }
+savfox-utils-json-to-toml = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+toml = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
+[dev-dependencies]
+app_test_support = { workspace = true }
+salvo = { workspace = true }
+salvo_extra = { workspace = true }
+base64 = { workspace = true }
+savfox-exec-policy = { workspace = true }
+core_test_support = { workspace = true }
+os_info = { workspace = true }
+pretty_assertions = { workspace = true }
+rmcp = { workspace = true, default-features = false, features = [
+    "server",
+    "transport-streamable-http-server",
+] }
+serial_test = { workspace = true }
+wiremock = { workspace = true }
+shlex = { workspace = true }

@@ -1,0 +1,22 @@
+﻿---
+source: crates/tui/src/status/tests.rs
+expression: sanitized
+---
+/status
+
+╭─────────────────────────────────────────────────────────────────╮
+│  >_ Savfox  (v0.3.0)                                            │
+│                                                                 │
+│ Visit https://taidge.com/savfox/settings/usage for up-to-date   │
+│ information on rate limits and credits                          │
+│                                                                 │
+│  Model:            gpt-5.1-max (reasoning none, summaries auto) │
+│  Directory: [[workspace]]                                       │
+│  Approval:         on-request                                   │
+│  Sandbox:          read-only                                    │
+│  Agents.md:        <none>                                       │
+│                                                                 │
+│  Token usage:      750 total  (500 input + 250 output)          │
+│  Context window:   100% left (750 used / 272K)                  │
+│  Limits:           data not available yet                       │
+╰─────────────────────────────────────────────────────────────────╯

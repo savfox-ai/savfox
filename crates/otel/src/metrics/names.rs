@@ -1,0 +1,10 @@
+﻿pub(crate) const TOOL_CALL_COUNT_METRIC: &str = "savfox.tool.call";
+pub(crate) const TOOL_CALL_DURATION_METRIC: &str = "savfox.tool.call.duration_ms";
+pub(crate) const API_CALL_COUNT_METRIC: &str = "savfox.api_request";
+pub(crate) const API_CALL_DURATION_METRIC: &str = "savfox.api_request.duration_ms";
+pub(crate) const SSE_EVENT_COUNT_METRIC: &str = "savfox.sse_event";
+pub(crate) const SSE_EVENT_DURATION_METRIC: &str = "savfox.sse_event.duration_ms";
+pub(crate) const WEBSOCKET_REQUEST_COUNT_METRIC: &str = "savfox.websocket.request";
+pub(crate) const WEBSOCKET_REQUEST_DURATION_METRIC: &str = "savfox.websocket.request.duration_ms";
+pub(crate) const WEBSOCKET_EVENT_COUNT_METRIC: &str = "savfox.websocket.event";
+pub(crate) const WEBSOCKET_EVENT_DURATION_METRIC: &str = "savfox.websocket.event.duration_ms";

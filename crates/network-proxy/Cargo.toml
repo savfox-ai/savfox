@@ -1,0 +1,46 @@
+﻿[package]
+name = "savfox-network-proxy"
+edition = "2024"
+version = { workspace = true }
+license.workspace = true
+
+[[bin]]
+name = "savfox-network-proxy"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_network_proxy"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+savfox-app-server-protocol = { workspace = true }
+savfox-core = { workspace = true }
+savfox-utils-absolute-path = { workspace = true }
+globset = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt"] }
+url = { workspace = true }
+rama-core = { workspace = true }
+rama-http = { workspace = true }
+rama-http-backend = { workspace = true, features = ["tls"] }
+rama-net = { workspace = true, features = ["http", "tls"] }
+rama-socks5 = { workspace = true }
+rama-tcp = { workspace = true, features = ["http"] }
+rama-tls-boring = { workspace = true, features = ["http"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(target_family = "unix")'.dependencies]
+rama-unix = { workspace = true }

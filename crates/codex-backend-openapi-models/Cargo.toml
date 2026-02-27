@@ -1,0 +1,22 @@
+﻿[package]
+name = "savfox-backend-openapi-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_backend_openapi_models"
+path = "src/lib.rs"
+
+# Important: generated code often violates our workspace lints.
+# Allow unwrap/expect in this crate so the workspace builds cleanly
+# after models are regenerated.
+# Lint overrides are applied in src/lib.rs via crate attributes
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+
+[package.metadata.cargo-shear]
+ignored = ["serde_with"]

@@ -1,0 +1,23 @@
+﻿---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+               ██████  ██    ██ ████████ ██████  ██████  ██    ██
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+              ██    ██ ██    ██    ██    ██████ ██    ██   ████
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+               ██████   ██████     ██    ██      ██████  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Select Personality
+  Choose a communication style for Savfox. Disable in /experimental.
+
+› 1. Friendly (current)  Warm, collaborative, and helpful.
+  2. Pragmatic           Concise, task-focused, and direct.
+
+  Press enter to confirm or esc to go back

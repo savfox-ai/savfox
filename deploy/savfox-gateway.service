@@ -1,0 +1,17 @@
+﻿[Unit]
+Description=Savfox AI Gateway Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/savfox gateway --port 18881
+Restart=on-failure
+RestartSec=5
+Environment=SAVFOX_HOME=%h/.savfox
+WorkingDirectory=%h
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

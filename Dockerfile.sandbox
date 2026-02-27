@@ -1,0 +1,40 @@
+﻿# =============================================================================
+# Savfox Sandbox Dockerfile
+# Restricted execution environment for agent commands
+# =============================================================================
+
+FROM debian:bookworm-slim
+
+# Install minimal runtime + common dev tools for agent execution
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    git \
+    curl \
+    wget \
+    jq \
+    python3 \
+    python3-pip \
+    nodejs \
+    npm \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create restricted user
+RUN groupadd --gid 1000 sandbox \
+    && useradd --uid 1000 --gid sandbox --shell /bin/bash --create-home sandbox
+
+# Create workspace
+RUN mkdir -p /workspace && chown sandbox:sandbox /workspace
+
+# Copy savfox binary (expects to be built externally)
+COPY --from=savfox:latest /usr/local/bin/savfox /usr/local/bin/savfox
+
+# Restrict capabilities
+USER sandbox
+WORKDIR /workspace
+
+# No network by default — override with docker run --network
+ENV SAVFOX_SANDBOX=1
+
+CMD ["/bin/bash"]

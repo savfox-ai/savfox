@@ -1,0 +1,34 @@
+﻿[package]
+edition = "2021"
+license.workspace = true
+name = "savfox-utils-pty"
+version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+portable-pty = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+filedescriptor = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+shared_library = { workspace = true }
+winapi = { workspace = true, features = [
+    "handleapi",
+    "minwinbase",
+    "processthreadsapi",
+    "synchapi",
+    "winbase",
+    "wincon",
+    "winerror",
+    "winnt",
+] }
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

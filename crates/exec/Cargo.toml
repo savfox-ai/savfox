@@ -1,0 +1,64 @@
+﻿[package]
+name = "savfox-exec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "savfox-exec"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_exec"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+savfox-arg0 = { workspace = true }
+savfox-cloud-requirements = { workspace = true }
+savfox-common = { workspace = true, features = [
+    "cli",
+    "elapsed",
+    "sandbox_summary",
+] }
+savfox-core = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-utils-absolute-path = { workspace = true }
+owo-colors = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+shlex = { workspace = true }
+supports-color = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ts-rs = { workspace = true, features = [
+    "uuid-impl",
+    "serde-json-impl",
+    "no-serde-warnings",
+] }
+uuid = { workspace = true }
+
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+savfox-utils-cargo-bin = { workspace = true }
+core_test_support = { workspace = true }
+libc = { workspace = true }
+predicates = { workspace = true }
+pretty_assertions = { workspace = true }
+rmcp = { workspace = true }
+tempfile = { workspace = true }
+uuid = { workspace = true }
+walkdir = { workspace = true }
+wiremock = { workspace = true }

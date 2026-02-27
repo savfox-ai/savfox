@@ -1,0 +1,35 @@
+﻿[package]
+name = "savfox-linux-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "savfox-linux-sandbox"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_linux_sandbox"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+clap = { workspace = true, features = ["derive"] }
+savfox-core = { workspace = true }
+savfox-utils-absolute-path = { workspace = true }
+landlock = { workspace = true }
+libc = { workspace = true }
+seccompiler = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }

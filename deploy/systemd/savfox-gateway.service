@@ -1,0 +1,40 @@
+﻿[Unit]
+Description=Savfox Gateway Server
+Documentation=https://github.com/savfox-ai/savfox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=savfox
+Group=savfox
+ExecStart=/usr/local/bin/savfox gateway --port 18881 --host 0.0.0.0
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# Environment
+Environment=SAVFOX_HOME=/var/lib/savfox
+Environment=RUST_LOG=info
+EnvironmentFile=-/etc/savfox/gateway.env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/savfox /var/log/savfox
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=savfox-gateway
+
+[Install]
+WantedBy=multi-user.target

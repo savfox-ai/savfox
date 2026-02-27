@@ -1,0 +1,26 @@
+﻿---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+               ██████  ██    ██ ████████ ██████  ██████  ██    ██
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+              ██    ██ ██    ██    ██    ██████ ██    ██   ████
+              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
+               ██████   ██████     ██    ██      ██████  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Approaching rate limits
+  Switch to gpt-5.1-savfox-mini for lower credit usage?
+
+› 1. Switch to gpt-5.1-savfox-mini          Optimized for savfox. Cheaper,
+                                            faster, but less capable.
+  2. Keep current model
+  3. Keep current model (never show again)  Hide future rate limit reminders
+                                            about switching models.
+
+  Press enter to confirm or esc to go back

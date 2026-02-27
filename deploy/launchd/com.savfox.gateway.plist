@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.savfox.gateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/savfox</string>
+        <string>gateway</string>
+        <string>--port</string>
+        <string>18881</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/savfox-gateway.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/savfox-gateway.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SAVFOX_HOME</key>
+        <string>/Users/Shared/savfox</string>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var/savfox</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

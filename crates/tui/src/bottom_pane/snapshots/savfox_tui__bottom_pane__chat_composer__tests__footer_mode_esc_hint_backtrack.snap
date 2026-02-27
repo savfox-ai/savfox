@@ -1,0 +1,13 @@
+---
+source: crates/tui/src/bottom_pane/chat_composer.rs
+expression: terminal.backend()
+---
+"                                                                                                    "
+"────────────────────────────────────────────────────────────────────────────────────────────────────"
+"❯ Type @ to mention files, / for commands, or ? for shortcuts                                       "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"                                                                                                    "
+"────────────────────────────────────────────────────────────────────────────────────────────────────"
+"  esc again to edit previous message                                                                "

@@ -1,0 +1,7 @@
+---
+source: tui/src/chat_screen/tests.rs
+expression: blob5
+---
+• Explored
+  └ List ls -la
+    Read foo.txt

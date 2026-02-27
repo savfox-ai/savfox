@@ -1,0 +1,137 @@
+﻿version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: savfox-gateway
+    restart: unless-stopped
+    ports:
+      - "${SAVFOX_PORT:-18881}:18881"
+    environment:
+      SAVFOX_HOME: /data/savfox
+      RUST_LOG: "${RUST_LOG:-info}"
+      SAVFOX_TOKEN: "${SAVFOX_TOKEN:?SAVFOX_TOKEN is required}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
+      DATABASE_URL: "${DATABASE_URL:-postgres://savfox:${POSTGRES_PASSWORD:-savfox}@postgres:5432/savfox}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+    volumes:
+      - savfox-data:/data/savfox
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18881/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPU_LIMIT:-1.0}"
+          memory: "${GATEWAY_MEM_LIMIT:-1g}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  redis:
+    image: redis:7-alpine
+    container_name: savfox-redis
+    profiles: ["redis"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "${REDIS_CPU_LIMIT:-0.5}"
+          memory: "${REDIS_MEM_LIMIT:-512m}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: savfox-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-savfox}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-savfox}"
+      POSTGRES_DB: "${POSTGRES_DB:-savfox}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-savfox} -d ${POSTGRES_DB:-savfox}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPU_LIMIT:-0.75}"
+          memory: "${POSTGRES_MEM_LIMIT:-1g}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: savfox-caddy
+    profiles: ["proxy"]
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    deploy:
+      resources:
+        limits:
+          cpus: "${PROXY_CPU_LIMIT:-0.5}"
+          memory: "${PROXY_MEM_LIMIT:-512m}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-5}"
+
+volumes:
+  savfox-data:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local

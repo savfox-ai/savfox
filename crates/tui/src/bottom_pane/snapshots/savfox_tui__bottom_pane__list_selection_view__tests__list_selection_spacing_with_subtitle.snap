@@ -1,0 +1,14 @@
+﻿---
+source: crates/tui/src/bottom_pane/list_selection_view.rs
+expression: render_lines(&view)
+---
+                                                
+  Select Approval Mode                          
+  Switch between Savfox approval presets        
+                                                
+› 1. Read Only (current)  Savfox can read       
+                          files                 
+  2. Full Access          Savfox can edit       
+                          files                 
+                                                
+  Press enter to confirm or esc to go back

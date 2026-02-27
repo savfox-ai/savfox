@@ -1,0 +1,28 @@
+﻿[package]
+name = "savfox-cloud-tasks-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_cloud_tasks_client"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[features]
+default = ["online"]
+online = ["dep:savfox-backend-client"]
+mock = []
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+diffy = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+savfox-backend-client = { workspace = true, optional = true }
+savfox-git = { workspace = true }

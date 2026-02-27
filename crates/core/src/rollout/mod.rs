@@ -1,0 +1,29 @@
+﻿//! Rollout module: persistence and discovery of session rollout files.
+
+use savfox_protocol::protocol::SessionSource;
+
+pub const SESSIONS_SUBDIR: &str = "sessions";
+pub const ARCHIVED_SESSIONS_SUBDIR: &str = "archived_sessions";
+pub const INTERACTIVE_SESSION_SOURCES: &[SessionSource] =
+    &[SessionSource::Cli, SessionSource::VSCode];
+
+pub(crate) mod error;
+pub mod list;
+pub(crate) mod metadata;
+pub(crate) mod policy;
+pub mod recorder;
+pub(crate) mod session_index;
+pub(crate) mod truncation;
+
+pub(crate) use error::map_session_init_error;
+#[deprecated(note = "use find_session_path_by_id_str")]
+pub use list::find_session_path_by_id_str as find_conversation_path_by_id_str;
+pub use list::{
+    find_archived_session_path_by_id_str, find_session_path_by_id_str, rollout_date_parts,
+};
+pub use savfox_protocol::protocol::SessionMeta;
+pub use recorder::{RolloutRecorder, RolloutRecorderParams};
+pub use session_index::find_session_path_by_name_str;
+
+#[cfg(test)]
+pub mod tests;
