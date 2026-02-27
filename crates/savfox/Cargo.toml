@@ -9,12 +9,5 @@ publish = false
 description = "Compatibility crate that re-exports savfox-cli."
 readme = "README.md"
 
-[lib]
-name = "savfox"
-path = "src/lib.rs"
-
 [lints]
 workspace = true
-
-[dependencies]
-savfox-cli = { workspace = true }
