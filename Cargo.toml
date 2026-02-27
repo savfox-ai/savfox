@@ -23,12 +23,12 @@ resolver = "3"
 version = "0.3.0"
 authors = ["Chrislearn Young <chris@acroidea.com>"]
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.93"
 description = """
 Experimental AI API client library for Rust.
 """
-homepage = "https://github.com/chrislearn/savfox"
-repository = "https://github.com/chrislearn/savfox"
+homepage = "https://github.com/savfox-ai/savfox"
+repository = "https://github.com/savfox-ai/savfox"
 documentation = "https://docs.rs/savfox/"
 readme = "./README.md"
 categories = ["api-bindings", "web-programming", "asynchronous"]
