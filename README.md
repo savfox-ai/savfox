@@ -7,6 +7,8 @@ Savfox is an AI-powered coding agent for the terminal. It connects to LLM provid
 
 [English Documentation](docs/en/getting-started.md) | [中文文档](docs/zh/getting-started.md)
 
+Placeholder crate: [`crates/savfox`](crates/savfox/README.md) currently provides a minimal hello-world package reserved for future root crate APIs.
+
 ## Features
 
 - **Interactive TUI** — Chat with an AI agent in a rich terminal interface with markdown rendering, diff preview, and approval workflows
