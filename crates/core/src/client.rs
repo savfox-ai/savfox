@@ -248,13 +248,10 @@ impl ModelClient {
             Some(manager) => manager.auth().await,
             None => None,
         };
-        let api_provider = self
-            .state
-            .provider
-            .to_api_provider(
-                auth.as_ref().map(SavfoxAuth::internal_auth_mode),
-                Some(self.state.config.chatgpt_base_url.as_str()),
-            )?;
+        let api_provider = self.state.provider.to_api_provider(
+            auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+            Some(self.state.config.chatgpt_base_url.as_str()),
+        )?;
         let api_auth = auth_provider_from_auth(
             auth.clone(),
             &self.state.provider,
@@ -666,13 +663,10 @@ impl ModelClientSession {
                 Some(manager) => manager.auth().await,
                 None => None,
             };
-            let api_provider = self
-                .state
-                .provider
-                .to_api_provider(
-                    auth.as_ref().map(SavfoxAuth::internal_auth_mode),
-                    Some(self.state.config.chatgpt_base_url.as_str()),
-                )?;
+            let api_provider = self.state.provider.to_api_provider(
+                auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+                Some(self.state.config.chatgpt_base_url.as_str()),
+            )?;
             let api_auth = auth_provider_from_auth(
                 auth.clone(),
                 &self.state.provider,
@@ -738,13 +732,10 @@ impl ModelClientSession {
                 Some(manager) => manager.auth().await,
                 None => None,
             };
-            let api_provider = self
-                .state
-                .provider
-                .to_api_provider(
-                    auth.as_ref().map(SavfoxAuth::internal_auth_mode),
-                    Some(self.state.config.chatgpt_base_url.as_str()),
-                )?;
+            let api_provider = self.state.provider.to_api_provider(
+                auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+                Some(self.state.config.chatgpt_base_url.as_str()),
+            )?;
             let api_auth = auth_provider_from_auth(
                 auth.clone(),
                 &self.state.provider,
@@ -797,13 +788,10 @@ impl ModelClientSession {
                 Some(manager) => manager.auth().await,
                 None => None,
             };
-            let api_provider = self
-                .state
-                .provider
-                .to_api_provider(
-                    auth.as_ref().map(SavfoxAuth::internal_auth_mode),
-                    Some(self.state.config.chatgpt_base_url.as_str()),
-                )?;
+            let api_provider = self.state.provider.to_api_provider(
+                auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+                Some(self.state.config.chatgpt_base_url.as_str()),
+            )?;
             let api_auth = auth_provider_from_auth(
                 auth.clone(),
                 &self.state.provider,
@@ -869,13 +857,10 @@ impl ModelClientSession {
                 Some(manager) => manager.auth().await,
                 None => None,
             };
-            let api_provider = self
-                .state
-                .provider
-                .to_api_provider(
-                    auth.as_ref().map(SavfoxAuth::internal_auth_mode),
-                    Some(self.state.config.chatgpt_base_url.as_str()),
-                )?;
+            let api_provider = self.state.provider.to_api_provider(
+                auth.as_ref().map(SavfoxAuth::internal_auth_mode),
+                Some(self.state.config.chatgpt_base_url.as_str()),
+            )?;
             let api_auth = auth_provider_from_auth(
                 auth.clone(),
                 &self.state.provider,

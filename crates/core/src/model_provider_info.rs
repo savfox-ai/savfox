@@ -302,10 +302,7 @@ impl ModelProviderInfo {
         } else {
             "https://api.openai.com/v1".to_string()
         };
-        let base_url = self
-            .base_url
-            .clone()
-            .unwrap_or(default_base_url);
+        let base_url = self.base_url.clone().unwrap_or(default_base_url);
 
         let headers = self.build_header_map()?;
         let retry = ApiRetryConfig {
@@ -952,9 +949,15 @@ env_key = "GEMINI_API_KEY"
     fn to_api_provider_derives_chatgpt_backend_models_base_url() {
         let provider = ModelProviderInfo::create_openai_provider();
         let api_provider = provider
-            .to_api_provider(Some(AuthMode::Chatgpt), Some("https://chatgpt.com/backend-api/"))
+            .to_api_provider(
+                Some(AuthMode::Chatgpt),
+                Some("https://chatgpt.com/backend-api/"),
+            )
             .expect("convert provider");
-        assert_eq!(api_provider.base_url, "https://chatgpt.com/backend-api/savfox");
+        assert_eq!(
+            api_provider.base_url,
+            "https://chatgpt.com/backend-api/savfox"
+        );
     }
 
     #[test]

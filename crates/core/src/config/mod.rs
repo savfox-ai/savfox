@@ -11,6 +11,7 @@ use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_rmcp_client::OAuthCredentialsStoreMode;
 use savfox_utils_absolute_path::{AbsolutePathBuf, AbsolutePathBufGuard};
 use schemars::JsonSchema;
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use similar::DiffableStr;
 #[cfg(test)]
@@ -34,6 +35,7 @@ use crate::config_loader::{
 };
 use crate::features::{Feature, FeatureOverrides, Features, FeaturesToml};
 use crate::git_info::resolve_root_git_project_for_trust;
+use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::model_provider_info::{
     LMSTUDIO_OSS_PROVIDER_ID, ModelProviderInfo, OLLAMA_CHAT_PROVIDER_ID, OLLAMA_OSS_PROVIDER_ID,
     built_in_model_providers,
@@ -747,11 +749,59 @@ pub fn set_default_oss_provider(savfox_home: &Path, provider: &str) -> std::io::
         .map_err(|err| std::io::Error::other(format!("failed to persist config.toml: {err}")))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StructuredModelField {
+    provider: String,
+    model_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ModelFieldValue {
+    String(String),
+    Structured(StructuredModelField),
+}
+
+pub(crate) fn deserialize_model_field<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let parsed = Option::<ModelFieldValue>::deserialize(deserializer)?;
+    match parsed {
+        None => Ok(None),
+        Some(ModelFieldValue::String(value)) => {
+            let trimmed = value.trim();
+            if let Some((provider, model_code)) = parse_provider_prefixed_model(trimmed) {
+                Ok(Some(format!("{provider}/{model_code}")))
+            } else {
+                Ok(Some(trimmed.to_string()))
+            }
+        }
+        Some(ModelFieldValue::Structured(structured)) => {
+            let provider = structured.provider.trim();
+            let model_code = structured.model_code.trim();
+            if provider.is_empty() || model_code.is_empty() {
+                return Err(D::Error::custom(
+                    "`model.provider` and `model.model_code` must be non-empty",
+                ));
+            }
+            Ok(Some(format!("{provider}/{model_code}")))
+        }
+    }
+}
+
 /// Base config deserialized from ~/.savfox/config.toml.
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ConfigToml {
     /// Optional override of model selection.
+    ///
+    /// Accepted forms:
+    /// - `"glm-5"`
+    /// - `"provider/model_code"` (parsed using the last `/`)
+    /// - `{ provider = "provider", model_code = "glm-5" }`
+    #[serde(default, deserialize_with = "deserialize_model_field")]
     pub model: Option<String>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
@@ -1342,9 +1392,26 @@ impl Config {
             model_providers.entry(key).or_insert(provider);
         }
 
-        let model_provider_id = model_provider
+        let model = model.or(config_profile.model).or(cfg.model);
+
+        let explicit_model_provider = model_provider
             .or(config_profile.model_provider)
-            .or(cfg.model_provider)
+            .or(cfg.model_provider);
+        let inferred_model_provider = if explicit_model_provider.is_none() {
+            model
+                .as_deref()
+                .and_then(parse_provider_prefixed_model)
+                .and_then(|(provider_id, _)| {
+                    model_providers
+                        .keys()
+                        .find(|configured| configured.eq_ignore_ascii_case(provider_id))
+                        .cloned()
+                })
+        } else {
+            None
+        };
+        let model_provider_id = explicit_model_provider
+            .or(inferred_model_provider)
             .unwrap_or_else(|| "openai".to_string());
         let model_provider = model_providers
             .get(&model_provider_id)
@@ -1411,8 +1478,6 @@ impl Config {
             });
 
         let forced_login_method = cfg.forced_login_method;
-
-        let model = model.or(config_profile.model).or(cfg.model);
 
         let compact_prompt = compact_prompt.or(cfg.compact_prompt).and_then(|value| {
             let trimmed = value.trim();
@@ -1801,6 +1866,34 @@ persistence = "none"
                 max_bytes: None,
             }),
             history_no_persistence_cfg.history
+        );
+    }
+
+    #[test]
+    fn model_field_deserializes_struct_form() {
+        let cfg: ConfigToml = toml::from_str(
+            r#"
+model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
+"#,
+        )
+        .expect("TOML deserialization should succeed");
+        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+    }
+
+    #[test]
+    fn profile_model_field_deserializes_struct_form() {
+        let cfg: ConfigToml = toml::from_str(
+            r#"
+[profiles.dev]
+model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
+"#,
+        )
+        .expect("TOML deserialization should succeed");
+        assert_eq!(
+            cfg.profiles
+                .get("dev")
+                .and_then(|profile| profile.model.as_deref()),
+            Some("zhipuai-coding-plan/glm-5")
         );
     }
 
@@ -3678,6 +3771,133 @@ model_verbosity = "high"
             openai_provider,
             openai_chat_completions_provider,
         })
+    }
+
+    #[test]
+    fn infers_model_provider_from_prefixed_model_when_unset() -> std::io::Result<()> {
+        let mut cfg = ConfigToml {
+            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            ..Default::default()
+        };
+        let zhipu_provider = ModelProviderInfo {
+            name: "Zhipu AI Coding Plan".to_string(),
+            base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
+            env_key: Some("ZHIPUAI_API_KEY".to_string()),
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            wire_api: crate::WireApi::Chat,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        };
+        cfg.model_providers
+            .insert("zhipuai-coding-plan".to_string(), zhipu_provider.clone());
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+        let savfox_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
+        assert_eq!(config.model_provider, zhipu_provider);
+        Ok(())
+    }
+
+    #[test]
+    fn infers_model_provider_from_string_using_last_separator() -> std::io::Result<()> {
+        let mut cfg = ConfigToml {
+            model: Some("acme/team/glm-5".to_string()),
+            ..Default::default()
+        };
+        let provider = ModelProviderInfo {
+            name: "Acme Team".to_string(),
+            base_url: Some("https://example.invalid/v1".to_string()),
+            env_key: Some("ACME_API_KEY".to_string()),
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            wire_api: crate::WireApi::Chat,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        };
+        cfg.model_providers
+            .insert("acme/team".to_string(), provider.clone());
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+        let savfox_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "acme/team");
+        assert_eq!(config.model_provider, provider);
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_model_provider_takes_precedence_over_prefixed_model() -> std::io::Result<()> {
+        let mut cfg = ConfigToml {
+            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            model_provider: Some("openai".to_string()),
+            ..Default::default()
+        };
+        cfg.model_providers.insert(
+            "zhipuai-coding-plan".to_string(),
+            ModelProviderInfo {
+                name: "Zhipu AI Coding Plan".to_string(),
+                base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
+                env_key: Some("ZHIPUAI_API_KEY".to_string()),
+                env_key_instructions: None,
+                experimental_bearer_token: None,
+                wire_api: crate::WireApi::Chat,
+                query_params: None,
+                http_headers: None,
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                requires_openai_auth: false,
+                supports_websockets: false,
+            },
+        );
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+        let savfox_home = TempDir::new()?;
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "openai");
+        Ok(())
     }
 
     /// Users can specify config values at multiple levels that have the

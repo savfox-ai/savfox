@@ -12,6 +12,7 @@ use crate::protocol::AskForApproval;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ConfigProfile {
+    #[serde(default, deserialize_with = "crate::config::deserialize_model_field")]
     pub model: Option<String>,
     /// The key in the `model_providers` map identifying the
     /// [`ModelProviderInfo`] to use.

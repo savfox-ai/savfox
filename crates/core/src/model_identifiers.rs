@@ -10,11 +10,13 @@
 
 /// Parse a provider-prefixed model identifier.
 ///
-/// Returns `(provider_id, model_code)` when `identifier` contains exactly one
-/// provider prefix and both parts are non-empty after trimming.
+/// Returns `(provider_id, model_code)` when `identifier` contains at least one
+/// `/` and both parts are non-empty after trimming.
+///
+/// Parsing uses the **last** `/` so provider ids may themselves contain `/`.
 pub fn parse_provider_prefixed_model(identifier: &str) -> Option<(&str, &str)> {
     let trimmed = identifier.trim();
-    let (provider_id, model_code) = trimmed.split_once('/')?;
+    let (provider_id, model_code) = trimmed.rsplit_once('/')?;
     let provider_id = provider_id.trim();
     let model_code = model_code.trim();
     if provider_id.is_empty() || model_code.is_empty() {
@@ -49,6 +51,10 @@ mod tests {
             parse_provider_prefixed_model("zhipuai-coding-plan/glm-5"),
             Some(("zhipuai-coding-plan", "glm-5"))
         );
+        assert_eq!(
+            parse_provider_prefixed_model("team/provider/glm-5"),
+            Some(("team/provider", "glm-5"))
+        );
     }
 
     #[test]
@@ -67,6 +73,10 @@ mod tests {
         );
         assert_eq!(
             request_model_for_provider(" ZHIPUAI-CODING-PLAN/glm-5 ", "zhipuai-coding-plan"),
+            "glm-5"
+        );
+        assert_eq!(
+            request_model_for_provider("acme/team/glm-5", "acme/team"),
             "glm-5"
         );
     }
