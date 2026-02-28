@@ -27,3 +27,4 @@ _tasks.md
 _todos.md
 
 crates/gateway-server/static
+.tmp*
