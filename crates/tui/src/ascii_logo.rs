@@ -9,11 +9,11 @@ use crate::render::renderable::Renderable;
 
 /// Savfox ASCII logo – spells SAVFOX in solid block letters.
 pub const SAVFOX_LOGO: [&str; 5] = [
-    " ██████  ██    ██ ████████ ██████  ██████  ██    ██",
-    "██    ██ ██    ██    ██    ██     ██    ██  ██  ██ ",
-    "██    ██ ██    ██    ██    ██████ ██    ██   ████  ",
-    "██    ██ ██    ██    ██    ██     ██    ██  ██  ██ ",
-    " ██████   ██████     ██    ██      ██████  ██    ██",
+    " ██████    ████   ██    ██ ██████  ██████  ██    ██",
+    "██        ██  ██  ██    ██ ██     ██    ██  ██  ██ ",
+    " ██████  ████████ ██    ██ █████  ██    ██   ████  ",
+    "      ██ ██    ██  ██  ██  ██     ██    ██  ██  ██ ",
+    "██████   ██    ██   ████   ██      ██████  ██    ██",
 ];
 
 /// Width of the ASCII logo in columns.
@@ -22,11 +22,11 @@ pub const LOGO_WIDTH: u16 = 51;
 /// Height of the ASCII logo in rows.
 pub const LOGO_HEIGHT: u16 = 5;
 
-/// Fire-red gradient colors for each letter (O-U-T-F-O-X).
+/// Fire-red gradient colors for each letter (S-A-V-F-O-X).
 const FIRE_COLORS: [Color; 6] = [
-    Color::Rgb(180, 40, 20),  // O – deep crimson
-    Color::Rgb(210, 50, 10),  // U – fire red
-    Color::Rgb(235, 70, 0),   // T – red-orange
+    Color::Rgb(180, 40, 20),  // S – deep crimson
+    Color::Rgb(210, 50, 10),  // A – fire red
+    Color::Rgb(235, 70, 0),   // V – red-orange
     Color::Rgb(255, 100, 0),  // F – orange
     Color::Rgb(255, 140, 10), // O – amber
     Color::Rgb(255, 175, 30), // X – gold
@@ -34,9 +34,9 @@ const FIRE_COLORS: [Color; 6] = [
 
 /// Column ranges for each of the 6 letters in SAVFOX.
 const LETTER_RANGES: [(usize, usize); 6] = [
-    (0, 8),   // O
-    (9, 17),  // U
-    (18, 26), // T
+    (0, 8),   // S
+    (9, 17),  // A
+    (18, 26), // V
     (27, 33), // F
     (34, 42), // O
     (43, 51), // X

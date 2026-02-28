@@ -8,9 +8,63 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Get-DioxusOutDir {
+    param(
+        [Parameter(Mandatory = $true)][string]$DioxusTomlPath
+    )
+
+    if (-not (Test-Path $DioxusTomlPath)) {
+        return "dist"
+    }
+
+    $inApplicationSection = $false
+    foreach ($line in Get-Content -Path $DioxusTomlPath) {
+        if ($line -match '^\s*\[([^\]]+)\]\s*$') {
+            $inApplicationSection = ($matches[1].Trim() -eq "application")
+            continue
+        }
+
+        if ($inApplicationSection -and $line -match '^\s*out_dir\s*=\s*"([^"]+)"') {
+            return $matches[1]
+        }
+    }
+
+    return "dist"
+}
+
+function Sync-BuildOutput {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $sourceResolved = (Resolve-Path $SourcePath).Path
+    $destResolved = $null
+
+    if (Test-Path $DestinationPath) {
+        $destResolved = (Resolve-Path $DestinationPath).Path
+    }
+
+    if ($destResolved -and [string]::Equals($sourceResolved, $destResolved, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Host "==> Skipping copy to $Label (already at $destResolved)"
+        return
+    }
+
+    if (Test-Path $DestinationPath) {
+        Write-Host "==> Removing existing $Label"
+        Remove-Item -Recurse -Force $DestinationPath
+    }
+
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $SourcePath "*") $DestinationPath
+    Write-Host "==> Synced $Label to $DestinationPath"
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $webDir = Join-Path $repoRoot "crates/gateway-dixous"
+$dioxusTomlPath = Join-Path $webDir "Dioxus.toml"
 
 Push-Location $webDir
 
@@ -45,17 +99,15 @@ if (-not (Test-Path $buildPath)) {
 
 if (-not $SkipCopy) {
     $staticDir = Join-Path $repoRoot "crates/gateway-server/static"
-    
-    if (Test-Path $staticDir) {
-        Write-Host "==> Removing existing static folder"
-        Remove-Item -Recurse -Force $staticDir
-    }
-    
-    Write-Host "==> Copying build output to static folder"
-    New-Item -ItemType Directory -Path $staticDir -Force | Out-Null
-    Copy-Item -Recurse -Force (Join-Path $buildPath "*") $staticDir
-    
-    Write-Host "==> Web frontend ready at $staticDir"
+    $frontendOutDirName = Get-DioxusOutDir -DioxusTomlPath $dioxusTomlPath
+    $frontendOutDir = Join-Path $webDir $frontendOutDirName
+
+    Sync-BuildOutput -SourcePath $buildPath -DestinationPath $staticDir -Label "gateway static folder"
+    Sync-BuildOutput -SourcePath $buildPath -DestinationPath $frontendOutDir -Label "frontend out_dir"
+
+    Write-Host "==> Web frontend ready"
+    Write-Host "    - static: $staticDir"
+    Write-Host "    - out_dir: $frontendOutDir"
 }
 
 Pop-Location
