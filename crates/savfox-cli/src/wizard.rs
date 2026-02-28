@@ -20,6 +20,24 @@ pub struct WizardCommand {
 }
 
 const SUPPORTED_CHANNELS: [&str; 4] = ["discord", "telegram", "slack", "webhook"];
+const PROVIDER_LIST_DISPLAY_LIMIT: usize = 12;
+const WIZARD_PROVIDER_PRIORITY: [&str; 15] = [
+    "openai",
+    "anthropic",
+    "gemini",
+    "openrouter",
+    "groq",
+    "xai",
+    "deepseek",
+    "mistral",
+    "together",
+    "qwen",
+    "minimax",
+    "bedrock",
+    "ollama",
+    "ollama-chat",
+    "lmstudio",
+];
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[serde(rename_all = "snake_case")]
@@ -171,31 +189,159 @@ fn prompt_yes_no(prompt: &str, default_yes: bool) -> std::io::Result<bool> {
     }
 }
 
-fn normalize_provider(value: &str) -> Option<String> {
+#[derive(Debug, Clone)]
+struct ProviderOption {
+    id: String,
+    name: String,
+    requires_api_key: bool,
+}
+
+fn canonical_provider_alias(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
-        "openai" => Some("openai".to_string()),
-        "anthropic" => Some("anthropic".to_string()),
-        "groq" => Some("groq".to_string()),
-        "ollama" => Some("ollama".to_string()),
-        _ => None,
+        "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
+        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
+        "together" | "together-ai" => "togetherai".to_string(),
+        "gemini" => "google".to_string(),
+        "bedrock" => "amazon-bedrock".to_string(),
+        "qwen" => "alibaba".to_string(),
+        "googlevertex" | "google_vertex" => "google-vertex".to_string(),
+        "google_vertex_anthropic" => "google-vertex-anthropic".to_string(),
+        other => other.to_string(),
     }
+}
+
+fn provider_options() -> Vec<ProviderOption> {
+    let model_providers = savfox_core::built_in_model_providers();
+
+    let mut ordered_ids: Vec<String> = Vec::new();
+    for provider_id in WIZARD_PROVIDER_PRIORITY {
+        if model_providers.contains_key(provider_id) {
+            ordered_ids.push(provider_id.to_string());
+        }
+    }
+
+    let mut extras: Vec<String> = model_providers
+        .keys()
+        .filter(|provider_id| !ordered_ids.contains(provider_id))
+        .cloned()
+        .collect();
+    extras.sort_unstable();
+    ordered_ids.extend(extras);
+
+    ordered_ids
+        .into_iter()
+        .filter_map(|provider_id| {
+            let info = model_providers.get(provider_id.as_str())?;
+            Some(ProviderOption {
+                id: provider_id.clone(),
+                name: info.name.clone(),
+                requires_api_key: provider_requires_api_key(provider_id.as_str()),
+            })
+        })
+        .collect()
+}
+
+fn filter_provider_options<'a>(
+    providers: &'a [ProviderOption],
+    query: &str,
+) -> Vec<&'a ProviderOption> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return providers.iter().collect();
+    }
+    let needle = trimmed.to_ascii_lowercase();
+    providers
+        .iter()
+        .filter(|provider| {
+            let haystack = format!("{} {}", provider.id, provider.name).to_ascii_lowercase();
+            haystack.contains(&needle)
+        })
+        .collect()
+}
+
+fn resolve_provider_input(input: &str, providers: &[ProviderOption]) -> Option<String> {
+    let raw = input.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    if let Some(found) = providers
+        .iter()
+        .find(|provider| provider.id.eq_ignore_ascii_case(raw))
+    {
+        return Some(found.id.clone());
+    }
+
+    if let Some(found) = providers
+        .iter()
+        .find(|provider| provider.name.eq_ignore_ascii_case(raw))
+    {
+        return Some(found.id.clone());
+    }
+
+    let canonical = canonical_provider_alias(raw);
+    providers
+        .iter()
+        .find(|provider| provider.id.eq_ignore_ascii_case(canonical.as_str()))
+        .map(|provider| provider.id.clone())
 }
 
 fn provider_requires_api_key(provider: &str) -> bool {
-    !matches!(provider, "ollama")
+    !matches!(provider, "ollama" | "ollama-chat" | "lmstudio")
 }
 
-fn provider_env_var(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openai" => Some("OPENAI_API_KEY"),
-        "anthropic" => Some("ANTHROPIC_API_KEY"),
-        "groq" => Some("GROQ_API_KEY"),
-        _ => None,
+fn env_var_looks_like_secret(name: &str) -> bool {
+    let lowered = name.to_ascii_lowercase();
+    lowered.contains("api_key")
+        || lowered.contains("apikey")
+        || lowered.contains("token")
+        || lowered.contains("secret")
+}
+
+fn fallback_env_var_for_provider(provider: &str) -> String {
+    format!(
+        "{}_API_KEY",
+        provider.replace(['-', '/'], "_").to_ascii_uppercase()
+    )
+}
+
+fn provider_env_var(provider: &str) -> Option<String> {
+    let providers = savfox_core::built_in_model_providers();
+    let info = providers.get(provider)?;
+
+    if let Some(env_key) = info
+        .env_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(env_key.to_string());
     }
+
+    if let Some(headers) = &info.env_http_headers {
+        let mut candidates: Vec<String> = headers
+            .values()
+            .map(String::as_str)
+            .filter(|name| env_var_looks_like_secret(name))
+            .map(str::to_string)
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        if let Some(first) = candidates.first() {
+            return Some(first.clone());
+        }
+    }
+
+    None
 }
 
 fn provider_models(provider: &str) -> &'static [(&'static str, &'static str)] {
     match provider {
+        "openai" => &[
+            ("gpt-4.1", "Best for most tasks"),
+            ("gpt-4.1-mini", "Faster and cheaper"),
+            ("o4-mini", "Reasoning-focused model"),
+        ],
         "anthropic" => &[
             ("claude-sonnet-4-20250514", "Balanced Anthropic model"),
             ("claude-opus-4-20250514", "Higher quality Anthropic model"),
@@ -208,11 +354,8 @@ fn provider_models(provider: &str) -> &'static [(&'static str, &'static str)] {
             ("ollama/llama3.1", "Local model via Ollama"),
             ("ollama/qwen2.5-coder", "Local coding-focused model"),
         ],
-        _ => &[
-            ("gpt-4.1", "Best for most tasks"),
-            ("gpt-4.1-mini", "Faster and cheaper"),
-            ("o4-mini", "Reasoning-focused model"),
-        ],
+        "lmstudio" => &[("lmstudio/local-model", "Local model via LM Studio")],
+        _ => &[],
     }
 }
 
@@ -241,44 +384,114 @@ fn api_key_looks_valid(provider: &str, key: &str) -> bool {
 fn step_provider_selection(state: &mut WizardState, non_interactive: bool) -> anyhow::Result<()> {
     println!("{}", "Step 1: Provider Selection".bold());
     println!("{}", "-------------------------".bold());
+    let providers = provider_options();
+    if providers.is_empty() {
+        anyhow::bail!("no built-in model providers are available");
+    }
 
     if non_interactive {
-        let provider = std::env::var("SAVFOX_MODEL_PROVIDER")
+        let requested = std::env::var("SAVFOX_MODEL_PROVIDER")
             .ok()
-            .and_then(|v| normalize_provider(&v))
             .unwrap_or_else(|| state.provider.clone());
-        if normalize_provider(&provider).is_none() {
-            anyhow::bail!("invalid SAVFOX_MODEL_PROVIDER value: {provider}");
-        }
+        let provider = resolve_provider_input(requested.as_str(), &providers).ok_or_else(|| {
+            anyhow::anyhow!("invalid SAVFOX_MODEL_PROVIDER value: {requested}")
+        })?;
         state.provider = provider;
         println!("Using provider: {}", state.provider);
         println!();
         return Ok(());
     }
 
-    println!("Available providers:");
-    println!("  1. openai");
-    println!("  2. anthropic");
-    println!("  3. groq");
-    println!("  4. ollama (local)");
+    println!("Type to search providers, then select by number or provider id.");
+    println!(
+        "If the list is long, refine the search until your provider appears (use /all to reset)."
+    );
     println!();
 
+    let mut query = String::new();
     loop {
-        let selected = prompt_input_default("Choose provider (name or number)", "1")?;
-        let provider = match selected.trim() {
-            "1" => Some("openai".to_string()),
-            "2" => Some("anthropic".to_string()),
-            "3" => Some("groq".to_string()),
-            "4" => Some("ollama".to_string()),
-            raw => normalize_provider(raw),
-        };
-        if let Some(provider) = provider {
+        let filtered = filter_provider_options(&providers, query.as_str());
+        if filtered.is_empty() {
+            println!("No providers match '{query}'. Enter a new search.");
+            println!();
+            query.clear();
+            continue;
+        }
+
+        let visible = filtered.len().min(PROVIDER_LIST_DISPLAY_LIMIT);
+        if query.trim().is_empty() {
+            println!("Providers (showing {visible} of {}):", filtered.len());
+        } else {
+            println!(
+                "Providers matching '{}' (showing {visible} of {}):",
+                query,
+                filtered.len()
+            );
+        }
+        for (index, provider) in filtered.iter().take(visible).enumerate() {
+            let auth_note = if provider.requires_api_key {
+                "API key"
+            } else {
+                "local/no API key"
+            };
+            println!(
+                "  {}. {} ({}) - {}",
+                index + 1,
+                provider.name,
+                provider.id,
+                auth_note
+            );
+        }
+        if filtered.len() > visible {
+            println!(
+                "  ... {} more provider(s). Refine your search to narrow the list.",
+                filtered.len() - visible
+            );
+        }
+        println!();
+
+        let selected = prompt_input("Pick number/provider id, or type search text: ")?;
+        let trimmed = selected.trim();
+        if trimmed.eq_ignore_ascii_case("/all") {
+            query.clear();
+            println!();
+            continue;
+        }
+        if let Ok(index) = trimmed.parse::<usize>() {
+            if index >= 1 && index <= visible {
+                let provider = filtered[index - 1].id.clone();
+                state.provider = provider;
+                println!("Selected provider: {}", state.provider);
+                println!();
+                return Ok(());
+            }
+            println!("Selection out of range. Choose 1-{visible}.");
+            println!();
+            continue;
+        }
+
+        if let Some(provider) = resolve_provider_input(trimmed, &providers) {
             state.provider = provider;
             println!("Selected provider: {}", state.provider);
             println!();
             return Ok(());
         }
-        println!("Invalid provider. Try one of: openai, anthropic, groq, ollama.");
+
+        if !trimmed.is_empty() {
+            query = trimmed.to_string();
+            println!();
+            continue;
+        }
+
+        if visible == 1 {
+            state.provider = filtered[0].id.clone();
+            println!("Selected provider: {}", state.provider);
+            println!();
+            return Ok(());
+        }
+
+        println!("Enter a number, provider id, or search text.");
+        println!();
     }
 }
 
@@ -297,15 +510,16 @@ fn step_api_key(state: &mut WizardState, non_interactive: bool) -> anyhow::Resul
         return Ok(());
     }
 
-    let env_var = provider_env_var(&state.provider).unwrap_or("OPENAI_API_KEY");
-    if let Ok(existing) = std::env::var(env_var) {
+    let env_var =
+        provider_env_var(&state.provider).unwrap_or_else(|| fallback_env_var_for_provider(&state.provider));
+    if let Ok(existing) = std::env::var(env_var.as_str()) {
         if api_key_looks_valid(&state.provider, &existing) {
             let masked = if existing.len() > 8 {
                 format!("{}...{}", &existing[..4], &existing[existing.len() - 4..])
             } else {
                 "****".to_string()
             };
-            println!("Found existing key in {env_var}: {masked}");
+            println!("Found existing key in {}: {}", env_var, masked);
             if non_interactive || prompt_yes_no("Use this key?", true)? {
                 state.api_key = Some(existing);
                 println!();
@@ -348,6 +562,49 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
 
     let models = provider_models(&state.provider);
     println!("Provider: {}", state.provider);
+    if models.is_empty() {
+        println!(
+            "No curated model suggestions for '{}'. Enter a model id manually.",
+            state.provider
+        );
+        println!();
+
+        if non_interactive {
+            let model = std::env::var("SAVFOX_MODEL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .or_else(|| {
+                    (!state.model.trim().is_empty()).then_some(state.model.clone())
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing SAVFOX_MODEL for provider '{}' (no default model list available)",
+                        state.provider
+                    )
+                })?;
+            state.model = model;
+            println!("Using model: {}", state.model);
+            println!();
+            return Ok(());
+        }
+
+        loop {
+            let model = if state.model.trim().is_empty() {
+                prompt_input("Enter model id: ")?
+            } else {
+                prompt_input_default("Enter model id", state.model.as_str())?
+            };
+            if model.trim().is_empty() {
+                println!("Model cannot be empty.");
+                continue;
+            }
+            state.model = model.trim().to_string();
+            println!("Selected model: {}", state.model);
+            println!();
+            return Ok(());
+        }
+    }
+
     println!("Suggested models:");
     for (index, (name, description)) in models.iter().enumerate() {
         println!("  {}. {} - {}", index + 1, name, description);
@@ -358,6 +615,7 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
         let model = std::env::var("SAVFOX_MODEL")
             .ok()
             .filter(|v| !v.trim().is_empty())
+            .or_else(|| (!state.model.trim().is_empty()).then_some(state.model.clone()))
             .unwrap_or_else(|| models[0].0.to_string());
         state.model = model;
         println!("Using model: {}", state.model);
@@ -367,16 +625,18 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
 
     loop {
         let choice = prompt_input_default("Select model (number or name)", "1")?;
-        if let Ok(index) = choice.parse::<usize>() {
-            if index >= 1 && index <= models.len() {
-                state.model = models[index - 1].0.to_string();
-                break;
-            }
+        if let Ok(index) = choice.parse::<usize>()
+            && index >= 1
+            && index <= models.len()
+        {
+            state.model = models[index - 1].0.to_string();
+            break;
         }
         if !choice.trim().is_empty() {
             state.model = choice.trim().to_string();
             break;
         }
+        println!("Model cannot be empty.");
     }
 
     if state.model.trim().is_empty() {
@@ -569,7 +829,7 @@ pub async fn run_wizard(cmd: WizardCommand) -> anyhow::Result<()> {
                     "Found interrupted setup at '{}'. Resume?",
                     step_label(saved.next_step)
                 ),
-                true,
+                !first_run,
             )?
         };
         if should_resume {
