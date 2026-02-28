@@ -76,7 +76,8 @@ pub use model_provider_info::{
     LMSTUDIO_OSS_PROVIDER_ID, ModelProviderInfo, OLLAMA_CHAT_PROVIDER_ID, OLLAMA_OSS_PROVIDER_ID,
     WireApi, built_in_model_providers, create_oss_provider_with_base_url,
     get_bearer_token_override, inject_provider_auth_overrides_from_store,
-    remove_bearer_token_override, remove_env_override, set_bearer_token_override, set_env_override,
+    provider_default_base_url, remove_bearer_token_override, remove_env_override,
+    set_bearer_token_override, set_env_override,
 };
 mod event_mapping;
 pub mod review_format;

@@ -27,6 +27,7 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_STREAM_MAX_RETRIES: u64 = 5;
 const DEFAULT_REQUEST_MAX_RETRIES: u64 = 4;
 const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
+const DEFAULT_OPENAI_API_BASE_URL: &str = "https://api.openai.com/v1";
 /// Hard cap for user-configured `stream_max_retries`.
 const MAX_STREAM_MAX_RETRIES: u64 = 100;
 /// Hard cap for user-configured `request_max_retries`.
@@ -294,13 +295,23 @@ impl ModelProviderInfo {
 
     pub(crate) fn to_api_provider(
         &self,
+        provider_id: Option<&str>,
         auth_mode: Option<AuthMode>,
         chatgpt_base_url: Option<&str>,
     ) -> crate::error::Result<ApiProvider> {
-        let default_base_url = if matches!(auth_mode, Some(AuthMode::Chatgpt)) {
-            default_chatgpt_openai_base_url(chatgpt_base_url)
+        let default_base_url = if self.base_url.is_some() {
+            String::new()
         } else {
-            "https://api.openai.com/v1".to_string()
+            let is_openai_provider = provider_id.is_some_and(is_openai_provider_id)
+                || (provider_id.is_none() && self.is_openai());
+
+            if matches!(auth_mode, Some(AuthMode::Chatgpt)) && is_openai_provider {
+                default_chatgpt_openai_base_url(chatgpt_base_url)
+            } else {
+                provider_id
+                    .and_then(provider_default_base_url)
+                    .unwrap_or_else(|| DEFAULT_OPENAI_API_BASE_URL.to_string())
+            }
         };
         let base_url = self.base_url.clone().unwrap_or(default_base_url);
 
@@ -434,6 +445,141 @@ impl ModelProviderInfo {
     pub fn is_openai(&self) -> bool {
         self.name == OPENAI_PROVIDER_NAME
     }
+}
+
+fn is_openai_provider_id(provider_id: &str) -> bool {
+    canonical_provider_id(provider_id) == "openai"
+}
+
+fn canonical_provider_id(provider_id: &str) -> String {
+    match provider_id.trim().to_ascii_lowercase().as_str() {
+        "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
+        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
+        "together" | "together-ai" => "togetherai".to_string(),
+        "gemini" => "google".to_string(),
+        "bedrock" => "amazon-bedrock".to_string(),
+        "qwen" => "alibaba".to_string(),
+        "googlevertex" | "google_vertex" => "google-vertex".to_string(),
+        "google_vertex_anthropic" => "google-vertex-anthropic".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn built_in_provider_key(provider_id: &str) -> Option<String> {
+    match provider_id {
+        "alibaba" | "alibaba-cn" => Some("qwen".to_string()),
+        "amazon-bedrock" => Some("bedrock".to_string()),
+        "google" | "google-vertex" | "google-vertex-anthropic" => Some("gemini".to_string()),
+        "togetherai" => Some("together".to_string()),
+        "zhipuai" | "zhipuai-coding-plan" => None,
+        other => Some(other.to_string()),
+    }
+}
+
+fn known_provider_base_url_map(provider_id: &str) -> Option<Option<&'static str>> {
+    match provider_id {
+        "abacus" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "aihubmix" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "alibaba" => Some(Some("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "alibaba-cn" => Some(Some("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "amazon-bedrock" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "anthropic" => Some(Some("https://api.anthropic.com")),
+        "azure" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "azure-cognitive-services" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "bailing" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "baseten" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "cerebras" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "chutes" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "cloudflare-ai-gateway" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "cloudflare-workers-ai" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "cohere" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "cortecs" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "deepinfra" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "deepseek" => Some(Some("https://api.deepseek.com/v1")),
+        "fastrouter" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "fireworks-ai" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "friendli" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "github-copilot" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "github-copilot-enterprise" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "github-models" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "gitlab" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "google" => Some(Some("https://generativelanguage.googleapis.com/v1beta/openai")),
+        "google-vertex" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "google-vertex-anthropic" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "groq" => Some(Some("https://api.groq.com/openai/v1")),
+        "helicone" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "huggingface" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "iflowcn" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "inception" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "inference" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "io-net" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "kimi-for-coding" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "llama" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "lmstudio" => Some(Some("http://localhost:1234/v1")),
+        "lucidquery" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "minimax" => Some(Some("https://api.minimax.chat/v1")),
+        "minimax-cn" => Some(Some("https://api.minimax.chat/v1")),
+        "mistral" => Some(Some("https://api.mistral.ai/v1")),
+        "modelscope" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "moonshotai" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "moonshotai-cn" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "morph" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "nano-gpt" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "nebius" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "nvidia" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "ollama" => Some(Some("http://localhost:11434/v1")),
+        "ollama-chat" => Some(Some("http://localhost:11434/v1")),
+        "ollama-cloud" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "openai" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "opencode" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "openrouter" => Some(Some("https://openrouter.ai/api/v1")),
+        "other" => Some(None),
+        "ovhcloud" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "perplexity" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "poe" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "requesty" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "sap-ai-core" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "scaleway" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "siliconflow" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "siliconflow-cn" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "togetherai" => Some(Some("https://api.together.xyz/v1")),
+        "upstage" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "v0" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "venice" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "vercel" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "vultr" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "wandb" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "xai" => Some(Some("https://api.x.ai/v1")),
+        "xiaomi" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "zai" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "zai-coding-plan" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "zenmux" => Some(Some(DEFAULT_OPENAI_API_BASE_URL)),
+        "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
+        "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
+        _ => None,
+    }
+}
+
+pub fn provider_default_base_url(provider_id: &str) -> Option<String> {
+    let canonical = canonical_provider_id(provider_id);
+    let mapped_default = known_provider_base_url_map(canonical.as_str())?;
+
+    let provider_key = built_in_provider_key(&canonical);
+    if let Some(provider_key) = provider_key {
+        let built_in = built_in_model_providers();
+        if let Some(info) = built_in.get(provider_key.as_str()) {
+            if let Some(base_url) = info
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return Some(base_url.to_string());
+            }
+        }
+    }
+
+    mapped_default.map(str::to_string)
 }
 
 fn normalize_chatgpt_base_url(base_url: &str) -> String {
@@ -950,6 +1096,7 @@ env_key = "GEMINI_API_KEY"
         let provider = ModelProviderInfo::create_openai_provider();
         let api_provider = provider
             .to_api_provider(
+                Some("openai"),
                 Some(AuthMode::Chatgpt),
                 Some("https://chatgpt.com/backend-api/"),
             )
@@ -964,8 +1111,154 @@ env_key = "GEMINI_API_KEY"
     fn to_api_provider_derives_savfox_api_models_base_url() {
         let provider = ModelProviderInfo::create_openai_provider();
         let api_provider = provider
-            .to_api_provider(Some(AuthMode::Chatgpt), Some("https://api.taidge.com"))
+            .to_api_provider(
+                Some("openai"),
+                Some(AuthMode::Chatgpt),
+                Some("https://api.taidge.com"),
+            )
             .expect("convert provider");
         assert_eq!(api_provider.base_url, "https://api.taidge.com/api/savfox");
+    }
+
+    #[test]
+    fn to_api_provider_uses_known_provider_default_base_url_when_missing() {
+        let provider = ModelProviderInfo {
+            name: "Anthropic".to_string(),
+            base_url: None,
+            env_key: None,
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            wire_api: WireApi::Anthropic,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        };
+        let api_provider = provider
+            .to_api_provider(Some("anthropic"), None, None)
+            .expect("convert provider");
+        assert_eq!(api_provider.base_url, "https://api.anthropic.com");
+    }
+
+    #[test]
+    fn to_api_provider_uses_known_provider_alias_default_base_url_when_missing() {
+        let provider = ModelProviderInfo {
+            name: "Qwen".to_string(),
+            base_url: None,
+            env_key: None,
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            wire_api: WireApi::Chat,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        };
+        let api_provider = provider
+            .to_api_provider(Some("alibaba"), None, None)
+            .expect("convert provider");
+        assert_eq!(
+            api_provider.base_url,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        );
+    }
+
+    #[test]
+    fn provider_default_base_url_covers_all_known_provider_ids() {
+        let known_provider_ids = [
+            "abacus",
+            "aihubmix",
+            "alibaba",
+            "alibaba-cn",
+            "amazon-bedrock",
+            "anthropic",
+            "azure",
+            "azure-cognitive-services",
+            "bailing",
+            "baseten",
+            "cerebras",
+            "chutes",
+            "cloudflare-ai-gateway",
+            "cloudflare-workers-ai",
+            "cohere",
+            "cortecs",
+            "deepinfra",
+            "deepseek",
+            "fastrouter",
+            "fireworks-ai",
+            "friendli",
+            "github-copilot",
+            "github-copilot-enterprise",
+            "github-models",
+            "gitlab",
+            "google",
+            "google-vertex",
+            "google-vertex-anthropic",
+            "groq",
+            "helicone",
+            "huggingface",
+            "iflowcn",
+            "inception",
+            "inference",
+            "io-net",
+            "kimi-for-coding",
+            "llama",
+            "lmstudio",
+            "lucidquery",
+            "minimax",
+            "minimax-cn",
+            "mistral",
+            "modelscope",
+            "moonshotai",
+            "moonshotai-cn",
+            "morph",
+            "nano-gpt",
+            "nebius",
+            "nvidia",
+            "ollama",
+            "ollama-chat",
+            "ollama-cloud",
+            "openai",
+            "opencode",
+            "openrouter",
+            "other",
+            "ovhcloud",
+            "perplexity",
+            "poe",
+            "requesty",
+            "sap-ai-core",
+            "scaleway",
+            "siliconflow",
+            "siliconflow-cn",
+            "togetherai",
+            "upstage",
+            "v0",
+            "venice",
+            "vercel",
+            "vultr",
+            "wandb",
+            "xai",
+            "xiaomi",
+            "zai",
+            "zai-coding-plan",
+            "zenmux",
+            "zhipuai",
+            "zhipuai-coding-plan",
+        ];
+
+        for provider_id in known_provider_ids {
+            assert!(
+                provider_default_base_url(provider_id).is_some() || provider_id == "other",
+                "expected default base URL mapping for known provider id {provider_id}"
+            );
+        }
     }
 }

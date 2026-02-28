@@ -58,7 +58,7 @@ Applications building on top of `savfox app-server` should identify themselves v
 you are developing a new Savfox integration that is intended for enterprise use, please contact us to get it
 added to a known clients list. For more context: https://taidge.com/admin/api-reference#tag/Logs:-Savfox
 
-Example (from OpenAI's official VSCode extension):
+Example:
 
 ```json
 {

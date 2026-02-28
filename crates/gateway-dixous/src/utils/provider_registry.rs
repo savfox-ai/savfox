@@ -206,15 +206,93 @@ pub fn provider_needs_api_key(provider_id: &str) -> bool {
     !matches!(canonical.as_str(), "ollama" | "ollama-chat" | "lmstudio")
 }
 
-pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
-    let canonical = canonical_provider_id(provider_id);
-    match canonical.as_str() {
-        "ollama" | "ollama-chat" => Some("http://localhost:11434/v1"),
-        "lmstudio" => Some("http://localhost:1234/v1"),
-        "zhipuai" => Some("https://open.bigmodel.cn/api/paas/v4"),
-        "zhipuai-coding-plan" => Some("https://open.bigmodel.cn/api/coding/paas/v4"),
+fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'static str>> {
+    match provider_id {
+        "abacus" => Some(Some("https://api.openai.com/v1")),
+        "aihubmix" => Some(Some("https://api.openai.com/v1")),
+        "alibaba" => Some(Some("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "alibaba-cn" => Some(Some("https://dashscope.aliyuncs.com/compatible-mode/v1")),
+        "amazon-bedrock" => Some(Some("https://api.openai.com/v1")),
+        "anthropic" => Some(Some("https://api.anthropic.com")),
+        "azure" => Some(Some("https://api.openai.com/v1")),
+        "azure-cognitive-services" => Some(Some("https://api.openai.com/v1")),
+        "bailing" => Some(Some("https://api.openai.com/v1")),
+        "baseten" => Some(Some("https://api.openai.com/v1")),
+        "cerebras" => Some(Some("https://api.openai.com/v1")),
+        "chutes" => Some(Some("https://api.openai.com/v1")),
+        "cloudflare-ai-gateway" => Some(Some("https://api.openai.com/v1")),
+        "cloudflare-workers-ai" => Some(Some("https://api.openai.com/v1")),
+        "cohere" => Some(Some("https://api.openai.com/v1")),
+        "cortecs" => Some(Some("https://api.openai.com/v1")),
+        "deepinfra" => Some(Some("https://api.openai.com/v1")),
+        "deepseek" => Some(Some("https://api.deepseek.com/v1")),
+        "fastrouter" => Some(Some("https://api.openai.com/v1")),
+        "fireworks-ai" => Some(Some("https://api.openai.com/v1")),
+        "friendli" => Some(Some("https://api.openai.com/v1")),
+        "github-copilot" => Some(Some("https://api.openai.com/v1")),
+        "github-copilot-enterprise" => Some(Some("https://api.openai.com/v1")),
+        "github-models" => Some(Some("https://api.openai.com/v1")),
+        "gitlab" => Some(Some("https://api.openai.com/v1")),
+        "google" => Some(Some("https://generativelanguage.googleapis.com/v1beta/openai")),
+        "google-vertex" => Some(Some("https://api.openai.com/v1")),
+        "google-vertex-anthropic" => Some(Some("https://api.openai.com/v1")),
+        "groq" => Some(Some("https://api.groq.com/openai/v1")),
+        "helicone" => Some(Some("https://api.openai.com/v1")),
+        "huggingface" => Some(Some("https://api.openai.com/v1")),
+        "iflowcn" => Some(Some("https://api.openai.com/v1")),
+        "inception" => Some(Some("https://api.openai.com/v1")),
+        "inference" => Some(Some("https://api.openai.com/v1")),
+        "io-net" => Some(Some("https://api.openai.com/v1")),
+        "kimi-for-coding" => Some(Some("https://api.openai.com/v1")),
+        "llama" => Some(Some("https://api.openai.com/v1")),
+        "lmstudio" => Some(Some("http://localhost:1234/v1")),
+        "lucidquery" => Some(Some("https://api.openai.com/v1")),
+        "minimax" => Some(Some("https://api.minimax.chat/v1")),
+        "minimax-cn" => Some(Some("https://api.minimax.chat/v1")),
+        "mistral" => Some(Some("https://api.mistral.ai/v1")),
+        "modelscope" => Some(Some("https://api.openai.com/v1")),
+        "moonshotai" => Some(Some("https://api.openai.com/v1")),
+        "moonshotai-cn" => Some(Some("https://api.openai.com/v1")),
+        "morph" => Some(Some("https://api.openai.com/v1")),
+        "nano-gpt" => Some(Some("https://api.openai.com/v1")),
+        "nebius" => Some(Some("https://api.openai.com/v1")),
+        "nvidia" => Some(Some("https://api.openai.com/v1")),
+        "ollama" => Some(Some("http://localhost:11434/v1")),
+        "ollama-chat" => Some(Some("http://localhost:11434/v1")),
+        "ollama-cloud" => Some(Some("https://api.openai.com/v1")),
+        "openai" => Some(Some("https://api.openai.com/v1")),
+        "opencode" => Some(Some("https://api.openai.com/v1")),
+        "openrouter" => Some(Some("https://openrouter.ai/api/v1")),
+        "other" => Some(None),
+        "ovhcloud" => Some(Some("https://api.openai.com/v1")),
+        "perplexity" => Some(Some("https://api.openai.com/v1")),
+        "poe" => Some(Some("https://api.openai.com/v1")),
+        "requesty" => Some(Some("https://api.openai.com/v1")),
+        "sap-ai-core" => Some(Some("https://api.openai.com/v1")),
+        "scaleway" => Some(Some("https://api.openai.com/v1")),
+        "siliconflow" => Some(Some("https://api.openai.com/v1")),
+        "siliconflow-cn" => Some(Some("https://api.openai.com/v1")),
+        "togetherai" => Some(Some("https://api.together.xyz/v1")),
+        "upstage" => Some(Some("https://api.openai.com/v1")),
+        "v0" => Some(Some("https://api.openai.com/v1")),
+        "venice" => Some(Some("https://api.openai.com/v1")),
+        "vercel" => Some(Some("https://api.openai.com/v1")),
+        "vultr" => Some(Some("https://api.openai.com/v1")),
+        "wandb" => Some(Some("https://api.openai.com/v1")),
+        "xai" => Some(Some("https://api.x.ai/v1")),
+        "xiaomi" => Some(Some("https://api.openai.com/v1")),
+        "zai" => Some(Some("https://api.openai.com/v1")),
+        "zai-coding-plan" => Some(Some("https://api.openai.com/v1")),
+        "zenmux" => Some(Some("https://api.openai.com/v1")),
+        "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
+        "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
         _ => None,
     }
+}
+
+pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
+    let canonical = canonical_provider_id(provider_id);
+    provider_default_base_url_entry(canonical.as_str()).flatten()
 }
 
 pub fn provider_api_key_env(provider_id: &str) -> String {
@@ -295,6 +373,21 @@ pub fn provider_icon_text(provider_id: &str) -> String {
             } else {
                 text
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{known_provider_ids, provider_default_base_url_entry};
+
+    #[test]
+    fn default_base_url_map_covers_all_known_provider_ids() {
+        for provider_id in known_provider_ids() {
+            assert!(
+                provider_default_base_url_entry(provider_id).is_some(),
+                "expected default base url mapping entry for known provider id {provider_id}"
+            );
         }
     }
 }

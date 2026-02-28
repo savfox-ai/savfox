@@ -4765,19 +4765,28 @@ fn non_empty_trimmed(text: &str) -> Option<String> {
     }
 }
 
-fn normalized_provider_object(provider_id: &str) -> Value {
+fn normalized_provider_object(provider_id: &str, base_url: Option<&str>) -> Value {
+    let resolved_base_url = base_url
+        .and_then(non_empty_trimmed)
+        .or_else(|| model_test_default_base_url(provider_id));
+
     json!({
         "id": provider_id,
         "name": humanize_hyphenated_id(provider_id),
+        "base_url": resolved_base_url,
     })
 }
 
-fn normalized_model_object(provider_id: &str, model_code: &str) -> Value {
+fn normalized_model_object(
+    provider_id: &str,
+    model_code: &str,
+    provider_base_url: Option<&str>,
+) -> Value {
     json!({
         "id": format!("{provider_id}/{model_code}"),
         "code": model_code,
         "name": humanize_hyphenated_id(model_code),
-        "provider": normalized_provider_object(provider_id),
+        "provider": normalized_provider_object(provider_id, provider_base_url),
     })
 }
 
@@ -4792,9 +4801,20 @@ fn extract_provider_id(provider_value: &Value) -> Option<String> {
     }
 }
 
+fn extract_provider_base_url(provider_value: &Value) -> Option<String> {
+    match provider_value {
+        Value::Object(provider) => provider
+            .get("base_url")
+            .and_then(Value::as_str)
+            .and_then(non_empty_trimmed),
+        _ => None,
+    }
+}
+
 fn normalize_provider_value(provider_value: &mut Value) {
     if let Some(provider_id) = extract_provider_id(provider_value) {
-        *provider_value = normalized_provider_object(&provider_id);
+        let provider_base_url = extract_provider_base_url(provider_value);
+        *provider_value = normalized_provider_object(&provider_id, provider_base_url.as_deref());
     }
 }
 
@@ -4804,7 +4824,7 @@ fn normalize_model_value(model_value: &mut Value) {
             if let Some((provider_id, model_code)) =
                 savfox_core::parse_provider_prefixed_model(model_id.as_str())
             {
-                *model_value = normalized_model_object(provider_id, model_code);
+                *model_value = normalized_model_object(provider_id, model_code, None);
             }
         }
         Value::Object(model) => {
@@ -4816,11 +4836,16 @@ fn normalize_model_value(model_value: &mut Value) {
                 .as_deref()
                 .and_then(savfox_core::parse_provider_prefixed_model)
                 .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
+            let provider_base_url = model.get("provider").and_then(extract_provider_base_url);
 
             let provider_id = model
                 .get("provider")
                 .and_then(extract_provider_id)
-                .or_else(|| parsed_from_id.as_ref().map(|(provider, _)| provider.clone()));
+                .or_else(|| {
+                    parsed_from_id
+                        .as_ref()
+                        .map(|(provider, _)| provider.clone())
+                });
             let model_code = model
                 .get("code")
                 .and_then(Value::as_str)
@@ -4834,7 +4859,11 @@ fn normalize_model_value(model_value: &mut Value) {
                 .or_else(|| parsed_from_id.as_ref().map(|(_, code)| code.clone()));
 
             if let (Some(provider_id), Some(model_code)) = (provider_id, model_code) {
-                *model_value = normalized_model_object(&provider_id, &model_code);
+                *model_value = normalized_model_object(
+                    &provider_id,
+                    &model_code,
+                    provider_base_url.as_deref(),
+                );
                 return;
             }
 
@@ -7714,48 +7743,8 @@ fn canonical_models_provider_id(provider_id: &str) -> String {
     }
 }
 
-fn model_test_builtin_provider_key(provider_id: &str) -> Option<String> {
-    match provider_id {
-        "alibaba" | "alibaba-cn" => Some("qwen".to_string()),
-        "amazon-bedrock" => Some("bedrock".to_string()),
-        "google" | "google-vertex" | "google-vertex-anthropic" => Some("gemini".to_string()),
-        "togetherai" => Some("together".to_string()),
-        "zhipuai" | "zhipuai-coding-plan" => None,
-        "other" => None,
-        other => Some(other.to_string()),
-    }
-}
-
 fn model_test_default_base_url(provider_id: &str) -> Option<String> {
-    let canonical = canonical_models_provider_id(provider_id);
-    match canonical.as_str() {
-        "ollama" | "ollama-chat" => return Some("http://localhost:11434/v1".to_string()),
-        "lmstudio" => return Some("http://localhost:1234/v1".to_string()),
-        "zhipuai" => return Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
-        "zhipuai-coding-plan" => {
-            return Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string());
-        }
-        _ => {}
-    }
-
-    let provider_key = model_test_builtin_provider_key(&canonical)?;
-    let built_in = savfox_core::built_in_model_providers();
-    if let Some(info) = built_in.get(provider_key.as_str()) {
-        if let Some(base_url) = info
-            .base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return Some(base_url.to_string());
-        }
-    }
-
-    if provider_key == "openai" {
-        return Some("https://api.openai.com/v1".to_string());
-    }
-
-    None
+    savfox_core::provider_default_base_url(provider_id)
 }
 
 fn model_test_extract_count(payload: &Value) -> Option<usize> {
@@ -12927,6 +12916,10 @@ mod tests {
             config["model"]["provider"]["name"],
             json!("Zhipuai Coding Plan")
         );
+        assert_eq!(
+            config["model"]["provider"]["base_url"],
+            json!("https://open.bigmodel.cn/api/coding/paas/v4")
+        );
     }
 
     #[test]
@@ -12935,8 +12928,8 @@ mod tests {
             "profiles": {
                 "dev": {
                     "model": {
-                        "provider": "openai",
-                        "code": "gpt-4o-mini"
+                        "provider": "anthropic",
+                        "code": "claude-sonnet-4"
                     }
                 }
             }
@@ -12944,11 +12937,30 @@ mod tests {
 
         normalize_config_model_fields(&mut config);
 
-        assert_eq!(config["profiles"]["dev"]["model"]["id"], json!("openai/gpt-4o-mini"));
-        assert_eq!(config["profiles"]["dev"]["model"]["code"], json!("gpt-4o-mini"));
-        assert_eq!(config["profiles"]["dev"]["model"]["name"], json!("Gpt 4o Mini"));
-        assert_eq!(config["profiles"]["dev"]["model"]["provider"]["id"], json!("openai"));
-        assert_eq!(config["profiles"]["dev"]["model"]["provider"]["name"], json!("Openai"));
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["id"],
+            json!("anthropic/claude-sonnet-4")
+        );
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["code"],
+            json!("claude-sonnet-4")
+        );
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["name"],
+            json!("Claude Sonnet 4")
+        );
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["provider"]["id"],
+            json!("anthropic")
+        );
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["provider"]["name"],
+            json!("Anthropic")
+        );
+        assert_eq!(
+            config["profiles"]["dev"]["model"]["provider"]["base_url"],
+            json!("https://api.anthropic.com")
+        );
     }
 
     #[test]
@@ -12960,5 +12972,25 @@ mod tests {
         normalize_config_model_fields(&mut config);
 
         assert_eq!(config["model"], json!("gpt-5.1"));
+    }
+
+    #[test]
+    fn keeps_explicit_provider_base_url_when_present() {
+        let mut config = json!({
+            "model": {
+                "provider": {
+                    "id": "anthropic",
+                    "base_url": "https://example.invalid/anthropic"
+                },
+                "code": "claude-sonnet-4"
+            }
+        });
+
+        normalize_config_model_fields(&mut config);
+
+        assert_eq!(
+            config["model"]["provider"]["base_url"],
+            json!("https://example.invalid/anthropic")
+        );
     }
 }

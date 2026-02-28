@@ -249,6 +249,7 @@ impl ModelClient {
             None => None,
         };
         let api_provider = self.state.provider.to_api_provider(
+            Some(self.state.config.model_provider_id.as_str()),
             auth.as_ref().map(SavfoxAuth::internal_auth_mode),
             Some(self.state.config.chatgpt_base_url.as_str()),
         )?;
@@ -664,6 +665,7 @@ impl ModelClientSession {
                 None => None,
             };
             let api_provider = self.state.provider.to_api_provider(
+                Some(self.state.config.model_provider_id.as_str()),
                 auth.as_ref().map(SavfoxAuth::internal_auth_mode),
                 Some(self.state.config.chatgpt_base_url.as_str()),
             )?;
@@ -733,6 +735,7 @@ impl ModelClientSession {
                 None => None,
             };
             let api_provider = self.state.provider.to_api_provider(
+                Some(self.state.config.model_provider_id.as_str()),
                 auth.as_ref().map(SavfoxAuth::internal_auth_mode),
                 Some(self.state.config.chatgpt_base_url.as_str()),
             )?;
@@ -789,6 +792,7 @@ impl ModelClientSession {
                 None => None,
             };
             let api_provider = self.state.provider.to_api_provider(
+                Some(self.state.config.model_provider_id.as_str()),
                 auth.as_ref().map(SavfoxAuth::internal_auth_mode),
                 Some(self.state.config.chatgpt_base_url.as_str()),
             )?;
@@ -858,6 +862,7 @@ impl ModelClientSession {
                 None => None,
             };
             let api_provider = self.state.provider.to_api_provider(
+                Some(self.state.config.model_provider_id.as_str()),
                 auth.as_ref().map(SavfoxAuth::internal_auth_mode),
                 Some(self.state.config.chatgpt_base_url.as_str()),
             )?;
