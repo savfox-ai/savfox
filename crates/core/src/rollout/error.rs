@@ -1,4 +1,4 @@
-﻿use std::io::ErrorKind;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use crate::error::SavfoxError;

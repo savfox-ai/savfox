@@ -1,4 +1,4 @@
-﻿use savfox_protocol::models::{ContentItem, ResponseItem};
+use savfox_protocol::models::{ContentItem, ResponseItem};
 use serde::{Deserialize, Serialize};
 
 pub const USER_INSTRUCTIONS_OPEN_TAG_LEGACY: &str = "<user_instructions>";

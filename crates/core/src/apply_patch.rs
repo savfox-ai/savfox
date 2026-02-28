@@ -1,12 +1,12 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use savfox_apply_patch::{ApplyPatchAction, ApplyPatchFileChange};
 
 use crate::function_tool::FunctionCallError;
-use crate::savfox::TurnContext;
 use crate::protocol::FileChange;
 use crate::safety::{SafetyCheck, assess_patch_safety};
+use crate::savfox::TurnContext;
 use crate::tools::sandboxing::ExecApprovalRequirement;
 
 pub const SAVFOX_APPLY_PATCH_ARG1: &str = "--savfox-run-as-apply-patch";

@@ -1,4 +1,4 @@
-﻿//! Helpers for mapping config parse/validation failures to file locations and
+//! Helpers for mapping config parse/validation failures to file locations and
 //! rendering them in a user-friendly way.
 
 use std::fmt::Write;

@@ -1,9 +1,9 @@
-﻿use crate::agent::AgentStatus;
+use crate::agent::AgentStatus;
 use crate::error::Result as SavfoxResult;
-use crate::savfox::Savfox;
 use crate::protocol::Event;
 use crate::protocol::Op;
 use crate::protocol::Submission;
+use crate::savfox::Savfox;
 use savfox_protocol::config_types::Personality;
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::protocol::AskForApproval;

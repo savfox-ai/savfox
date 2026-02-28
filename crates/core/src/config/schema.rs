@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use schemars::r#gen::{SchemaGenerator, SchemaSettings};
 use schemars::schema::{InstanceType, ObjectValidation, RootSchema, Schema, SchemaObject};

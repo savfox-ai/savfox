@@ -1,4 +1,4 @@
-﻿use savfox_protocol::models::ContentItem;
+use savfox_protocol::models::ContentItem;
 
 /// Helpers for identifying model-visible "session prefix" messages.
 ///

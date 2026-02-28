@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,12 +20,12 @@ use crate::ModelProviderInfo;
 use crate::SavfoxAuth;
 use crate::agent::AgentControl;
 use crate::config::Config;
-use crate::error::{SavfoxError, Result as SavfoxResult};
+use crate::error::{Result as SavfoxResult, SavfoxError};
 use crate::models_manager::manager::ModelsManager;
-use crate::savfox::{INITIAL_SUBMIT_ID, Savfox, SavfoxSpawnOk};
-use crate::savfox_session::SavfoxSession;
 use crate::protocol::{Event, EventMsg, SessionConfiguredEvent};
 use crate::rollout::{RolloutRecorder, truncation};
+use crate::savfox::{INITIAL_SUBMIT_ID, Savfox, SavfoxSpawnOk};
+use crate::savfox_session::SavfoxSession;
 use crate::skills::SkillsManager;
 
 const THREAD_CREATED_CHANNEL_CAPACITY: usize = 1024;
@@ -446,8 +446,8 @@ fn truncate_before_nth_user_message(history: InitialHistory, n: usize) -> Initia
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use savfox_protocol::models::{ContentItem, ReasoningItemReasoningSummary, ResponseItem};
     use pretty_assertions::assert_eq;
+    use savfox_protocol::models::{ContentItem, ReasoningItemReasoningSummary, ResponseItem};
 
     use super::*;
     use crate::savfox::make_session_and_context;

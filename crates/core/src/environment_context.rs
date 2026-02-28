@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::{ENVIRONMENT_CONTEXT_CLOSE_TAG, ENVIRONMENT_CONTEXT_OPEN_TAG};

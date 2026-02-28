@@ -1,6 +1,7 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rmcp::model::ToolAnnotations;
 use savfox_protocol::mcp::CallToolResult;
 use savfox_protocol::models::{FunctionCallOutputPayload, ResponseInputItem};
 use savfox_protocol::protocol::{AskForApproval, SandboxPolicy};
@@ -8,12 +9,11 @@ use savfox_protocol::request_user_input::{
     RequestUserInputArgs, RequestUserInputQuestion, RequestUserInputQuestionOption,
     RequestUserInputResponse,
 };
-use rmcp::model::ToolAnnotations;
 use tracing::error;
 
 use crate::mcp::SAVFOX_APPS_MCP_SERVER_NAME;
-use crate::savfox::{Session, TurnContext};
 use crate::protocol::{EventMsg, McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent};
+use crate::savfox::{Session, TurnContext};
 
 /// Handles the specified tool call dispatches the appropriate
 /// `McpToolCallBegin` and `McpToolCallEnd` events to the `Session`.

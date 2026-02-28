@@ -1,4 +1,4 @@
-﻿//! Unified Exec: interactive process execution orchestrated with approvals + sandboxing.
+//! Unified Exec: interactive process execution orchestrated with approvals + sandboxing.
 //!
 //! Responsibilities
 //! - Manages interactive processes (create, reuse, buffer output with caps).
@@ -29,8 +29,8 @@ use std::time::Duration;
 use rand::{Rng, rng};
 use tokio::sync::Mutex;
 
-use crate::savfox::{Session, TurnContext};
 use crate::sandboxing::SandboxPermissions;
+use crate::savfox::{Session, TurnContext};
 
 mod async_watcher;
 mod errors;
@@ -163,8 +163,8 @@ mod tests {
 
     use super::head_tail_buffer::HeadTailBuffer;
     use super::*;
-    use crate::savfox::{Session, TurnContext, make_session_and_context};
     use crate::protocol::{AskForApproval, SandboxPolicy};
+    use crate::savfox::{Session, TurnContext, make_session_and_context};
     use crate::unified_exec::{ExecCommandRequest, WriteStdinRequest};
 
     async fn test_session_and_turn() -> (Arc<Session>, Arc<TurnContext>) {

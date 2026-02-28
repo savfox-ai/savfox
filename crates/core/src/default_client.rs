@@ -1,8 +1,8 @@
-﻿use std::sync::{LazyLock, Mutex, RwLock};
+use std::sync::{LazyLock, Mutex, RwLock};
 
+use reqwest::header::{HeaderMap, HeaderValue};
 use savfox_client::SavfoxHttpClient;
 pub use savfox_client::SavfoxRequestBuilder;
-use reqwest::header::{HeaderMap, HeaderValue};
 
 use crate::config_loader::ResidencyRequirement;
 use crate::spawn::SAVFOX_SANDBOX_ENV_VAR;

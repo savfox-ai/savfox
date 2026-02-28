@@ -1,4 +1,4 @@
-﻿//! Utilities for truncating large chunks of output while preserving a prefix
+//! Utilities for truncating large chunks of output while preserving a prefix
 //! and suffix on UTF-8 boundaries, and helpers for line/token‑based truncation
 //! used across the core crate.
 
@@ -306,8 +306,8 @@ pub(crate) fn approx_tokens_from_byte_count(bytes: usize) -> u64 {
 #[cfg(test)]
 mod tests {
 
-    use savfox_protocol::models::FunctionCallOutputContentItem;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::models::FunctionCallOutputContentItem;
 
     use super::{
         TruncationPolicy, approx_token_count, formatted_truncate_text, split_string,

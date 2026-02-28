@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use savfox_otel::OtelManager;
 use tokio::sync::{Mutex, RwLock};

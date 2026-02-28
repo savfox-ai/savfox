@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use savfox_protocol::custom_prompts::CustomPrompt;

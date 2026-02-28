@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ use crate::api_bridge::{auth_provider_from_auth, map_api_error};
 use crate::auth::{AuthManager, AuthMode};
 use crate::config::Config;
 use crate::default_client::build_reqwest_client;
-use crate::error::{SavfoxError, Result as CoreResult};
+use crate::error::{Result as CoreResult, SavfoxError};
 use crate::features::Feature;
 use crate::model_provider_info::ModelProviderInfo;
 use crate::models_manager::collaboration_mode_presets::builtin_collaboration_mode_presets;
@@ -393,8 +393,8 @@ impl ModelsManager {
 mod tests {
     use chrono::Utc;
     use core_test_support::responses::mount_models_once;
-    use savfox_protocol::openai_models::ModelsResponse;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::openai_models::ModelsResponse;
     use serde_json::json;
     use tempfile::tempdir;
     use wiremock::MockServer;

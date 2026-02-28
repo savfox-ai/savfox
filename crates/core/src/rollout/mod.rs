@@ -1,4 +1,4 @@
-﻿//! Rollout module: persistence and discovery of session rollout files.
+//! Rollout module: persistence and discovery of session rollout files.
 
 use savfox_protocol::protocol::SessionSource;
 
@@ -21,8 +21,8 @@ pub use list::find_session_path_by_id_str as find_conversation_path_by_id_str;
 pub use list::{
     find_archived_session_path_by_id_str, find_session_path_by_id_str, rollout_date_parts,
 };
-pub use savfox_protocol::protocol::SessionMeta;
 pub use recorder::{RolloutRecorder, RolloutRecorderParams};
+pub use savfox_protocol::protocol::SessionMeta;
 pub use session_index::find_session_path_by_name_str;
 
 #[cfg(test)]

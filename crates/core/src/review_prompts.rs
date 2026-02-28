@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use savfox_git::merge_base_with_head;
 use savfox_protocol::protocol::{ReviewRequest, ReviewTarget};

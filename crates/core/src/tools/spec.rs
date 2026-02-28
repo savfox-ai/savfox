@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use savfox_protocol::config_types::WebSearchMode;
 use savfox_protocol::dynamic_tools::DynamicToolSpec;

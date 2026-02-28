@@ -1,4 +1,4 @@
-﻿use std::collections::VecDeque;
+use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs::FileType;
 use std::path::{Path, PathBuf};

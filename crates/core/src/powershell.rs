@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 #[cfg(any(windows, test))]
 use savfox_utils_absolute_path::AbsolutePathBuf;

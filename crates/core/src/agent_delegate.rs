@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -25,9 +25,9 @@ use crate::AuthManager;
 use crate::config::Config;
 use crate::error::SavfoxError;
 use crate::models_manager::manager::ModelsManager;
+use crate::savfox::SUBMISSION_CHANNEL_CAPACITY;
 use crate::savfox::Savfox;
 use crate::savfox::SavfoxSpawnOk;
-use crate::savfox::SUBMISSION_CHANNEL_CAPACITY;
 use crate::savfox::Session;
 use crate::savfox::TurnContext;
 use savfox_protocol::protocol::InitialHistory;
@@ -437,12 +437,12 @@ where
 mod tests {
     use super::*;
     use async_channel::bounded;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::models::ResponseItem;
     use savfox_protocol::protocol::AgentStatus;
     use savfox_protocol::protocol::RawResponseItemEvent;
     use savfox_protocol::protocol::TurnAbortReason;
     use savfox_protocol::protocol::TurnAbortedEvent;
-    use pretty_assertions::assert_eq;
     use tokio::sync::watch;
 
     #[tokio::test]

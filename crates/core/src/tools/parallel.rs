@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use savfox_protocol::models::{FunctionCallOutputPayload, ResponseInputItem};

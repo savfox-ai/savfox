@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use savfox_protocol::config_types::WebSearchMode;
@@ -12,9 +12,9 @@ use savfox_protocol::user_input::UserInput;
 use tokio_util::sync::CancellationToken;
 
 use super::{SessionTask, SessionTaskContext};
+use crate::review_format::{format_review_findings_block, render_review_output_text};
 use crate::savfox::{Session, TurnContext};
 use crate::savfox_delegate::run_savfox_session_one_shot;
-use crate::review_format::{format_review_findings_block, render_review_output_text};
 use crate::state::TaskKind;
 
 #[derive(Clone, Copy)]

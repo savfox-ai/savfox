@@ -1,4 +1,4 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use savfox_protocol::protocol::{AskForApproval, SandboxPolicy};
 use savfox_protocol::request_user_input::{
@@ -411,8 +411,8 @@ fn mcp_dependency_to_server_config(
 mod tests {
     use std::path::PathBuf;
 
-    use savfox_protocol::protocol::SkillScope;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::protocol::SkillScope;
 
     use super::*;
     use crate::skills::model::SkillDependencies;

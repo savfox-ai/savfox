@@ -1,4 +1,4 @@
-﻿use savfox_protocol::openai_models::ReasoningEffort;
+use savfox_protocol::openai_models::ReasoningEffort;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;

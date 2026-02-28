@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 mod device_code_auth;
 mod pkce;

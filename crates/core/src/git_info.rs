@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use futures::future::join_all;

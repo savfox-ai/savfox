@@ -1,4 +1,4 @@
-﻿use std::error::Error;
+use std::error::Error;
 
 use savfox_otel::config::{
     OtelExporter, OtelHttpProtocol, OtelSettings, OtelTlsConfig as OtelTlsSettings,

@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use savfox_app_server_protocol::ConfigLayerMetadata;
 use serde_json::Value as JsonValue;

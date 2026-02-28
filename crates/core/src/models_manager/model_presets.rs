@@ -1,4 +1,4 @@
-﻿use indoc::indoc;
+use indoc::indoc;
 use once_cell::sync::Lazy;
 use savfox_protocol::openai_models::{
     ModelPreset, ModelUpgrade, ReasoningEffort, ReasoningEffortPreset, default_input_modalities,

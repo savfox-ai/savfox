@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::io;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::Child;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::{SavfoxError, Result, SandboxErr};
+use crate::error::{Result, SandboxErr, SavfoxError};
 use crate::get_platform_sandbox;
 use crate::protocol::{
     Event, EventMsg, ExecCommandOutputDeltaEvent, ExecOutputStream, SandboxPolicy,

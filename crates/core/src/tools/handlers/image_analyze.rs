@@ -1,4 +1,4 @@
-﻿use async_trait::async_trait;
+use async_trait::async_trait;
 use savfox_protocol::models::{
     ContentItem, ResponseInputItem, local_image_content_items_with_label_number,
 };

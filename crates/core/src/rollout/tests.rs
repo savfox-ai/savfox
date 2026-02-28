@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::ffi::OsStr;
 use std::fs::{
@@ -8,13 +8,13 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
+use pretty_assertions::assert_eq;
 use savfox_protocol::SessionId;
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::{
     EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionSource,
     UserMessageEvent,
 };
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use time::format_description::FormatItem;
 use time::macros::format_description;

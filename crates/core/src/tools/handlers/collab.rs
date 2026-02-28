@@ -1,4 +1,4 @@
-﻿use async_trait::async_trait;
+use async_trait::async_trait;
 use savfox_protocol::SessionId;
 use savfox_protocol::models::BaseInstructions;
 use savfox_protocol::protocol::{
@@ -653,8 +653,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use savfox_protocol::SessionId;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::SessionId;
     use serde::Deserialize;
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -665,8 +665,8 @@ mod tests {
     use crate::client::ModelClient;
     use crate::config::types::ShellEnvironmentPolicy;
     use crate::function_tool::FunctionCallError;
-    use crate::savfox::make_session_and_context;
     use crate::protocol::{AskForApproval, Op, SandboxPolicy, SessionSource, SubAgentSource};
+    use crate::savfox::make_session_and_context;
     use crate::turn_diff_tracker::TurnDiffTracker;
     use crate::{SavfoxAuth, SessionManager, built_in_model_providers};
 

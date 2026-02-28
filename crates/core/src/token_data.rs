@@ -4,7 +4,7 @@ use thiserror::Error;
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default)]
 pub struct TokenData {
-    /// Flat info parsed from the JWT in auth.json.
+    /// Flat info parsed from the persisted auth JWT.
     #[serde(
         deserialize_with = "deserialize_id_token",
         serialize_with = "serialize_id_token"
@@ -19,7 +19,7 @@ pub struct TokenData {
     pub account_id: Option<String>,
 }
 
-/// Flat subset of useful claims in id_token from auth.json.
+/// Flat subset of useful claims in id_token from persisted auth storage.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct IdTokenInfo {
     pub email: Option<String>,

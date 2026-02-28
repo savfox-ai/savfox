@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use savfox_protocol::parse_command::ParsedCommand;
 use shlex::{split as shlex_split, try_join as shlex_try_join};

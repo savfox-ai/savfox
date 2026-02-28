@@ -1,4 +1,4 @@
-﻿use savfox_protocol::config_types::Verbosity;
+use savfox_protocol::config_types::Verbosity;
 use savfox_protocol::openai_models::{
     ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
     ModelVisibility, ReasoningEffort, ReasoningEffortPreset, TruncationMode,

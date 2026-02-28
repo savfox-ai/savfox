@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use savfox_protocol::models::{ShellCommandToolCallParams, ShellToolCallParams};
@@ -8,8 +8,8 @@ use crate::exec_env::create_env;
 use crate::exec_policy::ExecApprovalRequest;
 use crate::function_tool::FunctionCallError;
 use crate::is_safe_command::is_known_safe_command;
-use crate::savfox::TurnContext;
 use crate::protocol::ExecCommandSource;
+use crate::savfox::TurnContext;
 use crate::shell::Shell;
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::events::{ToolEmitter, ToolEventCtx};
@@ -323,17 +323,17 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use savfox_protocol::models::ShellCommandToolCallParams;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::models::ShellCommandToolCallParams;
     use tokio::sync::watch;
 
     use crate::exec_env::create_env;
     use crate::is_safe_command::is_known_safe_command;
-    use crate::savfox::make_session_and_context;
     use crate::powershell::{
         try_find_powershell_executable_blocking, try_find_pwsh_executable_blocking,
     };
     use crate::sandboxing::SandboxPermissions;
+    use crate::savfox::make_session_and_context;
     use crate::shell::{Shell, ShellType};
     use crate::shell_snapshot::ShellSnapshot;
     use crate::tools::handlers::ShellCommandHandler;

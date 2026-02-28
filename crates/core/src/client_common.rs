@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -233,9 +233,9 @@ impl Stream for ResponseStream {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use savfox_api::common::{OpenAiVerbosity, TextControls};
     use savfox_api::{ResponsesApiRequest, create_text_param_for_request};
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

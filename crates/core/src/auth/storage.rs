@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
@@ -13,6 +13,7 @@ use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
@@ -23,7 +24,7 @@ use crate::token_data::TokenData;
 #[serde(rename_all = "lowercase")]
 pub enum AuthCredentialsStoreMode {
     #[default]
-    /// Persist credentials in SAVFOX_HOME/auth.json.
+    /// Persist credentials in SAVFOX_HOME/models/chatgpt.json.
     File,
     /// Persist credentials in the keyring. Fail if unavailable.
     Keyring,
@@ -33,7 +34,7 @@ pub enum AuthCredentialsStoreMode {
     Ephemeral,
 }
 
-/// Expected structure for $SAVFOX_HOME/auth.json.
+/// Internal auth payload used by runtime auth flows.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct AuthDotJson {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,17 +50,110 @@ pub struct AuthDotJson {
     pub last_refresh: Option<DateTime<Utc>>,
 }
 
+const MODELS_DIR_NAME: &str = "models";
+const CHATGPT_PROVIDER_ID: &str = "chatgpt";
+const CHATGPT_DISPLAY_NAME: &str = "ChatGPT";
+
+fn default_provider_file_version() -> u32 {
+    2
+}
+
+fn default_auth_type() -> String {
+    "api_key".to_string()
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+struct ProviderStoreFile {
+    #[serde(default = "default_provider_file_version")]
+    version: u32,
+    #[serde(default)]
+    provider_id: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    auth: Option<ProviderStoreAuth>,
+    #[serde(default)]
+    models: Vec<Value>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+struct ProviderStoreAuth {
+    #[serde(rename = "type", default = "default_auth_type")]
+    auth_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    env_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auth_mode: Option<AuthMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tokens: Option<TokenData>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_refresh: Option<DateTime<Utc>>,
+}
+
+impl From<&AuthDotJson> for ProviderStoreFile {
+    fn from(auth: &AuthDotJson) -> Self {
+        let auth_type = if auth.tokens.is_some() || auth.auth_mode == Some(AuthMode::Chatgpt) {
+            "chatgpt_oauth".to_string()
+        } else {
+            "api_key".to_string()
+        };
+        Self {
+            version: 2,
+            provider_id: CHATGPT_PROVIDER_ID.to_string(),
+            display_name: CHATGPT_DISPLAY_NAME.to_string(),
+            auth: Some(ProviderStoreAuth {
+                auth_type,
+                env_key: Some("OPENAI_API_KEY".to_string()),
+                api_key: auth.openai_api_key.clone(),
+                auth_mode: auth.auth_mode,
+                tokens: auth.tokens.clone(),
+                last_refresh: auth.last_refresh,
+            }),
+            models: Vec::new(),
+        }
+    }
+}
+
+impl ProviderStoreFile {
+    fn into_auth_dot_json(self) -> Option<AuthDotJson> {
+        let auth = self.auth?;
+        if auth.api_key.is_none() && auth.tokens.is_none() && auth.auth_mode.is_none() {
+            return None;
+        }
+
+        Some(AuthDotJson {
+            auth_mode: auth.auth_mode,
+            openai_api_key: auth.api_key,
+            tokens: auth.tokens,
+            last_refresh: auth.last_refresh,
+        })
+    }
+}
+
 pub(super) fn get_auth_file(savfox_home: &Path) -> PathBuf {
+    savfox_home
+        .join(MODELS_DIR_NAME)
+        .join(format!("{CHATGPT_PROVIDER_ID}.json"))
+}
+
+fn get_legacy_auth_file(savfox_home: &Path) -> PathBuf {
     savfox_home.join("auth.json")
 }
 
-pub(super) fn delete_file_if_exists(savfox_home: &Path) -> std::io::Result<bool> {
-    let auth_file = get_auth_file(savfox_home);
-    match std::fs::remove_file(&auth_file) {
+fn remove_file_if_exists(path: &Path) -> std::io::Result<bool> {
+    match std::fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(err) => Err(err),
     }
+}
+
+pub(super) fn delete_file_if_exists(savfox_home: &Path) -> std::io::Result<bool> {
+    let current_removed = remove_file_if_exists(get_auth_file(savfox_home).as_path())?;
+    let legacy_removed = remove_file_if_exists(get_legacy_auth_file(savfox_home).as_path())?;
+    Ok(current_removed || legacy_removed)
 }
 
 pub(super) trait AuthStorageBackend: Debug + Send + Sync {
@@ -78,26 +172,35 @@ impl FileAuthStorage {
         Self { savfox_home }
     }
 
-    /// Attempt to read and parse the `auth.json` file in the given `SAVFOX_HOME` directory.
-    /// Returns the full AuthDotJson structure.
+    /// Attempt to read and parse a persisted auth file in the given `SAVFOX_HOME` directory.
     pub(super) fn try_read_auth_json(&self, auth_file: &Path) -> std::io::Result<AuthDotJson> {
         let mut file = File::open(auth_file)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        let auth_dot_json: AuthDotJson = serde_json::from_str(&contents)?;
-
-        Ok(auth_dot_json)
+        if let Ok(provider_file) = serde_json::from_str::<ProviderStoreFile>(&contents) {
+            if let Some(auth) = provider_file.into_auth_dot_json() {
+                return Ok(auth);
+            }
+        }
+        serde_json::from_str(&contents).map_err(Into::into)
     }
 }
 
 impl AuthStorageBackend for FileAuthStorage {
     fn load(&self) -> std::io::Result<Option<AuthDotJson>> {
-        let auth_file = get_auth_file(&self.savfox_home);
-        let auth_dot_json = match self.try_read_auth_json(&auth_file) {
-            Ok(auth) => auth,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(err) => return Err(err),
-        };
+        let auth_dot_json =
+            match self.try_read_auth_json(get_auth_file(&self.savfox_home).as_path()) {
+                Ok(auth) => auth,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    let legacy_auth_file = get_legacy_auth_file(&self.savfox_home);
+                    match self.try_read_auth_json(&legacy_auth_file) {
+                        Ok(auth) => auth,
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                        Err(err) => return Err(err),
+                    }
+                }
+                Err(err) => return Err(err),
+            };
         Ok(Some(auth_dot_json))
     }
 
@@ -107,7 +210,8 @@ impl AuthStorageBackend for FileAuthStorage {
         if let Some(parent) = auth_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let json_data = serde_json::to_string_pretty(auth_dot_json)?;
+        let provider_file = ProviderStoreFile::from(auth_dot_json);
+        let json_data = serde_json::to_string_pretty(&provider_file)?;
         let mut options = OpenOptions::new();
         options.truncate(true).write(true).create(true);
         #[cfg(unix)]
@@ -117,6 +221,9 @@ impl AuthStorageBackend for FileAuthStorage {
         let mut file = options.open(auth_file)?;
         file.write_all(json_data.as_bytes())?;
         file.flush()?;
+        if let Err(err) = remove_file_if_exists(get_legacy_auth_file(&self.savfox_home).as_path()) {
+            warn!("failed to remove legacy auth.json: {err}");
+        }
         Ok(())
     }
 
@@ -331,8 +438,8 @@ mod tests {
     use anyhow::Context;
     use base64::Engine;
     use keyring::Error as KeyringError;
-    use savfox_keyring_store::tests::MockKeyringStore;
     use pretty_assertions::assert_eq;
+    use savfox_keyring_store::tests::MockKeyringStore;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -379,6 +486,18 @@ mod tests {
             .try_read_auth_json(&file)
             .context("failed to read auth file after save")?;
         assert_eq!(auth_dot_json, same_auth_dot_json);
+
+        let raw_file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
+        assert_eq!(raw_file["version"], 2);
+        assert_eq!(raw_file["provider_id"], "chatgpt");
+        assert_eq!(raw_file["display_name"], "ChatGPT");
+        assert_eq!(raw_file["auth"]["type"], "api_key");
+        assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
+        assert_eq!(raw_file["auth"]["api_key"], "test-key");
+        assert!(
+            raw_file["models"].as_array().is_some(),
+            "provider store file should include a models array"
+        );
         Ok(())
     }
 
@@ -393,11 +512,11 @@ mod tests {
         };
         let storage = create_auth_storage(dir.path().to_path_buf(), AuthCredentialsStoreMode::File);
         storage.save(&auth_dot_json)?;
-        assert!(dir.path().join("auth.json").exists());
+        assert!(get_auth_file(dir.path()).exists());
         let storage = FileAuthStorage::new(dir.path().to_path_buf());
         let removed = storage.delete()?;
         assert!(removed);
-        assert!(!dir.path().join("auth.json").exists());
+        assert!(!get_auth_file(dir.path()).exists());
         Ok(())
     }
 
@@ -470,7 +589,7 @@ mod tests {
         let auth_file = get_auth_file(savfox_home);
         assert!(
             !auth_file.exists(),
-            "fallback auth.json should be removed after keyring save"
+            "fallback auth file should be removed after keyring save"
         );
     }
 
@@ -606,7 +725,7 @@ mod tests {
         );
         assert!(
             !auth_file.exists(),
-            "fallback auth.json should be removed after keyring delete"
+            "fallback auth file should be removed after keyring delete"
         );
         Ok(())
     }
@@ -710,7 +829,7 @@ mod tests {
         let auth_file = get_auth_file(savfox_home.path());
         assert!(
             auth_file.exists(),
-            "fallback auth.json should be created when keyring save fails"
+            "fallback auth file should be created when keyring save fails"
         );
         let saved = storage
             .file_storage
@@ -747,7 +866,7 @@ mod tests {
         );
         assert!(
             !auth_file.exists(),
-            "fallback auth.json should be removed after delete"
+            "fallback auth file should be removed after delete"
         );
         Ok(())
     }

@@ -1,4 +1,4 @@
-﻿//! Project-level documentation discovery.
+//! Project-level documentation discovery.
 //!
 //! Project-level documentation is primarily stored in files named `AGENTS.md`.
 //! Additional fallback filenames can be configured via `project_doc_fallback_filenames`.

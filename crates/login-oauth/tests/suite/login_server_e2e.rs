@@ -1,7 +1,7 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 use std::net::{SocketAddr, TcpListener};
 use std::time::Duration;
-use std::{io, session};
+use std::{io, thread};
 
 use anyhow::Result;
 use base64::Engine;
@@ -12,7 +12,7 @@ use tempfile::tempdir;
 
 // See spawn.rs for details
 
-fn start_mock_issuer(chatgpt_account_id: &str) -> (SocketAddr, session::JoinHandle<()>) {
+fn start_mock_issuer(chatgpt_account_id: &str) -> (SocketAddr, thread::JoinHandle<()>) {
     // Bind to a random available port
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let addr = listener.local_addr().unwrap();
@@ -76,7 +76,7 @@ fn start_mock_issuer(chatgpt_account_id: &str) -> (SocketAddr, session::JoinHand
 }
 
 #[tokio::test]
-async fn end_to_end_login_flow_persists_auth_json() -> Result<()> {
+async fn end_to_end_login_flow_persists_chatgpt_provider_store_file() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let chatgpt_account_id = "12345678-0000-0000-0000-000000000000";
@@ -86,18 +86,27 @@ async fn end_to_end_login_flow_persists_auth_json() -> Result<()> {
     let tmp = tempdir()?;
     let savfox_home = tmp.path().to_path_buf();
 
-    // Seed auth.json with stale API key + tokens that should be overwritten.
+    // Seed the ChatGPT provider auth file with stale credentials that should be overwritten.
     let stale_auth = serde_json::json!({
-        "OPENAI_API_KEY": "sk-stale",
-        "tokens": {
-            "id_token": "stale.header.payload",
-            "access_token": "stale-access",
-            "refresh_token": "stale-refresh",
-            "account_id": "stale-acc"
-        }
+        "version": 2,
+        "provider_id": "chatgpt",
+        "display_name": "ChatGPT",
+        "auth": {
+            "type": "chatgpt_oauth",
+            "env_key": "OPENAI_API_KEY",
+            "api_key": "sk-stale",
+            "tokens": {
+                "id_token": "stale.header.payload",
+                "access_token": "stale-access",
+                "refresh_token": "stale-refresh",
+                "account_id": "stale-acc"
+            }
+        },
+        "models": []
     });
+    std::fs::create_dir_all(savfox_home.join("models"))?;
     std::fs::write(
-        savfox_home.join("auth.json"),
+        savfox_home.join("models").join("chatgpt.json"),
         serde_json::to_string_pretty(&stale_auth)?,
     )?;
 
@@ -136,17 +145,20 @@ async fn end_to_end_login_flow_persists_auth_json() -> Result<()> {
     // Wait for server shutdown
     server.block_until_done().await?;
 
-    // Validate auth.json
-    let auth_path = savfox_home.join("auth.json");
+    // Validate models/chatgpt.json
+    let auth_path = savfox_home.join("models").join("chatgpt.json");
     let data = std::fs::read_to_string(&auth_path)?;
     let json: serde_json::Value = serde_json::from_str(&data)?;
+    assert_eq!(json["version"], 2);
+    assert_eq!(json["provider_id"], "chatgpt");
+    assert_eq!(json["display_name"], "ChatGPT");
     // The following assert is here because of the old oauth flow that exchanges tokens for an
     // API key. See obtain_api_key in server.rs for details. Once we remove this old mechanism
     // from the code, this test should be updated to expect that the API key is no longer present.
-    assert_eq!(json["OPENAI_API_KEY"], "access-123");
-    assert_eq!(json["tokens"]["access_token"], "access-123");
-    assert_eq!(json["tokens"]["refresh_token"], "refresh-123");
-    assert_eq!(json["tokens"]["account_id"], chatgpt_account_id);
+    assert_eq!(json["auth"]["api_key"], "access-123");
+    assert_eq!(json["auth"]["tokens"]["access_token"], "access-123");
+    assert_eq!(json["auth"]["tokens"]["refresh_token"], "refresh-123");
+    assert_eq!(json["auth"]["tokens"]["account_id"], chatgpt_account_id);
 
     // Stop mock issuer
     drop(issuer_handle);
@@ -187,10 +199,10 @@ async fn creates_missing_savfox_home_dir() -> Result<()> {
 
     server.block_until_done().await?;
 
-    let auth_path = savfox_home.join("auth.json");
+    let auth_path = savfox_home.join("models").join("chatgpt.json");
     assert!(
         auth_path.exists(),
-        "auth.json should be created even if parent dir was missing"
+        "models/chatgpt.json should be created even if parent dir was missing"
     );
     Ok(())
 }
@@ -243,16 +255,16 @@ async fn forced_chatgpt_workspace_id_mismatch_blocks_login() -> Result<()> {
     let err = result.unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
 
-    let auth_path = savfox_home.join("auth.json");
+    let auth_path = savfox_home.join("models").join("chatgpt.json");
     assert!(
         !auth_path.exists(),
-        "auth.json should not be written when the workspace mismatches"
+        "models/chatgpt.json should not be written when the workspace mismatches"
     );
 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancels_previous_login_server_when_port_is_in_use() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

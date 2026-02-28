@@ -22,7 +22,7 @@ Implement three login methods similar to Codex CLI:
 - [x] State parameter for CSRF protection
 - [x] Browser auto-launch support
 - [x] Token exchange endpoint (`/oauth/token`)
-- [x] Token persistence to auth.json
+- [x] Token persistence to models/chatgpt.json
 
 ### 1.2 Token Management
 - [x] ID token parsing and validation
@@ -70,7 +70,7 @@ Implement three login methods similar to Codex CLI:
 ### 3.1 API Key Implementation
 - [x] Environment variable detection (`OPENAI_API_KEY`, `SAVFOX_API_KEY`) - `crates/core/src/auth.rs`
 - [x] API key validation (non-empty check)
-- [x] Persistence to auth.json
+- [x] Persistence to models/chatgpt.json
 
 ### 3.2 TUI Integration
 - [x] API key input UI - `crates/tui/src/onboarding/auth.rs`
@@ -87,7 +87,7 @@ Implement three login methods similar to Codex CLI:
 ## 4. Common Infrastructure
 
 ### 4.1 Auth Storage
-- [x] File-based storage (`auth.json`) - `crates/core/src/auth/storage.rs`
+- [x] File-based storage (`models/chatgpt.json`) - `crates/core/src/auth/storage.rs`
 - [x] Keyring storage support
 - [x] Ephemeral (in-memory) storage for external tokens
 - [x] Auto mode (keyring with file fallback)

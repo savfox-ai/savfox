@@ -1,4 +1,4 @@
-﻿use savfox_protocol::items::{
+use savfox_protocol::items::{
     AgentMessageContent, AgentMessageItem, ReasoningItem, TurnItem, UserMessageItem, WebSearchItem,
 };
 use savfox_protocol::models::{
@@ -137,13 +137,13 @@ pub fn parse_turn_item(item: &ResponseItem) -> Option<TurnItem> {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use savfox_protocol::items::{AgentMessageContent, TurnItem, WebSearchItem};
     use savfox_protocol::models::{
         ContentItem, ReasoningItemContent, ReasoningItemReasoningSummary, ResponseItem,
         WebSearchAction,
     };
     use savfox_protocol::user_input::UserInput;
-    use pretty_assertions::assert_eq;
 
     use super::parse_turn_item;
 

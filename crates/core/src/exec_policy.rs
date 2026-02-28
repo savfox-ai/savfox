@@ -1,4 +1,4 @@
-﻿use std::io::ErrorKind;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -557,10 +557,10 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
+    use pretty_assertions::assert_eq;
     use savfox_app_server_protocol::ConfigLayerSource;
     use savfox_protocol::protocol::{AskForApproval, SandboxPolicy};
     use savfox_utils_absolute_path::AbsolutePathBuf;
-    use pretty_assertions::assert_eq;
     use tempfile::tempdir;
     use toml::Value as TomlValue;
 

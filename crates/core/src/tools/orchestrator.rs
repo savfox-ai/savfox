@@ -1,4 +1,4 @@
-﻿// Module: orchestrator
+// Module: orchestrator
 //
 // Central place for approvals + sandbox selection + retry semantics. Drives a
 // simple sequence for any ToolRuntime: approval → select sandbox → attempt →
@@ -6,7 +6,7 @@
 use savfox_otel::ToolDecisionSource;
 use savfox_protocol::protocol::{AskForApproval, ReviewDecision};
 
-use crate::error::{SavfoxError, SandboxErr};
+use crate::error::{SandboxErr, SavfoxError};
 use crate::exec::ExecToolCallOutput;
 use crate::sandboxing::SandboxManager;
 use crate::tools::sandboxing::{

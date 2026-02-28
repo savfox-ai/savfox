@@ -1,4 +1,4 @@
-﻿mod compact;
+mod compact;
 mod ghost_snapshot;
 mod regular;
 mod review;
@@ -11,11 +11,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 pub(crate) use compact::CompactTask;
 pub(crate) use ghost_snapshot::GhostSnapshotTask;
+pub(crate) use regular::RegularTask;
+pub(crate) use review::ReviewTask;
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::RolloutItem;
 use savfox_protocol::user_input::UserInput;
-pub(crate) use regular::RegularTask;
-pub(crate) use review::ReviewTask;
 use tokio::select;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -26,8 +26,8 @@ pub(crate) use user_shell::UserShellCommandTask;
 
 use crate::AuthManager;
 use crate::models_manager::manager::ModelsManager;
-use crate::savfox::{Session, TurnContext};
 use crate::protocol::{EventMsg, TurnAbortReason, TurnAbortedEvent, TurnCompleteEvent};
+use crate::savfox::{Session, TurnContext};
 use crate::session_prefix::TURN_ABORTED_OPEN_TAG;
 use crate::state::{ActiveTurn, RunningTask, TaskKind};
 

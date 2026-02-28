@@ -1,4 +1,4 @@
-﻿//! Connection manager for Model Context Protocol (MCP) servers.
+//! Connection manager for Model Context Protocol (MCP) servers.
 //!
 //! The [`McpConnectionManager`] owns one [`savfox_rmcp_client::RmcpClient`] per
 //! configured server (keyed by the *server name*). It offers convenience
@@ -16,6 +16,11 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow};
 use async_channel::Sender;
 use futures::future::{BoxFuture, FutureExt, Shared};
+use rmcp::model::{
+    ClientCapabilities, ElicitationCapability, Implementation, InitializeRequestParam,
+    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam, ProtocolVersion,
+    ReadResourceRequestParam, ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
+};
 use savfox_async_utils::{CancelErr, OrCancelExt};
 use savfox_protocol::approvals::ElicitationRequestEvent;
 use savfox_protocol::mcp::{CallToolResult, RequestId as ProtocolRequestId};
@@ -25,11 +30,6 @@ use savfox_protocol::protocol::{
 };
 use savfox_rmcp_client::{
     ElicitationResponse, OAuthCredentialsStoreMode, RmcpClient, SendElicitation,
-};
-use rmcp::model::{
-    ClientCapabilities, ElicitationCapability, Implementation, InitializeRequestParam,
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam, ProtocolVersion,
-    ReadResourceRequestParam, ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
 };
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -1046,8 +1046,8 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    use savfox_protocol::protocol::McpAuthStatus;
     use rmcp::model::JsonObject;
+    use savfox_protocol::protocol::McpAuthStatus;
 
     use super::*;
 

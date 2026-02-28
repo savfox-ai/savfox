@@ -1,4 +1,4 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use savfox_protocol::models::{ContentItem, ResponseItem};
 

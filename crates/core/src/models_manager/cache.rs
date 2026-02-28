@@ -1,4 +1,4 @@
-﻿use std::io;
+use std::io;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::time::Duration;

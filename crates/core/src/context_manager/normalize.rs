@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 
 use savfox_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use tracing::info;

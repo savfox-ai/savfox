@@ -1,4 +1,4 @@
-﻿//! Turn-scoped state and active turn metadata scaffolding.
+//! Turn-scoped state and active turn metadata scaffolding.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,8 +11,8 @@ use tokio::sync::{Mutex, Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::savfox::TurnContext;
 use crate::protocol::ReviewDecision;
+use crate::savfox::TurnContext;
 use crate::tasks::SessionTask;
 
 /// Metadata about the currently running turn.

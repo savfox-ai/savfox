@@ -1,4 +1,4 @@
-﻿use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc};
 use http::HeaderMap;
 use savfox_api::error::ApiError;
 use savfox_api::rate_limits::{parse_promo_message, parse_rate_limit};
@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::auth::SavfoxAuth;
 use crate::error::{
-    ModelCapError, SavfoxError, RetryLimitReachedError, UnexpectedResponseError,
+    ModelCapError, RetryLimitReachedError, SavfoxError, UnexpectedResponseError,
     UsageLimitReachedError,
 };
 use crate::model_provider_info::ModelProviderInfo;

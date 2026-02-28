@@ -1,4 +1,4 @@
-﻿use std::ops::Deref;
+use std::ops::Deref;
 
 use savfox_protocol::models::{
     ContentItem, FunctionCallOutputContentItem, FunctionCallOutputPayload, ResponseItem,

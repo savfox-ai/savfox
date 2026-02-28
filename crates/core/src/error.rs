@@ -1,11 +1,11 @@
-﻿use std::io;
+use std::io;
 use std::time::Duration;
 
 use chrono::{DateTime, Datelike, Local, Utc};
+use reqwest::StatusCode;
 use savfox_async_utils::CancelErr;
 use savfox_protocol::SessionId;
-use savfox_protocol::protocol::{ErrorEvent, SavfoxErrorInfo, RateLimitSnapshot};
-use reqwest::StatusCode;
+use savfox_protocol::protocol::{ErrorEvent, RateLimitSnapshot, SavfoxErrorInfo};
 use serde_json;
 use thiserror::Error;
 use tokio::task::JoinError;
@@ -624,9 +624,9 @@ pub fn get_error_message_ui(e: &SavfoxError) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, Duration as ChronoDuration, TimeZone, Utc};
-    use savfox_protocol::protocol::RateLimitWindow;
     use pretty_assertions::assert_eq;
     use reqwest::{Response, ResponseBuilderExt, StatusCode, Url};
+    use savfox_protocol::protocol::RateLimitWindow;
 
     use super::*;
     use crate::exec::StreamOutput;

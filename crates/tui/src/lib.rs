@@ -1,4 +1,4 @@
-﻿// Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
+// Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
 // The standalone `savfox-tui` binary prints a short help message before the
 // alternate‑screen mode starts; that file opts‑out locally via `allow`.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
@@ -29,7 +29,7 @@ use savfox_core::protocol::AskForApproval;
 use savfox_core::terminal::Multiplexer;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
-    AuthManager, INTERACTIVE_SESSION_SOURCES, SavfoxAuth, RolloutRecorder, SessionSortKey,
+    AuthManager, INTERACTIVE_SESSION_SOURCES, RolloutRecorder, SavfoxAuth, SessionSortKey,
     find_session_path_by_id_str, find_session_path_by_name_str, path_utils, read_session_meta_line,
 };
 use savfox_protocol::config_types::{AltScreenMode, SandboxMode, WindowsSandboxLevel};
@@ -840,7 +840,7 @@ fn get_login_status(config: &Config) -> LoginStatus {
             Ok(Some(auth)) => LoginStatus::AuthMode(auth.api_auth_mode()),
             Ok(None) => LoginStatus::NotAuthenticated,
             Err(err) => {
-                error!("Failed to read auth.json: {err}");
+                error!("Failed to read auth storage: {err}");
                 LoginStatus::NotAuthenticated
             }
         }

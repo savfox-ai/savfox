@@ -1,4 +1,4 @@
-﻿// Runtime: unified exec
+// Runtime: unified exec
 //
 // Handles approval + sandbox orchestration for unified exec requests, delegating to
 // the process manager to spawn PTYs once an ExecEnv is prepared.
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 use savfox_protocol::protocol::ReviewDecision;
 
-use crate::error::{SavfoxError, SandboxErr};
+use crate::error::{SandboxErr, SavfoxError};
 use crate::exec::ExecExpiration;
 use crate::features::Feature;
 use crate::powershell::prefix_powershell_script_with_utf8;

@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use futures::prelude::*;
 use savfox_protocol::items::{ContextCompactionItem, TurnItem};
@@ -8,10 +8,10 @@ use savfox_protocol::user_input::UserInput;
 use tracing::error;
 
 use crate::client_common::ResponseEvent;
-use crate::error::{SavfoxError, Result as SavfoxResult};
+use crate::error::{Result as SavfoxResult, SavfoxError};
 use crate::features::Feature;
-use crate::savfox::{Session, TurnContext, get_last_assistant_message_from_turn};
 use crate::protocol::{CompactedItem, EventMsg, TurnContextItem, TurnStartedEvent, WarningEvent};
+use crate::savfox::{Session, TurnContext, get_last_assistant_message_from_turn};
 use crate::session_prefix::TURN_ABORTED_OPEN_TAG;
 use crate::truncate::{TruncationPolicy, approx_token_count, truncate_text};
 use crate::util::backoff;

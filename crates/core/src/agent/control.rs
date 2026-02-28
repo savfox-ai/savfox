@@ -1,4 +1,4 @@
-﻿use std::sync::{Arc, Weak};
+use std::sync::{Arc, Weak};
 
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::Op;
@@ -7,7 +7,7 @@ use tokio::sync::watch;
 
 use crate::agent::AgentStatus;
 use crate::agent::guards::Guards;
-use crate::error::{SavfoxError, Result as SavfoxResult};
+use crate::error::{Result as SavfoxResult, SavfoxError};
 use crate::session_manager::SessionManagerState;
 
 /// Control-plane handle for multi-agent operations.
@@ -139,12 +139,12 @@ impl AgentControl {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::config_types::ModeKind;
     use savfox_protocol::protocol::{
         ErrorEvent, EventMsg, TurnAbortReason, TurnAbortedEvent, TurnCompleteEvent,
         TurnStartedEvent,
     };
-    use pretty_assertions::assert_eq;
     use tempfile::TempDir;
     use toml::Value as TomlValue;
 

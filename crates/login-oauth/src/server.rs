@@ -1,4 +1,4 @@
-﻿use std::io::{
+use std::io::{
     Cursor, Read, Write, {self},
 };
 use std::net::{SocketAddr, TcpStream};
@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use base64::Engine;
 use chrono::Utc;
+use rand::RngCore;
 use savfox_app_server_protocol::AuthMode;
 use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
 use savfox_core::default_client::originator;
 use savfox_core::token_data::{TokenData, parse_id_token};
-use rand::RngCore;
 use serde_json::Value as JsonValue;
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 

@@ -1,4 +1,4 @@
-﻿use std::pin::Pin;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::Future;
@@ -8,11 +8,11 @@ use savfox_protocol::models::{FunctionCallOutputPayload, ResponseInputItem, Resp
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument};
 
-use crate::error::{SavfoxError, Result};
+use crate::error::{Result, SavfoxError};
 use crate::function_tool::FunctionCallError;
-use crate::savfox::{Session, TurnContext};
 use crate::parse_turn_item;
 use crate::proposed_plan_parser::strip_proposed_plan_blocks;
+use crate::savfox::{Session, TurnContext};
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolRouter;
 

@@ -1,12 +1,12 @@
-﻿//! Session-wide mutable state.
+//! Session-wide mutable state.
 
 use std::collections::{HashMap, HashSet};
 
 use savfox_protocol::models::ResponseItem;
 
 use crate::context_manager::ContextManager;
-use crate::savfox::SessionConfiguration;
 use crate::protocol::{RateLimitSnapshot, TokenUsage, TokenUsageInfo};
+use crate::savfox::SessionConfiguration;
 use crate::truncate::TruncationPolicy;
 
 /// Persistent, session-scoped state previously stored directly on `Session`.

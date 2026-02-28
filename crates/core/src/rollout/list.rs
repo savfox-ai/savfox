@@ -1,4 +1,4 @@
-﻿use std::cmp::Reverse;
+use std::cmp::Reverse;
 use std::ffi::OsStr;
 use std::io::{self};
 use std::num::NonZero;

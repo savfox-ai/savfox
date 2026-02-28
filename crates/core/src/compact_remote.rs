@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use savfox_protocol::items::{ContextCompactionItem, TurnItem};
 use savfox_protocol::models::ResponseItem;
@@ -7,8 +7,8 @@ use tracing::info;
 use crate::Prompt;
 use crate::context_manager::{ContextManager, is_savfox_generated_item};
 use crate::error::Result as SavfoxResult;
-use crate::savfox::{Session, TurnContext};
 use crate::protocol::{CompactedItem, EventMsg, RolloutItem, TurnStartedEvent};
+use crate::savfox::{Session, TurnContext};
 
 pub(crate) async fn run_inline_remote_auto_compact_task(
     sess: Arc<Session>,

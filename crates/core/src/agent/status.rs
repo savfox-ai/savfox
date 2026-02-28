@@ -1,4 +1,4 @@
-﻿use savfox_protocol::protocol::{AgentStatus, EventMsg};
+use savfox_protocol::protocol::{AgentStatus, EventMsg};
 
 /// Derive the next agent status from a single emitted event.
 /// Returns `None` when the event does not affect status tracking.

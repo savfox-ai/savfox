@@ -1,4 +1,4 @@
-﻿use regex::Regex;
+use regex::Regex;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

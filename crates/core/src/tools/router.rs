@@ -1,17 +1,17 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use rmcp::model::Tool;
 use savfox_protocol::dynamic_tools::DynamicToolSpec;
 use savfox_protocol::models::{
     LocalShellAction, ResponseInputItem, ResponseItem, ShellToolCallParams,
 };
-use rmcp::model::Tool;
 use tracing::instrument;
 
 use crate::client_common::tools::ToolSpec;
 use crate::function_tool::FunctionCallError;
-use crate::savfox::{Session, TurnContext};
 use crate::sandboxing::SandboxPermissions;
+use crate::savfox::{Session, TurnContext};
 use crate::tools::context::{SharedTurnDiffTracker, ToolInvocation, ToolPayload};
 use crate::tools::registry::{ConfiguredToolSpec, ToolRegistry};
 use crate::tools::spec::{ToolsConfig, build_specs};

@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -12,8 +12,8 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::savfox::TurnContext;
 use crate::protocol::{EventMsg, WarningEvent};
+use crate::savfox::TurnContext;
 use crate::state::TaskKind;
 use crate::tasks::{SessionTask, SessionTaskContext};
 
@@ -246,8 +246,8 @@ fn format_bytes(bytes: i64) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use savfox_git::LargeUntrackedDir;
     use pretty_assertions::assert_eq;
+    use savfox_git::LargeUntrackedDir;
 
     use super::*;
 

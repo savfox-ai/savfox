@@ -1,4 +1,4 @@
-﻿use async_trait::async_trait;
+use async_trait::async_trait;
 use savfox_protocol::config_types::ModeKind;
 use savfox_protocol::request_user_input::RequestUserInputArgs;
 

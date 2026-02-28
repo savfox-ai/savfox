@@ -1,4 +1,4 @@
-﻿use async_trait::async_trait;
+use async_trait::async_trait;
 use savfox_protocol::dynamic_tools::{DynamicToolCallRequest, DynamicToolResponse};
 use savfox_protocol::protocol::EventMsg;
 use serde_json::Value;

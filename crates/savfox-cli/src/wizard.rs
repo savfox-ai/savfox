@@ -1,10 +1,10 @@
-﻿use std::io::Write;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Parser;
-use savfox_core::config::CONFIG_TOML_FILE;
 use owo_colors::OwoColorize;
+use savfox_core::config::CONFIG_TOML_FILE;
 use serde::{Deserialize, Serialize};
 
 /// Interactive setup wizard.
@@ -393,9 +393,8 @@ fn step_provider_selection(state: &mut WizardState, non_interactive: bool) -> an
         let requested = std::env::var("SAVFOX_MODEL_PROVIDER")
             .ok()
             .unwrap_or_else(|| state.provider.clone());
-        let provider = resolve_provider_input(requested.as_str(), &providers).ok_or_else(|| {
-            anyhow::anyhow!("invalid SAVFOX_MODEL_PROVIDER value: {requested}")
-        })?;
+        let provider = resolve_provider_input(requested.as_str(), &providers)
+            .ok_or_else(|| anyhow::anyhow!("invalid SAVFOX_MODEL_PROVIDER value: {requested}"))?;
         state.provider = provider;
         println!("Using provider: {}", state.provider);
         println!();
@@ -510,8 +509,8 @@ fn step_api_key(state: &mut WizardState, non_interactive: bool) -> anyhow::Resul
         return Ok(());
     }
 
-    let env_var =
-        provider_env_var(&state.provider).unwrap_or_else(|| fallback_env_var_for_provider(&state.provider));
+    let env_var = provider_env_var(&state.provider)
+        .unwrap_or_else(|| fallback_env_var_for_provider(&state.provider));
     if let Ok(existing) = std::env::var(env_var.as_str()) {
         if api_key_looks_valid(&state.provider, &existing) {
             let masked = if existing.len() > 8 {
@@ -573,9 +572,7 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
             let model = std::env::var("SAVFOX_MODEL")
                 .ok()
                 .filter(|v| !v.trim().is_empty())
-                .or_else(|| {
-                    (!state.model.trim().is_empty()).then_some(state.model.clone())
-                })
+                .or_else(|| (!state.model.trim().is_empty()).then_some(state.model.clone()))
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "missing SAVFOX_MODEL for provider '{}' (no default model list available)",
@@ -829,7 +826,7 @@ pub async fn run_wizard(cmd: WizardCommand) -> anyhow::Result<()> {
                     "Found interrupted setup at '{}'. Resume?",
                     step_label(saved.next_step)
                 ),
-                !first_run,
+                false,
             )?
         };
         if should_resume {

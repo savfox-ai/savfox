@@ -1,4 +1,4 @@
-﻿//! Registry of model providers supported by Savfox.
+//! Registry of model providers supported by Savfox.
 //!
 //! Providers can be defined in two places:
 //!   1. Built-in defaults compiled into the binary so Savfox works out-of-the-box.
@@ -254,7 +254,7 @@ pub struct ModelProviderInfo {
 
     /// Does this provider require an OpenAI API Key or ChatGPT login token? If true,
     /// user is presented with login screen on first run, and login preference and token/key
-    /// are stored in auth.json. If false (which is the default), login screen is skipped,
+    /// are stored in auth storage. If false (which is the default), login screen is skipped,
     /// and API key (if needed) comes from the "env_key" environment variable.
     #[serde(default)]
     pub requires_openai_auth: bool,

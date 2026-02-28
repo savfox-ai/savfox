@@ -1,4 +1,4 @@
-﻿pub mod auth;
+pub mod auth;
 mod skill_dependencies;
 use std::collections::HashMap;
 use std::env;

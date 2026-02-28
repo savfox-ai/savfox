@@ -1,4 +1,4 @@
-﻿use std::collections::VecDeque;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use async_trait::async_trait;

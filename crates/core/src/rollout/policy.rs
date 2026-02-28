@@ -1,4 +1,4 @@
-﻿use savfox_protocol::models::ResponseItem;
+use savfox_protocol::models::ResponseItem;
 
 use crate::protocol::{EventMsg, RolloutItem};
 

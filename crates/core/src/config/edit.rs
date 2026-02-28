@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -816,8 +816,8 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
-    use savfox_protocol::openai_models::ReasoningEffort;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::openai_models::ReasoningEffort;
     use tempfile::tempdir;
     use toml::Value as TomlValue;
 

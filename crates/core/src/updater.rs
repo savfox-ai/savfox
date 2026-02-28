@@ -1,4 +1,4 @@
-﻿//! Self-update module for the Savfox binary.
+//! Self-update module for the Savfox binary.
 //!
 //! Provides version checking against GitHub Releases, binary download and
 //! replacement, and rollback to a previous version.

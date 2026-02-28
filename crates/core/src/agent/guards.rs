@@ -1,11 +1,11 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{SessionSource, SubAgentSource};
 
-use crate::error::{SavfoxError, Result};
+use crate::error::{Result, SavfoxError};
 
 /// This structure is used to add some limits on the multi-agent capabilities for Savfox. In
 /// the current implementation, it limits:

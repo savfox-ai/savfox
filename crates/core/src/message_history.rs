@@ -1,4 +1,4 @@
-﻿//! Persistence layer for the global, append-only *message history* file.
+//! Persistence layer for the global, append-only *message history* file.
 //!
 //! The history is stored at `~/.savfox/history.jsonl` with **one JSON object per
 //! line** so that it can be efficiently appended to and parsed with standard
@@ -393,8 +393,8 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    use savfox_protocol::SessionId;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::SessionId;
     use tempfile::TempDir;
 
     use super::*;

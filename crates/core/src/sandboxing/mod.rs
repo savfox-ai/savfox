@@ -1,4 +1,4 @@
-﻿// Module: sandboxing
+// Module: sandboxing
 //
 // Build platform wrappers and produce ExecEnv for execution. Owns low‑level
 // sandbox placement and transformation of portable CommandSpec into a

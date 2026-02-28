@@ -1,12 +1,12 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::Path;
 
+use pretty_assertions::assert_eq;
 use savfox_protocol::config_types::TrustLevel;
 use savfox_protocol::protocol::AskForApproval;
 #[cfg(target_os = "macos")]
 use savfox_protocol::protocol::SandboxPolicy;
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 use toml::Value as TomlValue;
 
@@ -1271,10 +1271,10 @@ async fn project_root_markers_supports_alternate_markers() -> std::io::Result<()
 mod requirements_exec_policy_tests {
     use std::path::Path;
 
+    use pretty_assertions::assert_eq;
     use savfox_app_server_protocol::ConfigLayerSource;
     use savfox_exec_policy::{Decision, Evaluation, RuleMatch};
     use savfox_utils_absolute_path::AbsolutePathBuf;
-    use pretty_assertions::assert_eq;
     use tempfile::tempdir;
     use toml::{Value as TomlValue, from_str};
 

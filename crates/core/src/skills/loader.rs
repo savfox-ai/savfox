@@ -1,4 +1,4 @@
-﻿use std::collections::{HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::path::{Component, Path, PathBuf};
 use std::{fmt, fs};
@@ -766,10 +766,10 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use pretty_assertions::assert_eq;
     use savfox_protocol::config_types::TrustLevel;
     use savfox_protocol::protocol::SkillScope;
     use savfox_utils_absolute_path::AbsolutePathBuf;
-    use pretty_assertions::assert_eq;
     use tempfile::TempDir;
     use toml::Value as TomlValue;
 

@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -11,13 +11,13 @@ use uuid::Uuid;
 use super::{SessionTask, SessionTaskContext};
 use crate::exec::{ExecToolCallOutput, SandboxType, StdoutStream, StreamOutput, execute_exec_env};
 use crate::exec_env::create_env;
-use crate::savfox::TurnContext;
 use crate::parse_command::parse_command;
 use crate::protocol::{
     EventMsg, ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandSource, SandboxPolicy,
     TurnStartedEvent,
 };
 use crate::sandboxing::{ExecEnv, SandboxPermissions};
+use crate::savfox::TurnContext;
 use crate::state::TaskKind;
 use crate::tools::format_exec_output_str;
 use crate::tools::runtimes::maybe_wrap_shell_lc_with_snapshot;

@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::sync::{LazyLock, RwLock};
 
 use savfox_core::AuthManager;
@@ -17,7 +17,7 @@ pub fn set_chatgpt_token_data(value: TokenData) {
     }
 }
 
-/// Initialize the ChatGPT token from auth.json file
+/// Initialize the ChatGPT token from persisted auth storage.
 pub async fn init_chatgpt_token_from_auth(
     savfox_home: &Path,
     auth_credentials_store_mode: AuthCredentialsStoreMode,

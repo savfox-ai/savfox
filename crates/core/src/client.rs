@@ -1,10 +1,11 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 use eventsource_stream::{Event, EventStreamError};
 use futures::StreamExt;
 use http::{HeaderMap as ApiHeaderMap, HeaderValue, StatusCode as HttpStatusCode};
+use reqwest::StatusCode;
 use savfox_api::common::{Reasoning, ResponsesWsRequest};
 use savfox_api::error::ApiError;
 use savfox_api::requests::responses::Compression;
@@ -26,7 +27,6 @@ use savfox_protocol::openai_models::{
     ModelInfo, ReasoningEffort as ReasoningEffortConfig, ReasoningEffortPreset,
 };
 use savfox_protocol::protocol::SessionSource;
-use reqwest::StatusCode;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{Error, Message};
@@ -34,11 +34,11 @@ use tracing::{debug, error, warn};
 
 use crate::AuthManager;
 use crate::api_bridge::{CoreAuthProvider, auth_provider_from_auth, map_api_error};
-use crate::auth::{SavfoxAuth, RefreshTokenError, UnauthorizedRecovery};
+use crate::auth::{RefreshTokenError, SavfoxAuth, UnauthorizedRecovery};
 use crate::client_common::{Prompt, ResponseEvent, ResponseStream};
 use crate::config::Config;
 use crate::default_client::build_reqwest_client;
-use crate::error::{SavfoxError, Result};
+use crate::error::{Result, SavfoxError};
 use crate::features::{FEATURES, Feature};
 use crate::flags::SAVFOX_RS_SSE_FIXTURE;
 use crate::model_provider_info::{ModelProviderInfo, WireApi};
@@ -1140,8 +1140,8 @@ fn responses_wire_unsupported(err: &SavfoxError) -> bool {
 mod tests {
     use super::{normalize_reasoning_effort, responses_wire_unsupported};
     use crate::error::{SavfoxError, UnexpectedResponseError};
-    use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
     use reqwest::StatusCode;
+    use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
 
     fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
         ReasoningEffortPreset {

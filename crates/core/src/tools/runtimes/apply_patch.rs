@@ -1,4 +1,4 @@
-﻿//! Apply Patch runtime: executes verified patches under the orchestrator.
+//! Apply Patch runtime: executes verified patches under the orchestrator.
 //!
 //! Assumes `apply_patch` verification/approval happened upstream. Reuses that
 //! decision to avoid re-prompting, builds the self-invocation command for

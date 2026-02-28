@@ -9,7 +9,7 @@ use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
 use savfox_core::token_data::{TokenData, parse_id_token};
 use serde_json::json;
 
-/// Builder for writing a fake ChatGPT auth.json in tests.
+/// Builder for writing fake ChatGPT auth in the provider store (`models/chatgpt.json`) in tests.
 #[derive(Debug, Clone)]
 pub struct ChatGptAuthFixture {
     access_token: String,
@@ -160,5 +160,6 @@ pub fn write_chatgpt_auth(
         last_refresh,
     };
 
-    save_auth(savfox_home, &auth, cli_auth_credentials_store_mode).context("write auth.json")
+    save_auth(savfox_home, &auth, cli_auth_credentials_store_mode)
+        .context("write models/chatgpt.json")
 }

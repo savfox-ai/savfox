@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use savfox_protocol::config_types::SandboxMode;
@@ -345,10 +345,10 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use pretty_assertions::assert_eq;
     use savfox_exec_policy::{Decision, Evaluation, RuleMatch};
     use savfox_protocol::protocol::NetworkAccess;
     use savfox_utils_absolute_path::AbsolutePathBuf;
-    use pretty_assertions::assert_eq;
     use toml::from_str;
 
     use super::*;

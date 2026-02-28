@@ -176,7 +176,7 @@ mod tests {
 
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use savfox_core::auth::AuthCredentialsStoreMode;
+    use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
     use savfox_protocol::protocol::AskForApproval;
     use pretty_assertions::assert_eq;
     use serde_json::json;
@@ -184,12 +184,13 @@ mod tests {
 
     use super::*;
 
-    fn write_auth_json(savfox_home: &Path, value: serde_json::Value) -> std::io::Result<()> {
-        std::fs::write(
-            savfox_home.join("auth.json"),
-            serde_json::to_string(&value)?,
-        )?;
-        Ok(())
+    fn write_chatgpt_provider_store_auth(
+        savfox_home: &Path,
+        value: serde_json::Value,
+    ) -> std::io::Result<()> {
+        let auth_dot_json: AuthDotJson = serde_json::from_value(value)
+            .map_err(|err| std::io::Error::other(format!("parse auth payload: {err}")))?;
+        save_auth(savfox_home, &auth_dot_json, AuthCredentialsStoreMode::File)
     }
 
     fn auth_manager_with_api_key() -> Arc<AuthManager> {
@@ -199,7 +200,7 @@ mod tests {
             "tokens": null,
             "last_refresh": null,
         });
-        write_auth_json(tmp.path(), auth_json).expect("write auth");
+        write_chatgpt_provider_store_auth(tmp.path(), auth_json).expect("write auth");
         Arc::new(AuthManager::new(
             tmp.path().to_path_buf(),
             false,
@@ -233,7 +234,7 @@ mod tests {
             },
             "last_refresh": null,
         });
-        write_auth_json(tmp.path(), auth_json).expect("write auth");
+        write_chatgpt_provider_store_auth(tmp.path(), auth_json).expect("write auth");
         Arc::new(AuthManager::new(
             tmp.path().to_path_buf(),
             false,

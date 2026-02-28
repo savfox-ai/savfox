@@ -1,4 +1,4 @@
-﻿use std::cmp::Reverse;
+use std::cmp::Reverse;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
@@ -296,13 +296,13 @@ mod tests {
     use std::io::Write;
 
     use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
+    use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::protocol::{
         CompactedItem, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionModel,
         SessionSource,
     };
     use savfox_state::SessionMetadataBuilder;
-    use pretty_assertions::assert_eq;
     use tempfile::tempdir;
     use uuid::Uuid;
 

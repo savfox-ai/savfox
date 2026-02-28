@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use multimap::MultiMap;
 use savfox_exec_policy::rule::{PatternToken, PrefixPattern, PrefixRule, RuleRef};

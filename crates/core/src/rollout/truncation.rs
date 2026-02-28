@@ -1,4 +1,4 @@
-﻿//! Helpers for truncating rollouts based on "user turn" boundaries.
+//! Helpers for truncating rollouts based on "user turn" boundaries.
 //!
 //! In core, "user turns" are detected by scanning `ResponseItem::Message` items and
 //! interpreting them via `event_mapping::parse_turn_item(...)`.
@@ -71,9 +71,9 @@ pub(crate) fn truncate_rollout_before_nth_user_message_from_start(
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::models::{ContentItem, ReasoningItemReasoningSummary};
     use savfox_protocol::protocol::SessionRolledBackEvent;
-    use pretty_assertions::assert_eq;
 
     use super::*;
     use crate::savfox::make_session_and_context;

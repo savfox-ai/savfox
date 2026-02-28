@@ -11,7 +11,7 @@ use core_test_support::{
 };
 use dunce::canonicalize as normalize_path;
 use futures::StreamExt;
-use savfox_core::auth::AuthCredentialsStoreMode;
+use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
 use savfox_core::default_client::originator;
 use savfox_core::error::SavfoxError;
 use savfox_core::models_manager::manager::ModelsManager;
@@ -85,10 +85,10 @@ fn assert_message_ends_with(request_body: &serde_json::Value, text: &str) {
     );
 }
 
-/// Writes an `auth.json` into the provided `savfox_home` with the specified parameters.
+/// Writes ChatGPT auth into `models/chatgpt.json` in the provided `savfox_home`.
 /// Returns the fake JWT string written to `tokens.id_token`.
 #[expect(clippy::unwrap_used)]
-fn write_auth_json(
+fn write_chatgpt_provider_store_auth(
     savfox_home: &TempDir,
     openai_api_key: Option<&str>,
     chatgpt_plan_type: &str,
@@ -128,9 +128,11 @@ fn write_auth_json(
         "last_refresh": chrono::Utc::now(),
     });
 
-    std::fs::write(
-        savfox_home.path().join("auth.json"),
-        serde_json::to_string_pretty(&auth_json).unwrap(),
+    let auth_dot_json: AuthDotJson = serde_json::from_value(auth_json).unwrap();
+    save_auth(
+        savfox_home.path(),
+        &auth_dot_json,
+        AuthCredentialsStoreMode::File,
     )
     .unwrap();
 
@@ -526,9 +528,9 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
 
     // Init session
     let savfox_home = TempDir::new().unwrap();
-    // Write auth.json that contains both API key and ChatGPT tokens for a plan that should prefer
+    // Write models/chatgpt.json that contains both API key and ChatGPT tokens for a plan that should prefer
     // ChatGPT, but config will force API key preference.
-    let _jwt = write_auth_json(
+    let _jwt = write_chatgpt_provider_store_auth(
         &savfox_home,
         Some("sk-test-key"),
         "pro",

@@ -1,4 +1,4 @@
-﻿//! Persist Savfox session rollouts (.jsonl) so sessions can be replayed or inspected later.
+//! Persist Savfox session rollouts (.jsonl) so sessions can be replayed or inspected later.
 
 use std::fs::{
     File, {self},

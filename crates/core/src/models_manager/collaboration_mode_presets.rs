@@ -1,4 +1,4 @@
-﻿use savfox_protocol::config_types::{CollaborationModeMask, ModeKind};
+use savfox_protocol::config_types::{CollaborationModeMask, ModeKind};
 use savfox_protocol::openai_models::ReasoningEffort;
 
 const COLLABORATION_MODE_PLAN: &str = include_str!("../../templates/collaboration_mode/plan.md");

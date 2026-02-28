@@ -1,4 +1,4 @@
-﻿//! Functions for environment detection that need to be shared across crates.
+//! Functions for environment detection that need to be shared across crates.
 
 fn env_var_set(key: &str) -> bool {
     std::env::var(key).is_ok_and(|v| !v.trim().is_empty())

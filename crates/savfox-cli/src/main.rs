@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -54,9 +54,7 @@ mod ws_rpc_client;
 mod wsl_paths;
 
 use savfox_core::config::edit::ConfigEditsBuilder;
-use savfox_core::config::{
-    CONFIG_TOML_FILE, CONFIG_YAML_FILE, CONFIG_YML_FILE, Config, ConfigOverrides, find_savfox_home,
-};
+use savfox_core::config::{Config, ConfigOverrides, find_savfox_home};
 use savfox_core::features::{Stage, is_known_feature_key};
 use savfox_core::terminal::TerminalName;
 
@@ -636,24 +634,6 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn should_launch_first_run_wizard() -> anyhow::Result<bool> {
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Ok(false);
-    }
-    if std::env::var("SAVFOX_SKIP_FIRST_RUN_WIZARD")
-        .ok()
-        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes"))
-    {
-        return Ok(false);
-    }
-
-    let savfox_home = find_savfox_home()?;
-    let has_config = savfox_home.join(CONFIG_TOML_FILE).exists()
-        || savfox_home.join(CONFIG_YAML_FILE).exists()
-        || savfox_home.join(CONFIG_YML_FILE).exists();
-    Ok(!has_config)
-}
-
 async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
@@ -668,13 +648,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
 
     match subcommand {
         None => {
-            if should_launch_first_run_wizard()? {
-                wizard::run_wizard(WizardCommand {
-                    non_interactive: false,
-                    resume: true,
-                })
-                .await?;
-            }
+            // Interactive startup uses the TUI onboarding flow. Keep the CLI wizard
+            // as an explicit command (`savfox wizard`) for full setup workflows.
             prepend_config_flags(
                 &mut interactive.config_overrides,
                 root_config_overrides.clone(),
@@ -1253,9 +1228,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use pretty_assertions::assert_eq;
     use savfox_core::protocol::TokenUsage;
     use savfox_protocol::SessionId;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

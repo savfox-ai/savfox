@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use savfox_app_server_protocol::{ConfigLayer, ConfigLayerMetadata, ConfigLayerSource};

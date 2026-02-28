@@ -45,7 +45,8 @@ async fn logout_chatgpt_removes_auth() -> Result<()> {
         "sk-test-key",
         AuthCredentialsStoreMode::File,
     )?;
-    assert!(savfox_home.path().join("auth.json").exists());
+    let chatgpt_auth_path = savfox_home.path().join("models").join("chatgpt.json");
+    assert!(chatgpt_auth_path.exists());
 
     let mut mcp = McpProcess::new_with_env(savfox_home.path(), &[("OPENAI_API_KEY", None)]).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
@@ -59,8 +60,8 @@ async fn logout_chatgpt_removes_auth() -> Result<()> {
     let _ok: LogoutChatGptResponse = to_response(resp)?;
 
     assert!(
-        !savfox_home.path().join("auth.json").exists(),
-        "auth.json should be deleted"
+        !chatgpt_auth_path.exists(),
+        "models/chatgpt.json should be deleted"
     );
 
     // Verify status reflects signed-out state.

@@ -1,20 +1,20 @@
-﻿use std::process::Command;
+use std::process::Command;
 use std::sync::Arc;
 
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_default_config_for_test, responses};
 use futures::StreamExt;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::AuthMode;
 use savfox_core::models_manager::manager::ModelsManager;
 use savfox_core::{
-    AuthManager, ContentItem, ModelClient, ModelProviderInfo, SavfoxAuth, Prompt, ResponseEvent,
-    ResponseItem, TransportManager, WEB_SEARCH_ELIGIBLE_HEADER, WireApi,
+    AuthManager, ContentItem, ModelClient, ModelProviderInfo, Prompt, ResponseEvent, ResponseItem,
+    SavfoxAuth, TransportManager, WEB_SEARCH_ELIGIBLE_HEADER, WireApi,
 };
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::config_types::{ReasoningSummary, WebSearchMode};
 use savfox_protocol::protocol::{SessionSource, SubAgentSource};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use wiremock::matchers::header;
 

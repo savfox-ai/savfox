@@ -1,4 +1,4 @@
-﻿use savfox_protocol::config_types::{ReasoningSummary, SandboxMode, Verbosity, WebSearchMode};
+use savfox_protocol::config_types::{ReasoningSummary, SandboxMode, Verbosity, WebSearchMode};
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_utils_absolute_path::AbsolutePathBuf;
 use schemars::JsonSchema;

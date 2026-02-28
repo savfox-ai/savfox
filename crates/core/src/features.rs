@@ -1,4 +1,4 @@
-﻿//! Centralized feature flags and metadata.
+//! Centralized feature flags and metadata.
 //!
 //! This module defines a small set of toggles that gate experimental and
 //! optional behavior across the codebase. Instead of wiring individual

@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use async_trait::async_trait;
@@ -356,8 +356,8 @@ It is important to remember:
 
 #[cfg(test)]
 mod tests {
-    use savfox_apply_patch::MaybeApplyPatchVerified;
     use pretty_assertions::assert_eq;
+    use savfox_apply_patch::MaybeApplyPatchVerified;
     use tempfile::TempDir;
 
     use super::*;

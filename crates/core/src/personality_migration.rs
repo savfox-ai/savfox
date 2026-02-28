@@ -1,4 +1,4 @@
-﻿use std::io;
+use std::io;
 use std::path::Path;
 
 use savfox_protocol::config_types::Personality;
@@ -132,12 +132,12 @@ async fn create_marker(marker_path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::protocol::{
         EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionSource,
         UserMessageEvent,
     };
-    use pretty_assertions::assert_eq;
     use tempfile::TempDir;
     use tokio::io::AsyncWriteExt;
 

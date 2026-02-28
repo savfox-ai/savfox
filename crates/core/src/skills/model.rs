@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use savfox_protocol::protocol::SkillScope;

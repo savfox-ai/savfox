@@ -1,4 +1,4 @@
-﻿use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use savfox_apply_patch::{ApplyPatchAction, ApplyPatchFileChange};
 use savfox_protocol::config_types::WindowsSandboxLevel;

@@ -1,4 +1,4 @@
-﻿//! Shared approvals and sandboxing traits used by tool runtimes.
+//! Shared approvals and sandboxing traits used by tool runtimes.
 //!
 //! Consolidates the approval flow primitives (`ApprovalDecision`, `ApprovalStore`,
 //! `ApprovalCtx`, `Approvable`) together with the sandbox orchestration traits
@@ -16,9 +16,9 @@ use savfox_protocol::protocol::{AskForApproval, ReviewDecision};
 use serde::Serialize;
 
 use crate::error::SavfoxError;
-use crate::savfox::{Session, TurnContext};
 use crate::protocol::SandboxPolicy;
 use crate::sandboxing::{CommandSpec, SandboxManager, SandboxTransformError};
+use crate::savfox::{Session, TurnContext};
 use crate::state::SessionServices;
 
 #[derive(Clone, Default, Debug)]
@@ -294,8 +294,8 @@ impl<'a> SandboxAttempt<'a> {
 
 #[cfg(test)]
 mod tests {
-    use savfox_protocol::protocol::NetworkAccess;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::protocol::NetworkAccess;
 
     use super::*;
 

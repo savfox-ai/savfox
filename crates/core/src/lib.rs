@@ -1,4 +1,4 @@
-﻿//! Root of the `savfox-core` library.
+//! Root of the `savfox-core` library.
 
 // Prevent accidental direct writes to stdout/stderr in library code. All
 // user-visible output must go through the appropriate abstraction (e.g.,
@@ -152,8 +152,8 @@ pub use savfox_protocol::models::{
 };
 // Re-export the protocol types from the standalone `savfox-protocol` crate so existing
 // `savfox_core::protocol::...` references continue to work across the workspace.
-pub use savfox_protocol::protocol;
 pub use safety::get_platform_sandbox;
+pub use savfox_protocol::protocol;
 pub use tools::spec::parse_tool_input_schema;
 pub mod compact;
 pub mod otel_init;

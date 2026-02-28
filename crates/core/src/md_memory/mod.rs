@@ -1,4 +1,4 @@
-﻿//! 4-layer Markdown memory system.
+//! 4-layer Markdown memory system.
 //!
 //! Provides user-editable `.md` files organized in four layers:
 //! - **Global**: `~/.savfox/memory/global/*.md` — user preferences, coding conventions

@@ -1,4 +1,4 @@
-﻿mod storage;
+mod storage;
 
 use std::env;
 use std::fmt::Debug;
@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
 use chrono::Utc;
+use reqwest::StatusCode;
 use savfox_app_server_protocol::AuthMode as ApiAuthMode;
 use savfox_client::SavfoxHttpClient;
 use savfox_protocol::account::PlanType as AccountPlanType;
 use savfox_protocol::config_types::ForcedLoginMethod;
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(test)]
@@ -353,7 +353,8 @@ pub fn read_savfox_api_key_from_env() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// Delete the auth.json file inside `savfox_home` if it exists. Returns `Ok(true)`
+/// Delete the persisted auth file inside `savfox_home` if it exists. Returns
+/// `Ok(true)`
 /// if a file was removed, `Ok(false)` if no auth file was present.
 pub fn logout(
     savfox_home: &Path,
@@ -363,7 +364,7 @@ pub fn logout(
     storage.delete()
 }
 
-/// Writes an `auth.json` that contains only the API key.
+/// Writes persisted auth data that contains only the API key.
 pub fn login_with_api_key(
     savfox_home: &Path,
     api_key: &str,
@@ -405,7 +406,7 @@ pub fn save_auth(
 /// Load CLI auth data using the configured credential store backend.
 /// Returns `None` when no credentials are stored. This function is
 /// provided only for tests. Production code should not directly load
-/// from the auth.json storage. It should use the AuthManager abstraction
+/// from auth storage. It should use the AuthManager abstraction
 /// instead.
 pub fn load_auth_dot_json(
     savfox_home: &Path,
@@ -498,7 +499,7 @@ fn logout_with_message(
     let removal_result = logout_all_stores(savfox_home, auth_credentials_store_mode);
     let error_message = match removal_result {
         Ok(_) => message,
-        Err(err) => format!("{message}. Failed to remove auth.json: {err}"),
+        Err(err) => format!("{message}. Failed to remove auth file: {err}"),
     };
     Err(std::io::Error::other(error_message))
 }
@@ -902,12 +903,12 @@ impl UnauthorizedRecovery {
     }
 }
 
-/// Central manager providing a single source of truth for auth.json derived
+/// Central manager providing a single source of truth for auth-storage derived
 /// authentication data. It loads once (or on preference change) and then
 /// hands out cloned `SavfoxAuth` values so the rest of the program has a
 /// consistent snapshot.
 ///
-/// External modifications to `auth.json` will NOT be observed until
+/// External modifications to auth storage will NOT be observed until
 /// `reload()` is called explicitly. This matches the design goal of avoiding
 /// different parts of the program seeing inconsistent auth data mid‑run.
 #[derive(Debug)]
@@ -997,7 +998,7 @@ impl AuthManager {
         self.auth_cached()
     }
 
-    /// Force a reload of the auth information from auth.json. Returns
+    /// Force a reload of the auth information from storage. Returns
     /// whether the auth value changed.
     pub fn reload(&self) -> bool {
         tracing::info!("Reloading auth");
@@ -1141,7 +1142,7 @@ impl AuthManager {
         }
     }
 
-    /// Log out by deleting the on‑disk auth.json (if present). Returns Ok(true)
+    /// Log out by deleting on-disk auth data (if present). Returns Ok(true)
     /// if a file was removed, Ok(false) if no auth file existed. On success,
     /// reloads the in‑memory auth cache so callers immediately observe the
     /// unauthenticated state.
@@ -1264,9 +1265,9 @@ impl AuthManager {
 #[cfg(test)]
 mod tests {
     use base64::Engine;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::account::PlanType as AccountPlanType;
     use savfox_protocol::config_types::ForcedLoginMethod;
-    use pretty_assertions::assert_eq;
     use serde::Serialize;
     use serde_json::json;
     use tempfile::tempdir;
@@ -1310,17 +1311,25 @@ mod tests {
     }
 
     #[test]
-    fn login_with_api_key_overwrites_existing_auth_json() {
+    fn login_with_api_key_overwrites_existing_chatgpt_provider_store_auth() {
         let dir = tempdir().unwrap();
-        let auth_path = dir.path().join("auth.json");
+        let auth_path = get_auth_file(dir.path());
         let stale_auth = json!({
-            "OPENAI_API_KEY": "sk-old",
-            "tokens": {
-                "id_token": "stale.header.payload",
-                "access_token": "stale-access",
-                "refresh_token": "stale-refresh",
-                "account_id": "stale-acc"
-            }
+            "version": 2,
+            "provider_id": "chatgpt",
+            "display_name": "ChatGPT",
+            "auth": {
+                "type": "chatgpt_oauth",
+                "env_key": "OPENAI_API_KEY",
+                "api_key": "sk-old",
+                "tokens": {
+                    "id_token": "stale.header.payload",
+                    "access_token": "stale-access",
+                    "refresh_token": "stale-refresh",
+                    "account_id": "stale-acc"
+                }
+            },
+            "models": []
         });
         std::fs::write(
             &auth_path,
@@ -1334,7 +1343,7 @@ mod tests {
         let storage = FileAuthStorage::new(dir.path().to_path_buf());
         let auth = storage
             .try_read_auth_json(&auth_path)
-            .expect("auth.json should parse");
+            .expect("auth file should parse");
         assert_eq!(auth.openai_api_key.as_deref(), Some("sk-new"));
         assert!(auth.tokens.is_none(), "tokens should be cleared");
     }
@@ -1398,8 +1407,9 @@ mod tests {
 
     #[tokio::test]
     #[serial(savfox_api_key)]
-    async fn loads_api_key_from_auth_json() {
+    async fn loads_api_key_from_legacy_auth_json() {
         let dir = tempdir().unwrap();
+        // Legacy migration coverage: ensure the old SAVFOX_HOME/auth.json format is still readable.
         let auth_file = dir.path().join("auth.json");
         std::fs::write(
             auth_file,
@@ -1440,7 +1450,6 @@ mod tests {
     }
 
     fn write_auth_file(params: AuthFileParams, savfox_home: &Path) -> std::io::Result<String> {
-        let auth_file = get_auth_file(savfox_home);
         // Create a minimal valid JWT for the id_token field.
         #[derive(Serialize)]
         struct Header {
@@ -1457,8 +1466,8 @@ mod tests {
             "user_id": "user-12345",
         });
 
-        if let Some(chatgpt_account_id) = params.chatgpt_account_id {
-            let org_value = serde_json::Value::String(chatgpt_account_id);
+        if let Some(chatgpt_account_id) = &params.chatgpt_account_id {
+            let org_value = serde_json::Value::String(chatgpt_account_id.clone());
             auth_payload["chatgpt_account_id"] = org_value;
         }
 
@@ -1473,17 +1482,19 @@ mod tests {
         let signature_b64 = b64(b"sig");
         let fake_jwt = format!("{header_b64}.{payload_b64}.{signature_b64}");
 
-        let auth_json_data = json!({
-            "OPENAI_API_KEY": params.openai_api_key,
-            "tokens": {
-                "id_token": fake_jwt,
-                "access_token": "test-access-token",
-                "refresh_token": "test-refresh-token"
-            },
-            "last_refresh": Utc::now(),
-        });
-        let auth_json = serde_json::to_string_pretty(&auth_json_data)?;
-        std::fs::write(auth_file, auth_json)?;
+        let token_data = TokenData {
+            id_token: parse_id_token(&fake_jwt).map_err(std::io::Error::other)?,
+            access_token: "test-access-token".to_string(),
+            refresh_token: "test-refresh-token".to_string(),
+            account_id: params.chatgpt_account_id.clone(),
+        };
+        let auth_dot_json = AuthDotJson {
+            auth_mode: None,
+            openai_api_key: params.openai_api_key,
+            tokens: Some(token_data),
+            last_refresh: Some(Utc::now()),
+        };
+        super::save_auth(savfox_home, &auth_dot_json, AuthCredentialsStoreMode::File)?;
         Ok(fake_jwt)
     }
 
@@ -1549,8 +1560,8 @@ mod tests {
             .expect_err("expected method mismatch to error");
         assert!(err.to_string().contains("ChatGPT login is required"));
         assert!(
-            !savfox_home.path().join("auth.json").exists(),
-            "auth.json should be removed on mismatch"
+            !get_auth_file(savfox_home.path()).exists(),
+            "auth file should be removed on mismatch"
         );
     }
 
@@ -1574,8 +1585,8 @@ mod tests {
             .expect_err("expected workspace mismatch to error");
         assert!(err.to_string().contains("workspace org_mine"));
         assert!(
-            !savfox_home.path().join("auth.json").exists(),
-            "auth.json should be removed on mismatch"
+            !get_auth_file(savfox_home.path()).exists(),
+            "auth file should be removed on mismatch"
         );
     }
 
@@ -1597,8 +1608,8 @@ mod tests {
 
         super::enforce_login_restrictions(&config).expect("matching workspace should succeed");
         assert!(
-            savfox_home.path().join("auth.json").exists(),
-            "auth.json should remain when restrictions pass"
+            get_auth_file(savfox_home.path()).exists(),
+            "auth file should remain when restrictions pass"
         );
     }
 
@@ -1617,8 +1628,8 @@ mod tests {
 
         super::enforce_login_restrictions(&config).expect("matching workspace should succeed");
         assert!(
-            savfox_home.path().join("auth.json").exists(),
-            "auth.json should remain when restrictions pass"
+            get_auth_file(savfox_home.path()).exists(),
+            "auth file should remain when restrictions pass"
         );
     }
 
