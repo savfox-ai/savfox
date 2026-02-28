@@ -1116,8 +1116,11 @@ fn render_tools_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry
                             let enabled: Vec<String> = tool_states
                                 .read()
                                 .iter()
-                                .filter(|(_, &v)| v)
-                                .map(|(k, _)| k.clone())
+                                .filter_map(
+                                    |(k, v)| {
+                                        if *v { Some(k.clone()) } else { None }
+                                    },
+                                )
                                 .collect();
                             spawn(async move {
                                 let res = ws.call::<serde_json::Value>(

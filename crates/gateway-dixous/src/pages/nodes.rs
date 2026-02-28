@@ -378,7 +378,7 @@ fn render_node_detail(
                 }
 
                 // Capabilities
-                if let Some(ref det) = detail {
+                if let Some(det) = detail {
                     if let Some(ref caps) = det.capabilities {
                         if !caps.is_empty() {
                             div { style: "margin-bottom:16px;",
@@ -434,7 +434,7 @@ fn render_node_detail(
                 }
 
                 // Raw JSON details (collapsible)
-                if let Some(ref det) = detail {
+                if let Some(det) = detail {
                     {
                         let json_str = serde_json::to_string_pretty(det).unwrap_or_default();
                         rsx! {
