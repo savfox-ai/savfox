@@ -1,6 +1,7 @@
+use dioxus::prelude::*;
+
 use crate::api::types::MsTeamsStatus;
 use crate::api::ws::WsRpc;
-use dioxus::prelude::*;
 
 #[component]
 pub fn MsTeamsChannel() -> Element {

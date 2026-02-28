@@ -1,4 +1,4 @@
-﻿//! Media storage for inbound/remote media with SSRF-safe downloads.
+//! Media storage for inbound/remote media with SSRF-safe downloads.
 //!
 //! Features:
 //! - file-based storage under `{savfox_home}/media/`

@@ -1,4 +1,4 @@
-﻿#![cfg(target_os = "windows")]
+#![cfg(target_os = "windows")]
 
 use std::ffi::{OsStr, c_void};
 use std::fs::File;
@@ -7,13 +7,12 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use rand::rngs::SmallRng;
+use rand::{RngCore, SeedableRng};
 use savfox_windows_sandbox::{
     SETUP_VERSION, SetupErrorCode, SetupFailure, dpapi_protect, sandbox_dir, sandbox_secrets_dir,
     string_from_sid_bytes, to_wide,
 };
-use rand::RngCore;
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
 use serde::Serialize;
 use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, GetLastError, LocalFree};
 use windows_sys::Win32::NetworkManagement::NetManagement::{

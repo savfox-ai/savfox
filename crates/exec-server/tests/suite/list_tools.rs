@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::borrow::Cow;
 use std::fs;
 use std::sync::Arc;

@@ -1,14 +1,14 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{
     McpProcess, create_final_assistant_message_sse_response,
     create_mock_responses_server_sequence_unchecked, to_response,
 };
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     JSONRPCResponse, RequestId, SessionItem, SessionResumeParams, SessionResumeResponse,
     SessionRollbackParams, SessionRollbackResponse, SessionStartParams, SessionStartResponse,
     TurnStartParams, UserInput as V2UserInput,
 };
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

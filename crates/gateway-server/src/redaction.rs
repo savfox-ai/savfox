@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
@@ -267,8 +267,9 @@ pub fn redact_json_in_place(value: &mut Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn masks_openai_key_with_last4() {

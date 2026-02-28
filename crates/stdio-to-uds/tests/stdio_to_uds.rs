@@ -1,4 +1,4 @@
-﻿use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc;

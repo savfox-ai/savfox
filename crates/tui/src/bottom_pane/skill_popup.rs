@@ -1,9 +1,9 @@
-﻿use crossterm::event::KeyCode;
-use savfox_common::fuzzy_match::fuzzy_match;
+use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::{Widget, WidgetRef};
+use savfox_common::fuzzy_match::fuzzy_match;
 
 use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;

@@ -1,4 +1,4 @@
-﻿//! This is an MCP that implements an alternative `shell` tool with fine-grained privilege
+//! This is an MCP that implements an alternative `shell` tool with fine-grained privilege
 //! escalation based on a per-exec() policy.
 //!
 //! We spawn Bash process inside a sandbox. The Bash we spawn is patched to allow us to intercept
@@ -59,11 +59,11 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use clap::Parser;
+use rmcp::ErrorData as McpError;
 use savfox_core::config::find_savfox_home;
 use savfox_core::is_dangerous_command::command_might_be_dangerous;
 use savfox_core::sandboxing::SandboxPermissions;
 use savfox_exec_policy::{Decision, Policy, RuleMatch};
-use rmcp::ErrorData as McpError;
 use tokio::sync::RwLock;
 use tracing_subscriber::{
     EnvFilter, {self},
@@ -251,9 +251,9 @@ async fn load_exec_policy() -> anyhow::Result<Policy> {
 mod tests {
     use std::path::Path;
 
+    use pretty_assertions::assert_eq;
     use savfox_core::sandboxing::SandboxPermissions;
     use savfox_exec_policy::{Decision, Policy};
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

@@ -1,14 +1,14 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use diffy::Hunk;
-use savfox_core::git_info::get_git_repo_root;
-use savfox_core::protocol::FileChange;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line as RtLine, Span as RtSpan};
 use ratatui::widgets::Paragraph;
+use savfox_core::git_info::get_git_repo_root;
+use savfox_core::protocol::FileChange;
 
 use crate::exec_command::relativize_to_home;
 use crate::render::Insets;

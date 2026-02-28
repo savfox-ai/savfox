@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use savfox_core::features::{FEATURES, Feature};

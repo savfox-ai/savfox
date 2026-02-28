@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// A broadcast group allows sending messages to multiple channels at once.
 /// Used for announcements, scheduled broadcasts, or coordinated auto-replies.

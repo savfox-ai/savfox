@@ -1,4 +1,4 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use http::StatusCode;
 use savfox_client::TransportError;

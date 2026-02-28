@@ -1,13 +1,12 @@
-﻿mod windows_impl {
+mod windows_impl {
     use std::collections::HashMap;
     use std::ffi::c_void;
     use std::path::{Path, PathBuf};
     use std::{fs, io, ptr};
 
     use anyhow::Result;
-    use rand::Rng;
-    use rand::SeedableRng;
     use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};

@@ -1,15 +1,15 @@
-﻿use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock};
 
-use savfox_core::AuthManager;
-use savfox_login_oauth::{
-    ServerOptions, complete_device_code_login, request_device_code, run_login_server,
-};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};
+use savfox_core::AuthManager;
+use savfox_login_oauth::{
+    ServerOptions, complete_device_code_login, request_device_code, run_login_server,
+};
 use tokio::sync::Notify;
 
 use super::{AuthModeWidget, ContinueInBrowserState, ContinueWithDeviceCodeState, SignInState};
@@ -57,8 +57,7 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                                     request_frame.schedule_frame();
                                 }
                                 _ => {
-                                    *sign_in_state.write().unwrap() =
-                                        SignInState::OpenAiAuthMethod;
+                                    *sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
                                     request_frame.schedule_frame();
                                 }
                             }
@@ -243,8 +242,8 @@ fn set_device_code_success_message_for_active_attempt(
 
 #[cfg(test)]
 mod tests {
-    use savfox_core::auth::AuthCredentialsStoreMode;
     use pretty_assertions::assert_eq;
+    use savfox_core::auth::AuthCredentialsStoreMode;
     use tempfile::TempDir;
 
     use super::*;

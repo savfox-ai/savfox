@@ -1,4 +1,4 @@
-﻿use savfox_app_server_protocol::SessionSourceKind;
+use savfox_app_server_protocol::SessionSourceKind;
 use savfox_core::INTERACTIVE_SESSION_SOURCES;
 use savfox_protocol::protocol::{
     SessionSource as CoreSessionSource, SubAgentSource as CoreSubAgentSource,
@@ -87,8 +87,8 @@ pub(crate) fn source_kind_matches(
 
 #[cfg(test)]
 mod tests {
-    use savfox_protocol::SessionId;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::SessionId;
     use uuid::Uuid;
 
     use super::*;

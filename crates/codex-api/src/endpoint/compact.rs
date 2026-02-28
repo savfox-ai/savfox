@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use http::{HeaderMap, Method};
 use savfox_client::{HttpTransport, RequestTelemetry};

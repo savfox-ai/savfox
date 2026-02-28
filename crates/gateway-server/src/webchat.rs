@@ -1,4 +1,4 @@
-﻿//! WebChat: embeddable chat widget for third-party websites.
+//! WebChat: embeddable chat widget for third-party websites.
 //!
 //! Routes:
 //! - POST /webchat/session  - create a new webchat session (returns session_id + token)

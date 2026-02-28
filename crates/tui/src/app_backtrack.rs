@@ -1,4 +1,4 @@
-﻿//! Backtracking and transcript overlay event routing.
+//! Backtracking and transcript overlay event routing.
 //!
 //! This file owns backtrack mode (Esc/Enter navigation in the transcript overlay) and also
 //! mediates a key rendering boundary for the transcript overlay.

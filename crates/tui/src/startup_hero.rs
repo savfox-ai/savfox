@@ -1,4 +1,4 @@
-﻿//! Startup hero for Savfox CLI.
+//! Startup hero for Savfox CLI.
 //!
 //! This module provides the startup hero screen with ASCII logo display
 //! before the first user input. After the user submits their first message,
@@ -115,8 +115,9 @@ impl Renderable for StartupHero {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ratatui::buffer::Buffer;
+
+    use super::*;
 
     #[test]
     fn test_startup_hero_renders() {
@@ -125,11 +126,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
         hero.render(area, &mut buf);
 
-        let content = buf
-            .content
-            .iter()
-            .map(|c| c.symbol())
-            .collect::<String>();
+        let content = buf.content.iter().map(|c| c.symbol()).collect::<String>();
         assert!(content.contains("Welcome"));
     }
 
@@ -144,11 +141,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
         hero.render(area, &mut buf);
 
-        let content = buf
-            .content
-            .iter()
-            .map(|c| c.symbol())
-            .collect::<String>();
+        let content = buf.content.iter().map(|c| c.symbol()).collect::<String>();
         assert!(content.contains("Test tooltip"));
     }
 

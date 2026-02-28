@@ -1,4 +1,4 @@
-﻿use strum::IntoEnumIterator;
+use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumIter, EnumString, IntoStaticStr};
 
 /// Commands that can be invoked by starting a message with a leading slash.

@@ -1,4 +1,4 @@
-﻿#![cfg(unix)]
+#![cfg(unix)]
 // Support code lives in the `app_test_support` crate under tests/common.
 
 use std::path::Path;

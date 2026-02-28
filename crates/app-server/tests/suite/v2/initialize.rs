@@ -1,9 +1,9 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, create_mock_responses_server_sequence_unchecked, to_response};
-use savfox_app_server_protocol::{ClientInfo, InitializeResponse, JsonRpcMessage};
 use pretty_assertions::assert_eq;
+use savfox_app_server_protocol::{ClientInfo, InitializeResponse, JsonRpcMessage};
 use tempfile::TempDir;
 use tokio::time::timeout;
 

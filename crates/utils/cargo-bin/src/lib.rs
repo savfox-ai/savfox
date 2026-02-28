@@ -1,4 +1,4 @@
-﻿use std::ffi::OsString;
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 

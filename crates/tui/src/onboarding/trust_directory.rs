@@ -1,14 +1,14 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use savfox_core::config::set_project_trust_level;
-use savfox_core::git_info::resolve_root_git_project_for_trust;
-use savfox_protocol::config_types::TrustLevel;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, WidgetRef, Wrap};
+use savfox_core::config::set_project_trust_level;
+use savfox_core::git_info::resolve_root_git_project_for_trust;
+use savfox_protocol::config_types::TrustLevel;
 
 use super::onboarding_screen::StepState;
 use crate::key_hint;

@@ -1,8 +1,9 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use app_test_support::{McpProcess, to_response};
 use core_test_support::responses;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     AddConversationListenerParams, AddConversationSubscriptionResponse, InputItem,
     JSONRPCNotification, JSONRPCResponse, NewConversationParams, NewConversationResponse,
@@ -12,7 +13,6 @@ use savfox_exec_policy::Policy;
 use savfox_protocol::SessionId;
 use savfox_protocol::models::{ContentItem, DeveloperInstructions, ResponseItem};
 use savfox_protocol::protocol::{AskForApproval, RawResponseItemEvent, SandboxPolicy};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

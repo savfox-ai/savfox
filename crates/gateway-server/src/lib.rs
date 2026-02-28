@@ -1,4 +1,4 @@
-﻿#![deny(clippy::print_stdout, clippy::print_stderr)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub, dead_code)]
 #![recursion_limit = "512"]
 
@@ -89,8 +89,7 @@ use crate::auth::GatewayAuth;
 use crate::bridge::{BridgeOutgoing, GatewayBridge, GatewayBridgeArgs};
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
-use crate::session::GatewaySessionManager;
-use crate::session::SessionStore;
+use crate::session::{GatewaySessionManager, SessionStore};
 
 /// Main entry point for the gateway server.
 ///

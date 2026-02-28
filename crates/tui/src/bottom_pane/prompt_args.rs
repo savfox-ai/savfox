@@ -1,9 +1,9 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use lazy_static::lazy_static;
+use regex_lite::Regex;
 use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
 use savfox_protocol::user_input::{ByteRange, TextElement};
-use regex_lite::Regex;
 use shlex::Shlex;
 
 lazy_static! {

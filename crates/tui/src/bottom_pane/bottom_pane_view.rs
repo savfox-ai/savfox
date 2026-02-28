@@ -1,4 +1,4 @@
-﻿use crossterm::event::KeyEvent;
+use crossterm::event::KeyEvent;
 use savfox_protocol::request_user_input::RequestUserInputEvent;
 
 use super::CancellationEvent;

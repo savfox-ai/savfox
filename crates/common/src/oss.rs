@@ -1,4 +1,4 @@
-﻿//! OSS provider utilities shared between TUI and exec.
+//! OSS provider utilities shared between TUI and exec.
 
 use std::io;
 
@@ -36,8 +36,10 @@ pub async fn ollama_chat_deprecation_notice(
     //         .map(|version| format!(" (version {version})"))
     //         .unwrap_or_default();
     //     let summary = format!(
-    //         "Your Ollama server{version_suffix} doesn't support the Responses API. Either update Ollama or set `oss_provider = \"{OLLAMA_CHAT_PROVIDER_ID}\"` (or `model_provider = \"{OLLAMA_CHAT_PROVIDER_ID}\"`) in your config.toml to use the \"chat\" wire API. Support for the \"chat\" wire API is deprecated and will soon be removed."
-    //     );
+    //         "Your Ollama server{version_suffix} doesn't support the Responses API. Either update
+    // Ollama or set `oss_provider = \"{OLLAMA_CHAT_PROVIDER_ID}\"` (or `model_provider =
+    // \"{OLLAMA_CHAT_PROVIDER_ID}\"`) in your config.toml to use the \"chat\" wire API. Support for
+    // the \"chat\" wire API is deprecated and will soon be removed."     );
     //     return Ok(Some(DeprecationNoticeEvent {
     //         summary,
     //         details: None,

@@ -1,4 +1,4 @@
-﻿//! File-based persistent session store.
+//! File-based persistent session store.
 //!
 //! Stores session metadata in rollout files (UUID v7 .jsonl files) in `{savfox_home}/sessions/`.
 //! Provides TTL-based in-memory caching and automatic pruning of stale entries.
@@ -8,12 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use savfox_core::rollout::list::read_session_meta_line;
+use savfox_protocol::SessionId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
-
-use savfox_core::rollout::list::read_session_meta_line;
-use savfox_protocol::SessionId;
 
 // ─── Session Overrides ─────────────────────────────────────────────────────
 

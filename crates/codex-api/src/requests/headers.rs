@@ -1,4 +1,4 @@
-﻿use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue};
 use savfox_protocol::protocol::SessionSource;
 
 pub fn build_conversation_headers(conversation_id: Option<String>) -> HeaderMap {

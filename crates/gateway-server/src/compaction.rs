@@ -386,8 +386,9 @@ fn build_summary(messages: &[&Value], config: &CompactionConfig) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     fn sample_messages() -> Vec<Value> {
         vec![

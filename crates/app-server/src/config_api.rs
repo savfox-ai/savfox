@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use savfox_app_server_protocol::{
     ConfigBatchWriteParams, ConfigReadParams, ConfigReadResponse, ConfigRequirements,
@@ -134,8 +134,8 @@ fn config_write_error(code: ConfigWriteErrorCode, message: impl Into<String>) ->
 
 #[cfg(test)]
 mod tests {
-    use savfox_protocol::protocol::AskForApproval as CoreAskForApproval;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::protocol::AskForApproval as CoreAskForApproval;
 
     use super::*;
 

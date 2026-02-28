@@ -810,9 +810,10 @@ fn extract_session_cwd(head: &[serde_json::Value]) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use savfox_protocol::models::ResponseItem;
     use tempfile::tempdir;
+
+    use super::*;
 
     fn text_from_content(content: &[ContentItem]) -> String {
         content

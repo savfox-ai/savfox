@@ -1,7 +1,7 @@
-﻿use lazy_static::lazy_static;
+use lazy_static::lazy_static;
+use rand::Rng;
 use savfox_core::features::FEATURES;
 use savfox_protocol::account::PlanType;
-use rand::Rng;
 
 // const ANNOUNCEMENT_TIP_URL: &str =
 //     "https://raw.githubusercontent.com/openai/savfox/main/announcement_tip.toml";

@@ -1,6 +1,7 @@
-﻿use dioxus::prelude::*;
-use serde_json::{Value, json};
 use std::collections::BTreeSet;
+
+use dioxus::prelude::*;
+use serde_json::{Value, json};
 
 use crate::api::types::ModelsResponse;
 use crate::api::ws::WsRpc;
@@ -620,7 +621,7 @@ fn render_step_api_key(
         .as_ref()
         .map(|p| p.name.as_str())
         .unwrap_or("Provider");
-    let provider_help_url = provider.as_ref().and_then(|p| p.help_url.as_deref());   
+    let provider_help_url = provider.as_ref().and_then(|p| p.help_url.as_deref());
     let is_openai = provider_id == "openai";
 
     if is_openai {

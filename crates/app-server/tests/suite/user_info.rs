@@ -1,10 +1,10 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use anyhow::Result;
 use app_test_support::{ChatGptAuthFixture, McpProcess, to_response, write_chatgpt_auth};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{JSONRPCResponse, RequestId, UserInfoResponse};
 use savfox_core::auth::AuthCredentialsStoreMode;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

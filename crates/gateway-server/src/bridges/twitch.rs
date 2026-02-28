@@ -1,10 +1,9 @@
-﻿use async_trait::async_trait;
+use async_trait::async_trait;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::protocol::BridgeAction;
-
 use super::{ChatBridge, RichMessage};
+use crate::protocol::BridgeAction;
 
 /// Twitch chat bridge using IRC over WebSocket (TMI).
 ///

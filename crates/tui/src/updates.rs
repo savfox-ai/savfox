@@ -1,4 +1,4 @@
-﻿#![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use std::path::{Path, PathBuf};
 

@@ -1,4 +1,4 @@
-﻿use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use http::HeaderMap;
 use savfox_client::{HttpTransport, RequestCompression, RequestTelemetry};

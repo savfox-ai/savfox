@@ -1,4 +1,4 @@
-﻿#![allow(clippy::expect_used, clippy::unwrap_used, unused_imports)]
+#![allow(clippy::expect_used, clippy::unwrap_used, unused_imports)]
 
 use std::fs;
 use std::process::Command;

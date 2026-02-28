@@ -1,8 +1,10 @@
-﻿//! Runtime configuration validation with type checking, range validation, and cross-field validation.
+//! Runtime configuration validation with type checking, range validation, and cross-field
+//! validation.
+
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
 
 /// A validation error with field path
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,9 +345,10 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
     use tempfile::tempdir;
+
+    use super::*;
 
     #[test]
     fn missing_workspace_path_is_reported() {

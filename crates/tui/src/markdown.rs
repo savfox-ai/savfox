@@ -1,4 +1,4 @@
-﻿use ratatui::text::Line;
+use ratatui::text::Line;
 pub(crate) fn append_markdown(
     markdown_source: &str,
     width: Option<usize>,

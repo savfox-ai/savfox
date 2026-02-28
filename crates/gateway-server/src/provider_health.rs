@@ -1,7 +1,8 @@
 //! Provider health checks -- periodic health monitoring for configured LLM providers.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::warn;
 

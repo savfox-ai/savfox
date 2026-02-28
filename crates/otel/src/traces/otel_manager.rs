@@ -1,10 +1,11 @@
-﻿use std::borrow::Cow;
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::future::Future;
 use std::time::{Duration, Instant};
 
 use chrono::{SecondsFormat, Utc};
 use eventsource_stream::{Event as StreamEvent, EventStreamError as StreamError};
+use reqwest::{Error, Response};
 use savfox_api::{ApiError, ResponseEvent};
 use savfox_app_server_protocol::AuthMode;
 use savfox_protocol::SessionId;
@@ -13,7 +14,6 @@ use savfox_protocol::models::ResponseItem;
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::protocol::{AskForApproval, ReviewDecision, SandboxPolicy, SessionSource};
 use savfox_protocol::user_input::UserInput;
-use reqwest::{Error, Response};
 use tokio::time::error::Elapsed;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;

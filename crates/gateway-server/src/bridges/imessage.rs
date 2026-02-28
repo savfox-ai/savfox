@@ -7,12 +7,11 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{debug, error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::IMessageBridgeConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Default polling interval for fetching new messages (in seconds).
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;

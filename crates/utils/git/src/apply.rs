@@ -1,4 +1,4 @@
-﻿//! Helpers for applying unified diffs using the system `git` binary.
+//! Helpers for applying unified diffs using the system `git` binary.
 //!
 //! The entry point is [`apply_git_patch`], which writes a diff to a temporary
 //! file, shells out to `git apply` with the right flags, and then parses the

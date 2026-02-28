@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use http::header::ETAG;
 use http::{HeaderMap, Method};
@@ -84,8 +84,8 @@ mod tests {
 
     use async_trait::async_trait;
     use http::{HeaderMap, StatusCode};
-    use savfox_client::{Request, Response, StreamResponse, TransportError};
     use pretty_assertions::assert_eq;
+    use savfox_client::{Request, Response, StreamResponse, TransportError};
     use serde_json::json;
 
     use super::*;

@@ -1,8 +1,9 @@
 //! Resilience utilities  - auto-reconnect, exponential backoff, circuit breaker.
 
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 /// Exponential backoff configuration

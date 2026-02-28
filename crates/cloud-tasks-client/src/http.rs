@@ -1,4 +1,4 @@
-﻿use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc};
 use savfox_backend_client as backend;
 use savfox_backend_client::CodeTaskDetailsResponseExt;
 

@@ -1,14 +1,14 @@
-﻿use std::sync::OnceLock;
+use std::sync::OnceLock;
 use std::time::Instant;
 
-use savfox_cloud_tasks_client::{AttemptStatus, TaskStatus};
-use savfox_tui::render_markdown_text;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::widgets::{
     Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph,
 };
+use savfox_cloud_tasks_client::{AttemptStatus, TaskStatus};
+use savfox_tui::render_markdown_text;
 
 use crate::app::{App, AttemptView};
 use crate::util::format_relative_time_now;

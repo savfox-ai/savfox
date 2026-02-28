@@ -1,4 +1,5 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
@@ -44,19 +45,17 @@ pub async fn list_channel_configs(savfox_home: &PathBuf) -> std::io::Result<Vec<
 
     let mut configs = Vec::new();
     let mut entries = tokio::fs::read_dir(&dir).await?;
-    
+
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.extension().map(|e| e == "json").unwrap_or(false) {
             match tokio::fs::read_to_string(&path).await {
-                Ok(content) => {
-                    match serde_json::from_str::<ChannelConfig>(&content) {
-                        Ok(config) => configs.push(config),
-                        Err(e) => {
-                            warn!("Failed to parse channel config {}: {}", path.display(), e);
-                        }
+                Ok(content) => match serde_json::from_str::<ChannelConfig>(&content) {
+                    Ok(config) => configs.push(config),
+                    Err(e) => {
+                        warn!("Failed to parse channel config {}: {}", path.display(), e);
                     }
-                }
+                },
                 Err(e) => {
                     warn!("Failed to read channel config {}: {}", path.display(), e);
                 }
@@ -68,7 +67,10 @@ pub async fn list_channel_configs(savfox_home: &PathBuf) -> std::io::Result<Vec<
     Ok(configs)
 }
 
-pub async fn get_channel_config(savfox_home: &PathBuf, channel_id: &str) -> std::io::Result<Option<ChannelConfig>> {
+pub async fn get_channel_config(
+    savfox_home: &PathBuf,
+    channel_id: &str,
+) -> std::io::Result<Option<ChannelConfig>> {
     let path = channel_config_path(savfox_home, channel_id);
     if !path.exists() {
         return Ok(None);
@@ -84,19 +86,25 @@ pub async fn get_channel_config(savfox_home: &PathBuf, channel_id: &str) -> std:
     }
 }
 
-pub async fn save_channel_config(savfox_home: &PathBuf, config: &ChannelConfig) -> std::io::Result<()> {
+pub async fn save_channel_config(
+    savfox_home: &PathBuf,
+    config: &ChannelConfig,
+) -> std::io::Result<()> {
     ensure_channels_dir(savfox_home).await?;
-    
+
     let path = channel_config_path(savfox_home, &config.id);
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    
+
     tokio::fs::write(&path, content).await?;
     info!("Saved channel config: {}", path.display());
     Ok(())
 }
 
-pub async fn delete_channel_config(savfox_home: &PathBuf, channel_id: &str) -> std::io::Result<bool> {
+pub async fn delete_channel_config(
+    savfox_home: &PathBuf,
+    channel_id: &str,
+) -> std::io::Result<bool> {
     let path = channel_config_path(savfox_home, channel_id);
     if !path.exists() {
         return Ok(false);
@@ -148,7 +156,11 @@ pub async fn merge_channel_config(
         config.enabled = enabled;
     }
     if let Some(agent_id) = patch.get("agent_id").and_then(|v| v.as_str()) {
-        config.agent_id = if agent_id.is_empty() { None } else { Some(agent_id.to_string()) };
+        config.agent_id = if agent_id.is_empty() {
+            None
+        } else {
+            Some(agent_id.to_string())
+        };
     }
 
     config.updated_at = Some(now);

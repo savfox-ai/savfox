@@ -1,4 +1,4 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use dirs::home_dir;
 use savfox_core::parse_command::extract_shell_command;

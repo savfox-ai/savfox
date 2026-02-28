@@ -1,9 +1,10 @@
-﻿//! Server-side speech-to-text  - Whisper API integration for audio transcription.
+//! Server-side speech-to-text  - Whisper API integration for audio transcription.
+
+use std::path::Path;
 
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::Path;
 use tracing::info;
 
 /// STT provider

@@ -1,8 +1,9 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, test_tmp_path, to_response};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     GetUserSavedConfigResponse, JSONRPCResponse, Profile, RequestId, SandboxSettings, Tools,
     UserSavedConfig,
@@ -10,7 +11,6 @@ use savfox_app_server_protocol::{
 use savfox_core::protocol::AskForApproval;
 use savfox_protocol::config_types::{ForcedLoginMethod, ReasoningSummary, SandboxMode, Verbosity};
 use savfox_protocol::openai_models::ReasoningEffort;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

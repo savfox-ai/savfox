@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, to_response};

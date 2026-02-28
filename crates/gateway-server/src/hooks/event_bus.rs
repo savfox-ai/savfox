@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -141,8 +141,8 @@ fn enabled_default() -> bool {
 ///
 /// Rules:
 /// - `"*"` matches everything.
-/// - A pattern ending in `:*` (e.g. `"session:*"`) matches any event string
-///   that starts with the prefix before `:*`.
+/// - A pattern ending in `:*` (e.g. `"session:*"`) matches any event string that starts with the
+///   prefix before `:*`.
 /// - Otherwise, an exact (case-sensitive) match is required.
 fn pattern_matches(pattern: &str, event_str: &str) -> bool {
     if pattern == "*" {
@@ -427,8 +427,9 @@ async fn execute_webhook(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     // ── Pattern matching ────────────────────────────────────────────────
 

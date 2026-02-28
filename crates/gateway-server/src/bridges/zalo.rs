@@ -1,16 +1,15 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::ZaloBridgeConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Zalo OA (Official Account) API base URL.
 const ZALO_OA_API_BASE: &str = "https://openapi.zalo.me/v3.0/oa";

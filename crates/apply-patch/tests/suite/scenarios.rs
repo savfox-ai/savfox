@@ -1,10 +1,10 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use savfox_utils_cargo_bin::find_resource;
 use pretty_assertions::assert_eq;
+use savfox_utils_cargo_bin::find_resource;
 use tempfile::tempdir;
 
 #[test]

@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use core_test_support::responses::{ev_completed, mount_sse_once_match, sse, start_mock_server};
 use core_test_support::test_savfox_exec::test_savfox_exec;
 use wiremock::matchers::header;

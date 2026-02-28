@@ -1,4 +1,4 @@
-﻿//! This file handles all logic related to managing MCP OAuth credentials.
+//! This file handles all logic related to managing MCP OAuth credentials.
 //! All credentials are stored using the keyring crate which uses os-specific keyring services.
 //! https://crates.io/crates/keyring
 //! macOS: macOS keychain.
@@ -29,9 +29,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Error, Result};
 use oauth2::basic::BasicTokenType;
 use oauth2::{AccessToken, EmptyExtraTokenFields, RefreshToken, Scope, TokenResponse};
+use rmcp::transport::auth::{AuthorizationManager, OAuthTokenResponse};
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
 use savfox_utils_home_dir::find_savfox_home;
-use rmcp::transport::auth::{AuthorizationManager, OAuthTokenResponse};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -597,8 +597,8 @@ mod tests {
 
     use anyhow::Result;
     use keyring::Error as KeyringError;
-    use savfox_keyring_store::tests::MockKeyringStore;
     use pretty_assertions::assert_eq;
+    use savfox_keyring_store::tests::MockKeyringStore;
     use tempfile::tempdir;
 
     use super::*;

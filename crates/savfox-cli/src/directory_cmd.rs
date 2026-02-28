@@ -1,4 +1,4 @@
-﻿//! `savfox directory` — Channel-aware account, peer, and group lookups.
+//! `savfox directory` — Channel-aware account, peer, and group lookups.
 
 use clap::Parser;
 use serde_json::{Value, json};

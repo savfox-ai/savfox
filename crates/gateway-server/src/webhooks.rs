@@ -1,13 +1,14 @@
-﻿//! Inbound webhook system  - accepts HTTP webhooks that trigger agent actions.
+//! Inbound webhook system  - accepts HTTP webhooks that trigger agent actions.
 //!
 //! Webhooks are configured with a URL path, secret, target agent, and payload template.
 //! Incoming webhooks are verified via HMAC-SHA256 signature and rate-limited.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
 use tracing::info;
 

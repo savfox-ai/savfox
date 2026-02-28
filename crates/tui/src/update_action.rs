@@ -1,4 +1,4 @@
-﻿/// Update action the CLI should perform after the TUI exits.
+/// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
     /// Update via `npm install -g @openai/savfox@latest`.

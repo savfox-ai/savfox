@@ -1,4 +1,4 @@
-﻿pub mod index;
+pub mod index;
 pub mod installer;
 pub mod manifest;
 pub mod package;

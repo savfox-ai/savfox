@@ -1,7 +1,8 @@
 //! Message queuing with FIFO and priority support for incoming gateway messages.
 
-use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify};
 
 /// Priority levels for messages

@@ -1,4 +1,4 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use savfox_core::{
@@ -283,10 +283,10 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
             _ => {}
         }
     }
-    let responses_have_user = from_responses.iter().any(|(_, role, _, _)| role == "user");
+    let responses_have_user = from_responses.iter().any(|(_, role, ..)| role == "user");
     let responses_have_assistant = from_responses
         .iter()
-        .any(|(_, role, _, _)| role == "assistant");
+        .any(|(_, role, ..)| role == "assistant");
 
     let mut from_events: Vec<(usize, String, String, &'static str)> = Vec::new();
     for (index, item) in items.iter().enumerate() {
@@ -315,7 +315,7 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
         merged.extend(
             from_events
                 .iter()
-                .filter(|(_, role, _, _)| role == "user")
+                .filter(|(_, role, ..)| role == "user")
                 .cloned(),
         );
     }
@@ -323,7 +323,7 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
         merged.extend(
             from_events
                 .iter()
-                .filter(|(_, role, _, _)| role == "assistant")
+                .filter(|(_, role, ..)| role == "assistant")
                 .cloned(),
         );
     }
@@ -332,7 +332,7 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
     }
 
     // Stable chronological ordering by rollout index.
-    merged.sort_by_key(|(index, _, _, _)| *index);
+    merged.sort_by_key(|(index, ..)| *index);
 
     merged
         .into_iter()
@@ -374,9 +374,10 @@ fn tail_limit(mut values: Vec<Value>, limit: usize) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_messages;
     use savfox_protocol::models::{ContentItem, ResponseItem};
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem, UserMessageEvent};
+
+    use super::extract_messages;
 
     #[test]
     fn extract_messages_keeps_user_event_when_response_items_only_have_assistant() {

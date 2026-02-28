@@ -1,4 +1,4 @@
-﻿use std::future::Future;
+use std::future::Future;
 use std::io::{IsTerminal, Result, Stdout, stdin, stdout};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -13,12 +13,12 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, supports_keyboard_enhancement,
 };
 use crossterm::{Command, SynchronizedUpdate};
-use savfox_core::config::types::NotificationMethod;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::layout::{Offset, Rect};
 use ratatui::text::Line;
+use savfox_core::config::types::NotificationMethod;
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 

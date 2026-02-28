@@ -1,4 +1,4 @@
-﻿use std::io::{Cursor, Read};
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};

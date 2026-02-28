@@ -1,9 +1,9 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use anyhow::Result;
+use pretty_assertions::assert_eq;
 use savfox_core::config::ConfigBuilder;
 use savfox_core::config::types::{OtelExporterKind, OtelHttpProtocol};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 const SERVICE_VERSION: &str = "0.0.0-test";

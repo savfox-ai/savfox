@@ -1,4 +1,4 @@
-﻿use savfox_protocol::models::{
+use savfox_protocol::models::{
     ContentItem, ResponseItem, is_local_image_close_tag_text, is_local_image_open_tag_text,
 };
 use savfox_protocol::protocol::{
@@ -126,10 +126,10 @@ mod tests {
     use std::path::PathBuf;
 
     use chrono::{DateTime, Utc};
+    use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::models::{ContentItem, ResponseItem};
     use savfox_protocol::protocol::USER_MESSAGE_BEGIN;
-    use pretty_assertions::assert_eq;
     use uuid::Uuid;
 
     use super::extract_user_message_text;

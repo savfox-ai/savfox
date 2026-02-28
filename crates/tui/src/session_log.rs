@@ -1,4 +1,4 @@
-﻿use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex, OnceLock};

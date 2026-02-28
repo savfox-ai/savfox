@@ -1,5 +1,6 @@
-use crate::utils::icons::{get_icon, get_platform_icon};
 use dioxus::prelude::*;
+
+use crate::utils::icons::{get_icon, get_platform_icon};
 
 #[component]
 pub fn Icon(name: String, class: Option<String>) -> Element {

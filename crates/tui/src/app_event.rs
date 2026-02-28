@@ -1,4 +1,4 @@
-﻿//! Application-level events used to coordinate UI actions.
+//! Application-level events used to coordinate UI actions.
 //!
 //! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
 //! Widgets emit events to request actions that must be handled at the app layer (like opening

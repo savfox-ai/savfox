@@ -1,4 +1,4 @@
-﻿mod client;
+mod client;
 
 pub use client::LMStudioClient;
 use savfox_core::config::Config;

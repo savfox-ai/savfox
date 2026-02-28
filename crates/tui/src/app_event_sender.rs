@@ -1,4 +1,4 @@
-﻿use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app_event::AppEvent;
 use crate::session_log;

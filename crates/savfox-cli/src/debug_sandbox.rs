@@ -1,4 +1,4 @@
-﻿#[cfg(target_os = "macos")]
+#[cfg(target_os = "macos")]
 mod pid_tracker;
 #[cfg(target_os = "macos")]
 mod seatbelt;

@@ -1,4 +1,4 @@
-﻿use savfox_client::Request;
+use savfox_client::Request;
 
 /// Provides bearer and account identity information for API requests.
 ///

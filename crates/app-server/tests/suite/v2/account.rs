@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -7,6 +7,7 @@ use app_test_support::{
     write_chatgpt_auth, write_models_cache,
 };
 use core_test_support::responses;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     Account, AuthMode, CancelLoginAccountParams, CancelLoginAccountResponse,
     CancelLoginAccountStatus, ChatgptAuthTokensRefreshReason, ChatgptAuthTokensRefreshResponse,
@@ -17,7 +18,6 @@ use savfox_app_server_protocol::{
 use savfox_core::auth::AuthCredentialsStoreMode;
 use savfox_login_oauth::login_with_api_key;
 use savfox_protocol::account::PlanType as AccountPlanType;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use serial_test::serial;
 use tempfile::TempDir;
@@ -799,7 +799,13 @@ async fn login_account_api_key_succeeds_and_notifies() -> Result<()> {
     };
     pretty_assertions::assert_eq!(payload.auth_mode, Some(AuthMode::ApiKey));
 
-    assert!(savfox_home.path().join("models").join("chatgpt.json").exists());
+    assert!(
+        savfox_home
+            .path()
+            .join("models")
+            .join("chatgpt.json")
+            .exists()
+    );
     Ok(())
 }
 

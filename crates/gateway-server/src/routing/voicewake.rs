@@ -1,6 +1,7 @@
+use std::sync::{Arc, OnceLock};
+
 use salvo::prelude::*;
 use serde_json::json;
-use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 
 static VOICEWAKE_STATE: OnceLock<RwLock<VoiceWakeState>> = OnceLock::new();

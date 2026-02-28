@@ -1,4 +1,4 @@
-﻿/// Marker trait for protocol types that can signal experimental usage.
+/// Marker trait for protocol types that can signal experimental usage.
 pub trait ExperimentalApi {
     /// Returns a short reason identifier when an experimental method or field is
     /// used, or `None` when the value is entirely stable.
@@ -30,8 +30,8 @@ pub fn experimental_required_message(reason: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use savfox_experimental_api_macros::ExperimentalApi;
     use pretty_assertions::assert_eq;
+    use savfox_experimental_api_macros::ExperimentalApi;
 
     use super::ExperimentalApi as ExperimentalApiTrait;
 

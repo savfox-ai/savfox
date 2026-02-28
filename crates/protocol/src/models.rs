@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::Path;
 
 use savfox_exec_policy::Policy;
@@ -957,8 +957,8 @@ mod tests {
     use std::path::PathBuf;
 
     use anyhow::Result;
-    use savfox_exec_policy::Policy;
     use pretty_assertions::assert_eq;
+    use savfox_exec_policy::Policy;
     use tempfile::tempdir;
 
     use super::*;

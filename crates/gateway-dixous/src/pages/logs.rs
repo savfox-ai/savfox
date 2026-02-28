@@ -1,4 +1,4 @@
-﻿use dioxus::prelude::*;
+use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 

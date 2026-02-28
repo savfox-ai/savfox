@@ -1,4 +1,4 @@
-﻿//! The bottom pane is the interactive footer of the chat UI.
+//! The bottom pane is the interactive footer of the chat UI.
 //!
 //! The pane owns the [`ChatComposer`] (editable prompt input) and a stack of transient
 //! [`BottomPaneView`]s (popups/modals) that temporarily replace the composer for focused
@@ -19,13 +19,13 @@ use std::time::Duration;
 
 use bottom_pane_view::BottomPaneView;
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
 use savfox_core::features::Features;
 use savfox_core::skills::model::SkillMetadata;
 use savfox_file_search::FileMatch;
 use savfox_protocol::request_user_input::RequestUserInputEvent;
 use savfox_protocol::user_input::TextElement;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 
 use crate::app_event::ConnectorsSnapshot;
 use crate::app_event_sender::AppEventSender;
@@ -900,10 +900,10 @@ mod tests {
 
     use crossterm::event::KeyModifiers;
     use insta::assert_snapshot;
-    use savfox_core::protocol::Op;
-    use savfox_protocol::protocol::SkillScope;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
+    use savfox_core::protocol::Op;
+    use savfox_protocol::protocol::SkillScope;
     use tokio::sync::mpsc::unbounded_channel;
 
     use super::*;

@@ -1,5 +1,6 @@
-use crate::config::types::*;
 use std::collections::HashMap;
+
+use crate::config::types::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AnalyzedSchema {

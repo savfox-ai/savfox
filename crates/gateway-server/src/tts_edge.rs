@@ -3,13 +3,12 @@
 //!
 //! ## Protocol overview
 //!
-//! 1. Open a WSS connection to `speech.platform.bing.com` with a
-//!    `TrustedClientToken` query parameter and a random `ConnectionId`.
+//! 1. Open a WSS connection to `speech.platform.bing.com` with a `TrustedClientToken` query
+//!    parameter and a random `ConnectionId`.
 //! 2. Send a **speech.config** text message (JSON with audio output format).
 //! 3. Send an **ssml** text message containing the SSML payload.
-//! 4. Receive a mix of text messages (`turn.start`, `audio.metadata`,
-//!    `turn.end`) and binary messages (audio data with a 2-byte header-length
-//!    prefix).
+//! 4. Receive a mix of text messages (`turn.start`, `audio.metadata`, `turn.end`) and binary
+//!    messages (audio data with a 2-byte header-length prefix).
 //! 5. Collect all binary audio payloads until `turn.end` is received.
 //!
 //! ## Dependency note
@@ -270,7 +269,8 @@ pub async fn synthesize(text: &str, config: &EdgeTtsConfig) -> Result<Vec<u8>, S
     // ── WSS connection requires tokio-tungstenite with native-tls ────────
     //
     // The full implementation would:
-    //   1. connect_async(ws_url) with Origin header "chrome-extension://jdiccldimpdaibmpdmdsshecamfdnail"
+    //   1. connect_async(ws_url) with Origin header
+    //      "chrome-extension://jdiccldimpdaibmpdmdsshecamfdnail"
     //   2. send(Text(speech_config))
     //   3. send(Text(ssml_message))
     //   4. loop recv():

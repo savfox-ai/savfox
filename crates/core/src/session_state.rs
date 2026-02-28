@@ -1,17 +1,14 @@
-use crate::agent::AgentStatus;
-use crate::error::Result as SavfoxResult;
-use crate::protocol::Event;
-use crate::protocol::Op;
-use crate::protocol::Submission;
-use crate::savfox::Savfox;
+use std::path::PathBuf;
+
 use savfox_protocol::config_types::Personality;
 use savfox_protocol::openai_models::ReasoningEffort;
-use savfox_protocol::protocol::AskForApproval;
-use savfox_protocol::protocol::SandboxPolicy;
-use savfox_protocol::protocol::SessionSource;
-use std::path::PathBuf;
+use savfox_protocol::protocol::{AskForApproval, SandboxPolicy, SessionSource};
 use tokio::sync::watch;
 
+use crate::agent::AgentStatus;
+use crate::error::Result as SavfoxResult;
+use crate::protocol::{Event, Op, Submission};
+use crate::savfox::Savfox;
 use crate::state_db::StateDbHandle;
 
 #[derive(Clone, Debug)]

@@ -5,13 +5,11 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::GatewayConfig;
-use crate::config::WebhookBridgeConfig;
+use crate::config::{GatewayConfig, WebhookBridgeConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Generic webhook bridge for custom integrations.
 ///

@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use savfox_experimental_api_macros::ExperimentalApi;
@@ -23,8 +23,8 @@ use savfox_protocol::plan_tool::{
 use savfox_protocol::protocol::{
     AgentStatus as CoreAgentStatus, AskForApproval as CoreAskForApproval,
     CreditsSnapshot as CoreCreditsSnapshot, NetworkAccess as CoreNetworkAccess,
-    SavfoxErrorInfo as CoreSavfoxErrorInfo, RateLimitSnapshot as CoreRateLimitSnapshot,
-    RateLimitWindow as CoreRateLimitWindow, SessionSource as CoreSessionSource,
+    RateLimitSnapshot as CoreRateLimitSnapshot, RateLimitWindow as CoreRateLimitWindow,
+    SavfoxErrorInfo as CoreSavfoxErrorInfo, SessionSource as CoreSessionSource,
     SkillDependencies as CoreSkillDependencies, SkillErrorInfo as CoreSkillErrorInfo,
     SkillInterface as CoreSkillInterface, SkillMetadata as CoreSkillMetadata,
     SkillScope as CoreSkillScope, SkillToolDependency as CoreSkillToolDependency,
@@ -2889,6 +2889,7 @@ pub struct ConfigWarningNotification {
 mod tests {
     use std::path::PathBuf;
 
+    use pretty_assertions::assert_eq;
     use savfox_protocol::items::{
         AgentMessageContent, AgentMessageItem, ReasoningItem, TurnItem, UserMessageItem,
         WebSearchItem,
@@ -2896,7 +2897,6 @@ mod tests {
     use savfox_protocol::models::WebSearchAction as CoreWebSearchAction;
     use savfox_protocol::protocol::NetworkAccess as CoreNetworkAccess;
     use savfox_protocol::user_input::UserInput as CoreUserInput;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     use super::*;

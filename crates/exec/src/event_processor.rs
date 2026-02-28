@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use savfox_core::config::Config;
 use savfox_core::protocol::{Event, SessionConfiguredEvent};

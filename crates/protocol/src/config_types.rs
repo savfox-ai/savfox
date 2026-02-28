@@ -1,4 +1,4 @@
-﻿use schemars::JsonSchema;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumIter};
 use ts_rs::TS;
@@ -141,11 +141,11 @@ pub enum TrustLevel {
 /// alternate screen mode.
 ///
 /// **Solution:** This setting provides a pragmatic workaround:
-/// - `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij,
-///   disable alternate screen to preserve scrollback. Enable it everywhere else.
+/// - `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij, disable
+///   alternate screen to preserve scrollback. Enable it everywhere else.
 /// - `always`: Always use alternate screen mode (original behavior before this fix).
-/// - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback
-///   in all multiplexers.
+/// - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback in all
+///   multiplexers.
 ///
 /// The CLI flag `--alt-screen <always|auto|never>` can override this setting at runtime.
 #[derive(

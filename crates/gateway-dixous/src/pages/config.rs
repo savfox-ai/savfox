@@ -1,7 +1,8 @@
-﻿use dioxus::prelude::*;
+use std::collections::HashMap;
+
+use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 

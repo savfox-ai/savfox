@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;

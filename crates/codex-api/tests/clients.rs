@@ -1,15 +1,15 @@
-﻿use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
+use pretty_assertions::assert_eq;
 use savfox_api::requests::responses::Compression;
 use savfox_api::{AuthProvider, ChatClient, Provider, ResponsesClient, ResponsesOptions, WireApi};
 use savfox_client::{HttpTransport, Request, Response, StreamResponse, TransportError};
 use savfox_protocol::models::{ContentItem, ResponseItem};
-use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 fn assert_path_ends_with(requests: &[Request], suffix: &str) {

@@ -5,12 +5,11 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::SignalBridgeConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Signal bridge using signal-cli JSON-RPC interface.
 pub(crate) struct SignalBridge {

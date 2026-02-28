@@ -1,4 +1,4 @@
-﻿use std::borrow::Cow;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 

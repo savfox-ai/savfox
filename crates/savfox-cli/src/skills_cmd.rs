@@ -1,4 +1,4 @@
-﻿//! `savfox skills` -- manage installed skill toggles.
+//! `savfox skills` -- manage installed skill toggles.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

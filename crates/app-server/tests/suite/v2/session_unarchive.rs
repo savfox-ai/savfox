@@ -1,4 +1,4 @@
-﻿use std::fs::{FileTimes, OpenOptions};
+use std::fs::{FileTimes, OpenOptions};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 

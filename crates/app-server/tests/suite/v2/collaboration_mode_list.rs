@@ -1,4 +1,4 @@
-﻿//! Validates that the collaboration mode list endpoint returns the expected default presets.
+//! Validates that the collaboration mode list endpoint returns the expected default presets.
 //!
 //! The test drives the app server through the MCP harness and asserts that the list response
 //! includes the plan, coding, pair programming, and execute modes with their default model and
@@ -10,12 +10,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, to_response};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     CollaborationModeListParams, CollaborationModeListResponse, JSONRPCResponse, RequestId,
 };
 use savfox_core::models_manager::test_builtin_collaboration_mode_presets;
 use savfox_protocol::config_types::{CollaborationModeMask, ModeKind};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

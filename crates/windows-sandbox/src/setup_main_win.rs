@@ -1,4 +1,4 @@
-﻿#![cfg(target_os = "windows")]
+#![cfg(target_os = "windows")]
 
 mod firewall;
 

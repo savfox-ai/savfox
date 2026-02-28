@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use sqlx::{SqlitePool, migrate::MigrateDatabase};
+use sqlx::SqlitePool;
+use sqlx::migrate::MigrateDatabase;
 use tracing::info;
 
 use crate::types::{MemoryChunk, MemoryIndexMeta, MemoryMetadata, MemorySource};

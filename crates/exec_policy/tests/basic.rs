@@ -1,14 +1,14 @@
-﻿use std::any::Any;
+use std::any::Any;
 use std::fs;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use pretty_assertions::assert_eq;
 use savfox_exec_policy::rule::{PatternToken, PrefixPattern, PrefixRule};
 use savfox_exec_policy::{
     Decision, Error, Evaluation, Policy, PolicyParser, RuleMatch, RuleRef,
     blocking_append_allow_prefix_rule,
 };
-use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
 fn tokens(cmd: &[&str]) -> Vec<String> {

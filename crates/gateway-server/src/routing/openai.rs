@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use salvo::prelude::*;
 use salvo::sse::{SseEvent, SseKeepAlive};

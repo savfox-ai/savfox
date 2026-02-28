@@ -269,10 +269,10 @@ impl std::fmt::Display for Scope {
 /// The mapping follows these rules:
 ///
 /// - `config.*`, `gateway.*` -> `Admin`
-/// - `sessions.*`, `models.*`, `agents.*`, `memory.*`, `usage.*`, `cron.*`,
-///   `logs.*`, `skills.*`, `tts.*`, `node.*` (non-pairing), `tools.*`, `wizard.*`
-///   -> `Read` for list/get/status/search/layers/preview/tail/runs,
-///      `Write` for create/update/delete/patch/set/compact/reset/promote/run
+/// - `sessions.*`, `models.*`, `agents.*`, `memory.*`, `usage.*`, `cron.*`, `logs.*`, `skills.*`,
+///   `tts.*`, `node.*` (non-pairing), `tools.*`, `wizard.*` -> `Read` for
+///   list/get/status/search/layers/preview/tail/runs, `Write` for
+///   create/update/delete/patch/set/compact/reset/promote/run
 /// - `exec.approval*`, `exec.approvals*` -> `Approvals`
 /// - `chat.*`, `send` -> `Chat`
 /// - `channels.*` -> `Write`

@@ -1,12 +1,12 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Context;
 use chrono::DateTime;
 use clap::Parser;
 use dirs::home_dir;
-use savfox_state::{LogQuery, LogRow, STATE_DB_FILENAME, StateRuntime};
 use owo_colors::OwoColorize;
+use savfox_state::{LogQuery, LogRow, STATE_DB_FILENAME, StateRuntime};
 
 #[derive(Debug, Parser)]
 #[command(name = "savfox-state-logs")]

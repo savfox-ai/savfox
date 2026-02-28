@@ -1,6 +1,7 @@
+use dioxus::prelude::*;
+
 use crate::api::types::IrcStatus;
 use crate::api::ws::WsRpc;
-use dioxus::prelude::*;
 
 #[component]
 pub fn IrcChannel() -> Element {

@@ -32,7 +32,6 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::{debug, error, warn};
 
-use crate::AuthManager;
 use crate::api_bridge::{CoreAuthProvider, auth_provider_from_auth, map_api_error};
 use crate::auth::{RefreshTokenError, SavfoxAuth, UnauthorizedRecovery};
 use crate::client_common::{Prompt, ResponseEvent, ResponseStream};
@@ -42,13 +41,13 @@ use crate::error::{Result, SavfoxError};
 use crate::features::{FEATURES, Feature};
 use crate::flags::SAVFOX_RS_SSE_FIXTURE;
 use crate::model_provider_info::{ModelProviderInfo, WireApi};
-use crate::request_model_for_provider;
 use crate::tools::spec::{
     create_tools_json_for_anthropic_api, create_tools_json_for_chat_completions_api,
     create_tools_json_for_responses_api,
 };
 use crate::transport_manager::TransportManager;
 use crate::turn_metadata::build_turn_metadata_header;
+use crate::{AuthManager, request_model_for_provider};
 
 pub const WEB_SEARCH_ELIGIBLE_HEADER: &str = "x-oai-web-search-eligible";
 pub const X_SAVFOX_TURN_STATE_HEADER: &str = "x-savfox-turn-state";
@@ -1001,7 +1000,7 @@ fn nearest_reasoning_effort(
             }
         }
     }
-    best.map(|(candidate, _, _)| candidate)
+    best.map(|(candidate, ..)| candidate)
 }
 
 fn reasoning_effort_rank(effort: ReasoningEffortConfig) -> u8 {
@@ -1138,10 +1137,11 @@ fn responses_wire_unsupported(err: &SavfoxError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_reasoning_effort, responses_wire_unsupported};
-    use crate::error::{SavfoxError, UnexpectedResponseError};
     use reqwest::StatusCode;
     use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
+
+    use super::{normalize_reasoning_effort, responses_wire_unsupported};
+    use crate::error::{SavfoxError, UnexpectedResponseError};
 
     fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
         ReasoningEffortPreset {

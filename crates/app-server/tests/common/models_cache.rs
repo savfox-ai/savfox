@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use savfox_core::models_manager::model_presets::all_model_presets;

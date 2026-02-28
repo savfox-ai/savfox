@@ -1,10 +1,9 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use salvo::prelude::*;
+use savfox_skill_registry::SkillRegistry;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-
-use savfox_skill_registry::SkillRegistry;
 
 #[derive(Debug, Clone)]
 pub struct SkillsApiState {

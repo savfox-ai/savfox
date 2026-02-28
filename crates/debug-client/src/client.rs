@@ -1,4 +1,4 @@
-﻿use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::Sender;

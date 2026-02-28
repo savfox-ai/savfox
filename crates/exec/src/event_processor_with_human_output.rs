@@ -1,7 +1,8 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
+use owo_colors::{OwoColorize, Style};
 use savfox_common::create_config_summary_entries;
 use savfox_common::elapsed::{format_duration, format_elapsed};
 use savfox_core::config::Config;
@@ -19,7 +20,6 @@ use savfox_core::web_search::web_search_detail;
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::num_format::format_with_separators;
 use savfox_protocol::plan_tool::{StepStatus, UpdatePlanArgs};
-use owo_colors::{OwoColorize, Style};
 use shlex::try_join;
 
 use crate::event_processor::{EventProcessor, SavfoxStatus, handle_last_message};

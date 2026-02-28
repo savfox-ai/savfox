@@ -1,4 +1,4 @@
-﻿use http::HeaderMap;
+use http::HeaderMap;
 use savfox_protocol::models::ResponseItem;
 use savfox_protocol::protocol::SessionSource;
 use serde_json::Value;
@@ -189,8 +189,8 @@ mod tests {
     use std::time::Duration;
 
     use http::HeaderValue;
-    use savfox_protocol::protocol::SubAgentSource;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::protocol::SubAgentSource;
 
     use super::*;
     use crate::provider::{RetryConfig, WireApi};

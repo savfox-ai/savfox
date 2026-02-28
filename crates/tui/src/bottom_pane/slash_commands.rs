@@ -1,4 +1,4 @@
-﻿//! Shared helpers for filtering and matching built-in slash commands.
+//! Shared helpers for filtering and matching built-in slash commands.
 //!
 //! The same sandbox- and feature-gating rules are used by both the composer
 //! and the command popup. Centralizing them here keeps those call sites small

@@ -1,4 +1,4 @@
-﻿#![cfg(target_os = "windows")]
+#![cfg(target_os = "windows")]
 
 use std::fs::File;
 use std::io::Write;

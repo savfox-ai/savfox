@@ -1,5 +1,6 @@
-﻿use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UiSettings {
@@ -69,8 +70,9 @@ impl ThemeMode {
 
 #[cfg(target_arch = "wasm32")]
 mod wasm_storage {
-    use super::*;
     use web_sys::Storage;
+
+    use super::*;
 
     fn get_local_storage() -> Option<Storage> {
         web_sys::window()?.local_storage().ok()?
@@ -166,13 +168,12 @@ mod native_storage {
     pub fn set_theme(_theme: ThemeMode) {}
 }
 
-#[cfg(target_arch = "wasm32")]
-#[allow(unused_imports)]
-pub use wasm_storage::*;
-
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use native_storage::{
     clear_settings, clear_token, get_theme, get_token, load_settings, save_settings, set_theme,
     set_token,
 };
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_imports)]
+pub use wasm_storage::*;

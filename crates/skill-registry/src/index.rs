@@ -1,4 +1,4 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

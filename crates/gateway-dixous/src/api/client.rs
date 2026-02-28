@@ -1,4 +1,4 @@
-﻿use serde::de::DeserializeOwned;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;

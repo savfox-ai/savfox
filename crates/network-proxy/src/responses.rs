@@ -1,4 +1,4 @@
-﻿use rama_http::{Body, Response, StatusCode};
+use rama_http::{Body, Response, StatusCode};
 use serde::Serialize;
 use tracing::error;
 

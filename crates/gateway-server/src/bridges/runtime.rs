@@ -1,14 +1,13 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use savfox_core::models_manager::manager::RefreshStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-
-use savfox_core::models_manager::manager::RefreshStrategy;
 
 use crate::agent_routing::{AgentRouter, RoutingContext, RoutingRule};
 use crate::auto_reply::directives::{
@@ -25,9 +24,10 @@ use crate::identity_links::{
 use crate::log_store;
 use crate::response_chunker::chunk_message_for_channel;
 use crate::send_policy::{SendMetrics, SendPolicyConfig, ThreadingPolicy};
-use crate::session::session_file_to_store_value;
-use crate::session::{DmScope, SessionOverrides, SessionStore};
-use crate::session::{InboundSessionMeta, track_inbound_message, track_token_usage};
+use crate::session::{
+    DmScope, InboundSessionMeta, SessionOverrides, SessionStore, session_file_to_store_value,
+    track_inbound_message, track_token_usage,
+};
 
 const DEDUPE_TTL_MS: u64 = 10 * 60 * 1000;
 
@@ -1504,12 +1504,13 @@ async fn send_with_retry(
 mod tests {
     use std::collections::HashMap;
 
+    use savfox_protocol::protocol::TokenUsage;
+
     use super::{
         AgentTonePolicyConfig, ChannelTonePolicyConfig, append_channel_tone_suffix,
         format_model_footer,
     };
     use crate::config::ResponseFooterConfig;
-    use savfox_protocol::protocol::TokenUsage;
 
     #[test]
     fn footer_respects_global_disable() {

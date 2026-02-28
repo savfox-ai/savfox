@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 
 use assert_cmd::Command;
 use tempfile::tempdir;

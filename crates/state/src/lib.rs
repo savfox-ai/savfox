@@ -1,4 +1,4 @@
-﻿//! SQLite-backed state for rollout metadata.
+//! SQLite-backed state for rollout metadata.
 //!
 //! This crate is intentionally small and focused: it extracts rollout metadata
 //! from JSONL rollouts and mirrors it into a local SQLite database. Backfill

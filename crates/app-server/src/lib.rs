@@ -1,4 +1,4 @@
-﻿#![deny(clippy::print_stdout, clippy::print_stderr)]
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
 
 use std::io::{ErrorKind, Result as IoResult};
@@ -38,9 +38,9 @@ mod filters;
 mod fuzzy_file_search;
 mod message_processor;
 mod models;
+mod outgoing_message;
 #[path = "agent_message_processor.rs"]
 mod savfox_message_processor;
-mod outgoing_message;
 
 /// Size of the bounded channels used to communicate between tasks. The value
 /// is a balance between throughput and memory usage – 128 messages should be

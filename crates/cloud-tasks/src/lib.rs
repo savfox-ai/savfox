@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 mod app;
 mod cli;
@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use chrono::Utc;
 pub use cli::Cli;
-use savfox_cloud_tasks_client::TaskStatus;
 use owo_colors::{OwoColorize, Stream};
+use savfox_cloud_tasks_client::TaskStatus;
 use supports_color::Stream as SupportStream;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::info;
@@ -2111,11 +2111,11 @@ fn pretty_lines_from_error(raw: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use savfox_cloud_tasks_client::{DiffSummary, MockClient, TaskId, TaskStatus, TaskSummary};
-    use savfox_tui::{ComposerAction, ComposerInput};
     use pretty_assertions::assert_eq;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
+    use savfox_cloud_tasks_client::{DiffSummary, MockClient, TaskId, TaskStatus, TaskSummary};
+    use savfox_tui::{ComposerAction, ComposerInput};
 
     use super::*;
     use crate::resolve_git_ref_with_git_info;

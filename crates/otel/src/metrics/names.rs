@@ -1,4 +1,4 @@
-﻿pub(crate) const TOOL_CALL_COUNT_METRIC: &str = "savfox.tool.call";
+pub(crate) const TOOL_CALL_COUNT_METRIC: &str = "savfox.tool.call";
 pub(crate) const TOOL_CALL_DURATION_METRIC: &str = "savfox.tool.call.duration_ms";
 pub(crate) const API_CALL_COUNT_METRIC: &str = "savfox.api_request";
 pub(crate) const API_CALL_DURATION_METRIC: &str = "savfox.api_request.duration_ms";

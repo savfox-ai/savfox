@@ -1,10 +1,10 @@
-﻿#![allow(dead_code)]
+#![allow(dead_code)]
 
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use savfox_core::error::{SavfoxError, Result};
+use savfox_core::error::{Result, SavfoxError};
 use savfox_core::protocol::{SandboxPolicy, WritableRoot};
 use savfox_utils_absolute_path::AbsolutePathBuf;
 

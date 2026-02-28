@@ -1,12 +1,12 @@
-﻿use std::cell::{Ref, RefCell};
+use std::cell::{Ref, RefCell};
 use std::ops::Range;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use savfox_protocol::user_input::{ByteRange, TextElement as UserTextElement};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{StatefulWidgetRef, WidgetRef};
+use savfox_protocol::user_input::{ByteRange, TextElement as UserTextElement};
 use textwrap::Options;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;

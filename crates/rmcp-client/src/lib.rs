@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 mod auth_status;
 mod logging_client_handler;
@@ -14,7 +14,6 @@ pub use oauth::{
     OAuthCredentialsStoreMode, StoredOAuthTokens, WrappedOAuthTokenResponse, delete_oauth_tokens,
     save_oauth_tokens,
 };
-pub use savfox_protocol::protocol::McpAuthStatus;
 pub use perform_oauth_login::{
     OauthLoginHandle, perform_oauth_login, perform_oauth_login_return_url,
 };
@@ -23,3 +22,4 @@ pub use rmcp_client::{
     Elicitation, ElicitationResponse, ListToolsWithConnectorIdResult, RmcpClient, SendElicitation,
     ToolWithConnectorId,
 };
+pub use savfox_protocol::protocol::McpAuthStatus;

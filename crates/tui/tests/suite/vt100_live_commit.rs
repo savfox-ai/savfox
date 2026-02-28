@@ -1,4 +1,4 @@
-﻿#![cfg(feature = "vt100-tests")]
+#![cfg(feature = "vt100-tests")]
 
 use ratatui::layout::Rect;
 use ratatui::text::Line;

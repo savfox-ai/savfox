@@ -1,4 +1,4 @@
-﻿//! End-to-end compaction flow tests.
+//! End-to-end compaction flow tests.
 //!
 //! Phases:
 //! 1) Arrange: mock responses/compact endpoints + config.
@@ -15,6 +15,7 @@ use app_test_support::{
     write_mock_responses_config_toml,
 };
 use core_test_support::{responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     ItemCompletedNotification, ItemStartedNotification, JSONRPCNotification, JSONRPCResponse,
     RequestId, SessionItem, SessionStartParams, SessionStartResponse, TurnCompletedNotification,
@@ -23,7 +24,6 @@ use savfox_app_server_protocol::{
 use savfox_core::auth::AuthCredentialsStoreMode;
 use savfox_core::features::Feature;
 use savfox_protocol::models::{ContentItem, ResponseItem};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

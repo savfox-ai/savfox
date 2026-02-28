@@ -1,13 +1,13 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use eventsource_stream::Event as StreamEvent;
 use opentelemetry_sdk::metrics::InMemoryMetricExporter;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::AuthMode;
 use savfox_otel::metrics::{MetricsClient, MetricsConfig, Result};
 use savfox_otel::{OtelManager, RuntimeMetricTotals, RuntimeMetricsSummary};
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::SessionSource;
-use pretty_assertions::assert_eq;
 use tokio_tungstenite::tungstenite::Message;
 
 #[test]

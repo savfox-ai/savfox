@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};

@@ -1,18 +1,16 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_discord_signature};
-use crate::config::DiscordBridgeConfig;
-use crate::config::GatewayConfig;
+use crate::config::{DiscordBridgeConfig, GatewayConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Discord bot bridge that handles slash commands and interactions via webhooks.
 pub(crate) struct DiscordBridge {
@@ -477,9 +475,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::DiscordBridge;
     use crate::protocol::BridgeAction;
-    use serde_json::json;
 
     #[test]
     fn parses_native_registry_slash_command() {

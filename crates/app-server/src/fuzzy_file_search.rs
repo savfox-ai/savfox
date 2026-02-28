@@ -1,4 +1,4 @@
-﻿use std::num::NonZero;
+use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;

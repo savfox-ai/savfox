@@ -1,11 +1,11 @@
-﻿use anyhow::Result;
+use anyhow::Result;
+use reqwest::header::{
+    AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT,
+};
 use savfox_core::auth::SavfoxAuth;
 use savfox_core::default_client::get_savfox_user_agent;
 use savfox_protocol::account::PlanType as AccountPlanType;
 use savfox_protocol::protocol::{CreditsSnapshot, RateLimitSnapshot, RateLimitWindow};
-use reqwest::header::{
-    AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, USER_AGENT,
-};
 use serde::de::DeserializeOwned;
 
 use crate::types::{

@@ -1,4 +1,4 @@
-﻿use http::HeaderMap;
+use http::HeaderMap;
 use savfox_protocol::models::{ContentItem, FunctionCallOutputContentItem, ResponseItem};
 use serde_json::{Value, json};
 
@@ -218,8 +218,8 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
 mod tests {
     use std::time::Duration;
 
-    use savfox_protocol::models::FunctionCallOutputPayload;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::models::FunctionCallOutputPayload;
 
     use super::*;
     use crate::provider::{Provider, RetryConfig, WireApi};

@@ -1,4 +1,4 @@
-﻿use std::ffi::OsStr;
+use std::ffi::OsStr;
 
 use anyhow::Result;
 use windows_sys::Win32::Foundation::{

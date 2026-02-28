@@ -1,9 +1,9 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 
-use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::WidgetRef;
+use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
 
 use super::popup_consts::MAX_POPUP_ROWS;
 use super::scroll_state::ScrollState;

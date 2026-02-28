@@ -1,5 +1,6 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 /// Group activation mode - controls when the bot responds in group chats.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]

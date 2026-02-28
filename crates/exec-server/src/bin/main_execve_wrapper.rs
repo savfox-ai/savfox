@@ -1,4 +1,4 @@
-﻿#[cfg(not(unix))]
+#[cfg(not(unix))]
 fn main() {
     eprintln!("savfox-execve-wrapper is only implemented for UNIX");
     std::process::exit(1);

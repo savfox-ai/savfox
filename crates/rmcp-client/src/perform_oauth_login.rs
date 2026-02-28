@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::string::String;
 use std::sync::Arc;
 use std::time::Duration;

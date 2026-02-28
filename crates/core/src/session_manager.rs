@@ -30,16 +30,16 @@ use crate::skills::SkillsManager;
 
 const THREAD_CREATED_CHANNEL_CAPACITY: usize = 1024;
 
-/// Represents a newly created Savfox session (formerly called a session/conversation), including the first
-/// event (which is [`EventMsg::SessionConfigured`]).
+/// Represents a newly created Savfox session (formerly called a session/conversation), including
+/// the first event (which is [`EventMsg::SessionConfigured`]).
 pub struct NewSession {
     pub session_id: SessionId,
     pub session: Arc<SavfoxSession>,
     pub session_configured: SessionConfiguredEvent,
 }
 
-/// [`SessionManager`] is responsible for creating sessions (formerly called sessions) and maintaining
-/// them in memory.
+/// [`SessionManager`] is responsible for creating sessions (formerly called sessions) and
+/// maintaining them in memory.
 pub struct SessionManager {
     state: Arc<SessionManagerState>,
     #[cfg(any(test, feature = "test-support"))]

@@ -93,8 +93,9 @@ impl ToolHandler for WriteFileHandler {
 
         // Snapshot baseline for diff tracking before writing.
         {
-            use crate::protocol::FileChange;
             use std::collections::HashMap;
+
+            use crate::protocol::FileChange;
 
             let mut changes = HashMap::new();
             let change = if path.exists() {

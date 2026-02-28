@@ -1,4 +1,4 @@
-﻿//! `savfox dashboard` — Open the web UI in the default browser.
+//! `savfox dashboard` — Open the web UI in the default browser.
 
 use clap::Parser;
 

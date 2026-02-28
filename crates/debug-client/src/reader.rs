@@ -1,4 +1,4 @@
-﻿use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::process::ChildStdout;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};

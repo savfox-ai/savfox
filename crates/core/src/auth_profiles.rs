@@ -4,9 +4,10 @@
 //! useful for load balancing, rate limit distribution, or
 //! using different accounts for different tasks.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+use serde::{Deserialize, Serialize};
 
 /// A collection of auth profiles for API key management.
 #[derive(Debug)]

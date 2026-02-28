@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -46,7 +46,8 @@ pub(crate) fn detect_service_manager() -> ServiceManager {
 /// - `auto` (default): detect from host platform.
 /// - `systemd`: force systemd flow (Linux only; falls back with warning elsewhere).
 /// - `launchd`: force launchd flow (macOS only; falls back with warning elsewhere).
-/// - `windows-task`: force Windows scheduled-task flow (Windows only; falls back with warning elsewhere).
+/// - `windows-task`: force Windows scheduled-task flow (Windows only; falls back with warning
+///   elsewhere).
 pub(crate) fn detect_service_manager_with_override(runtime: Option<&str>) -> ServiceManager {
     let auto = detect_service_manager_auto();
     let Some(runtime) = runtime.map(str::trim).filter(|v| !v.is_empty()) else {

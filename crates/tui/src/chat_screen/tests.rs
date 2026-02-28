@@ -1,4 +1,4 @@
-﻿//! Exercises `ChatScreen` event handling and rendering invariants.
+//! Exercises `ChatScreen` event handling and rendering invariants.
 //!
 //! These tests treat the widget as the adapter between `savfox_core::protocol::EventMsg` inputs and
 //! the TUI output. Many assertions are snapshot-based so that layout regressions and status/header
@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use assert_matches::assert_matches;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use insta::assert_snapshot;
+use pretty_assertions::assert_eq;
 use savfox_common::approval_presets::builtin_approval_presets;
 use savfox_core::config::{Config, ConfigBuilder, Constrained, ConstraintError};
 use savfox_core::config_loader::RequirementSource;
@@ -38,7 +39,6 @@ use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
 use savfox_protocol::protocol::SavfoxErrorInfo;
 use savfox_protocol::user_input::{TextElement, UserInput};
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use pretty_assertions::assert_eq;
 #[cfg(target_os = "windows")]
 use serial_test::serial;
 use tempfile::{NamedTempFile, tempdir};
@@ -3429,6 +3429,22 @@ async fn model_popup_prefers_provider_store_models() {
     assert!(
         !popup.contains("gpt-5.1"),
         "picker should read provider store models, not bundled presets:\n{popup}"
+    );
+}
+
+#[tokio::test]
+async fn footer_uses_model_prefix_for_provider_display() {
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("provider-a/model-one")).await;
+    chat.set_model("provider-a/model-one");
+
+    let rendered = render_bottom_popup(&chat, 100);
+    assert!(
+        rendered.contains("model-one provider-a"),
+        "expected prefixed provider label in footer:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("model-one OpenAI"),
+        "expected footer provider label to avoid stale configured provider:\n{rendered}"
     );
 }
 

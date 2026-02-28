@@ -1,4 +1,4 @@
-﻿//! mDNS/Bonjour service discovery for the Savfox Gateway.
+//! mDNS/Bonjour service discovery for the Savfox Gateway.
 //!
 //! Advertises the gateway on the local network so that native clients
 //! (iOS, Android, macOS) can automatically discover it without manual

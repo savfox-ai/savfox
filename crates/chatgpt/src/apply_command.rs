@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use clap::Parser;
 use savfox_common::CliConfigOverrides;

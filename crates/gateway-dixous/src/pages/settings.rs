@@ -1,4 +1,4 @@
-﻿use dioxus::prelude::*;
+use dioxus::prelude::*;
 use serde_json::json;
 
 use crate::api::ws::WsRpc;

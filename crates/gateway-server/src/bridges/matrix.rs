@@ -1,15 +1,14 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Matrix chat bridge using the Client-Server API with appservice or webhook mode.
 pub(crate) struct MatrixBridge {
@@ -123,7 +122,8 @@ impl ChatBridge for MatrixBridge {
 
     async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
         // Matrix appservice transaction format:
-        // { "events": [{ "type": "m.room.message", "content": {...}, "room_id": "...", "sender": "..." }] }
+        // { "events": [{ "type": "m.room.message", "content": {...}, "room_id": "...", "sender":
+        // "..." }] }
         let events = payload
             .get("events")
             .and_then(|e| e.as_array())

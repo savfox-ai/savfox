@@ -1,4 +1,4 @@
-﻿//! `savfox dns` -- DNS-SD/CoreDNS/Tailscale bootstrap helpers.
+//! `savfox dns` -- DNS-SD/CoreDNS/Tailscale bootstrap helpers.
 
 use std::net::{IpAddr, UdpSocket};
 use std::path::PathBuf;

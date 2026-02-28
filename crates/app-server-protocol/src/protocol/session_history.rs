@@ -1,4 +1,4 @@
-﻿use savfox_protocol::protocol::{
+use savfox_protocol::protocol::{
     AgentReasoningEvent, AgentReasoningRawContentEvent, EventMsg, ItemCompletedEvent,
     SessionRolledBackEvent, TurnAbortedEvent, UserMessageEvent,
 };
@@ -246,11 +246,11 @@ impl From<PendingTurn> for Turn {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use savfox_protocol::protocol::{
         AgentMessageEvent, AgentReasoningEvent, AgentReasoningRawContentEvent,
         SessionRolledBackEvent, TurnAbortReason, TurnAbortedEvent, UserMessageEvent,
     };
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

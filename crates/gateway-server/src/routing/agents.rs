@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 static AGENTS_STORE: OnceLock<Mutex<HashMap<String, AgentConfig>>> = OnceLock::new();

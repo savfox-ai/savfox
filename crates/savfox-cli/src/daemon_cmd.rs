@@ -1,4 +1,4 @@
-﻿//! `savfox daemon` — OS-native gateway daemon/service management.
+//! `savfox daemon` — OS-native gateway daemon/service management.
 
 use std::net::IpAddr;
 use std::path::PathBuf;

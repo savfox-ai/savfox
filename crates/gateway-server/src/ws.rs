@@ -1,10 +1,10 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use hmac::{Hmac, Mac};
-use savfox_app_server_protocol::{JSONRPCRequest, RequestId};
-use savfox_protocol::SessionId;
 use salvo::prelude::*;
 use salvo::websocket::{Message, WebSocket, WebSocketUpgrade};
+use savfox_app_server_protocol::{JSONRPCRequest, RequestId};
+use savfox_protocol::SessionId;
 use serde_json::Value;
 use sha2::Sha256;
 use tokio::sync::mpsc;
@@ -14,8 +14,7 @@ use crate::auth::GatewayAuth;
 use crate::bridge::GatewayBridge;
 use crate::cron_service::CronService;
 use crate::protocol::GatewayMessage;
-use crate::session::{ClientSession, GatewaySessionManager};
-use crate::session::SessionStore;
+use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
 
 /// Channel buffer size for per-client outgoing message queues.
 const CLIENT_CHANNEL_CAPACITY: usize = 256;
@@ -101,9 +100,9 @@ async fn handle_ws_connection(
     } else {
         // --- Challenge-Response Authentication ---
         // 1. Server sends a ConnectChallenge with a random nonce + timestamp
-        // 2. Client replies with Connect { token }  - the token can be:
-        //    a) Raw token (backwards-compatible, still accepted)
-        //    b) HMAC-SHA256(nonce, token) signature for replay protection
+        // 2. Client replies with Connect { token }  - the token can be: a) Raw token
+        //    (backwards-compatible, still accepted) b) HMAC-SHA256(nonce, token) signature for
+        //    replay protection
         let nonce = uuid::Uuid::now_v7().to_string();
         let challenge_ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

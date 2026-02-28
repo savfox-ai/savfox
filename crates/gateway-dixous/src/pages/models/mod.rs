@@ -1,6 +1,5 @@
 pub mod connect_provider;
 
-
 use dioxus::prelude::*;
 
 use crate::api::types::ModelsResponse;

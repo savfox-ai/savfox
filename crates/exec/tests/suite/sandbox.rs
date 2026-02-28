@@ -1,4 +1,4 @@
-﻿#![cfg(unix)]
+#![cfg(unix)]
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;

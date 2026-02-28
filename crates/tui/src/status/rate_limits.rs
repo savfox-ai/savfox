@@ -1,4 +1,4 @@
-﻿use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
 use savfox_core::protocol::{
     CreditsSnapshot as CoreCreditsSnapshot, RateLimitSnapshot, RateLimitWindow,
 };

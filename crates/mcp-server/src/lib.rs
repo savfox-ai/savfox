@@ -1,13 +1,13 @@
-﻿//! Prototype MCP server.
+//! Prototype MCP server.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
 
 use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;
 
+use rmcp::model::{ClientNotification, ClientRequest, JsonRpcMessage};
 use savfox_common::CliConfigOverrides;
 use savfox_core::config::Config;
-use rmcp::model::{ClientNotification, ClientRequest, JsonRpcMessage};
 use serde_json::Value;
 use tokio::io::{
     AsyncBufReadExt, AsyncWriteExt, BufReader, {self},
@@ -18,18 +18,18 @@ use tracing_subscriber::EnvFilter;
 
 mod exec_approval;
 pub(crate) mod message_processor;
+mod outgoing_message;
+mod patch_approval;
 #[path = "agent_tool_config.rs"]
 mod savfox_tool_config;
 #[path = "agent_tool_runner.rs"]
 mod savfox_tool_runner;
-mod outgoing_message;
-mod patch_approval;
 
 pub use crate::exec_approval::{ExecApprovalElicitRequestParams, ExecApprovalResponse};
 use crate::message_processor::MessageProcessor;
-pub use crate::savfox_tool_config::{SavfoxToolCallParam, SavfoxToolCallReplyParam};
 use crate::outgoing_message::{OutgoingJsonRpcMessage, OutgoingMessage, OutgoingMessageSender};
 pub use crate::patch_approval::{PatchApprovalElicitRequestParams, PatchApprovalResponse};
+pub use crate::savfox_tool_config::{SavfoxToolCallParam, SavfoxToolCallReplyParam};
 
 /// Size of the bounded channels used to communicate between tasks. The value
 /// is a balance between throughput and memory usage – 128 messages should be

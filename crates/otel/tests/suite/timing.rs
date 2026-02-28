@@ -1,7 +1,7 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
-use savfox_otel::metrics::Result;
 use pretty_assertions::assert_eq;
+use savfox_otel::metrics::Result;
 
 use crate::harness::{
     attributes_to_map, build_metrics_with_defaults, histogram_data, latest_metrics,

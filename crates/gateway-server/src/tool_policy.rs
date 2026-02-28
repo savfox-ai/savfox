@@ -2,11 +2,12 @@
 //!
 //! Provides allowlist/denylist management, tool categories, and policy profiles.
 
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 /// Tool categories for policy grouping.

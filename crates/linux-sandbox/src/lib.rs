@@ -1,4 +1,4 @@
-﻿#[cfg(target_os = "linux")]
+#[cfg(target_os = "linux")]
 mod landlock;
 #[cfg(target_os = "linux")]
 mod linux_run_main;

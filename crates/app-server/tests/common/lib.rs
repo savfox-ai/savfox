@@ -1,4 +1,4 @@
-﻿mod auth_fixtures;
+mod auth_fixtures;
 mod config;
 mod mcp_process;
 mod mock_model_server;
@@ -21,7 +21,6 @@ pub use mock_model_server::{
     create_mock_responses_server_sequence_unchecked,
 };
 pub use models_cache::{write_models_cache, write_models_cache_with_models};
-use savfox_app_server_protocol::JSONRPCResponse;
 pub use responses::{
     create_apply_patch_sse_response, create_exec_command_sse_response,
     create_final_assistant_message_sse_response, create_request_user_input_sse_response,
@@ -31,6 +30,7 @@ pub use rollout::{
     create_fake_rollout, create_fake_rollout_with_source, create_fake_rollout_with_text_elements,
     rollout_path,
 };
+use savfox_app_server_protocol::JSONRPCResponse;
 use serde::de::DeserializeOwned;
 
 pub fn to_response<T: DeserializeOwned>(response: JSONRPCResponse) -> anyhow::Result<T> {

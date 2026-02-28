@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use serde_json::json;

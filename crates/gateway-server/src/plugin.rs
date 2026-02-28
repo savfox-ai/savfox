@@ -1,8 +1,9 @@
-﻿//! Plugin system  - trait-based plugin API for extending the gateway.
+//! Plugin system  - trait-based plugin API for extending the gateway.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 
 const PRIMARY_MANIFEST_FILE: &str = "savfox.plugin.toml";
 const LEGACY_MANIFEST_FILE: &str = "plugin.toml";
@@ -467,9 +468,10 @@ pub fn describe_http_routes(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
     use tempfile::tempdir;
+
+    use super::*;
 
     #[tokio::test]
     async fn discovers_primary_savfox_manifest_file() {

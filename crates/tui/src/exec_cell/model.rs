@@ -1,4 +1,4 @@
-﻿use std::time::{Duration, Instant};
+use std::time::{Duration, Instant};
 
 use savfox_core::protocol::ExecCommandSource;
 use savfox_protocol::parse_command::ParsedCommand;

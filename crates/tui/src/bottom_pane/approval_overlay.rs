@@ -1,17 +1,17 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use savfox_core::features::{Feature, Features};
-use savfox_core::protocol::{
-    ElicitationAction, ExecPolicyAmendment, FileChange, Op, ReviewDecision,
-};
-use savfox_protocol::mcp::RequestId;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
+use savfox_core::features::{Feature, Features};
+use savfox_core::protocol::{
+    ElicitationAction, ExecPolicyAmendment, FileChange, Op, ReviewDecision,
+};
+use savfox_protocol::mcp::RequestId;
 
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;

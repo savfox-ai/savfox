@@ -1,4 +1,4 @@
-﻿#![cfg(feature = "vt100-tests")]
+#![cfg(feature = "vt100-tests")]
 #![expect(clippy::expect_used)]
 
 use ratatui::layout::Rect;

@@ -1,4 +1,4 @@
-﻿//! OpenTelemetry diagnostics for gateway observability.
+//! OpenTelemetry diagnostics for gateway observability.
 //!
 //! When enabled, exports traces and metrics to an OTLP endpoint.
 //! Configuration via environment variables:

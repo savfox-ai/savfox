@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tracing::debug;

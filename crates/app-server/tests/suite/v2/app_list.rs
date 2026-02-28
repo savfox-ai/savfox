@@ -1,13 +1,9 @@
-﻿use std::borrow::Cow;
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use app_test_support::{ChatGptAuthFixture, McpProcess, to_response, write_chatgpt_auth};
-use savfox_app_server_protocol::{
-    AppInfo, AppsListParams, AppsListResponse, JSONRPCResponse, RequestId,
-};
-use savfox_core::auth::AuthCredentialsStoreMode;
 use pretty_assertions::assert_eq;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -19,6 +15,10 @@ use salvo::affix_state;
 use salvo::http::StatusCode;
 use salvo::http::header::AUTHORIZATION;
 use salvo::prelude::*;
+use savfox_app_server_protocol::{
+    AppInfo, AppsListParams, AppsListResponse, JSONRPCResponse, RequestId,
+};
+use savfox_core::auth::AuthCredentialsStoreMode;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::task::JoinHandle;

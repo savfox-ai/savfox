@@ -1,4 +1,4 @@
-﻿//! Shared model metadata types exchanged between Savfox services and clients.
+//! Shared model metadata types exchanged between Savfox services and clients.
 //!
 //! These types are serialized across core, TUI, app-server, and SDK boundaries, so field defaults
 //! are used to preserve compatibility when older payloads omit newly introduced attributes.

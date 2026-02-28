@@ -1,17 +1,16 @@
-﻿pub mod conversation;
+pub mod conversation;
 pub mod talk_mode;
 pub mod turn_detection;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use conversation::{ConversationState, ConversationTurn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+pub use talk_mode::TalkModeService;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::{info, warn};
-
-pub use conversation::{ConversationState, ConversationTurn};
-pub use talk_mode::TalkModeService;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TalkModeState {

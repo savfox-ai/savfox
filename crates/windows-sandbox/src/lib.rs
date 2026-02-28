@@ -1,4 +1,4 @@
-﻿macro_rules! windows_modules {
+macro_rules! windows_modules {
     ($($name:ident),+ $(,)?) => {
         $(#[cfg(target_os = "windows")] mod $name;)+
     };

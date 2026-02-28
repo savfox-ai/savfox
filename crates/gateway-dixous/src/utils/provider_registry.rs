@@ -1,4 +1,4 @@
-﻿const POPULAR_PROVIDER_ORDER: [&str; 7] = [
+const POPULAR_PROVIDER_ORDER: [&str; 7] = [
     "opencode",
     "anthropic",
     "github-copilot",

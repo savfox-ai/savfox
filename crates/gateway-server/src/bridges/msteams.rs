@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
@@ -6,13 +6,11 @@ use serde_json::{Value, json};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::GatewayConfig;
-use crate::config::MsTeamsBridgeConfig;
+use crate::config::{GatewayConfig, MsTeamsBridgeConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Bot Framework OAuth2 token endpoint.
 const BOT_FRAMEWORK_TOKEN_URL: &str =

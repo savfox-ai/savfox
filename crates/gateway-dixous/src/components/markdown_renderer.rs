@@ -3,7 +3,8 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 
 use dioxus::prelude::*;
-use pulldown_cmark::{Event, Options, Parser, html::push_html};
+use pulldown_cmark::html::push_html;
+use pulldown_cmark::{Event, Options, Parser};
 use regex_lite::Regex;
 
 const MAX_MARKDOWN_INPUT_CHARS: usize = 140_000;

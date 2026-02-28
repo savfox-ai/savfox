@@ -1,4 +1,4 @@
-﻿use clap::{Args, Parser};
+use clap::{Args, Parser};
 use savfox_common::CliConfigOverrides;
 
 #[derive(Parser, Debug, Default)]

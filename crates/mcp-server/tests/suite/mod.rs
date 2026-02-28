@@ -1,1 +1,1 @@
-﻿mod savfox_tool;
+mod savfox_tool;

@@ -1,4 +1,4 @@
-﻿mod client;
+mod client;
 mod commands;
 mod output;
 mod reader;

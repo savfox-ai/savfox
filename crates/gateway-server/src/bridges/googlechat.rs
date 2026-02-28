@@ -1,15 +1,14 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Google Chat bridge using webhook and Spaces API.
 pub(crate) struct GoogleChatBridge {

@@ -1,9 +1,10 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use app_test_support::{McpProcess, create_mock_responses_server_sequence, to_response};
 use core_test_support::{responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     ItemCompletedNotification, ItemStartedNotification, JSONRPCResponse, JsonRpcMessage,
     PlanDeltaNotification, RequestId, SessionItem, SessionStartParams, SessionStartResponse,
@@ -12,7 +13,6 @@ use savfox_app_server_protocol::{
 };
 use savfox_core::features::{FEATURES, Feature};
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Settings};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

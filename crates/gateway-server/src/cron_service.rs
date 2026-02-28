@@ -1,4 +1,4 @@
-﻿//! Background cron/scheduler service.
+//! Background cron/scheduler service.
 //!
 //! Provides timer-based job scheduling with persistent JSON storage,
 //! multiple schedule types (cron expressions, intervals, one-shot timestamps),

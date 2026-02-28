@@ -1,4 +1,4 @@
-﻿use std::io::BufRead;
+use std::io::BufRead;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -424,8 +424,8 @@ mod tests {
     use assert_matches::assert_matches;
     use bytes::Bytes;
     use futures::stream;
-    use savfox_protocol::models::{MessagePhase, ResponseItem};
     use pretty_assertions::assert_eq;
+    use savfox_protocol::models::{MessagePhase, ResponseItem};
     use serde_json::json;
     use tokio::sync::mpsc;
     use tokio_test::io::Builder as IoBuilder;

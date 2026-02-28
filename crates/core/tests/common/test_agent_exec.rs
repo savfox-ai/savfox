@@ -1,6 +1,7 @@
-﻿#![allow(clippy::expect_used)]
-use savfox_core::auth::SAVFOX_API_KEY_ENV_VAR;
+#![allow(clippy::expect_used)]
 use std::path::Path;
+
+use savfox_core::auth::SAVFOX_API_KEY_ENV_VAR;
 use tempfile::TempDir;
 use wiremock::MockServer;
 

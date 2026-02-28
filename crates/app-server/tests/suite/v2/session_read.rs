@@ -1,16 +1,16 @@
-﻿use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use app_test_support::{
     McpProcess, create_fake_rollout_with_text_elements,
     create_mock_responses_server_repeating_assistant, to_response,
 };
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
-    JSONRPCResponse, RequestId, SessionSource, SessionItem, SessionReadParams, SessionReadResponse,
+    JSONRPCResponse, RequestId, SessionItem, SessionReadParams, SessionReadResponse, SessionSource,
     TurnStatus, UserInput,
 };
 use savfox_protocol::user_input::{ByteRange, TextElement};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

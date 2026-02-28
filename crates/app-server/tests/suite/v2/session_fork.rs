@@ -1,15 +1,15 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{
     McpProcess, create_fake_rollout, create_mock_responses_server_repeating_assistant,
     rollout_path, to_response,
 };
-use savfox_app_server_protocol::{
-    JSONRPCNotification, JSONRPCResponse, RequestId, SessionSource, SessionForkParams,
-    SessionForkResponse, SessionItem, SessionStartedNotification, TurnStatus, UserInput,
-};
 use pretty_assertions::assert_eq;
+use savfox_app_server_protocol::{
+    JSONRPCNotification, JSONRPCResponse, RequestId, SessionForkParams, SessionForkResponse,
+    SessionItem, SessionSource, SessionStartedNotification, TurnStatus, UserInput,
+};
 use tempfile::TempDir;
 use tokio::time::timeout;
 

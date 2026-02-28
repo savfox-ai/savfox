@@ -1,4 +1,4 @@
-﻿//! Regression test: ensure that `StatusIndicatorWidget` sanitises ANSI escape
+//! Regression test: ensure that `StatusIndicatorWidget` sanitises ANSI escape
 //! sequences so that no raw `\x1b` bytes are written into the backing
 //! buffer.  Rendering logic is tricky to unit‑test end‑to‑end, therefore we
 //! verify the *public* contract of `ansi_escape_line()` which the widget now

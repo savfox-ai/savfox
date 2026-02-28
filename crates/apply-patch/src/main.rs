@@ -1,3 +1,3 @@
-﻿pub fn main() -> ! {
+pub fn main() -> ! {
     savfox_apply_patch::main()
 }

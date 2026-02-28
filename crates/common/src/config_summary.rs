@@ -1,4 +1,4 @@
-﻿use savfox_core::WireApi;
+use savfox_core::WireApi;
 use savfox_core::config::Config;
 
 use crate::sandbox_summary::summarize_sandbox_policy;

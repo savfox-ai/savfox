@@ -1,6 +1,8 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::time::Duration;
 
+use pretty_assertions::assert_eq;
+use rmcp::model::Content;
 use savfox_core::protocol::{
     AgentMessageEvent, AgentReasoningEvent, AgentStatus, AskForApproval,
     CollabAgentSpawnBeginEvent, CollabAgentSpawnEndEvent, CollabWaitingEndEvent, ErrorEvent, Event,
@@ -25,8 +27,6 @@ use savfox_protocol::mcp::CallToolResult;
 use savfox_protocol::models::WebSearchAction;
 use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
 use savfox_protocol::protocol::{ExecCommandOutputDeltaEvent, ExecOutputStream, SavfoxErrorInfo};
-use pretty_assertions::assert_eq;
-use rmcp::model::Content;
 use serde_json::json;
 
 fn event(id: &str, msg: EventMsg) -> Event {

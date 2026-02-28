@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,13 +14,12 @@ use tokio::process::Command;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::media_store::MediaStore;
-
 use super::providers::{MediaProvider, MediaProviders};
 use super::types::{
     MediaAttachment, MediaCapability, MediaUnderstandingConfig, MediaUnderstandingOutput,
     MediaUnderstandingResult, PdfPageText, ProviderDecision, ProviderDecisionStatus,
 };
+use crate::media_store::MediaStore;
 
 const PDF_PROVIDER_ID: &str = "pdf-local";
 const WAVEFORM_BUCKETS: usize = 64;
@@ -1412,10 +1411,10 @@ mod tests {
     #[test]
     fn image_preflight_quality_is_configurable() {
         let input = build_png(1200, 900);
-        let (high_bytes, _, _, _, _, _, _) =
+        let (high_bytes, ..) =
             MediaUnderstandingService::transcode_image(&input, "image/png", 1024, 95)
                 .expect("high quality transcode");
-        let (low_bytes, _, _, _, _, _, _) =
+        let (low_bytes, ..) =
             MediaUnderstandingService::transcode_image(&input, "image/png", 1024, 35)
                 .expect("low quality transcode");
         assert!(

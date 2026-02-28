@@ -1,4 +1,4 @@
-﻿//! `savfox config` — Manage gateway configuration from the CLI.
+//! `savfox config` — Manage gateway configuration from the CLI.
 
 use clap::Parser;
 use serde_json::json;

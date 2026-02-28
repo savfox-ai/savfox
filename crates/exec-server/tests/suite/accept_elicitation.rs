@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::borrow::Cow;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::PathBuf;
@@ -9,13 +9,13 @@ use exec_server_test_support::{
     InteractiveClient, create_transport, notify_readable_sandbox, write_default_execpolicy,
 };
 use maplit::hashset;
-use savfox_exec_server::ExecResult;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, CreateElicitationRequestParam, EmptyResult, ServerResult,
     object,
 };
+use savfox_exec_server::ExecResult;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::process::Command;

@@ -1,4 +1,4 @@
-﻿//! Standard type to use with the `--sandbox` (`-s`) CLI option.
+//! Standard type to use with the `--sandbox` (`-s`) CLI option.
 //!
 //! This mirrors the variants of [`savfox_core::protocol::SandboxPolicy`], but
 //! without any of the associated data so it can be expressed as a simple flag

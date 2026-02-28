@@ -1,4 +1,4 @@
-﻿use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use itertools::Itertools as _;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};

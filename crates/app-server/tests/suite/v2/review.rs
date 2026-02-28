@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{McpProcess, create_mock_responses_server_repeating_assistant, to_response};
 use savfox_app_server_protocol::{
     ItemCompletedNotification, ItemStartedNotification, JSONRPCError, JSONRPCNotification,

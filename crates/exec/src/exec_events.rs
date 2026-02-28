@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use savfox_protocol::models::WebSearchAction;
 use serde::{Deserialize, Serialize};

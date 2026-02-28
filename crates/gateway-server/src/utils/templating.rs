@@ -61,8 +61,9 @@ pub fn apply_template_with_defaults(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_simple_substitution() {

@@ -1,4 +1,4 @@
-﻿use clap::Parser;
+use clap::Parser;
 use savfox_responses_api_proxy::Args as ResponsesApiProxyArgs;
 
 #[ctor::ctor]

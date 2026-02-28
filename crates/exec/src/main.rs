@@ -1,4 +1,4 @@
-﻿//! Entry-point for the `savfox-exec` binary.
+//! Entry-point for the `savfox-exec` binary.
 //!
 //! When this CLI is invoked normally, it parses the standard `savfox-exec` CLI
 //! options and launches the non-interactive Savfox agent. However, if it is

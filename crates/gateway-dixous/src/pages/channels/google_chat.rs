@@ -1,7 +1,8 @@
+use dioxus::prelude::*;
+
 use crate::api::types::GoogleChatStatus;
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
-use dioxus::prelude::*;
 
 #[component]
 pub fn GoogleChatChannel() -> Element {

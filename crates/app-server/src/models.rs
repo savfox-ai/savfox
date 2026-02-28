@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use savfox_app_server_protocol::{Model, ReasoningEffortOption};
 use savfox_core::SessionManager;

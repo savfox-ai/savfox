@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use tracing::{info, warn};

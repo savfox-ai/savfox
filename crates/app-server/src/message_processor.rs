@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -31,8 +31,8 @@ use toml::Value as TomlValue;
 
 use crate::config_api::ConfigApi;
 use crate::error_code::INVALID_REQUEST_ERROR_CODE;
-use crate::savfox_message_processor::{SavfoxMessageProcessor, SavfoxMessageProcessorArgs};
 use crate::outgoing_message::OutgoingMessageSender;
+use crate::savfox_message_processor::{SavfoxMessageProcessor, SavfoxMessageProcessorArgs};
 
 const EXTERNAL_AUTH_REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
 

@@ -1,12 +1,12 @@
-﻿#![expect(clippy::expect_used)]
+#![expect(clippy::expect_used)]
 
 use std::path::PathBuf;
 
+use regex_lite::Regex;
 use savfox_core::SavfoxSession;
 use savfox_core::config::{Config, ConfigBuilder, ConfigOverrides};
 use savfox_utils_absolute_path::AbsolutePathBuf;
 use savfox_utils_cargo_bin::{CargoBinError, find_resource};
-use regex_lite::Regex;
 use tempfile::TempDir;
 
 pub mod process;

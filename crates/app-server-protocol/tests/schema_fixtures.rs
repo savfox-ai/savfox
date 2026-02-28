@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use savfox_app_server_protocol::{read_schema_fixture_tree, write_schema_fixtures};

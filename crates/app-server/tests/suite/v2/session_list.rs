@@ -1,4 +1,4 @@
-﻿use std::cmp::Reverse;
+use std::cmp::Reverse;
 use std::fs;
 use std::fs::{FileTimes, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -8,16 +8,16 @@ use app_test_support::{
     McpProcess, create_fake_rollout, create_fake_rollout_with_source, rollout_path, to_response,
 };
 use chrono::{DateTime, Utc};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
-    GitInfo as ApiGitInfo, JSONRPCError, JSONRPCResponse, RequestId, SessionSource,
-    SessionListResponse, SessionSortKey, SessionSourceKind,
+    GitInfo as ApiGitInfo, JSONRPCError, JSONRPCResponse, RequestId, SessionListResponse,
+    SessionSortKey, SessionSource, SessionSourceKind,
 };
 use savfox_core::ARCHIVED_SESSIONS_SUBDIR;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{
     GitInfo as CoreGitInfo, SessionSource as CoreSessionSource, SubAgentSource,
 };
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -474,7 +474,11 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         None,
     )
     .await?;
-    let spawn_ids: Vec<_> = spawn.data.iter().map(|session| session.id.as_str()).collect();
+    let spawn_ids: Vec<_> = spawn
+        .data
+        .iter()
+        .map(|session| session.id.as_str())
+        .collect();
     assert_eq!(spawn_ids, vec![spawn_id.as_str()]);
 
     let other = list_sessions(
@@ -486,7 +490,11 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         None,
     )
     .await?;
-    let other_ids: Vec<_> = other.data.iter().map(|session| session.id.as_str()).collect();
+    let other_ids: Vec<_> = other
+        .data
+        .iter()
+        .map(|session| session.id.as_str())
+        .collect();
     assert_eq!(other_ids, vec![other_id.as_str()]);
 
     Ok(())

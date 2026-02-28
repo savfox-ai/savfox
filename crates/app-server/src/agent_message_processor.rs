@@ -1,232 +1,109 @@
-﻿use crate::bespoke_event_handling::apply_bespoke_event_handling;
-use crate::error_code::INTERNAL_ERROR_CODE;
-use crate::error_code::INVALID_REQUEST_ERROR_CODE;
-use crate::fuzzy_file_search::run_fuzzy_file_search;
-use crate::models::supported_models;
-use crate::outgoing_message::OutgoingMessageSender;
-use crate::outgoing_message::OutgoingNotification;
-use chrono::DateTime;
-use chrono::SecondsFormat;
-use chrono::Utc;
-use savfox_app_server_protocol::Account;
-use savfox_app_server_protocol::AccountLoginCompletedNotification;
-use savfox_app_server_protocol::AccountUpdatedNotification;
-use savfox_app_server_protocol::AddConversationListenerParams;
-use savfox_app_server_protocol::AddConversationSubscriptionResponse;
-use savfox_app_server_protocol::AppsListParams;
-use savfox_app_server_protocol::AppsListResponse;
-use savfox_app_server_protocol::ArchiveConversationParams;
-use savfox_app_server_protocol::ArchiveConversationResponse;
-use savfox_app_server_protocol::AskForApproval;
-use savfox_app_server_protocol::AuthMode;
-use savfox_app_server_protocol::AuthStatusChangeNotification;
-use savfox_app_server_protocol::CancelLoginAccountParams;
-use savfox_app_server_protocol::CancelLoginAccountResponse;
-use savfox_app_server_protocol::CancelLoginAccountStatus;
-use savfox_app_server_protocol::CancelLoginChatGptResponse;
-use savfox_app_server_protocol::ClientRequest;
-use savfox_app_server_protocol::CollaborationModeListParams;
-use savfox_app_server_protocol::CollaborationModeListResponse;
-use savfox_app_server_protocol::CommandExecParams;
-use savfox_app_server_protocol::ConversationGitInfo;
-use savfox_app_server_protocol::ConversationSummary;
-use savfox_app_server_protocol::DynamicToolSpec as ApiDynamicToolSpec;
-use savfox_app_server_protocol::ExecOneOffCommandResponse;
-use savfox_app_server_protocol::FeedbackUploadParams;
-use savfox_app_server_protocol::FeedbackUploadResponse;
-use savfox_app_server_protocol::ForkConversationParams;
-use savfox_app_server_protocol::ForkConversationResponse;
-use savfox_app_server_protocol::FuzzyFileSearchParams;
-use savfox_app_server_protocol::FuzzyFileSearchResponse;
-use savfox_app_server_protocol::GetAccountParams;
-use savfox_app_server_protocol::GetAccountRateLimitsResponse;
-use savfox_app_server_protocol::GetAccountResponse;
-use savfox_app_server_protocol::GetAuthStatusParams;
-use savfox_app_server_protocol::GetAuthStatusResponse;
-use savfox_app_server_protocol::GetConversationSummaryParams;
-use savfox_app_server_protocol::GetConversationSummaryResponse;
-use savfox_app_server_protocol::GetUserAgentResponse;
-use savfox_app_server_protocol::GetUserSavedConfigResponse;
-use savfox_app_server_protocol::GitDiffToRemoteResponse;
-use savfox_app_server_protocol::GitInfo as ApiGitInfo;
-use savfox_app_server_protocol::InputItem as WireInputItem;
-use savfox_app_server_protocol::InterruptConversationParams;
-use savfox_app_server_protocol::JSONRPCErrorError;
-use savfox_app_server_protocol::ListConversationsParams;
-use savfox_app_server_protocol::ListConversationsResponse;
-use savfox_app_server_protocol::ListMcpServerStatusParams;
-use savfox_app_server_protocol::ListMcpServerStatusResponse;
-use savfox_app_server_protocol::LoginAccountParams;
-use savfox_app_server_protocol::LoginAccountResponse;
-use savfox_app_server_protocol::LoginApiKeyParams;
-use savfox_app_server_protocol::LoginApiKeyResponse;
-use savfox_app_server_protocol::LoginChatGptCompleteNotification;
-use savfox_app_server_protocol::LoginChatGptResponse;
-use savfox_app_server_protocol::LogoutAccountResponse;
-use savfox_app_server_protocol::LogoutChatGptResponse;
-use savfox_app_server_protocol::McpServerOauthLoginCompletedNotification;
-use savfox_app_server_protocol::McpServerOauthLoginParams;
-use savfox_app_server_protocol::McpServerOauthLoginResponse;
-use savfox_app_server_protocol::McpServerRefreshResponse;
-use savfox_app_server_protocol::McpServerStatus;
-use savfox_app_server_protocol::MockExperimentalMethodParams;
-use savfox_app_server_protocol::MockExperimentalMethodResponse;
-use savfox_app_server_protocol::ModelListParams;
-use savfox_app_server_protocol::ModelListResponse;
-use savfox_app_server_protocol::NewConversationParams;
-use savfox_app_server_protocol::NewConversationResponse;
-use savfox_app_server_protocol::RemoveConversationListenerParams;
-use savfox_app_server_protocol::RemoveConversationSubscriptionResponse;
-use savfox_app_server_protocol::RequestId;
-use savfox_app_server_protocol::ResumeConversationParams;
-use savfox_app_server_protocol::ResumeConversationResponse;
-use savfox_app_server_protocol::ReviewDelivery as ApiReviewDelivery;
-use savfox_app_server_protocol::ReviewStartParams;
-use savfox_app_server_protocol::ReviewStartResponse;
-use savfox_app_server_protocol::ReviewTarget as ApiReviewTarget;
-use savfox_app_server_protocol::SandboxMode;
-use savfox_app_server_protocol::SendUserMessageParams;
-use savfox_app_server_protocol::SendUserMessageResponse;
-use savfox_app_server_protocol::SendUserTurnParams;
-use savfox_app_server_protocol::SendUserTurnResponse;
-use savfox_app_server_protocol::ServerNotification;
-use savfox_app_server_protocol::Session;
-use savfox_app_server_protocol::SessionArchiveParams;
-use savfox_app_server_protocol::SessionArchiveResponse;
-use savfox_app_server_protocol::SessionConfiguredNotification;
-use savfox_app_server_protocol::SessionForkParams;
-use savfox_app_server_protocol::SessionForkResponse;
-use savfox_app_server_protocol::SessionItem;
-use savfox_app_server_protocol::SessionListParams;
-use savfox_app_server_protocol::SessionListResponse;
-use savfox_app_server_protocol::SessionLoadedListParams;
-use savfox_app_server_protocol::SessionLoadedListResponse;
-use savfox_app_server_protocol::SessionReadParams;
-use savfox_app_server_protocol::SessionReadResponse;
-use savfox_app_server_protocol::SessionResumeParams;
-use savfox_app_server_protocol::SessionResumeResponse;
-use savfox_app_server_protocol::SessionRollbackParams;
-use savfox_app_server_protocol::SessionSetNameParams;
-use savfox_app_server_protocol::SessionSetNameResponse;
-use savfox_app_server_protocol::SessionSortKey;
-use savfox_app_server_protocol::SessionSourceKind;
-use savfox_app_server_protocol::SessionStartParams;
-use savfox_app_server_protocol::SessionStartResponse;
-use savfox_app_server_protocol::SessionStartedNotification;
-use savfox_app_server_protocol::SessionUnarchiveParams;
-use savfox_app_server_protocol::SessionUnarchiveResponse;
-use savfox_app_server_protocol::SetDefaultModelParams;
-use savfox_app_server_protocol::SetDefaultModelResponse;
-use savfox_app_server_protocol::SkillsConfigWriteParams;
-use savfox_app_server_protocol::SkillsConfigWriteResponse;
-use savfox_app_server_protocol::SkillsListParams;
-use savfox_app_server_protocol::SkillsListResponse;
-use savfox_app_server_protocol::Turn;
-use savfox_app_server_protocol::TurnError;
-use savfox_app_server_protocol::TurnInterruptParams;
-use savfox_app_server_protocol::TurnStartParams;
-use savfox_app_server_protocol::TurnStartResponse;
-use savfox_app_server_protocol::TurnStartedNotification;
-use savfox_app_server_protocol::TurnStatus;
-use savfox_app_server_protocol::UserInfoResponse;
-use savfox_app_server_protocol::UserInput as V2UserInput;
-use savfox_app_server_protocol::UserSavedConfig;
-use savfox_app_server_protocol::build_turns_from_event_msgs;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
+use std::fs::{FileTimes, OpenOptions};
+use std::io::Error as IoError;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime};
+
+use chrono::{DateTime, SecondsFormat, Utc};
+use savfox_app_server_protocol::{
+    Account, AccountLoginCompletedNotification, AccountUpdatedNotification,
+    AddConversationListenerParams, AddConversationSubscriptionResponse, AppsListParams,
+    AppsListResponse, ArchiveConversationParams, ArchiveConversationResponse, AskForApproval,
+    AuthMode, AuthStatusChangeNotification, CancelLoginAccountParams, CancelLoginAccountResponse,
+    CancelLoginAccountStatus, CancelLoginChatGptResponse, ClientRequest,
+    CollaborationModeListParams, CollaborationModeListResponse, CommandExecParams,
+    ConversationGitInfo, ConversationSummary, DynamicToolSpec as ApiDynamicToolSpec,
+    ExecOneOffCommandResponse, FeedbackUploadParams, FeedbackUploadResponse,
+    ForkConversationParams, ForkConversationResponse, FuzzyFileSearchParams,
+    FuzzyFileSearchResponse, GetAccountParams, GetAccountRateLimitsResponse, GetAccountResponse,
+    GetAuthStatusParams, GetAuthStatusResponse, GetConversationSummaryParams,
+    GetConversationSummaryResponse, GetUserAgentResponse, GetUserSavedConfigResponse,
+    GitDiffToRemoteResponse, GitInfo as ApiGitInfo, InputItem as WireInputItem,
+    InterruptConversationParams, JSONRPCErrorError, ListConversationsParams,
+    ListConversationsResponse, ListMcpServerStatusParams, ListMcpServerStatusResponse,
+    LoginAccountParams, LoginAccountResponse, LoginApiKeyParams, LoginApiKeyResponse,
+    LoginChatGptCompleteNotification, LoginChatGptResponse, LogoutAccountResponse,
+    LogoutChatGptResponse, McpServerOauthLoginCompletedNotification, McpServerOauthLoginParams,
+    McpServerOauthLoginResponse, McpServerRefreshResponse, McpServerStatus,
+    MockExperimentalMethodParams, MockExperimentalMethodResponse, ModelListParams,
+    ModelListResponse, NewConversationParams, NewConversationResponse,
+    RemoveConversationListenerParams, RemoveConversationSubscriptionResponse, RequestId,
+    ResumeConversationParams, ResumeConversationResponse, ReviewDelivery as ApiReviewDelivery,
+    ReviewStartParams, ReviewStartResponse, ReviewTarget as ApiReviewTarget, SandboxMode,
+    SendUserMessageParams, SendUserMessageResponse, SendUserTurnParams, SendUserTurnResponse,
+    ServerNotification, Session, SessionArchiveParams, SessionArchiveResponse,
+    SessionConfiguredNotification, SessionForkParams, SessionForkResponse, SessionItem,
+    SessionListParams, SessionListResponse, SessionLoadedListParams, SessionLoadedListResponse,
+    SessionReadParams, SessionReadResponse, SessionResumeParams, SessionResumeResponse,
+    SessionRollbackParams, SessionSetNameParams, SessionSetNameResponse, SessionSortKey,
+    SessionSourceKind, SessionStartParams, SessionStartResponse, SessionStartedNotification,
+    SessionUnarchiveParams, SessionUnarchiveResponse, SetDefaultModelParams,
+    SetDefaultModelResponse, SkillsConfigWriteParams, SkillsConfigWriteResponse, SkillsListParams,
+    SkillsListResponse, Turn, TurnError, TurnInterruptParams, TurnStartParams, TurnStartResponse,
+    TurnStartedNotification, TurnStatus, UserInfoResponse, UserInput as V2UserInput,
+    UserSavedConfig, build_turns_from_event_msgs,
+};
 use savfox_backend_client::Client as BackendClient;
 use savfox_chatgpt::connectors;
-use savfox_core::AuthManager;
-use savfox_core::Cursor as RolloutCursor;
-use savfox_core::InitialHistory;
-use savfox_core::NewSession;
-use savfox_core::SavfoxAuth;
-use savfox_core::SavfoxSession;
-use savfox_core::RolloutRecorder;
-use savfox_core::SessionConfigSnapshot;
-use savfox_core::SessionManager;
-use savfox_core::SessionMeta;
-use savfox_core::SessionSortKey as CoreSessionSortKey;
-use savfox_core::auth::CLIENT_ID;
-use savfox_core::auth::login_with_api_key;
-use savfox_core::auth::login_with_chatgpt_auth_tokens;
-use savfox_core::config::Config;
-use savfox_core::config::ConfigOverrides;
-use savfox_core::config::ConfigService;
-use savfox_core::config::edit::ConfigEdit;
-use savfox_core::config::edit::ConfigEditsBuilder;
+use savfox_core::auth::{CLIENT_ID, login_with_api_key, login_with_chatgpt_auth_tokens};
+use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
 use savfox_core::config::types::McpServerTransportConfig;
+use savfox_core::config::{Config, ConfigOverrides, ConfigService};
 use savfox_core::config_loader::CloudRequirementsLoader;
 use savfox_core::default_client::get_savfox_user_agent;
 use savfox_core::error::SavfoxError;
 use savfox_core::exec::ExecParams;
 use savfox_core::exec_env::create_env;
 use savfox_core::features::Feature;
-use savfox_core::find_archived_session_path_by_id_str;
-use savfox_core::find_session_path_by_id_str;
 use savfox_core::git_info::git_diff_to_remote;
-use savfox_core::mcp::collect_mcp_snapshot;
-use savfox_core::mcp::group_tools_by_server;
-use savfox_core::parse_cursor;
-use savfox_core::protocol::EventMsg;
-use savfox_core::protocol::Op;
-use savfox_core::protocol::ReviewDelivery as CoreReviewDelivery;
-use savfox_core::protocol::ReviewRequest;
-use savfox_core::protocol::ReviewTarget as CoreReviewTarget;
-use savfox_core::protocol::SessionConfiguredEvent;
-use savfox_core::read_head_for_summary;
-use savfox_core::read_session_meta_line;
-use savfox_core::rollout_date_parts;
+use savfox_core::mcp::{collect_mcp_snapshot, group_tools_by_server};
+use savfox_core::protocol::{
+    EventMsg, Op, ReviewDelivery as CoreReviewDelivery, ReviewRequest,
+    ReviewTarget as CoreReviewTarget, SessionConfiguredEvent,
+};
 use savfox_core::sandboxing::SandboxPermissions;
 use savfox_core::state_db::get_state_db;
 use savfox_core::token_data::parse_id_token;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
+use savfox_core::{
+    AuthManager, Cursor as RolloutCursor, InitialHistory, NewSession, RolloutRecorder, SavfoxAuth,
+    SavfoxSession, SessionConfigSnapshot, SessionManager, SessionMeta,
+    SessionSortKey as CoreSessionSortKey, find_archived_session_path_by_id_str,
+    find_session_path_by_id_str, parse_cursor, read_head_for_summary, read_session_meta_line,
+    rollout_date_parts,
+};
 use savfox_feedback::SavfoxFeedback;
-use savfox_login_oauth::ServerOptions as LoginServerOptions;
-use savfox_login_oauth::complete_device_code_login;
-use savfox_login_oauth::request_device_code;
-use savfox_login_oauth::ShutdownHandle;
-use savfox_login_oauth::run_login_server;
+use savfox_login_oauth::{
+    ServerOptions as LoginServerOptions, ShutdownHandle, complete_device_code_login,
+    request_device_code, run_login_server,
+};
 use savfox_protocol::SessionId;
-use savfox_protocol::config_types::ForcedLoginMethod;
-use savfox_protocol::config_types::Personality;
-use savfox_protocol::config_types::WindowsSandboxLevel;
+use savfox_protocol::config_types::{ForcedLoginMethod, Personality, WindowsSandboxLevel};
 use savfox_protocol::dynamic_tools::DynamicToolSpec as CoreDynamicToolSpec;
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::models::ResponseItem;
-use savfox_protocol::protocol::AgentStatus;
-use savfox_protocol::protocol::GitInfo as CoreGitInfo;
-use savfox_protocol::protocol::McpAuthStatus as CoreMcpAuthStatus;
-use savfox_protocol::protocol::McpServerRefreshConfig;
-use savfox_protocol::protocol::RateLimitSnapshot as CoreRateLimitSnapshot;
-use savfox_protocol::protocol::RolloutItem;
-use savfox_protocol::protocol::SessionMetaLine;
-use savfox_protocol::protocol::USER_MESSAGE_BEGIN;
+use savfox_protocol::protocol::{
+    AgentStatus, GitInfo as CoreGitInfo, McpAuthStatus as CoreMcpAuthStatus,
+    McpServerRefreshConfig, RateLimitSnapshot as CoreRateLimitSnapshot, RolloutItem,
+    SessionMetaLine, USER_MESSAGE_BEGIN,
+};
 use savfox_protocol::user_input::UserInput as CoreInputItem;
 use savfox_rmcp_client::perform_oauth_login_return_url;
 use savfox_utils_json_to_toml::json_to_toml;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::fs::FileTimes;
-use std::fs::OpenOptions;
-use std::io::Error as IoError;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
-use std::time::SystemTime;
-use tokio::sync::Mutex;
-use tokio::sync::broadcast;
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, broadcast, oneshot};
 use toml::Value as TomlValue;
-use tracing::error;
-use tracing::info;
-use tracing::warn;
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::filters::compute_source_filters;
-use crate::filters::source_kind_matches;
+use crate::bespoke_event_handling::apply_bespoke_event_handling;
+use crate::error_code::{INTERNAL_ERROR_CODE, INVALID_REQUEST_ERROR_CODE};
+use crate::filters::{compute_source_filters, source_kind_matches};
+use crate::fuzzy_file_search::run_fuzzy_file_search;
+use crate::models::supported_models;
+use crate::outgoing_message::{OutgoingMessageSender, OutgoingNotification};
 
 type PendingInterruptQueue = Vec<(RequestId, ApiVersion)>;
 pub(crate) type PendingInterrupts = Arc<Mutex<HashMap<SessionId, PendingInterruptQueue>>>;
@@ -867,7 +744,8 @@ impl SavfoxMessageProcessor {
                                 .await;
                         }
 
-                        // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
+                        // Clear the active login if it matches this attempt. It may have been
+                        // replaced or cancelled.
                         let mut guard = active_login.lock().await;
                         if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
                             *guard = None;
@@ -960,7 +838,8 @@ impl SavfoxMessageProcessor {
                                 .await;
                         }
 
-                        // Clear the active login if it matches this attempt. It may have been replaced or cancelled.
+                        // Clear the active login if it matches this attempt. It may have been
+                        // replaced or cancelled.
                         let mut guard = active_login.lock().await;
                         if guard.as_ref().map(|l| l.login_id) == Some(login_id) {
                             *guard = None;
@@ -3140,8 +3019,8 @@ impl SavfoxMessageProcessor {
             mcp_oauth_credentials_store_mode,
         };
 
-        // Refresh requests are queued per session; each session rebuilds MCP connections on its next
-        // active turn to avoid work for sessions that never resume.
+        // Refresh requests are queued per session; each session rebuilds MCP connections on its
+        // next active turn to avoid work for sessions that never resume.
         let session_manager = Arc::clone(&self.session_manager);
         session_manager.refresh_mcp_servers(refresh_config).await;
         let response = McpServerRefreshResponse {};
@@ -3876,7 +3755,8 @@ impl SavfoxMessageProcessor {
             // Request shutdown.
             match conversation.submit(Op::Shutdown).await {
                 Ok(_) => {
-                    // Poll agent status rather than consuming events so attached listeners do not block shutdown.
+                    // Poll agent status rather than consuming events so attached listeners do not
+                    // block shutdown.
                     let wait_for_shutdown = async {
                         loop {
                             if matches!(conversation.agent_status().await, AgentStatus::Shutdown) {
@@ -4941,12 +4821,13 @@ fn validate_dynamic_tools(
 ///
 /// Precedence (lowest to highest):
 /// - `cli_overrides`: process-wide startup `--config` flags.
-/// - `request_overrides`: per-request dotted-path overrides (`params.config`), converted JSON->TOML.
-/// - `typesafe_overrides`: Request objects such as `NewSessionParams` and
-///   `SessionStartParams` support a limited set of _explicit_ config overrides, so
-///   `typesafe_overrides` is a `ConfigOverrides` derived from the respective request object.
-///   Because the overrides are defined explicitly in the `*Params`, this takes priority over
-///   the more general "bag of config options" provided by `cli_overrides` and `request_overrides`.
+/// - `request_overrides`: per-request dotted-path overrides (`params.config`), converted
+///   JSON->TOML.
+/// - `typesafe_overrides`: Request objects such as `NewSessionParams` and `SessionStartParams`
+///   support a limited set of _explicit_ config overrides, so `typesafe_overrides` is a
+///   `ConfigOverrides` derived from the respective request object. Because the overrides are
+///   defined explicitly in the `*Params`, this takes priority over the more general "bag of config
+///   options" provided by `cli_overrides` and `request_overrides`.
 async fn derive_config_from_params(
     cli_overrides: &[(String, TomlValue)],
     request_overrides: Option<HashMap<String, serde_json::Value>>,
@@ -5220,12 +5101,13 @@ pub(crate) fn summary_to_session(summary: ConversationSummary) -> Session {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use anyhow::Result;
-    use savfox_protocol::protocol::SessionSource;
     use pretty_assertions::assert_eq;
+    use savfox_protocol::protocol::SessionSource;
     use serde_json::json;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn validate_dynamic_tools_rejects_unsupported_input_schema() {
@@ -5313,11 +5195,10 @@ mod tests {
 
     #[tokio::test]
     async fn read_summary_from_rollout_returns_empty_preview_when_no_user_message() -> Result<()> {
-        use savfox_protocol::protocol::RolloutItem;
-        use savfox_protocol::protocol::RolloutLine;
-        use savfox_protocol::protocol::SessionMetaLine;
         use std::fs;
         use std::fs::FileTimes;
+
+        use savfox_protocol::protocol::{RolloutItem, RolloutLine, SessionMetaLine};
 
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().join("rollout.jsonl");

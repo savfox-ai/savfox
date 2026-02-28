@@ -1,4 +1,4 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};

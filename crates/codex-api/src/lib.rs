@@ -1,4 +1,4 @@
-﻿pub mod auth;
+pub mod auth;
 pub mod common;
 pub mod endpoint;
 pub mod error;

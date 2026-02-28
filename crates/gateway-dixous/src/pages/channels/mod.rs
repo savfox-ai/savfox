@@ -1,4 +1,4 @@
-﻿pub mod discord;
+pub mod discord;
 pub mod feishu;
 pub mod google_chat;
 pub mod imessage;
@@ -12,7 +12,6 @@ pub mod signal;
 pub mod slack;
 pub mod telegram;
 pub mod whatsapp;
-
 
 use dioxus::prelude::*;
 use serde_json::json;
@@ -615,24 +614,26 @@ pub fn Channels() -> Element {
     let agents_data = use_resource(move || {
         let _c = ws_connected();
         let ws = ws_agents.clone();
-        async move {
-            ws.call::<serde_json::Value>("agents.list", None).await.ok()
-        }
+        async move { ws.call::<serde_json::Value>("agents.list", None).await.ok() }
     });
     let agents_read = agents_data.read();
     let agents_ref = agents_read.as_ref().and_then(|c| c.as_ref());
     let agents_list: Vec<(String, String)> = agents_ref
-        .and_then(|d| d.get("agents")
-            .and_then(|a| a.as_array())
-            .map(|arr| {
+        .and_then(|d| {
+            d.get("agents").and_then(|a| a.as_array()).map(|arr| {
                 arr.iter()
                     .filter_map(|a| {
                         let id = a.get("id").and_then(|v| v.as_str())?.to_string();
-                        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+                        let name = a
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&id)
+                            .to_string();
                         Some((id, name))
                     })
                     .collect()
-            }))
+            })
+        })
         .unwrap_or_default();
 
     let ws_configs = ws.clone();
@@ -641,23 +642,33 @@ pub fn Channels() -> Element {
         let _t = refresh_tick();
         let ws = ws_configs.clone();
         async move {
-            ws.call::<serde_json::Value>("channels.config.list", None).await.ok()
+            ws.call::<serde_json::Value>("channels.config.list", None)
+                .await
+                .ok()
         }
     });
     let configs_read = channel_configs_data.read();
     let configs_ref = configs_read.as_ref().and_then(|c| c.as_ref());
     let channel_configs: std::collections::HashMap<String, (Option<String>, String)> = configs_ref
-        .and_then(|d| d.as_array()
-            .map(|arr| {
+        .and_then(|d| {
+            d.as_array().map(|arr| {
                 arr.iter()
                     .filter_map(|c| {
                         let id = c.get("id").and_then(|v| v.as_str())?.to_string();
-                        let agent_id = c.get("agent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let name = c.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+                        let agent_id = c
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let name = c
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&id)
+                            .to_string();
                         Some((id, (agent_id, name)))
                     })
                     .collect()
-            }))
+            })
+        })
         .unwrap_or_default();
 
     let is_loading = channels_data.read().is_none();
@@ -675,7 +686,8 @@ pub fn Channels() -> Element {
     let configured_channel_types: Vec<&ChannelTypeInfo> = channel_types
         .iter()
         .filter(|ch_type| {
-            let Some(channel) = status_channels.and_then(|channels| channels.get(ch_type.id.as_str()))
+            let Some(channel) =
+                status_channels.and_then(|channels| channels.get(ch_type.id.as_str()))
             else {
                 return false;
             };
@@ -860,7 +872,10 @@ fn render_channel_card(
         .get(&ch_type.id)
         .and_then(|(agent_id, _)| agent_id.as_ref())
         .and_then(|aid| {
-            agents_list.iter().find(|(id, _)| id == aid).map(|(id, name)| (id.clone(), name.clone()))
+            agents_list
+                .iter()
+                .find(|(id, _)| id == aid)
+                .map(|(id, name)| (id.clone(), name.clone()))
         });
 
     let is_configured = channel_data

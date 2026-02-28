@@ -1,33 +1,25 @@
-﻿//! Asynchronous worker that executes a **Savfox** tool-call inside a spawned
+//! Asynchronous worker that executes a **Savfox** tool-call inside a spawned
 //! Tokio task. Separated from `message_processor.rs` to keep that file small
 //! and to make future feature-growth easier to manage.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::exec_approval::handle_exec_approval_request;
-use crate::outgoing_message::OutgoingMessageSender;
-use crate::outgoing_message::OutgoingNotificationMeta;
-use crate::patch_approval::handle_patch_approval_request;
-use savfox_core::NewSession;
-use savfox_core::SavfoxSession;
-use savfox_core::SessionManager;
+use rmcp::model::{CallToolResult, Content, RequestId};
 use savfox_core::config::Config as SavfoxConfig;
-use savfox_core::protocol::AgentMessageEvent;
-use savfox_core::protocol::ApplyPatchApprovalRequestEvent;
-use savfox_core::protocol::Event;
-use savfox_core::protocol::EventMsg;
-use savfox_core::protocol::ExecApprovalRequestEvent;
-use savfox_core::protocol::Op;
-use savfox_core::protocol::Submission;
-use savfox_core::protocol::TurnCompleteEvent;
+use savfox_core::protocol::{
+    AgentMessageEvent, ApplyPatchApprovalRequestEvent, Event, EventMsg, ExecApprovalRequestEvent,
+    Op, Submission, TurnCompleteEvent,
+};
+use savfox_core::{NewSession, SavfoxSession, SessionManager};
 use savfox_protocol::SessionId;
 use savfox_protocol::user_input::UserInput;
-use rmcp::model::CallToolResult;
-use rmcp::model::Content;
-use rmcp::model::RequestId;
 use serde_json::json;
 use tokio::sync::Mutex;
+
+use crate::exec_approval::handle_exec_approval_request;
+use crate::outgoing_message::{OutgoingMessageSender, OutgoingNotificationMeta};
+use crate::patch_approval::handle_patch_approval_request;
 
 /// To adhere to MCP `tools/call` response format, include the Savfox
 /// `sessionId` in the `structured_content` field of the response.
@@ -243,7 +235,8 @@ async fn run_savfox_tool_session_inner(
                         continue;
                     }
                     EventMsg::Error(err_event) => {
-                        // Always respond in tools/call's expected shape, and include conversationId so the client can resume.
+                        // Always respond in tools/call's expected shape, and include conversationId
+                        // so the client can resume.
                         let result = create_call_tool_result_with_session_id(
                             session_id,
                             err_event.message,
@@ -390,8 +383,9 @@ async fn run_savfox_tool_session_inner(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn call_tool_result_includes_session_id_in_structured_content() {

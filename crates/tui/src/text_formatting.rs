@@ -1,4 +1,4 @@
-﻿use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub(crate) fn capitalize_first(input: &str) -> String {

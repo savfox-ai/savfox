@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use savfox_core::config::Config;
 use savfox_core::protocol::{Event, EventMsg, Op};

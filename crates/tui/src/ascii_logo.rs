@@ -1,4 +1,4 @@
-﻿//! ASCII art logo for Savfox CLI startup screen.
+//! ASCII art logo for Savfox CLI startup screen.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;

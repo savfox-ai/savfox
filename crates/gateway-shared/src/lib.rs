@@ -1,4 +1,4 @@
-﻿//! Shared data types for the Savfox gateway server and its web frontend.
+//! Shared data types for the Savfox gateway server and its web frontend.
 //!
 //! This crate contains serde-based types that are used for JSON-RPC
 //! communication between the backend (native) and frontend (wasm32).

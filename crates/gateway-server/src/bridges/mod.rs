@@ -1,4 +1,4 @@
-﻿pub(crate) mod discord;
+pub(crate) mod discord;
 pub(crate) mod feishu;
 pub(crate) mod googlechat;
 pub(crate) mod imessage;

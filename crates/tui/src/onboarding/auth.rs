@@ -1,23 +1,22 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use savfox_app_server_protocol::AuthMode;
-use savfox_core::ModelProviderInfo;
-use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
-use savfox_core::AuthManager;
-use savfox_core::auth::{AuthCredentialsStoreMode, CLIENT_ID};
-use savfox_login_oauth::{DeviceCode, ServerOptions, ShutdownHandle, run_login_server};
-use savfox_protocol::config_types::ForcedLoginMethod;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, WidgetRef, Wrap};
+use savfox_app_server_protocol::AuthMode;
+use savfox_core::auth::{AuthCredentialsStoreMode, CLIENT_ID};
+use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
+use savfox_core::{AuthManager, ModelProviderInfo};
+use savfox_login_oauth::{DeviceCode, ServerOptions, ShutdownHandle, run_login_server};
+use savfox_protocol::config_types::ForcedLoginMethod;
 use tokio::sync::Notify;
 use toml_edit::value as toml_edit_value;
 
@@ -206,8 +205,7 @@ impl AuthModeWidget {
         let current = self
             .highlighted_provider_index
             .min(candidates.len().saturating_sub(1));
-        let next =
-            (current as isize + delta).rem_euclid(candidates.len() as isize) as usize;
+        let next = (current as isize + delta).rem_euclid(candidates.len() as isize) as usize;
         self.highlighted_provider_index = next;
     }
 
@@ -588,9 +586,13 @@ impl AuthModeWidget {
 
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
-            "✓ Signed in with your ChatGPT account".fg(Color::Green).into(),
+            "✓ Signed in with your ChatGPT account"
+                .fg(Color::Green)
+                .into(),
             "".into(),
-            "  Press Enter to import OpenAI models and continue.".fg(Color::Cyan).into(),
+            "  Press Enter to import OpenAI models and continue."
+                .fg(Color::Cyan)
+                .into(),
         ];
 
         Paragraph::new(lines)
@@ -817,11 +819,10 @@ impl AuthModeWidget {
 
         let provider_name = provider.name.clone();
         self.error = None;
-        *self.sign_in_state.write().unwrap() = SignInState::ProviderConnecting(
-            ProviderConnectingState {
+        *self.sign_in_state.write().unwrap() =
+            SignInState::ProviderConnecting(ProviderConnectingState {
                 provider_name: provider_name.clone(),
-            },
-        );
+            });
         self.request_frame.schedule_frame();
 
         let sign_in_state = self.sign_in_state.clone();
@@ -831,16 +832,19 @@ impl AuthModeWidget {
         let auth_manager = self.auth_manager.clone();
 
         tokio::spawn(async move {
-            let runtime_auth = auth_manager.auth().await.map(|auth| ProviderConnectRuntimeAuth {
-                bearer_token: auth
-                    .get_token()
-                    .ok()
-                    .and_then(|token| (!token.trim().is_empty()).then_some(token)),
-                account_id: auth
-                    .get_account_id()
-                    .and_then(|account_id| (!account_id.trim().is_empty()).then_some(account_id)),
-                use_chatgpt_openai_base_url: auth.is_chatgpt_auth(),
-            });
+            let runtime_auth = auth_manager
+                .auth()
+                .await
+                .map(|auth| ProviderConnectRuntimeAuth {
+                    bearer_token: auth
+                        .get_token()
+                        .ok()
+                        .and_then(|token| (!token.trim().is_empty()).then_some(token)),
+                    account_id: auth.get_account_id().and_then(|account_id| {
+                        (!account_id.trim().is_empty()).then_some(account_id)
+                    }),
+                    use_chatgpt_openai_base_url: auth.is_chatgpt_auth(),
+                });
 
             let result = connect_provider(
                 savfox_home.clone(),
@@ -1091,9 +1095,9 @@ impl WidgetRef for AuthModeWidget {
 
 #[cfg(test)]
 mod tests {
-    use savfox_core::built_in_model_providers;
-    use savfox_core::auth::AuthCredentialsStoreMode;
     use pretty_assertions::assert_eq;
+    use savfox_core::auth::AuthCredentialsStoreMode;
+    use savfox_core::built_in_model_providers;
     use tempfile::TempDir;
 
     use super::*;

@@ -1,4 +1,4 @@
-﻿use savfox_tui::ComposerInput;
+use savfox_tui::ComposerInput;
 
 pub struct NewTaskPage {
     pub composer: ComposerInput,

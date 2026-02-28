@@ -1,7 +1,9 @@
-﻿use std::collections::BTreeSet;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
+use ratatui::prelude::*;
+use ratatui::style::Stylize;
 use savfox_common::summarize_sandbox_policy;
 use savfox_core::config::Config;
 use savfox_core::protocol::{NetworkAccess, SandboxPolicy, TokenUsage, TokenUsageInfo};
@@ -9,8 +11,6 @@ use savfox_core::{AuthManager, WireApi};
 use savfox_protocol::SessionId;
 use savfox_protocol::account::PlanType;
 use savfox_protocol::openai_models::ReasoningEffort;
-use ratatui::prelude::*;
-use ratatui::style::Stylize;
 use url::Url;
 
 use super::account::StatusAccountDisplay;

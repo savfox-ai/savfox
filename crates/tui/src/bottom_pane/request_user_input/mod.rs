@@ -1,4 +1,4 @@
-﻿//! Request-user-input overlay state machine.
+//! Request-user-input overlay state machine.
 //!
 //! Core behaviors:
 //! - Each question can be answered by selecting one option and/or providing notes.
@@ -1235,12 +1235,12 @@ impl BottomPaneView for RequestUserInputOverlay {
 mod tests {
     use std::collections::HashMap;
 
-    use savfox_protocol::request_user_input::{
-        RequestUserInputQuestion, RequestUserInputQuestionOption,
-    };
     use pretty_assertions::assert_eq;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
+    use savfox_protocol::request_user_input::{
+        RequestUserInputQuestion, RequestUserInputQuestionOption,
+    };
     use tokio::sync::mpsc::unbounded_channel;
     use unicode_width::UnicodeWidthStr;
 

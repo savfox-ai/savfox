@@ -1,10 +1,10 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
-use savfox_core::config::load_global_mcp_servers;
-use savfox_core::config::types::McpServerTransportConfig;
 use predicates::str::contains;
 use pretty_assertions::assert_eq;
+use savfox_core::config::load_global_mcp_servers;
+use savfox_core::config::types::McpServerTransportConfig;
 use tempfile::TempDir;
 
 fn savfox_command(savfox_home: &Path) -> Result<assert_cmd::Command> {

@@ -1,224 +1,130 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::AuthManager;
-use crate::SandboxState;
-use crate::SavfoxAuth;
-use crate::agent::AgentControl;
-use crate::agent::AgentStatus;
-use crate::agent::MAX_THREAD_SPAWN_DEPTH;
-use crate::agent::agent_status_from_event;
-use crate::analytics_client::AnalyticsEventsClient;
-use crate::analytics_client::build_track_events_context;
-use crate::compact;
-use crate::compact::run_inline_auto_compact_task;
-use crate::compact::should_use_remote_compact_task;
-use crate::compact_remote::run_inline_remote_auto_compact_task;
-use crate::connectors;
-use crate::exec_policy::ExecPolicyManager;
-use crate::features::Feature;
-use crate::features::Features;
-use crate::features::maybe_push_unstable_features_warning;
-use crate::models_manager::manager::ModelsManager;
-use crate::parse_command::parse_command;
-use crate::parse_turn_item;
-use crate::rollout::session_index;
-use crate::stream_events_utils::HandleOutputCtx;
-use crate::stream_events_utils::handle_non_tool_response_item;
-use crate::stream_events_utils::handle_output_item_done;
-use crate::stream_events_utils::last_assistant_message_from_item;
-use crate::terminal;
-use crate::transport_manager::TransportManager;
-use crate::truncate::TruncationPolicy;
-use crate::user_notification::UserNotifier;
-use crate::util::error_or_panic;
-use async_channel::Receiver;
-use async_channel::Sender;
+use async_channel::{Receiver, Sender};
 use futures::future::BoxFuture;
 use futures::prelude::*;
 use futures::stream::FuturesOrdered;
-use rmcp::model::ListResourceTemplatesResult;
-use rmcp::model::ListResourcesResult;
-use rmcp::model::PaginatedRequestParam;
-use rmcp::model::ReadResourceRequestParam;
-use rmcp::model::ReadResourceResult;
-use rmcp::model::RequestId;
+use rmcp::model::{
+    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam,
+    ReadResourceRequestParam, ReadResourceResult, RequestId,
+};
+use savfox_async_utils::OrCancelExt;
+use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::approvals::ExecPolicyAmendment;
-use savfox_protocol::config_types::ModeKind;
-use savfox_protocol::config_types::Settings;
-use savfox_protocol::config_types::WebSearchMode;
-use savfox_protocol::dynamic_tools::DynamicToolResponse;
-use savfox_protocol::dynamic_tools::DynamicToolSpec;
-use savfox_protocol::items::PlanItem;
-use savfox_protocol::items::TurnItem;
-use savfox_protocol::items::UserMessageItem;
+use savfox_protocol::config_types::{
+    CollaborationMode, ModeKind, Personality, ReasoningSummary as ReasoningSummaryConfig, Settings,
+    WebSearchMode, WindowsSandboxLevel,
+};
+use savfox_protocol::dynamic_tools::{DynamicToolResponse, DynamicToolSpec};
+use savfox_protocol::items::{PlanItem, TurnItem, UserMessageItem};
 use savfox_protocol::mcp::CallToolResult;
-use savfox_protocol::models::BaseInstructions;
-use savfox_protocol::models::format_allow_prefixes;
+use savfox_protocol::models::{
+    BaseInstructions, ContentItem, DeveloperInstructions, ResponseInputItem, ResponseItem,
+    format_allow_prefixes,
+};
 use savfox_protocol::openai_models::ModelInfo;
-use savfox_protocol::protocol::FileChange;
-use savfox_protocol::protocol::HasLegacyEvent;
-use savfox_protocol::protocol::ItemCompletedEvent;
-use savfox_protocol::protocol::ItemStartedEvent;
-use savfox_protocol::protocol::RawResponseItemEvent;
-use savfox_protocol::protocol::ReviewRequest;
-use savfox_protocol::protocol::RolloutItem;
-use savfox_protocol::protocol::SessionSource;
-use savfox_protocol::protocol::SubAgentSource;
-use savfox_protocol::protocol::TurnAbortReason;
-use savfox_protocol::protocol::TurnContextItem;
-use savfox_protocol::protocol::TurnStartedEvent;
-use savfox_protocol::request_user_input::RequestUserInputArgs;
-use savfox_protocol::request_user_input::RequestUserInputResponse;
-use savfox_rmcp_client::ElicitationResponse;
-use savfox_rmcp_client::OAuthCredentialsStoreMode;
+use savfox_protocol::protocol::{
+    FileChange, HasLegacyEvent, InitialHistory, ItemCompletedEvent, ItemStartedEvent,
+    RawResponseItemEvent, ReviewRequest, RolloutItem, SavfoxErrorInfo, SessionSource,
+    SubAgentSource, TurnAbortReason, TurnContextItem, TurnStartedEvent,
+};
+use savfox_protocol::request_user_input::{RequestUserInputArgs, RequestUserInputResponse};
+use savfox_protocol::user_input::UserInput;
+use savfox_rmcp_client::{ElicitationResponse, OAuthCredentialsStoreMode};
+use savfox_utils_readiness::{Readiness, ReadinessFlag};
 use serde_json;
 use serde_json::Value;
-use tokio::sync::Mutex;
-use tokio::sync::RwLock;
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, RwLock, oneshot, watch};
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
-use tracing::debug;
-use tracing::error;
-use tracing::field;
-use tracing::info;
-use tracing::info_span;
-use tracing::instrument;
-use tracing::trace_span;
-use tracing::warn;
+use tracing::{Instrument, debug, error, field, info, info_span, instrument, trace_span, warn};
 
-use crate::ModelProviderInfo;
-use crate::WireApi;
-use crate::client::ModelClient;
-use crate::client::ModelClientSession;
-use crate::client_common::Prompt;
-use crate::client_common::ResponseEvent;
-use crate::compact::collect_user_messages;
-use crate::config::Config;
-use crate::config::Constrained;
-use crate::config::ConstraintResult;
-use crate::config::GhostSnapshotConfig;
-use crate::config::resolve_web_search_mode_for_turn;
-use crate::config::types::McpServerConfig;
-use crate::config::types::ShellEnvironmentPolicy;
+use crate::agent::{AgentControl, AgentStatus, MAX_THREAD_SPAWN_DEPTH, agent_status_from_event};
+use crate::analytics_client::{AnalyticsEventsClient, build_track_events_context};
+use crate::client::{ModelClient, ModelClientSession};
+use crate::client_common::{Prompt, ResponseEvent};
+use crate::compact::{
+    collect_user_messages, run_inline_auto_compact_task, should_use_remote_compact_task,
+};
+use crate::compact_remote::run_inline_remote_auto_compact_task;
+use crate::config::types::{McpServerConfig, ShellEnvironmentPolicy};
+use crate::config::{
+    Config, Constrained, ConstraintResult, GhostSnapshotConfig, resolve_web_search_mode_for_turn,
+};
 use crate::context_manager::ContextManager;
 use crate::environment_context::EnvironmentContext;
-use crate::error::Result as SavfoxResult;
-use crate::error::SavfoxError;
+use crate::error::{Result as SavfoxResult, SavfoxError};
 #[cfg(test)]
 use crate::exec::StreamOutput;
-use crate::exec_policy::ExecPolicyUpdateError;
-use crate::feedback_tags;
+use crate::exec_policy::{ExecPolicyManager, ExecPolicyUpdateError};
+use crate::features::{Feature, Features, maybe_push_unstable_features_warning};
 use crate::git_info::get_git_repo_root;
 use crate::instructions::UserInstructions;
-use crate::mcp::SAVFOX_APPS_MCP_SERVER_NAME;
 use crate::mcp::auth::compute_auth_statuses;
-use crate::mcp::effective_mcp_servers;
-use crate::mcp::maybe_prompt_and_install_mcp_dependencies;
-use crate::mcp::with_savfox_apps_mcp;
+use crate::mcp::{
+    SAVFOX_APPS_MCP_SERVER_NAME, effective_mcp_servers, maybe_prompt_and_install_mcp_dependencies,
+    with_savfox_apps_mcp,
+};
 use crate::mcp_connection_manager::McpConnectionManager;
-use crate::mentions::build_connector_slug_counts;
-use crate::mentions::build_skill_name_counts;
-use crate::mentions::collect_explicit_app_paths;
-use crate::mentions::collect_tool_mentions_from_messages;
+use crate::mentions::{
+    build_connector_slug_counts, build_skill_name_counts, collect_explicit_app_paths,
+    collect_tool_mentions_from_messages,
+};
 use crate::model_provider_info::CHAT_WIRE_API_DEPRECATION_SUMMARY;
+use crate::models_manager::manager::ModelsManager;
+use crate::parse_command::parse_command;
 use crate::project_doc::get_user_instructions;
-use crate::proposed_plan_parser::ProposedPlanParser;
-use crate::proposed_plan_parser::ProposedPlanSegment;
-use crate::proposed_plan_parser::extract_proposed_plan_text;
-use crate::protocol::AgentMessageContentDeltaEvent;
-use crate::protocol::AgentReasoningSectionBreakEvent;
-use crate::protocol::ApplyPatchApprovalRequestEvent;
-use crate::protocol::AskForApproval;
-use crate::protocol::BackgroundEventEvent;
-use crate::protocol::DeprecationNoticeEvent;
-use crate::protocol::ErrorEvent;
-use crate::protocol::Event;
-use crate::protocol::EventMsg;
-use crate::protocol::ExecApprovalRequestEvent;
-use crate::protocol::McpServerRefreshConfig;
-use crate::protocol::Op;
-use crate::protocol::PlanDeltaEvent;
-use crate::protocol::RateLimitSnapshot;
-use crate::protocol::ReasoningContentDeltaEvent;
-use crate::protocol::ReasoningRawContentDeltaEvent;
-use crate::protocol::RequestUserInputEvent;
-use crate::protocol::ReviewDecision;
-use crate::protocol::SandboxPolicy;
-use crate::protocol::SessionConfiguredEvent;
-use crate::protocol::SkillDependencies as ProtocolSkillDependencies;
-use crate::protocol::SkillErrorInfo;
-use crate::protocol::SkillInterface as ProtocolSkillInterface;
-use crate::protocol::SkillMetadata as ProtocolSkillMetadata;
-use crate::protocol::SkillToolDependency as ProtocolSkillToolDependency;
-use crate::protocol::StreamErrorEvent;
-use crate::protocol::Submission;
-use crate::protocol::TokenCountEvent;
-use crate::protocol::TokenUsage;
-use crate::protocol::TokenUsageInfo;
-use crate::protocol::TurnDiffEvent;
-use crate::protocol::WarningEvent;
-use crate::rollout::RolloutRecorder;
-use crate::rollout::RolloutRecorderParams;
-use crate::rollout::map_session_init_error;
-use crate::rollout::metadata;
+use crate::proposed_plan_parser::{
+    ProposedPlanParser, ProposedPlanSegment, extract_proposed_plan_text,
+};
+use crate::protocol::{
+    AgentMessageContentDeltaEvent, AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent,
+    AskForApproval, BackgroundEventEvent, DeprecationNoticeEvent, ErrorEvent, Event, EventMsg,
+    ExecApprovalRequestEvent, McpServerRefreshConfig, Op, PlanDeltaEvent, RateLimitSnapshot,
+    ReasoningContentDeltaEvent, ReasoningRawContentDeltaEvent, RequestUserInputEvent,
+    ReviewDecision, SandboxPolicy, SessionConfiguredEvent,
+    SkillDependencies as ProtocolSkillDependencies, SkillErrorInfo,
+    SkillInterface as ProtocolSkillInterface, SkillMetadata as ProtocolSkillMetadata,
+    SkillToolDependency as ProtocolSkillToolDependency, StreamErrorEvent, Submission,
+    TokenCountEvent, TokenUsage, TokenUsageInfo, TurnDiffEvent, WarningEvent,
+};
+use crate::rollout::{
+    RolloutRecorder, RolloutRecorderParams, map_session_init_error, metadata, session_index,
+};
 use crate::savfox_session::SessionConfigSnapshot;
-use crate::shell;
 use crate::shell_snapshot::ShellSnapshot;
-use crate::skills::SkillError;
-use crate::skills::SkillInjections;
-use crate::skills::SkillMetadata;
-use crate::skills::SkillsManager;
-use crate::skills::build_skill_injections;
-use crate::skills::collect_env_var_dependencies;
-use crate::skills::collect_explicit_skill_mentions;
-use crate::skills::injection::ToolMentionKind;
-use crate::skills::injection::app_id_from_path;
-use crate::skills::injection::tool_kind_for_path;
-use crate::skills::resolve_skill_dependencies_for_turn;
-use crate::state::ActiveTurn;
-use crate::state::SessionServices;
-use crate::state::SessionState;
-use crate::state_db;
-use crate::tasks::GhostSnapshotTask;
-use crate::tasks::ReviewTask;
-use crate::tasks::SessionTask;
-use crate::tasks::SessionTaskContext;
+use crate::skills::injection::{ToolMentionKind, app_id_from_path, tool_kind_for_path};
+use crate::skills::{
+    SkillError, SkillInjections, SkillMetadata, SkillsManager, build_skill_injections,
+    collect_env_var_dependencies, collect_explicit_skill_mentions,
+    resolve_skill_dependencies_for_turn,
+};
+use crate::state::{ActiveTurn, SessionServices, SessionState};
+use crate::stream_events_utils::{
+    HandleOutputCtx, handle_non_tool_response_item, handle_output_item_done,
+    last_assistant_message_from_item,
+};
+use crate::tasks::{GhostSnapshotTask, ReviewTask, SessionTask, SessionTaskContext};
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::sandboxing::ApprovalStore;
-use crate::tools::spec::ToolsConfig;
-use crate::tools::spec::ToolsConfigParams;
+use crate::tools::spec::{ToolsConfig, ToolsConfigParams};
+use crate::transport_manager::TransportManager;
+use crate::truncate::TruncationPolicy;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::unified_exec::UnifiedExecProcessManager;
-use crate::user_notification::UserNotification;
-use crate::util::backoff;
+use crate::user_notification::{UserNotification, UserNotifier};
+use crate::util::{backoff, error_or_panic};
 use crate::windows_sandbox::WindowsSandboxLevelExt;
-use savfox_async_utils::OrCancelExt;
-use savfox_otel::OtelManager;
-use savfox_protocol::config_types::CollaborationMode;
-use savfox_protocol::config_types::Personality;
-use savfox_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
-use savfox_protocol::config_types::WindowsSandboxLevel;
-use savfox_protocol::models::ContentItem;
-use savfox_protocol::models::DeveloperInstructions;
-use savfox_protocol::models::ResponseInputItem;
-use savfox_protocol::models::ResponseItem;
-use savfox_protocol::protocol::InitialHistory;
-use savfox_protocol::protocol::SavfoxErrorInfo;
-use savfox_protocol::user_input::UserInput;
-use savfox_utils_readiness::Readiness;
-use savfox_utils_readiness::ReadinessFlag;
-use tokio::sync::watch;
+use crate::{
+    AuthManager, ModelProviderInfo, SandboxState, SavfoxAuth, WireApi, compact, connectors,
+    feedback_tags, parse_turn_item, shell, state_db, terminal,
+};
 
 /// The high-level interface to the Savfox system.
 /// It operates as a queue pair where you send submissions and receive events.
@@ -367,8 +273,9 @@ impl Savfox {
             dynamic_tools
         };
 
-        // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
-        // to avoid extracting these fields separately and constructing CollaborationMode here.
+        // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into
+        // config.collaboration_mode to avoid extracting these fields separately and
+        // constructing CollaborationMode here.
         let collaboration_mode = CollaborationMode {
             mode: ModeKind::Custom,
             settings: Settings {
@@ -587,7 +494,7 @@ pub(crate) struct SessionConfiguration {
     /// Optional user-facing name for the session, updated during the session.
     session_name: Option<String>,
 
-    // TODO(pakrym): Remove config from here
+    //  TODO(pakrym): Remove config from here
     original_config_do_not_use: Arc<Config>,
     /// Source of the session (cli, vscode, exec, mcp, ...)
     session_source: SessionSource,
@@ -652,7 +559,8 @@ pub(crate) struct SessionSettingsUpdate {
 }
 
 impl Session {
-    /// Don't expand the number of mutated arguments on config. We are in the process of getting rid of it.
+    /// Don't expand the number of mutated arguments on config. We are in the process of getting rid
+    /// of it.
     pub(crate) fn build_per_turn_config(session_configuration: &SessionConfiguration) -> Config {
         // todo(aibrahim): store this state somewhere else so we don't need to mut config
         let config = session_configuration.original_config_do_not_use.clone();
@@ -965,7 +873,8 @@ impl Session {
         });
 
         // Dispatch the SessionConfiguredEvent first and then report any errors.
-        // If resuming, include converted initial messages in the payload so UIs can render them immediately.
+        // If resuming, include converted initial messages in the payload so UIs can render them
+        // immediately.
         let initial_messages = initial_history.get_event_msgs();
         let events = std::iter::once(Event {
             id: INITIAL_SUBMIT_ID.to_owned(),
@@ -1013,7 +922,8 @@ impl Session {
             )
             .await;
 
-        // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
+        // record_initial_history can emit events. We record only after the SessionConfiguredEvent
+        // is emitted.
         sess.record_initial_history(initial_history).await;
 
         Ok(sess)
@@ -1364,7 +1274,8 @@ impl Session {
         }
         let previous = previous?;
 
-        // if a personality is specified and it's different from the previous one, build a personality update item
+        // if a personality is specified and it's different from the previous one, build a
+        // personality update item
         if let Some(personality) = next.personality
             && next.personality != previous.personality
         {
@@ -2567,53 +2478,32 @@ async fn submission_loop(sess: Arc<Session>, config: Arc<Config>, rx_sub: Receiv
 
 /// Operation handlers
 mod handlers {
-    use crate::savfox::Session;
-    use crate::savfox::SessionSettingsUpdate;
-    use crate::savfox::TurnContext;
-
-    use crate::config::Config;
-    use crate::savfox::spawn_review_session;
-
-    use crate::mcp::auth::compute_auth_statuses;
-    use crate::mcp::collect_mcp_snapshot_from_manager;
-    use crate::mcp::effective_mcp_servers;
-    use crate::review_prompts::resolve_review_request;
-    use crate::rollout::session_index;
-    use crate::tasks::CompactTask;
-    use crate::tasks::RegularTask;
-    use crate::tasks::UndoTask;
-    use crate::tasks::UserShellCommandTask;
-    use savfox_protocol::custom_prompts::CustomPrompt;
-    use savfox_protocol::protocol::ErrorEvent;
-    use savfox_protocol::protocol::Event;
-    use savfox_protocol::protocol::EventMsg;
-    use savfox_protocol::protocol::ListCustomPromptsResponseEvent;
-    use savfox_protocol::protocol::ListSkillsResponseEvent;
-    use savfox_protocol::protocol::McpServerRefreshConfig;
-    use savfox_protocol::protocol::Op;
-    use savfox_protocol::protocol::ReviewDecision;
-    use savfox_protocol::protocol::ReviewRequest;
-    use savfox_protocol::protocol::SavfoxErrorInfo;
-    use savfox_protocol::protocol::SessionNameUpdatedEvent;
-    use savfox_protocol::protocol::SessionRolledBackEvent;
-    use savfox_protocol::protocol::SkillsListEntry;
-    use savfox_protocol::protocol::TurnAbortReason;
-    use savfox_protocol::protocol::WarningEvent;
-    use savfox_protocol::request_user_input::RequestUserInputResponse;
-
-    use crate::context_manager::is_user_turn_boundary;
-    use savfox_protocol::config_types::CollaborationMode;
-    use savfox_protocol::config_types::ModeKind;
-    use savfox_protocol::config_types::Settings;
-    use savfox_protocol::dynamic_tools::DynamicToolResponse;
-    use savfox_protocol::mcp::RequestId as ProtocolRequestId;
-    use savfox_protocol::user_input::UserInput;
-    use savfox_rmcp_client::ElicitationAction;
-    use savfox_rmcp_client::ElicitationResponse;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tracing::info;
-    use tracing::warn;
+
+    use savfox_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+    use savfox_protocol::custom_prompts::CustomPrompt;
+    use savfox_protocol::dynamic_tools::DynamicToolResponse;
+    use savfox_protocol::mcp::RequestId as ProtocolRequestId;
+    use savfox_protocol::protocol::{
+        ErrorEvent, Event, EventMsg, ListCustomPromptsResponseEvent, ListSkillsResponseEvent,
+        McpServerRefreshConfig, Op, ReviewDecision, ReviewRequest, SavfoxErrorInfo,
+        SessionNameUpdatedEvent, SessionRolledBackEvent, SkillsListEntry, TurnAbortReason,
+        WarningEvent,
+    };
+    use savfox_protocol::request_user_input::RequestUserInputResponse;
+    use savfox_protocol::user_input::UserInput;
+    use savfox_rmcp_client::{ElicitationAction, ElicitationResponse};
+    use tracing::{info, warn};
+
+    use crate::config::Config;
+    use crate::context_manager::is_user_turn_boundary;
+    use crate::mcp::auth::compute_auth_statuses;
+    use crate::mcp::{collect_mcp_snapshot_from_manager, effective_mcp_servers};
+    use crate::review_prompts::resolve_review_request;
+    use crate::rollout::session_index;
+    use crate::savfox::{Session, SessionSettingsUpdate, TurnContext, spawn_review_session};
+    use crate::tasks::{CompactTask, RegularTask, UndoTask, UserShellCommandTask};
 
     pub async fn interrupt(sess: &Arc<Session>) {
         sess.interrupt_task().await;
@@ -3016,8 +2906,9 @@ mod handlers {
     /// Persists the session name in the session index, updates in-memory state, and emits
     /// a `SessionNameUpdated` event on success.
     ///
-    /// This appends the name to `SAVFOX_HOME/sessions_index.jsonl` via `session_index::append_session_name` for the
-    /// current `session_id`, then updates `SessionConfiguration::session_name`.
+    /// This appends the name to `SAVFOX_HOME/sessions_index.jsonl` via
+    /// `session_index::append_session_name` for the current `session_id`, then updates
+    /// `SessionConfiguration::session_name`.
     ///
     /// Returns an error event if the name is empty or session persistence is disabled.
     pub async fn set_session_name(sess: &Arc<Session>, sub_id: String, name: String) {
@@ -3321,11 +3212,10 @@ fn errors_to_info(errors: &[SkillError]) -> Vec<SkillErrorInfo> {
 /// While it is possible for the model to return multiple of these items in a
 /// single sampling request, in practice, we generally one item per sampling request:
 ///
-/// - If the model requests a function call, we execute it and send the output
-///   back to the model in the next sampling request.
-/// - If the model sends only an assistant message, we record it in the
-///   conversation history and consider the turn complete.
-///
+/// - If the model requests a function call, we execute it and send the output back to the model in
+///   the next sampling request.
+/// - If the model sends only an assistant message, we record it in the conversation history and
+///   consider the turn complete.
 pub(crate) async fn run_turn(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
@@ -3438,8 +3328,8 @@ pub(crate) async fn run_turn(
     sess.maybe_start_ghost_snapshot(Arc::clone(&turn_context), cancellation_token.child_token())
         .await;
     let mut last_agent_message: Option<String> = None;
-    // Although from the perspective of savfox.rs, TurnDiffTracker has the lifecycle of a Task which contains
-    // many turns, from the perspective of the user, it is a single turn.
+    // Although from the perspective of savfox.rs, TurnDiffTracker has the lifecycle of a Task which
+    // contains many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
 
     let mut client_session = turn_context
@@ -3508,7 +3398,8 @@ pub(crate) async fn run_turn(
                     "post sampling token usage"
                 );
 
-                // as long as compaction works well in getting us way below the token limit, we shouldn't worry about being in an infinite loop.
+                // as long as compaction works well in getting us way below the token limit, we
+                // shouldn't worry about being in an infinite loop.
                 if token_limit_reached && needs_follow_up {
                     run_auto_compact(&sess, &turn_context).await;
                     continue;
@@ -4525,53 +4416,36 @@ pub(crate) use tests::make_session_and_context_with_rx;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::SavfoxAuth;
-    use crate::config::ConfigBuilder;
-    use crate::config::test_config;
-    use crate::exec::ExecToolCallOutput;
-    use crate::function_tool::FunctionCallError;
-    use crate::shell::default_user_shell;
-    use crate::tools::format_exec_output_str;
-
-    use savfox_protocol::SessionId;
-    use savfox_protocol::models::FunctionCallOutputPayload;
-
-    use crate::protocol::CompactedItem;
-    use crate::protocol::CreditsSnapshot;
-    use crate::protocol::InitialHistory;
-    use crate::protocol::RateLimitSnapshot;
-    use crate::protocol::RateLimitWindow;
-    use crate::protocol::ResumedHistory;
-    use crate::protocol::TokenCountEvent;
-    use crate::protocol::TokenUsage;
-    use crate::protocol::TokenUsageInfo;
-    use crate::state::TaskKind;
-    use crate::tasks::SessionTask;
-    use crate::tasks::SessionTaskContext;
-    use crate::tools::ToolRouter;
-    use crate::tools::context::ToolInvocation;
-    use crate::tools::context::ToolOutput;
-    use crate::tools::context::ToolPayload;
-    use crate::tools::handlers::ShellHandler;
-    use crate::tools::handlers::UnifiedExecHandler;
-    use crate::tools::registry::ToolHandler;
-    use crate::turn_diff_tracker::TurnDiffTracker;
-    use savfox_app_server_protocol::AppInfo;
-    use savfox_app_server_protocol::AuthMode;
-    use savfox_protocol::models::ContentItem;
-    use savfox_protocol::models::ResponseItem;
-    use std::path::Path;
-    use std::time::Duration;
-    use tokio::time::sleep;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::{Duration, Duration as StdDuration};
 
     use pretty_assertions::assert_eq;
+    use savfox_app_server_protocol::{AppInfo, AuthMode};
+    use savfox_protocol::SessionId;
     use savfox_protocol::mcp::CallToolResult as McpCallToolResult;
+    use savfox_protocol::models::{ContentItem, FunctionCallOutputPayload, ResponseItem};
     use serde::Deserialize;
     use serde_json::json;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use std::time::Duration as StdDuration;
+    use tokio::time::sleep;
+
+    use super::*;
+    use crate::SavfoxAuth;
+    use crate::config::{ConfigBuilder, test_config};
+    use crate::exec::ExecToolCallOutput;
+    use crate::function_tool::FunctionCallError;
+    use crate::protocol::{
+        CompactedItem, CreditsSnapshot, InitialHistory, RateLimitSnapshot, RateLimitWindow,
+        ResumedHistory, TokenCountEvent, TokenUsage, TokenUsageInfo,
+    };
+    use crate::shell::default_user_shell;
+    use crate::state::TaskKind;
+    use crate::tasks::{SessionTask, SessionTaskContext};
+    use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
+    use crate::tools::handlers::{ShellHandler, UnifiedExecHandler};
+    use crate::tools::registry::ToolHandler;
+    use crate::tools::{ToolRouter, format_exec_output_str};
+    use crate::turn_diff_tracker::TurnDiffTracker;
 
     struct InstructionsTestCase {
         slug: &'static str,
@@ -5981,12 +5855,12 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_escalated_permissions_when_policy_not_on_request() {
+        use std::collections::HashMap;
+
         use crate::exec::ExecParams;
-        use crate::protocol::AskForApproval;
-        use crate::protocol::SandboxPolicy;
+        use crate::protocol::{AskForApproval, SandboxPolicy};
         use crate::sandboxing::SandboxPermissions;
         use crate::turn_diff_tracker::TurnDiffTracker;
-        use std::collections::HashMap;
 
         let (session, mut turn_context_raw) = make_session_and_context().await;
         // Ensure policy is NOT OnRequest so the early rejection path triggers

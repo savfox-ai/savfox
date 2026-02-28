@@ -1,4 +1,4 @@
-﻿//! Translates between OpenClaw and Savfox frame formats.
+//! Translates between OpenClaw and Savfox frame formats.
 
 use serde_json::{Value, json};
 use tracing::debug;
@@ -133,8 +133,9 @@ pub(crate) fn is_openclaw_frame(raw: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_translate_request() {

@@ -20,7 +20,8 @@ use crate::session_manager::SessionManagerState;
 pub(crate) struct AgentControl {
     /// Weak handle back to the global session registry/state.
     /// This is `Weak` to avoid reference cycles and shadow persistence of the form
-    /// `SessionManagerState -> SavfoxSession -> Session -> SessionServices -> SessionManagerState`.
+    /// `SessionManagerState -> SavfoxSession -> Session -> SessionServices ->
+    /// SessionManagerState`.
     manager: Weak<SessionManagerState>,
     state: Arc<Guards>,
 }

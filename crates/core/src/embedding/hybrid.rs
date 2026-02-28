@@ -34,11 +34,11 @@ impl HybridSearcher {
     ///
     /// * `query_text` -- Free-text query for BM25 scoring.
     /// * `query_embedding` -- Dense vector embedding of the query.
-    /// * `documents` -- Slice of `(doc_id, doc_text)` pairs. The doc_text is
-    ///   used for BM25 scoring; vector similarity uses the vectors that have
-    ///   been previously indexed (looked up by doc_id via `doc_embeddings`).
-    /// * `doc_embeddings` -- Map from doc_id to embedding vector for each
-    ///   document. Documents without an embedding are scored by BM25 alone.
+    /// * `documents` -- Slice of `(doc_id, doc_text)` pairs. The doc_text is used for BM25 scoring;
+    ///   vector similarity uses the vectors that have been previously indexed (looked up by doc_id
+    ///   via `doc_embeddings`).
+    /// * `doc_embeddings` -- Map from doc_id to embedding vector for each document. Documents
+    ///   without an embedding are scored by BM25 alone.
     /// * `top_k` -- Maximum number of results to return.
     ///
     /// Returns `(doc_id, combined_score)` pairs sorted by descending score.

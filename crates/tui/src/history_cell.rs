@@ -1,4 +1,4 @@
-﻿//! Transcript/history cells for the Savfox TUI.
+//! Transcript/history cells for the Savfox TUI.
 //!
 //! A `HistoryCell` is the unit of display in the conversation UI, representing both committed
 //! transcript entries and, transiently, an in-flight active cell that can mutate in place while
@@ -18,6 +18,9 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use image::{DynamicImage, ImageReader};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style, Styled, Stylize};
+use ratatui::widgets::{Paragraph, Wrap};
 use savfox_common::format_env_display::format_env_display;
 use savfox_core::config::Config;
 use savfox_core::config::types::McpServerTransportConfig;
@@ -31,9 +34,6 @@ use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
 use savfox_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputQuestion};
 use savfox_protocol::user_input::TextElement;
-use ratatui::prelude::*;
-use ratatui::style::{Color, Modifier, Style, Styled, Stylize};
-use ratatui::widgets::{Paragraph, Wrap};
 use tracing::error;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -2277,6 +2277,8 @@ mod tests {
     use std::path::PathBuf;
 
     use dirs::home_dir;
+    use pretty_assertions::assert_eq;
+    use rmcp::model::Content;
     use savfox_core::config::types::{McpServerConfig, McpServerTransportConfig};
     use savfox_core::config::{Config, ConfigBuilder};
     use savfox_core::protocol::{AskForApproval, ExecCommandSource, McpAuthStatus, SandboxPolicy};
@@ -2284,8 +2286,6 @@ mod tests {
     use savfox_protocol::mcp::{CallToolResult, Tool};
     use savfox_protocol::models::WebSearchAction;
     use savfox_protocol::parse_command::ParsedCommand;
-    use pretty_assertions::assert_eq;
-    use rmcp::model::Content;
     use serde_json::json;
 
     use super::*;

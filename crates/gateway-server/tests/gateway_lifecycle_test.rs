@@ -1,4 +1,4 @@
-﻿//! Gateway startup/shutdown lifecycle integration test.
+//! Gateway startup/shutdown lifecycle integration test.
 //!
 //! This test spins up the gateway in-process, verifies readiness via `/health`,
 //! then aborts the task and verifies the port is no longer accepting traffic.

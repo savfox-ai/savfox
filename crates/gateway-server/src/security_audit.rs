@@ -1,4 +1,4 @@
-﻿use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -290,9 +290,7 @@ pub fn Overview() -> Element {
         let provider_a = a.provider.as_deref().unwrap_or("");
         let provider_b = b.provider.as_deref().unwrap_or("");
         match provider_a.cmp(provider_b) {
-            std::cmp::Ordering::Equal => {
-                a.id.cmp(&b.id)
-            }
+            std::cmp::Ordering::Equal => a.id.cmp(&b.id),
             other => other,
         }
     });

@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -6,37 +6,28 @@ use std::time::{Duration, Instant};
 use salvo::affix_state;
 use salvo::http::header::CONTENT_TYPE;
 use salvo::prelude::*;
-use serde_json::Value;
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::routing;
-use crate::routing::openai;
-use crate::routing::openresponses;
 use crate::auth::GatewayAuth;
 use crate::bridge::{GatewayBridge, RuntimeBridgeSecrets};
-use crate::bridges;
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
 };
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
-use crate::exec_approval;
-use crate::hooks;
-use crate::log_store;
 use crate::otel::{self, GatewayMetrics};
-use crate::pairing_store;
 use crate::plugin::{self, PluginState};
-use crate::session::GatewaySessionManager;
-use crate::session::build_history_payload;
-use crate::session::SessionStore;
+use crate::routing::{openai, openresponses};
+use crate::session::{GatewaySessionManager, SessionStore, build_history_payload};
 use crate::skills_api::{self, SkillsApiState};
-use crate::tools_invoke;
-use crate::static_assets;
-use crate::webchat;
 use crate::ws::ws_handler;
+use crate::{
+    bridges, exec_approval, hooks, log_store, pairing_store, routing, static_assets, tools_invoke,
+    webchat,
+};
 
 #[derive(Debug, Clone)]
 struct AgentRunRecord {

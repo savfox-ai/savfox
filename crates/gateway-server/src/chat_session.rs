@@ -1,12 +1,11 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 use std::path::Path;
 
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{Op, TokenUsage};
 
 use crate::bridge::GatewayBridge;
-use crate::session::session_file_to_store_value;
-use crate::session::SessionStore;
+use crate::session::{SessionStore, session_file_to_store_value};
 
 pub(crate) fn validate_uuid_v7_session_id(raw: Option<&str>) -> Result<Option<String>, String> {
     let requested = raw

@@ -1,5 +1,6 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{McpProcess, create_fake_rollout, to_response};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     JSONRPCNotification, JSONRPCResponse, ListConversationsParams, ListConversationsResponse,
     NewConversationParams, RequestId, ResumeConversationParams, ResumeConversationResponse,
@@ -7,7 +8,6 @@ use savfox_app_server_protocol::{
 };
 use savfox_core::protocol::EventMsg;
 use savfox_protocol::models::{ContentItem, ResponseItem};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

@@ -1,4 +1,4 @@
-﻿use std::ffi::OsStr;
+use std::ffi::OsStr;
 
 /// Returns true if the current process is running under WSL.
 pub use savfox_core::env::is_wsl;

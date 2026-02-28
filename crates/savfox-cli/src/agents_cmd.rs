@@ -1,4 +1,4 @@
-﻿//! `savfox agents` — Manage agents from CLI.
+//! `savfox agents` — Manage agents from CLI.
 
 use clap::Parser;
 use serde_json::json;

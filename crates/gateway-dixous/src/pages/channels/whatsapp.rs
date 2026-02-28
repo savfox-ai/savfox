@@ -1,8 +1,9 @@
+use dioxus::prelude::*;
+
 use crate::api::types::WhatsAppStatus;
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
 use crate::utils::time::format_duration_human;
-use dioxus::prelude::*;
 
 #[component]
 pub fn WhatsAppChannel() -> Element {

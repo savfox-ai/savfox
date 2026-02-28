@@ -1,23 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-
-use async_channel::Receiver;
-use async_channel::Sender;
-use savfox_async_utils::OrCancelExt;
-use savfox_protocol::protocol::ApplyPatchApprovalRequestEvent;
-use savfox_protocol::protocol::Event;
-use savfox_protocol::protocol::EventMsg;
-use savfox_protocol::protocol::ExecApprovalRequestEvent;
-use savfox_protocol::protocol::Op;
-use savfox_protocol::protocol::RequestUserInputEvent;
-use savfox_protocol::protocol::SessionSource;
-use savfox_protocol::protocol::SubAgentSource;
-use savfox_protocol::protocol::Submission;
-use savfox_protocol::request_user_input::RequestUserInputArgs;
-use savfox_protocol::request_user_input::RequestUserInputResponse;
-use savfox_protocol::user_input::UserInput;
 use std::time::Duration;
+
+use async_channel::{Receiver, Sender};
+use savfox_async_utils::OrCancelExt;
+use savfox_protocol::protocol::{
+    ApplyPatchApprovalRequestEvent, Event, EventMsg, ExecApprovalRequestEvent, InitialHistory, Op,
+    RequestUserInputEvent, SessionSource, SubAgentSource, Submission,
+};
+use savfox_protocol::request_user_input::{RequestUserInputArgs, RequestUserInputResponse};
+use savfox_protocol::user_input::UserInput;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -25,12 +18,7 @@ use crate::AuthManager;
 use crate::config::Config;
 use crate::error::SavfoxError;
 use crate::models_manager::manager::ModelsManager;
-use crate::savfox::SUBMISSION_CHANNEL_CAPACITY;
-use crate::savfox::Savfox;
-use crate::savfox::SavfoxSpawnOk;
-use crate::savfox::Session;
-use crate::savfox::TurnContext;
-use savfox_protocol::protocol::InitialHistory;
+use crate::savfox::{SUBMISSION_CHANNEL_CAPACITY, Savfox, SavfoxSpawnOk, Session, TurnContext};
 
 /// Start an interactive sub-Savfox session and return IO channels.
 ///
@@ -435,15 +423,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use async_channel::bounded;
     use pretty_assertions::assert_eq;
     use savfox_protocol::models::ResponseItem;
-    use savfox_protocol::protocol::AgentStatus;
-    use savfox_protocol::protocol::RawResponseItemEvent;
-    use savfox_protocol::protocol::TurnAbortReason;
-    use savfox_protocol::protocol::TurnAbortedEvent;
+    use savfox_protocol::protocol::{
+        AgentStatus, RawResponseItemEvent, TurnAbortReason, TurnAbortedEvent,
+    };
     use tokio::sync::watch;
+
+    use super::*;
 
     #[tokio::test]
     async fn forward_events_cancelled_while_send_blocked_shuts_down_delegate() {

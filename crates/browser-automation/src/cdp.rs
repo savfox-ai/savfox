@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, RwLock, oneshot};
-use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message as WsMessage,
-};
+use tokio_tungstenite::tungstenite::Message as WsMessage;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use tracing::{debug, warn};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -200,7 +199,8 @@ mod tests {
     use serde_json::json;
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
-    use tokio_tungstenite::{accept_async, tungstenite::Message as WsMessage};
+    use tokio_tungstenite::accept_async;
+    use tokio_tungstenite::tungstenite::Message as WsMessage;
 
     use super::CDPClient;
 

@@ -1,13 +1,13 @@
-﻿use std::time::Instant;
+use std::time::Instant;
 
 use itertools::Itertools;
+use ratatui::prelude::*;
+use ratatui::style::{Modifier, Stylize};
 use savfox_ansi_escape::ansi_escape_line;
 use savfox_common::elapsed::format_duration;
 use savfox_core::bash::extract_bash_command;
 use savfox_core::protocol::ExecCommandSource;
 use savfox_protocol::parse_command::ParsedCommand;
-use ratatui::prelude::*;
-use ratatui::style::{Modifier, Stylize};
 use textwrap::WordSplitter;
 use unicode_width::UnicodeWidthStr;
 

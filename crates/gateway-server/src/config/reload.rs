@@ -1,10 +1,11 @@
 //! Live config reload -- watches config file for changes and triggers reload.
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::{RwLock, broadcast};
 use tracing::{info, warn};
 

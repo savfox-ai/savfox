@@ -1,10 +1,13 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Stylize as _;
+use ratatui::text::{Line, Span};
 use savfox_core::{
     Cursor, INTERACTIVE_SESSION_SOURCES, RolloutRecorder, SessionItem, SessionSortKey,
     SessionsPage, find_session_names_by_ids, path_utils,
@@ -13,9 +16,6 @@ use savfox_protocol::SessionId;
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::models::ResponseItem;
 use savfox_protocol::protocol::SessionMetaLine;
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Stylize as _;
-use ratatui::text::{Line, Span};
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::UnboundedReceiverStream;

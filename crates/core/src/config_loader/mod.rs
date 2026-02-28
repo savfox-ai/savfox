@@ -327,8 +327,8 @@ pub async fn load_config_layers_state(
 
 /// Attempts to load a config file from `config_file`.
 /// Supports TOML (`.toml`) and YAML (`.yaml` / `.yml`).
-/// - If the file exists and is valid, passes the parsed `toml::Value` to `create_entry` and
-///   returns the resulting layer entry.
+/// - If the file exists and is valid, passes the parsed `toml::Value` to `create_entry` and returns
+///   the resulting layer entry.
 /// - If the file does not exist, uses an empty `Table` with `create_entry` and returns the
 ///   resulting layer entry.
 /// - If there is an error reading the file or parsing the content, returns an error.

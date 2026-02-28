@@ -1,4 +1,4 @@
-﻿use savfox_core::models_manager::manager::ModelsManager;
+use savfox_core::models_manager::manager::ModelsManager;
 use savfox_protocol::config_types::{CollaborationModeMask, ModeKind};
 
 fn is_tui_mode(kind: ModeKind) -> bool {

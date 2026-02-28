@@ -1,14 +1,11 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_memory::MemoryManager;
+use savfox_memory::embedding::EmbeddingApiKeys;
+use savfox_memory::types::{MemoryConfig, MemorySearchResult, MemorySyncProgress};
 use tokio::sync::RwLock;
 use tracing::info;
-
-use savfox_memory::{
-    MemoryManager,
-    embedding::EmbeddingApiKeys,
-    types::{MemoryConfig, MemorySearchResult, MemorySyncProgress},
-};
 
 pub struct MemoryService {
     manager: Arc<RwLock<Option<MemoryManager>>>,

@@ -1,4 +1,4 @@
-﻿use std::fmt::Display;
+use std::fmt::Display;
 
 use http::HeaderMap;
 use savfox_protocol::protocol::{CreditsSnapshot, RateLimitSnapshot, RateLimitWindow};

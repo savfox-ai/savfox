@@ -1,18 +1,16 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Map, Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, is_slack_timestamp_fresh};
-use crate::config::GatewayConfig;
-use crate::config::SlackBridgeConfig;
+use crate::config::{GatewayConfig, SlackBridgeConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Slack bridge using Events API and slash commands.
 pub(crate) struct SlackBridge {
@@ -555,9 +553,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::SlackBridge;
     use crate::protocol::BridgeAction;
-    use serde_json::json;
 
     #[test]
     fn slash_command_supports_native_registry_command() {

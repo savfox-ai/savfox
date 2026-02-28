@@ -1,4 +1,4 @@
-﻿//! Session-based orchestration for `@` file searches.
+//! Session-based orchestration for `@` file searches.
 //!
 //! `ChatComposer` publishes every change of the `@token` as
 //! `AppEvent::StartFileSearch(query)`. This manager owns a single

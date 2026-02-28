@@ -1,15 +1,14 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Feishu/Lark bot bridge using the Feishu Open Platform API.
 pub(crate) struct FeishuBridge {
@@ -80,7 +79,8 @@ impl ChatBridge for FeishuBridge {
 
     async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
         // Feishu event callback format.
-        // Challenge verification: { "challenge": "...", "token": "...", "type": "url_verification" }
+        // Challenge verification: { "challenge": "...", "token": "...", "type": "url_verification"
+        // }
         if payload.get("type").and_then(|t| t.as_str()) == Some("url_verification") {
             return Ok(BridgeAction::Ignore);
         }

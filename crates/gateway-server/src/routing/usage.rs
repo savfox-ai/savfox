@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
 use chrono::{DateTime, Utc};
 use salvo::prelude::*;
 use serde_json::json;
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 static USAGE_STORE: OnceLock<Mutex<UsageStore>> = OnceLock::new();

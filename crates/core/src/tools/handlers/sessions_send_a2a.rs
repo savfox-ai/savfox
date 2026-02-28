@@ -588,8 +588,9 @@ fn build_announcement_summary(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_announcement_summary, preview_channel_for_source};
     use serde_json::json;
+
+    use super::{build_announcement_summary, preview_channel_for_source};
 
     #[test]
     fn preview_channel_prefers_active_channel() {

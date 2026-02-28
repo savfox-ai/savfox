@@ -7,13 +7,11 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::GatewayConfig;
-use crate::config::WhatsAppBridgeConfig;
+use crate::config::{GatewayConfig, WhatsAppBridgeConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
     let expected = signature.strip_prefix("sha256=").unwrap_or(signature);

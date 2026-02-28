@@ -1,10 +1,10 @@
-﻿use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use savfox_core::features::Feature;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Widget};
+use savfox_core::features::Feature;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;

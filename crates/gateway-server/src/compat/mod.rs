@@ -1,4 +1,4 @@
-﻿//! OpenClaw protocol compatibility layer.
+//! OpenClaw protocol compatibility layer.
 //!
 //! Allows OpenClaw clients (iOS/Android/macOS native apps, web UI) to
 //! connect to an Savfox gateway by translating between the OpenClaw

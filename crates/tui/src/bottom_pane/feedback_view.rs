@@ -1,13 +1,13 @@
-﻿use std::cell::RefCell;
+use std::cell::RefCell;
 use std::path::PathBuf;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use savfox_core::protocol::SessionSource;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, StatefulWidgetRef, Widget};
+use savfox_core::protocol::SessionSource;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;

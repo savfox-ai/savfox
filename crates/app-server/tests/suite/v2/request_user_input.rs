@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{
     McpProcess, create_final_assistant_message_sse_response, create_mock_responses_server_sequence,
     create_request_user_input_sse_response, to_response,

@@ -1,4 +1,4 @@
-﻿//! Auth profile rotation system for multi-key provider access.
+//! Auth profile rotation system for multi-key provider access.
 //!
 //! Stores provider API key profiles in `{savfox_home}/auth/profiles.json` and
 //! provides automatic rotation with cooldown handling. When a key hits a rate
@@ -353,8 +353,9 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     /// Helper to create a manager backed by a temp directory.
     async fn test_manager() -> (AuthProfileManager, TempDir) {

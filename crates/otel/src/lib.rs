@@ -1,4 +1,4 @@
-﻿pub mod config;
+pub mod config;
 pub mod metrics;
 pub mod otel_provider;
 pub mod traces;

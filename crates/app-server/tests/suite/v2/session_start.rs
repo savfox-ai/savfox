@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, create_mock_responses_server_repeating_assistant, to_response};

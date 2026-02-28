@@ -1,4 +1,4 @@
-﻿//! SSRF protection helpers for outbound HTTP access.
+//! SSRF protection helpers for outbound HTTP access.
 //!
 //! This module provides:
 //! - private/metadata IP and hostname blocking

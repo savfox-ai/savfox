@@ -144,15 +144,15 @@ pub use command_safety::{is_dangerous_command, is_safe_command};
 pub use compact::content_items_to_text;
 pub use event_mapping::parse_turn_item;
 pub use exec_policy::{ExecPolicyError, check_execpolicy_for_warnings, load_exec_policy};
+// Re-export the protocol types from the standalone `savfox-protocol` crate so existing
+// `savfox_core::protocol::...` references continue to work across the workspace.
+pub use safety::get_platform_sandbox;
 // Re-export protocol config enums to ensure call sites can use the same types
 // as those in the protocol crate when constructing protocol messages.
 pub use savfox_protocol::config_types as protocol_config_types;
 pub use savfox_protocol::models::{
     ContentItem, LocalShellAction, LocalShellExecAction, LocalShellStatus, ResponseItem,
 };
-// Re-export the protocol types from the standalone `savfox-protocol` crate so existing
-// `savfox_core::protocol::...` references continue to work across the workspace.
-pub use safety::get_platform_sandbox;
 pub use savfox_protocol::protocol;
 pub use tools::spec::parse_tool_input_schema;
 pub mod compact;

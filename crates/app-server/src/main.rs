@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use savfox_app_server::run_main;
 use savfox_arg0::arg0_dispatch_or_else;

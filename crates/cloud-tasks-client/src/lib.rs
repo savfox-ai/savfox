@@ -1,4 +1,4 @@
-﻿mod api;
+mod api;
 
 pub use api::{
     ApplyOutcome, ApplyStatus, AttemptStatus, CloudBackend, CloudTaskError, CreatedTask,

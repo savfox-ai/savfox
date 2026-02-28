@@ -1,4 +1,4 @@
-﻿use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::prelude::{Stylize as _, Widget};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, WidgetRef, Wrap};

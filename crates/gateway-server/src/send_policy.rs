@@ -1,4 +1,4 @@
-﻿//! Send policy  - controls where and how agent replies are delivered.
+//! Send policy  - controls where and how agent replies are delivered.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

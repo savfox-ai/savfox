@@ -1,34 +1,24 @@
-﻿use std::mem::swap;
-use std::path::Path;
-use std::path::PathBuf;
+use std::mem::swap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use savfox_core::ModelProviderInfo;
-use savfox_core::SavfoxAuth;
-use savfox_core::SavfoxSession;
-use savfox_core::SessionManager;
-use savfox_core::built_in_model_providers;
 use savfox_core::config::Config;
 use savfox_core::features::Feature;
-use savfox_core::protocol::AskForApproval;
-use savfox_core::protocol::EventMsg;
-use savfox_core::protocol::Op;
-use savfox_core::protocol::SandboxPolicy;
-use savfox_core::protocol::SessionConfiguredEvent;
+use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy, SessionConfiguredEvent};
+use savfox_core::{
+    ModelProviderInfo, SavfoxAuth, SavfoxSession, SessionManager, built_in_model_providers,
+};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::user_input::UserInput;
 use serde_json::Value;
 use tempfile::TempDir;
-use wiremock::MockServer;
-
-use crate::load_default_config_for_test;
-use crate::responses::WebSocketTestServer;
-use crate::responses::start_mock_server;
-use crate::streaming_sse::StreamingSseServer;
-use crate::wait_for_event;
-use wiremock::Match;
 use wiremock::matchers::path_regex;
+use wiremock::{Match, MockServer};
+
+use crate::responses::{WebSocketTestServer, start_mock_server};
+use crate::streaming_sse::StreamingSseServer;
+use crate::{load_default_config_for_test, wait_for_event};
 
 type ConfigMutator = dyn FnOnce(&mut Config) + Send;
 type PreBuildHook = dyn FnOnce(&Path) + Send + 'static;

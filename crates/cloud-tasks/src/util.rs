@@ -1,8 +1,8 @@
-﻿use base64::Engine as _;
+use base64::Engine as _;
 use chrono::{DateTime, Local, Utc};
+use reqwest::header::HeaderMap;
 use savfox_core::config::Config;
 use savfox_login_oauth::AuthManager;
-use reqwest::header::HeaderMap;
 
 pub fn set_user_agent_suffix(suffix: &str) {
     if let Ok(mut guard) = savfox_core::default_client::USER_AGENT_SUFFIX.lock() {

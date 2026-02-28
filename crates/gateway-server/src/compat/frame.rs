@@ -1,4 +1,4 @@
-﻿//! OpenClaw frame format definitions.
+//! OpenClaw frame format definitions.
 //!
 //! OpenClaw uses a JSON frame format with `type` field:
 //! - `"event"`  - server-to-client notification
@@ -104,8 +104,9 @@ impl OpenClawFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_parse_openclaw_request() {

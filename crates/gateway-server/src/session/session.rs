@@ -1,13 +1,13 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use savfox_protocol::SessionId;
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn};
 
 use crate::auth::{TokenInfo, TokenScope};
 use crate::protocol::GatewayMessage;
-use savfox_protocol::SessionId;
 
 /// Per-connection state for a WebSocket client.
 #[derive(Debug)]

@@ -1,13 +1,12 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use savfox_browser_automation::screenshot::ScreenshotFormat;
 use savfox_browser_automation::{Browser, BrowserLaunchOptions, ScreenshotOptions};
-use savfox_core::AuthManager;
-use savfox_core::SavfoxAuth;
 use savfox_core::auth::{CLIENT_ID, login_with_api_key};
+use savfox_core::{AuthManager, SavfoxAuth};
 use savfox_login_oauth::{
     ServerOptions, ShutdownHandle, complete_device_code_login, request_device_code,
     run_login_server,
@@ -17,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use crate::approval_policy_store;
 use crate::auth::{GatewayAuth, TokenInfo, has_scope, required_scope};
 use crate::bridge::GatewayBridge;
 use crate::chat_session::{
@@ -35,19 +33,15 @@ use crate::exec_approval::{
 use crate::identity_links::{
     canonical_for_peer, load_identity_links, save_identity_links, upsert_link,
 };
-use crate::log_store;
 use crate::media_store::MediaStore;
-use crate::pairing_store;
-use crate::plugin;
-use crate::session::GatewaySessionManager;
-use crate::session::build_history_payload;
 use crate::session::{
-    DmScope, SessionEntry, SessionOverrides, SessionStore, build_routing_id,
+    DmScope, GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore,
+    build_history_payload, build_routing_id,
 };
-use crate::skills_store;
-use crate::tts_service;
-use crate::voice_store;
-use crate::wizard_store;
+use crate::{
+    approval_policy_store, log_store, pairing_store, plugin, skills_store, tts_service,
+    voice_store, wizard_store,
+};
 
 // ─── JSON-RPC types ──────────────────────────────────────────────────────────
 
@@ -635,8 +629,12 @@ async fn handle_account_login_start(params: &Value, bridge: &Arc<GatewayBridge>)
         }
         "chatgpt" => {
             let opts = chatgpt_server_options(bridge);
-            let server = run_login_server(opts)
-                .map_err(|err| (INTERNAL_ERROR, format!("failed to start login server: {err}")))?;
+            let server = run_login_server(opts).map_err(|err| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to start login server: {err}"),
+                )
+            })?;
 
             let login_id = uuid::Uuid::new_v4().to_string();
             let auth_url = server.auth_url.clone();
@@ -645,7 +643,8 @@ async fn handle_account_login_start(params: &Value, bridge: &Arc<GatewayBridge>)
             let login_id_for_task = login_id.clone();
 
             let task = tokio::spawn(async move {
-                let _ = tokio::time::timeout(Duration::from_secs(600), server.block_until_done()).await;
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(600), server.block_until_done()).await;
                 auth_manager.reload();
                 remove_ws_login_attempt(&login_id_for_task).await;
             });
@@ -669,9 +668,12 @@ async fn handle_account_login_start(params: &Value, bridge: &Arc<GatewayBridge>)
         }
         "deviceCode" => {
             let opts = chatgpt_server_options(bridge);
-            let device_code = request_device_code(&opts)
-                .await
-                .map_err(|err| (INTERNAL_ERROR, format!("failed to request device code: {err}")))?;
+            let device_code = request_device_code(&opts).await.map_err(|err| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to request device code: {err}"),
+                )
+            })?;
 
             let login_id = uuid::Uuid::new_v4().to_string();
             let verification_url = device_code.verification_url.clone();
@@ -1639,12 +1641,13 @@ async fn handle_chat_send(
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
-    use crate::auto_reply::directives::{
-        DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
-    };
     use savfox_core::models_manager::manager::RefreshStrategy;
     use savfox_protocol::protocol::{EventMsg, Op};
     use savfox_protocol::user_input::UserInput;
+
+    use crate::auto_reply::directives::{
+        DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
+    };
 
     let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
     let agent = params
@@ -3972,9 +3975,7 @@ fn session_group_id(entry: &SessionEntry) -> Option<String> {
     None
 }
 
-fn latest_provenance(
-    entry: &SessionEntry,
-) -> Option<&crate::session::SessionMessageProvenance> {
+fn latest_provenance(entry: &SessionEntry) -> Option<&crate::session::SessionMessageProvenance> {
     entry.provenance.iter().max_by_key(|item| item.timestamp)
 }
 
@@ -4641,8 +4642,14 @@ async fn handle_channels_nostr_relays_set(
 
 async fn handle_channels_config_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
     use crate::channel_store;
-    let configs = channel_store::list_channel_configs(&bridge.config().savfox_home).await
-        .map_err(|e| (INTERNAL_ERROR, format!("failed to list channel configs: {e}")))?;
+    let configs = channel_store::list_channel_configs(&bridge.config().savfox_home)
+        .await
+        .map_err(|e| {
+            (
+                INTERNAL_ERROR,
+                format!("failed to list channel configs: {e}"),
+            )
+        })?;
     Ok(channel_store::channel_configs_to_json(&configs))
 }
 
@@ -4663,10 +4670,16 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
     use crate::channel_store;
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let channel_id_owned = channel_id.to_string();
-    let channel_name = params.get("name").and_then(|v| v.as_str()).unwrap_or(&channel_id_owned);
+    let channel_name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&channel_id_owned);
     let config_value = params.get("config").cloned().unwrap_or_else(|| json!({}));
     let agent_id = params.get("agent_id").and_then(|v| v.as_str());
-    let _enabled = params.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    let _enabled = params
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     if channel_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
@@ -4686,9 +4699,21 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
         }
     }
 
-    match channel_store::merge_channel_config(&bridge.config().savfox_home, &channel_id, &channel_name, &patch).await {
-        Ok(config) => Ok(json!({ "config": channel_store::channel_config_to_json(&config), "status": "saved" })),
-        Err(e) => Err((INTERNAL_ERROR, format!("failed to save channel config: {e}"))),
+    match channel_store::merge_channel_config(
+        &bridge.config().savfox_home,
+        &channel_id,
+        &channel_name,
+        &patch,
+    )
+    .await
+    {
+        Ok(config) => Ok(
+            json!({ "config": channel_store::channel_config_to_json(&config), "status": "saved" }),
+        ),
+        Err(e) => Err((
+            INTERNAL_ERROR,
+            format!("failed to save channel config: {e}"),
+        )),
     }
 }
 
@@ -4702,7 +4727,10 @@ async fn handle_channels_config_delete(params: &Value, bridge: &Arc<GatewayBridg
 
     match channel_store::delete_channel_config(&bridge.config().savfox_home, &channel_id).await {
         Ok(deleted) => Ok(json!({ "deleted": deleted, "channel": channel_id })),
-        Err(e) => Err((INTERNAL_ERROR, format!("failed to delete channel config: {e}"))),
+        Err(e) => Err((
+            INTERNAL_ERROR,
+            format!("failed to delete channel config: {e}"),
+        )),
     }
 }
 
@@ -7697,7 +7725,11 @@ fn model_test_is_openai_platform_base_url(base_url: &str) -> bool {
 }
 
 fn model_test_chatgpt_savfox_base_url(bridge: &Arc<GatewayBridge>) -> String {
-    let base = bridge.config().chatgpt_base_url.trim().trim_end_matches('/');
+    let base = bridge
+        .config()
+        .chatgpt_base_url
+        .trim()
+        .trim_end_matches('/');
     if base.ends_with("/savfox") {
         base.to_string()
     } else {

@@ -1,7 +1,8 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 use insta::assert_snapshot;
+use ratatui::prelude::*;
 use savfox_core::AuthManager;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::models_manager::manager::ModelsManager;
@@ -11,7 +12,6 @@ use savfox_core::protocol::{
 use savfox_protocol::SessionId;
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::openai_models::ReasoningEffort;
-use ratatui::prelude::*;
 use tempfile::TempDir;
 
 use super::{new_status_output, rate_limit_snapshot_display};

@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use salvo::prelude::*;
 use serde_json::json;
-use std::sync::Arc;
 
 use crate::cron_service::{CronDelivery, CronPayload, CronSchedule, CronService};
 

@@ -1,16 +1,15 @@
-﻿pub mod audio_capture;
+pub mod audio_capture;
 pub mod detector;
 pub mod wake_word;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use detector::WakeWordDetectorService;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use tracing::{info, warn};
-
-pub use detector::WakeWordDetectorService;
 pub use wake_word::{WakeWordDetector, WakeWordEvent};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,7 +1,8 @@
-﻿//! `savfox uninstall` — Clean removal of savfox data and configuration.
+//! `savfox uninstall` — Clean removal of savfox data and configuration.
+
+use std::path::PathBuf;
 
 use clap::Parser;
-use std::path::PathBuf;
 
 /// Uninstall savfox — remove configuration and cached data
 #[derive(Debug, Parser)]

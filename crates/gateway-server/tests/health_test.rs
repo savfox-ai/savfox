@@ -2,8 +2,9 @@
 
 mod helpers;
 
-use helpers::{free_port, http_client, wait_for_port};
 use std::time::Duration;
+
+use helpers::{free_port, http_client, wait_for_port};
 
 #[tokio::test]
 async fn health_endpoint_returns_ok() {

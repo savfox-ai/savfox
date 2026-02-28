@@ -1,4 +1,4 @@
-﻿//! `savfox acp` — stdio ACP bridge backed by gateway WS-RPC.
+//! `savfox acp` — stdio ACP bridge backed by gateway WS-RPC.
 
 use std::collections::HashMap;
 use std::sync::Arc;

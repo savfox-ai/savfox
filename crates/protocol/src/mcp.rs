@@ -1,4 +1,4 @@
-﻿//! Types used when representing Model Context Protocol (MCP) values inside the
+//! Types used when representing Model Context Protocol (MCP) values inside the
 //! Savfox protocol.
 //!
 //! We intentionally keep these types TS/JSON-schema friendly (via `ts-rs` and

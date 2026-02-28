@@ -1,14 +1,14 @@
-﻿#![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use color_eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use savfox_core::config::Config;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
 use ratatui::style::Stylize as _;
 use ratatui::text::Line;
 use ratatui::widgets::{Clear, WidgetRef};
+use savfox_core::config::Config;
 use tokio_stream::StreamExt;
 
 use crate::history_cell::padded_emoji;

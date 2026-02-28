@@ -1,4 +1,4 @@
-﻿//! `savfox docker` -- bootstrap Docker Compose files.
+//! `savfox docker` -- bootstrap Docker Compose files.
 
 use std::path::PathBuf;
 

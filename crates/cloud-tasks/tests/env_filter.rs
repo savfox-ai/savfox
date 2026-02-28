@@ -1,4 +1,4 @@
-﻿use savfox_cloud_tasks_client::{CloudBackend, MockClient};
+use savfox_cloud_tasks_client::{CloudBackend, MockClient};
 
 #[tokio::test]
 async fn mock_backend_varies_by_env() {

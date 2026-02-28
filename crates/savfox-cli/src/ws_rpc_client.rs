@@ -7,12 +7,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
-
-use futures_util::{SinkExt, StreamExt};
 
 /// Global request ID counter (monotonically increasing across calls).
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);

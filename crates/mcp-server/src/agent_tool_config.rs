@@ -1,20 +1,18 @@
-﻿//! Configuration object accepted by the `savfox` MCP tool-call.
+//! Configuration object accepted by the `savfox` MCP tool-call.
 
-use savfox_core::config::Config;
-use savfox_core::config::ConfigOverrides;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use rmcp::model::{JsonObject, Tool};
+use savfox_core::config::{Config, ConfigOverrides};
 use savfox_core::protocol::AskForApproval;
 use savfox_protocol::SessionId;
 use savfox_protocol::config_types::SandboxMode;
 use savfox_utils_json_to_toml::json_to_toml;
-use rmcp::model::JsonObject;
-use rmcp::model::Tool;
 use schemars::JsonSchema;
 use schemars::r#gen::SchemaSettings;
-use serde::Deserialize;
-use serde::Serialize;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 /// Client-supplied configuration for a `savfox` tool-call.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
@@ -280,8 +278,9 @@ fn create_tool_input_schema(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     /// We include a test to verify the exact JSON schema as "executable
     /// documentation" for the schema. When can track changes to this test as a

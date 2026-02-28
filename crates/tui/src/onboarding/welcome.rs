@@ -1,4 +1,4 @@
-﻿use std::cell::Cell;
+use std::cell::Cell;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;

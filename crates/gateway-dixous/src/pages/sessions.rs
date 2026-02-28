@@ -1,16 +1,18 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use savfox_gateway_shared::{derive_session_label, short_id};
 use serde_json::{Value, json};
 
 use crate::api::client::stream_chat;
-use crate::api::types::{SessionEntry, SessionsResponse, ChatMessage, ChatAttachment, AgentEntry, AgentsResponse};
+use crate::api::types::{
+    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, SessionEntry, SessionsResponse,
+};
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
 use crate::components::chat_message::ChatMessageBubble;
 use crate::components::copy_button::CopyButton;
 use crate::components::markdown_renderer::MarkdownRenderer;
-use savfox_gateway_shared::{derive_session_label, short_id};
 
 const THINKING_LEVELS: [&str; 6] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const REASONING_MODES: [&str; 3] = ["off", "on", "stream"];

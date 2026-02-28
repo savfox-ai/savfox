@@ -1,8 +1,9 @@
-﻿//! DM pairing policies -- control who can DM the bot on each channel.
+//! DM pairing policies -- control who can DM the bot on each channel.
 
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 

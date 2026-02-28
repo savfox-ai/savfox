@@ -1,18 +1,16 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
+use super::{ChatBridge, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_telegram_webhook_secret};
-use crate::config::GatewayConfig;
-use crate::config::TelegramBridgeConfig;
+use crate::config::{GatewayConfig, TelegramBridgeConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
-
-use super::{ChatBridge, RichMessage, runtime};
 
 /// Telegram bot bridge using the Bot API with webhook mode.
 pub(crate) struct TelegramBridge {
@@ -393,9 +391,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::TelegramBridge;
     use crate::protocol::BridgeAction;
-    use serde_json::json;
 
     #[test]
     fn supports_commands_alias_surface() {

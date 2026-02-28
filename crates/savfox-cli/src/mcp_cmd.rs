@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::ArgGroup;

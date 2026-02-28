@@ -1,12 +1,12 @@
-﻿//! `savfox update` — Self-updating CLI from GitHub releases.
+//! `savfox update` — Self-updating CLI from GitHub releases.
+
+use std::path::Path;
+use std::process::Command;
+use std::{env, fs};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Deserialize;
-use std::env;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
 
 const GITHUB_API_URL: &str = "https://api.github.com/repos/anomalyco/savfox/releases";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");

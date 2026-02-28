@@ -1,4 +1,4 @@
-﻿use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use eventsource_stream::Eventsource;

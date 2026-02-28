@@ -1,28 +1,25 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use savfox_app_server_protocol::{
-    AccountLoginCompletedNotification, AccountUpdatedNotification,
-    CancelLoginAccountParams, CancelLoginAccountResponse, CancelLoginAccountStatus,
-    ClientRequest, JSONRPCErrorError, JSONRPCRequest, LoginAccountParams, LoginAccountResponse,
-    RequestId, ServerNotification, ServerRequest, ServerRequestPayload,
+    AccountLoginCompletedNotification, AccountUpdatedNotification, CancelLoginAccountParams,
+    CancelLoginAccountResponse, CancelLoginAccountStatus, ClientRequest, JSONRPCErrorError,
+    JSONRPCRequest, LoginAccountParams, LoginAccountResponse, RequestId, ServerNotification,
+    ServerRequest, ServerRequestPayload,
 };
-use savfox_core::config::Config;
-use savfox_core::config::ConfigService;
+use savfox_core::auth::{CLIENT_ID, login_with_api_key};
 use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
+use savfox_core::config::{Config, ConfigService};
 use savfox_core::config_loader::{CloudRequirementsLoader, LoaderOverrides};
 use savfox_core::{
-    ARCHIVED_SESSIONS_SUBDIR, SESSIONS_SUBDIR, find_archived_session_path_by_id_str,
-    find_session_path_by_id_str, rollout_date_parts,
+    ARCHIVED_SESSIONS_SUBDIR, AuthManager, SESSIONS_SUBDIR, SessionManager,
+    find_archived_session_path_by_id_str, find_session_path_by_id_str, rollout_date_parts,
 };
-use savfox_core::{AuthManager, SessionManager};
-use savfox_core::auth::login_with_api_key;
-use savfox_core::auth::CLIENT_ID;
 use savfox_feedback::SavfoxFeedback;
 use savfox_login_oauth::{
-    ServerOptions, ShutdownHandle, run_login_server,
-    complete_device_code_login, request_device_code,
+    ServerOptions, ShutdownHandle, complete_device_code_login, request_device_code,
+    run_login_server,
 };
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{Op, SessionSource};
@@ -1113,17 +1110,11 @@ impl GatewayBridge {
                 self.send_response(request_id, result).await;
             }
 
-            ClientRequest::LoginAccount {
-                request_id,
-                params,
-            } => {
+            ClientRequest::LoginAccount { request_id, params } => {
                 self.handle_login_account(request_id, params).await;
             }
 
-            ClientRequest::CancelLoginAccount {
-                request_id,
-                params,
-            } => {
+            ClientRequest::CancelLoginAccount { request_id, params } => {
                 self.handle_cancel_login_account(request_id, params).await;
             }
 
@@ -2469,7 +2460,10 @@ impl GatewayBridge {
 
                     if success {
                         let account_updated = AccountUpdatedNotification {
-                            auth_mode: auth_manager.auth_cached().as_ref().map(|a| a.api_auth_mode()),
+                            auth_mode: auth_manager
+                                .auth_cached()
+                                .as_ref()
+                                .map(|a| a.api_auth_mode()),
                         };
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
@@ -2553,7 +2547,10 @@ impl GatewayBridge {
 
                     if success {
                         let account_updated = AccountUpdatedNotification {
-                            auth_mode: auth_manager.auth_cached().as_ref().map(|a| a.api_auth_mode()),
+                            auth_mode: auth_manager
+                                .auth_cached()
+                                .as_ref()
+                                .map(|a| a.api_auth_mode()),
                         };
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
@@ -2607,7 +2604,11 @@ impl GatewayBridge {
                 .await;
 
                 let account_updated = AccountUpdatedNotification {
-                    auth_mode: self.auth_manager.auth_cached().as_ref().map(|a| a.api_auth_mode()),
+                    auth_mode: self
+                        .auth_manager
+                        .auth_cached()
+                        .as_ref()
+                        .map(|a| a.api_auth_mode()),
                 };
                 self.send_notification(
                     "account/updated",
@@ -2650,7 +2651,11 @@ impl GatewayBridge {
                 .await;
 
                 let account_updated = AccountUpdatedNotification {
-                    auth_mode: self.auth_manager.auth_cached().as_ref().map(|a| a.api_auth_mode()),
+                    auth_mode: self
+                        .auth_manager
+                        .auth_cached()
+                        .as_ref()
+                        .map(|a| a.api_auth_mode()),
                 };
                 self.send_notification(
                     "account/updated",

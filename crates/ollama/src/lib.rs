@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 mod client;
 mod parser;
@@ -6,9 +6,9 @@ mod pull;
 mod url;
 
 pub use client::OllamaClient;
+pub use pull::{CliProgressReporter, PullEvent, PullProgressReporter, TuiProgressReporter};
 use savfox_core::config::Config;
 use savfox_core::{ModelProviderInfo, WireApi};
-pub use pull::{CliProgressReporter, PullEvent, PullProgressReporter, TuiProgressReporter};
 use semver::Version;
 
 /// Default OSS model to use when `--oss` is passed without an explicit `-m`.

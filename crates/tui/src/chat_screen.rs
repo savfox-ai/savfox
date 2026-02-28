@@ -1,4 +1,4 @@
-﻿//! The main Savfox TUI chat surface.
+//! The main Savfox TUI chat surface.
 //!
 //! `ChatScreen` consumes protocol events, builds and updates history cells, and drives rendering
 //! for both the main viewport and overlay UIs.
@@ -26,6 +26,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use rand::Rng;
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::text::Line;
+use ratatui::widgets::{Paragraph, Wrap};
 use savfox_backend_client::Client as BackendClient;
 use savfox_chatgpt::connectors;
 use savfox_core::config::types::Notifications;
@@ -42,8 +48,8 @@ use savfox_core::protocol::{
     ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecCommandSource, ExitedReviewModeEvent,
     ListCustomPromptsResponseEvent, ListSkillsResponseEvent, McpListToolsResponseEvent,
     McpStartupCompleteEvent, McpStartupStatus, McpStartupUpdateEvent, McpToolCallBeginEvent,
-    McpToolCallEndEvent, Op, SavfoxErrorInfo, PatchApplyBeginEvent, RateLimitSnapshot,
-    ReviewRequest, ReviewTarget, SkillMetadata as ProtocolSkillMetadata, StreamErrorEvent,
+    McpToolCallEndEvent, Op, PatchApplyBeginEvent, RateLimitSnapshot, ReviewRequest, ReviewTarget,
+    SavfoxErrorInfo, SkillMetadata as ProtocolSkillMetadata, StreamErrorEvent,
     TerminalInteractionEvent, TokenUsage, TokenUsageInfo, TurnAbortReason, TurnCompleteEvent,
     TurnDiffEvent, UndoCompletedEvent, UndoStartedEvent, UserMessageEvent, ViewImageToolCallEvent,
     WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
@@ -51,7 +57,7 @@ use savfox_core::protocol::{
 use savfox_core::skills::model::SkillMetadata;
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
-use savfox_core::{ModelProviderInfo, built_in_model_providers};
+use savfox_core::{ModelProviderInfo, built_in_model_providers, parse_provider_prefixed_model};
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::account::PlanType;
@@ -65,12 +71,6 @@ use savfox_protocol::models::local_image_label_text;
 use savfox_protocol::parse_command::ParsedCommand;
 use savfox_protocol::request_user_input::RequestUserInputEvent;
 use savfox_protocol::user_input::{TextElement, UserInput};
-use rand::Rng;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style, Stylize};
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
 use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
@@ -88,8 +88,7 @@ const STARTUP_BOTTOM_SPACER_LINES: u16 = 8;
 #[cfg(target_os = "windows")]
 use crate::app_event::WindowsSandboxEnableMode;
 use crate::app_event::{
-    AppEvent, ConnectorsSnapshot, ExitMode, OpenAiConnectAuthMethod,
-    WindowsSandboxFallbackReason,
+    AppEvent, ConnectorsSnapshot, ExitMode, OpenAiConnectAuthMethod, WindowsSandboxFallbackReason,
 };
 use crate::app_event_sender::AppEventSender;
 use crate::bottom_pane::custom_prompt_view::CustomPromptView;
@@ -111,8 +110,8 @@ use crate::history_cell::{
 use crate::key_hint::KeyBinding;
 use crate::markdown::append_markdown;
 use crate::provider_connect::{
-    connect_provider_candidates, provider_has_auth_in_env, provider_requires_api_key,
-    provider_models_store_dir, read_provider_store_api_key,
+    connect_provider_candidates, provider_has_auth_in_env, provider_models_store_dir,
+    provider_requires_api_key, read_provider_store_api_key,
 };
 use crate::render::Insets;
 use crate::render::renderable::{
@@ -4060,9 +4059,7 @@ impl ChatScreen {
             },
             SelectionItem {
                 name: "Sign in with Device Code".to_string(),
-                description: Some(
-                    "Sign in from another device with a one-time code.".to_string(),
-                ),
+                description: Some("Sign in from another device with a one-time code.".to_string()),
                 actions: headless_actions,
                 dismiss_on_select: true,
                 search_value: Some("device code headless".to_string()),
@@ -5985,7 +5982,7 @@ impl ChatScreen {
         self.sync_image_paste_enabled();
         // Push model + provider info to the footer right-side context area.
         let model = self.model_display_name().to_string();
-        let provider = self.config.model_provider.name.clone();
+        let provider = self.model_provider_display_name();
         self.bottom_pane.set_model_display(model, provider);
         // Push cwd display to the footer.
         let cwd = self.cwd_display_name();
@@ -6014,6 +6011,19 @@ impl ChatScreen {
             // Strip the provider prefix (e.g. "zhipuai-coding-plan/glm-5" → "glm-5").
             model.rsplit('/').next().unwrap_or(model)
         }
+    }
+
+    fn model_provider_display_name(&self) -> String {
+        let model = self.current_model();
+        if let Some((provider_id, _)) = parse_provider_prefixed_model(model) {
+            return self
+                .config
+                .model_providers
+                .get(provider_id)
+                .map(|provider| provider.name.clone())
+                .unwrap_or_else(|| provider_id.to_string());
+        }
+        self.config.model_provider.name.clone()
     }
 
     /// Get the label for the current collaboration mode.
@@ -6911,8 +6921,10 @@ struct ProviderStoreFile {
 
 fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPreset>> {
     let primary_models_dir = provider_models_store_dir(savfox_home);
-    let mut entries: Vec<std::fs::DirEntry> =
-        std::fs::read_dir(&primary_models_dir).ok()?.flatten().collect();
+    let mut entries: Vec<std::fs::DirEntry> = std::fs::read_dir(&primary_models_dir)
+        .ok()?
+        .flatten()
+        .collect();
     entries.sort_by_key(|entry| entry.file_name());
 
     let mut seen_models: HashSet<String> = HashSet::new();

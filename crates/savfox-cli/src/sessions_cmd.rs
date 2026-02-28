@@ -1,4 +1,4 @@
-﻿//! `savfox sessions` — Manage sessions from CLI.
+//! `savfox sessions` — Manage sessions from CLI.
 
 use clap::Parser;
 use serde_json::json;

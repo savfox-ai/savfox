@@ -1,4 +1,4 @@
-﻿//! `savfox memory` — Manage gateway markdown memories from the CLI.
+//! `savfox memory` — Manage gateway markdown memories from the CLI.
 
 use clap::Parser;
 use serde_json::json;

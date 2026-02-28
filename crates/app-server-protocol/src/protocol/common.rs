@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -726,11 +726,11 @@ mod tests {
     use std::path::PathBuf;
 
     use anyhow::Result;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::account::PlanType;
     use savfox_protocol::parse_command::ParsedCommand;
     use savfox_protocol::protocol::AskForApproval;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     use super::*;

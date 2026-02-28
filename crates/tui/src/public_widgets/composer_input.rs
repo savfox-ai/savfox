@@ -1,4 +1,4 @@
-﻿//! Public wrapper around the internal ChatComposer for simple, reusable text input.
+//! Public wrapper around the internal ChatComposer for simple, reusable text input.
 //!
 //! This exposes a minimal interface suitable for other crates (e.g.,
 //! savfox-cloud-tasks) to reuse the mature composer behavior: multi-line input,

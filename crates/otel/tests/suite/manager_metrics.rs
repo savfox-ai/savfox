@@ -1,12 +1,12 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 
 use opentelemetry_sdk::metrics::data::{AggregatedMetrics, MetricData};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::AuthMode;
 use savfox_otel::OtelManager;
 use savfox_otel::metrics::Result;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::SessionSource;
-use pretty_assertions::assert_eq;
 
 use crate::harness::{attributes_to_map, build_metrics_with_defaults, find_metric, latest_metrics};
 

@@ -1,4 +1,4 @@
-﻿use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use savfox_app_server_protocol::AuthMode;

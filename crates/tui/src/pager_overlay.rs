@@ -1,4 +1,4 @@
-﻿//! Overlay UIs rendered in an alternate screen.
+//! Overlay UIs rendered in an alternate screen.
 //!
 //! This module implements the pager-style overlays used by the TUI, including the transcript
 //! overlay (`Ctrl+T`) that renders a full history view separate from the main viewport.
@@ -766,12 +766,12 @@ mod tests {
     use std::time::Duration;
 
     use insta::assert_snapshot;
-    use savfox_core::protocol::{ExecCommandSource, FileChange, ReviewDecision};
-    use savfox_protocol::parse_command::ParsedCommand;
     use pretty_assertions::assert_eq;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::text::Text;
+    use savfox_core::protocol::{ExecCommandSource, FileChange, ReviewDecision};
+    use savfox_protocol::parse_command::ParsedCommand;
 
     use super::*;
     use crate::exec_cell::CommandOutput;

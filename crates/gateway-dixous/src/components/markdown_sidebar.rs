@@ -1,6 +1,7 @@
+use dioxus::prelude::*;
+
 use crate::components::icon::Icon;
 use crate::components::markdown_renderer::MarkdownRenderer;
-use dioxus::prelude::*;
 
 #[component]
 pub fn MarkdownSidebar(

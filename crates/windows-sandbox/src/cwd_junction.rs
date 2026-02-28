@@ -1,4 +1,4 @@
-﻿#![cfg(target_os = "windows")]
+#![cfg(target_os = "windows")]
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

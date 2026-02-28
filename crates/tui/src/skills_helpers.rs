@@ -1,4 +1,4 @@
-﻿use savfox_common::fuzzy_match::fuzzy_match;
+use savfox_common::fuzzy_match::fuzzy_match;
 use savfox_core::skills::model::SkillMetadata;
 
 use crate::text_formatting::truncate_text;

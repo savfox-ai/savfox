@@ -1,4 +1,4 @@
-﻿use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use zeroize::Zeroize;
 
 /// Use a generous buffer size to avoid truncation and to allow for longer API

@@ -1,4 +1,4 @@
-﻿use std::num::NonZeroUsize;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::LazyLock;
 

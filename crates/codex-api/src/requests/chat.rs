@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 use http::HeaderMap;
 use savfox_protocol::models::{
@@ -377,9 +377,9 @@ mod tests {
     use std::time::Duration;
 
     use http::HeaderValue;
+    use pretty_assertions::assert_eq;
     use savfox_protocol::models::FunctionCallOutputPayload;
     use savfox_protocol::protocol::{SessionSource, SubAgentSource};
-    use pretty_assertions::assert_eq;
 
     use super::*;
     use crate::provider::{RetryConfig, WireApi};

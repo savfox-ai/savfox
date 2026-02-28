@@ -1,14 +1,13 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 use owo_colors::OwoColorize;
-use serde::{Deserialize, Serialize};
-
 use savfox_core::config::{CONFIG_TOML_FILE, find_savfox_home};
 use savfox_gateway_server::config::{Severity, validate_config};
+use serde::{Deserialize, Serialize};
 
 /// Diagnose system health and configuration.
 #[derive(Debug, Parser)]

@@ -1,4 +1,4 @@
-﻿use http::{HeaderMap, Method};
+use http::{HeaderMap, Method};
 use savfox_api::provider::{Provider, RetryConfig, WireApi};
 use savfox_api::{AuthProvider, ModelsClient};
 use savfox_client::ReqwestTransport;

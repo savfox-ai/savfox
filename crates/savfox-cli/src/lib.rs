@@ -1,4 +1,4 @@
-﻿#![allow(unreachable_pub)]
+#![allow(unreachable_pub)]
 
 pub mod debug_sandbox;
 mod exit_status;

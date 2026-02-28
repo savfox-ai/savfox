@@ -1,4 +1,4 @@
-﻿use savfox_core::protocol::{AskForApproval, SandboxPolicy};
+use savfox_core::protocol::{AskForApproval, SandboxPolicy};
 
 /// A simple preset pairing an approval policy with a sandbox policy.
 #[derive(Debug, Clone)]

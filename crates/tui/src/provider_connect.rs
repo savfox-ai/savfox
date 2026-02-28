@@ -1,4 +1,4 @@
-﻿use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -235,10 +235,7 @@ fn resolve_provider_api_key_from_env(
     None
 }
 
-pub(crate) fn provider_has_auth_in_env(
-    provider_id: &str,
-    provider: &ModelProviderInfo,
-) -> bool {
+pub(crate) fn provider_has_auth_in_env(provider_id: &str, provider: &ModelProviderInfo) -> bool {
     if let Some(env_key) = provider.env_key.as_deref()
         && std::env::var(env_key)
             .map(|value| !value.trim().is_empty())
@@ -470,23 +467,22 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
     let mut seen = HashSet::new();
 
     for item in models {
-        let (raw_id, display_name, provider_from_item, is_default) =
-            if let Some(id) =
-                model_item_field(item, &["id", "model", "model_id", "model_code", "slug"])
-            {
-                (
-                    id,
-                    model_item_field(item, &["name", "display_name", "label"]),
-                    model_item_field(item, &["provider"]),
-                    item.get("is_default")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                )
-            } else if let Some(id) = item.as_str().and_then(trim_nonempty) {
-                (id, None, None, false)
-            } else {
-                continue;
-            };
+        let (raw_id, display_name, provider_from_item, is_default) = if let Some(id) =
+            model_item_field(item, &["id", "model", "model_id", "model_code", "slug"])
+        {
+            (
+                id,
+                model_item_field(item, &["name", "display_name", "label"]),
+                model_item_field(item, &["provider"]),
+                item.get("is_default")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )
+        } else if let Some(id) = item.as_str().and_then(trim_nonempty) {
+            (id, None, None, false)
+        } else {
+            continue;
+        };
 
         let mut provider = provider_from_item.unwrap_or_default();
         let mut model_code = raw_id.clone();
@@ -579,7 +575,10 @@ pub(crate) async fn connect_provider(
         .or(existing_api_key);
 
     let runtime_bearer_token = if provider.requires_openai_auth {
-        runtime_auth.bearer_token.clone().and_then(|value| trim_nonempty(&value))
+        runtime_auth
+            .bearer_token
+            .clone()
+            .and_then(|value| trim_nonempty(&value))
     } else {
         None
     };
@@ -689,8 +688,9 @@ pub(crate) fn select_default_model(models: &[Value], provider_id: &str) -> Optio
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[test]
     fn parse_remote_models_reads_openai_shape() {
@@ -812,7 +812,10 @@ mod tests {
         persist_provider_connection(&savfox_home, &result).expect("persist provider");
 
         let savfox_file = tmp.path().join(".savfox/models/anthropic.json");
-        assert!(savfox_file.exists(), "expected provider file in ~/.savfox/models");
+        assert!(
+            savfox_file.exists(),
+            "expected provider file in ~/.savfox/models"
+        );
         assert_eq!(
             read_provider_store_api_key(&savfox_home, "anthropic").as_deref(),
             Some("sk-anthropic")

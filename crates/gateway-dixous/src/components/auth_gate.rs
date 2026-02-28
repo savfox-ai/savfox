@@ -1,4 +1,4 @@
-﻿use dioxus::prelude::*;
+use dioxus::prelude::*;
 
 use crate::api::client::validate_token;
 use crate::api::ws::set_token;

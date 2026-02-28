@@ -1,4 +1,4 @@
-﻿use std::collections::VecDeque;
+use std::collections::VecDeque;
 
 use savfox_core::protocol::{
     ApplyPatchApprovalRequestEvent, ExecApprovalRequestEvent, ExecCommandBeginEvent,

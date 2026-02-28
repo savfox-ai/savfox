@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,10 +15,10 @@ use savfox_app_server_protocol::{
     FileChangeApprovalDecision, FileChangeOutputDeltaNotification, FileChangeRequestApprovalParams,
     FileChangeRequestApprovalResponse, FileUpdateChange, InterruptConversationResponse,
     ItemCompletedNotification, ItemStartedNotification, JSONRPCErrorError, McpToolCallError,
-    McpToolCallResult, McpToolCallStatus, SavfoxErrorInfo as V2SavfoxErrorInfo, PatchApplyStatus,
-    PatchChangeKind as V2PatchChangeKind, PlanDeltaNotification,
-    RawResponseItemCompletedNotification, ReasoningSummaryPartAddedNotification,
-    ReasoningSummaryTextDeltaNotification, ReasoningTextDeltaNotification, ServerNotification,
+    McpToolCallResult, McpToolCallStatus, PatchApplyStatus, PatchChangeKind as V2PatchChangeKind,
+    PlanDeltaNotification, RawResponseItemCompletedNotification,
+    ReasoningSummaryPartAddedNotification, ReasoningSummaryTextDeltaNotification,
+    ReasoningTextDeltaNotification, SavfoxErrorInfo as V2SavfoxErrorInfo, ServerNotification,
     ServerRequestPayload, SessionItem, SessionNameUpdatedNotification, SessionRollbackResponse,
     SessionTokenUsage, SessionTokenUsageUpdatedNotification, TerminalInteractionNotification,
     ToolRequestUserInputOption, ToolRequestUserInputParams, ToolRequestUserInputQuestion,
@@ -29,8 +29,8 @@ use savfox_app_server_protocol::{
 use savfox_core::parse_command::shlex_join;
 use savfox_core::protocol::{
     ApplyPatchApprovalRequestEvent, Event, EventMsg, ExecApprovalRequestEvent, ExecCommandEndEvent,
-    FileChange as CoreFileChange, McpToolCallBeginEvent, McpToolCallEndEvent, Op,
-    SavfoxErrorInfo as CoreSavfoxErrorInfo, ReviewDecision, TokenCountEvent, TurnDiffEvent,
+    FileChange as CoreFileChange, McpToolCallBeginEvent, McpToolCallEndEvent, Op, ReviewDecision,
+    SavfoxErrorInfo as CoreSavfoxErrorInfo, TokenCountEvent, TurnDiffEvent,
 };
 use savfox_core::review_format::format_review_findings_block;
 use savfox_core::{SavfoxSession, review_prompts};
@@ -46,11 +46,11 @@ use tokio::sync::oneshot;
 use tracing::error;
 
 use crate::error_code::{INTERNAL_ERROR_CODE, INVALID_REQUEST_ERROR_CODE};
+use crate::outgoing_message::OutgoingMessageSender;
 use crate::savfox_message_processor::{
     ApiVersion, PendingInterrupts, PendingRollbacks, TurnSummary, TurnSummaryStore,
     read_event_msgs_from_rollout, read_summary_from_rollout, summary_to_session,
 };
-use crate::outgoing_message::OutgoingMessageSender;
 
 type JsonValue = serde_json::Value;
 
@@ -1789,6 +1789,8 @@ mod tests {
     use std::time::Duration;
 
     use anyhow::{Result, anyhow, bail};
+    use pretty_assertions::assert_eq;
+    use rmcp::model::Content;
     use savfox_app_server_protocol::TurnPlanStepStatus;
     use savfox_core::protocol::{
         CreditsSnapshot, McpInvocation, RateLimitSnapshot, RateLimitWindow, TokenUsage,
@@ -1796,8 +1798,6 @@ mod tests {
     };
     use savfox_protocol::mcp::CallToolResult;
     use savfox_protocol::plan_tool::{PlanItemArg, StepStatus};
-    use pretty_assertions::assert_eq;
-    use rmcp::model::Content;
     use serde_json::Value as JsonValue;
     use tokio::sync::{Mutex, mpsc};
 

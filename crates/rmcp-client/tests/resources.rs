@@ -1,15 +1,15 @@
-﻿use std::ffi::OsString;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use savfox_rmcp_client::{ElicitationAction, ElicitationResponse, RmcpClient};
-use savfox_utils_cargo_bin::CargoBinError;
 use rmcp::model::{
     AnnotateAble, ClientCapabilities, ElicitationCapability, Implementation,
     InitializeRequestParam, ListResourceTemplatesResult, ProtocolVersion, ReadResourceRequestParam,
     ResourceContents,
 };
+use savfox_rmcp_client::{ElicitationAction, ElicitationResponse, RmcpClient};
+use savfox_utils_cargo_bin::CargoBinError;
 use serde_json::json;
 
 const RESOURCE_URI: &str = "memo://savfox/example-note";

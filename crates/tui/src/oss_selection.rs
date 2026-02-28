@@ -1,4 +1,4 @@
-﻿use std::io;
+use std::io;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -9,11 +9,6 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use savfox_core::config::set_default_oss_provider;
-use savfox_core::{
-    DEFAULT_LMSTUDIO_PORT, DEFAULT_OLLAMA_PORT, LMSTUDIO_OSS_PROVIDER_ID, OLLAMA_CHAT_PROVIDER_ID,
-    OLLAMA_OSS_PROVIDER_ID,
-};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
@@ -22,6 +17,11 @@ use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget, WidgetRef, Wrap};
+use savfox_core::config::set_default_oss_provider;
+use savfox_core::{
+    DEFAULT_LMSTUDIO_PORT, DEFAULT_OLLAMA_PORT, LMSTUDIO_OSS_PROVIDER_ID, OLLAMA_CHAT_PROVIDER_ID,
+    OLLAMA_OSS_PROVIDER_ID,
+};
 
 #[derive(Clone)]
 struct ProviderOption {

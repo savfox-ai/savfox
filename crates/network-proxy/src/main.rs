@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use clap::Parser;
 use savfox_network_proxy::{Args, NetworkProxy};
 

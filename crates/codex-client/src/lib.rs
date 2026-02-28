@@ -1,4 +1,4 @@
-﻿mod default_client;
+mod default_client;
 mod error;
 mod request;
 mod retry;

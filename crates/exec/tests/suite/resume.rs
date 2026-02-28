@@ -1,12 +1,12 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::fs::{FileTimes, OpenOptions};
 use std::string::ToString;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use core_test_support::test_savfox_exec::test_savfox_exec;
-use savfox_utils_cargo_bin::find_resource;
 use pretty_assertions::assert_eq;
+use savfox_utils_cargo_bin::find_resource;
 use serde_json::Value;
 use tempfile::TempDir;
 use uuid::Uuid;

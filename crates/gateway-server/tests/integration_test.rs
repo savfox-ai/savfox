@@ -1,4 +1,4 @@
-﻿//! Comprehensive integration tests for the gateway server.
+//! Comprehensive integration tests for the gateway server.
 //!
 //! Tests cover: sessions CRUD lifecycle, config validation,
 //! models CRUD, cron jobs, agent config overrides, and directives.

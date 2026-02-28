@@ -1,4 +1,4 @@
-﻿//! `savfox security` — Security audit and credential/token rotation.
+//! `savfox security` — Security audit and credential/token rotation.
 
 use clap::Parser;
 use serde_json::json;

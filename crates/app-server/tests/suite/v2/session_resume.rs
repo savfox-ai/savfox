@@ -1,4 +1,4 @@
-﻿use std::fs::FileTimes;
+use std::fs::FileTimes;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -8,15 +8,15 @@ use app_test_support::{
 };
 use chrono::Utc;
 use core_test_support::{responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
-    JSONRPCResponse, RequestId, SessionSource, SessionItem, SessionResumeParams,
-    SessionResumeResponse, SessionStartParams, SessionStartResponse, TurnStartParams, TurnStatus,
+    JSONRPCResponse, RequestId, SessionItem, SessionResumeParams, SessionResumeResponse,
+    SessionSource, SessionStartParams, SessionStartResponse, TurnStartParams, TurnStatus,
     UserInput,
 };
 use savfox_protocol::config_types::Personality;
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::user_input::{ByteRange, TextElement};
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

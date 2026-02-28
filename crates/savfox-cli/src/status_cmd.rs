@@ -1,4 +1,4 @@
-﻿//! `savfox status` — System overview showing gateway status, channels, sessions, providers.
+//! `savfox status` — System overview showing gateway status, channels, sessions, providers.
 
 use clap::Parser;
 

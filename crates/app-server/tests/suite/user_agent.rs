@@ -1,7 +1,7 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{DEFAULT_CLIENT_NAME, McpProcess, to_response};
-use savfox_app_server_protocol::{GetUserAgentResponse, JSONRPCResponse, RequestId};
 use pretty_assertions::assert_eq;
+use savfox_app_server_protocol::{GetUserAgentResponse, JSONRPCResponse, RequestId};
 use tempfile::TempDir;
 use tokio::time::timeout;
 

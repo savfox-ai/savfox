@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 

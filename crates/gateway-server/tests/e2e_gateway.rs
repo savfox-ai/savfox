@@ -1,4 +1,4 @@
-﻿//! End-to-end integration tests for the Savfox Gateway Server.
+//! End-to-end integration tests for the Savfox Gateway Server.
 //!
 //! These tests require a running gateway instance.  They are marked `#[ignore]`
 //! so that `cargo test` does not attempt to run them during normal development.

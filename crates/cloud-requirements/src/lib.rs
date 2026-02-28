@@ -1,12 +1,12 @@
-﻿//! Cloud-hosted config requirements for Savfox.
+//! Cloud-hosted config requirements for Savfox.
 //!
 //! This crate fetches `requirements.toml` data from the backend as an alternative to loading it
 //! from the local filesystem. It only applies to Business (aka Enterprise CBP) or Enterprise
 //! ChatGPT customers.
 //!
-//! Today, fetching is best-effort: on error or timeout, Savfox continues without cloud requirements.
-//! We expect to tighten this so that Enterprise ChatGPT customers must successfully fetch these
-//! requirements before Savfox will run.
+//! Today, fetching is best-effort: on error or timeout, Savfox continues without cloud
+//! requirements. We expect to tighten this so that Enterprise ChatGPT customers must successfully
+//! fetch these requirements before Savfox will run.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -176,9 +176,9 @@ mod tests {
 
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use pretty_assertions::assert_eq;
     use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
     use savfox_protocol::protocol::AskForApproval;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
     use tempfile::tempdir;
 

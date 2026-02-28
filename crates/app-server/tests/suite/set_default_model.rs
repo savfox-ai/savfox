@@ -1,12 +1,12 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, to_response};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     JSONRPCResponse, RequestId, SetDefaultModelParams, SetDefaultModelResponse,
 };
 use savfox_core::config::ConfigToml;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

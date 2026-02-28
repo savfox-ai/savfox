@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Result;
@@ -9,20 +9,20 @@ use app_test_support::{
     format_with_current_shell_display, to_response,
 };
 use core_test_support::{responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     ByteRange, ClientInfo, CommandExecutionApprovalDecision,
     CommandExecutionRequestApprovalResponse, CommandExecutionStatus, FileChangeApprovalDecision,
     FileChangeOutputDeltaNotification, FileChangeRequestApprovalResponse,
     ItemCompletedNotification, ItemStartedNotification, JSONRPCNotification, JSONRPCResponse,
-    PatchApplyStatus, PatchChangeKind, RequestId, ServerRequest, TextElement, SessionItem,
-    SessionStartParams, SessionStartResponse, TurnCompletedNotification, TurnStartParams,
+    PatchApplyStatus, PatchChangeKind, RequestId, ServerRequest, SessionItem, SessionStartParams,
+    SessionStartResponse, TextElement, TurnCompletedNotification, TurnStartParams,
     TurnStartResponse, TurnStartedNotification, TurnStatus, UserInput as V2UserInput,
 };
 use savfox_core::features::{FEATURES, Feature};
 use savfox_core::protocol_config_types::ReasoningSummary;
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Personality, Settings};
 use savfox_protocol::openai_models::ReasoningEffort;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 

@@ -1,4 +1,4 @@
-﻿#[cfg(unix)]
+#[cfg(unix)]
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;

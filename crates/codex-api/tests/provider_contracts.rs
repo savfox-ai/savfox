@@ -1,4 +1,4 @@
-﻿//! Provider contract tests: verify the request/response format produced by each
+//! Provider contract tests: verify the request/response format produced by each
 //! wire API (Chat Completions, Responses, Anthropic).
 //!
 //! These tests do **not** hit real endpoints. Instead they exercise the
@@ -108,11 +108,11 @@ fn sample_tool_definition() -> Value {
 // ===========================================================================
 
 mod request_format {
+    use pretty_assertions::assert_eq;
     use savfox_api::requests::anthropic::AnthropicRequestBuilder;
     use savfox_api::requests::chat::ChatRequestBuilder;
     use savfox_api::requests::responses::ResponsesRequestBuilder;
     use savfox_protocol::models::FunctionCallOutputPayload;
-    use pretty_assertions::assert_eq;
     use serde_json::json;
 
     use super::*;
@@ -404,11 +404,11 @@ mod sse_parsing {
 
     use assert_matches::assert_matches;
     use futures::TryStreamExt;
+    use pretty_assertions::assert_eq;
     use savfox_api::common::ResponseEvent;
     use savfox_api::error::ApiError;
     use savfox_api::sse::responses::{ResponsesStreamEvent, process_responses_event};
     use savfox_protocol::models::{ContentItem, ResponseItem};
-    use pretty_assertions::assert_eq;
     use serde_json::json;
     use tokio::sync::mpsc;
     use tokio_util::io::ReaderStream;
@@ -1060,12 +1060,12 @@ mod provider_config {
 // ===========================================================================
 
 mod round_trip {
+    use pretty_assertions::assert_eq;
     use savfox_api::common::{Reasoning, ResponsesApiRequest};
     use savfox_api::requests::anthropic::AnthropicRequestBuilder;
     use savfox_api::requests::chat::ChatRequestBuilder;
     use savfox_api::requests::responses::ResponsesRequestBuilder;
     use savfox_protocol::models::ContentItem;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

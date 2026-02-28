@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use anyhow::Result;
 use tokio::sync::{Mutex, broadcast};

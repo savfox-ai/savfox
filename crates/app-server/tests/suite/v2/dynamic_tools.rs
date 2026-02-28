@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -7,12 +7,12 @@ use app_test_support::{
     create_mock_responses_server_sequence_unchecked, to_response,
 };
 use core_test_support::responses;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
     DynamicToolCallParams, DynamicToolCallResponse, DynamicToolSpec, JSONRPCResponse, RequestId,
     ServerRequest, SessionStartParams, SessionStartResponse, TurnStartParams, TurnStartResponse,
     UserInput as V2UserInput,
 };
-use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::time::timeout;

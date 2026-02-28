@@ -1,4 +1,4 @@
-﻿#![cfg(unix)]
+#![cfg(unix)]
 
 use anyhow::Result;
 use app_test_support::{

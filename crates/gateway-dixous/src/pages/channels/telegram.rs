@@ -1,7 +1,8 @@
+use dioxus::prelude::*;
+
 use crate::api::types::TelegramStatus;
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
-use dioxus::prelude::*;
 
 fn format_uptime_compact(ms: u64) -> String {
     let total_seconds = ms / 1000;

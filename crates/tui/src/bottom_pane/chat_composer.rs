@@ -1,4 +1,4 @@
-﻿//! The chat composer is the bottom-pane text input state machine.
+//! The chat composer is the bottom-pane text input state machine.
 //!
 //! It is responsible for:
 //!
@@ -89,6 +89,11 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
+use ratatui::style::{Color, Style, Stylize};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, StatefulWidgetRef, WidgetRef};
 use savfox_chatgpt::connectors;
 use savfox_chatgpt::connectors::AppInfo;
 use savfox_common::fuzzy_match::fuzzy_match;
@@ -97,11 +102,6 @@ use savfox_file_search::FileMatch;
 use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
 use savfox_protocol::models::local_image_label_text;
 use savfox_protocol::user_input::{ByteRange, TextElement};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::style::{Color, Style, Stylize};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, StatefulWidgetRef, WidgetRef};
 
 use super::chat_composer_history::{ChatComposerHistory, HistoryEntry};
 use super::command_popup::{CommandItem, CommandPopup, CommandPopupFlags};

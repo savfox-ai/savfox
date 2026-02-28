@@ -1,4 +1,4 @@
-﻿use opentelemetry_sdk::metrics::InMemoryMetricExporter;
+use opentelemetry_sdk::metrics::InMemoryMetricExporter;
 use savfox_otel::metrics::{MetricsClient, MetricsConfig, MetricsError, Result};
 
 fn build_in_memory_client() -> Result<MetricsClient> {

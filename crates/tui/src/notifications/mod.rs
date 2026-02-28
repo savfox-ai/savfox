@@ -1,4 +1,4 @@
-﻿mod bel;
+mod bel;
 mod osc9;
 
 use std::{env, io};

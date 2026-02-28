@@ -1,4 +1,4 @@
-﻿//! `savfox plugins` -- plugin install/update/uninstall and registry management.
+//! `savfox plugins` -- plugin install/update/uninstall and registry management.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -7,13 +7,12 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
+use savfox_core::config::find_savfox_home;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
-
-use savfox_core::config::find_savfox_home;
 
 const PRIMARY_MANIFEST_FILE: &str = "savfox.plugin.toml";
 const LEGACY_MANIFEST_FILE: &str = "plugin.toml";

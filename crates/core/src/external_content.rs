@@ -1,5 +1,6 @@
-use regex::Regex;
 use std::sync::LazyLock;
+
+use regex::Regex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalContentMode {

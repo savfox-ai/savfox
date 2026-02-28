@@ -1,4 +1,4 @@
-﻿//! Tailscale integration for gateway exposure and authentication.
+//! Tailscale integration for gateway exposure and authentication.
 //!
 //! Provides:
 //! - Funnel exposure (make gateway accessible via Tailscale Funnel)

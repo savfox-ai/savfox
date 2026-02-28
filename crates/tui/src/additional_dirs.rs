@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use savfox_core::protocol::SandboxPolicy;
 
@@ -36,8 +36,8 @@ fn format_warning(additional_dirs: &[PathBuf]) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
     use pretty_assertions::assert_eq;
+    use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
 
     use super::add_dir_warning_message;
 

@@ -1,4 +1,4 @@
-﻿use savfox_chatgpt::apply_command::apply_diff_from_task;
+use savfox_chatgpt::apply_command::apply_diff_from_task;
 use savfox_chatgpt::get_task::GetTaskResponse;
 use savfox_utils_cargo_bin::find_resource;
 use tempfile::TempDir;

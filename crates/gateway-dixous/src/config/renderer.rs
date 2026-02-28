@@ -1,5 +1,6 @@
-use crate::config::schema::{FieldType, SchemaField};
 use dioxus::prelude::*;
+
+use crate::config::schema::{FieldType, SchemaField};
 
 #[component]
 pub fn FieldRenderer(

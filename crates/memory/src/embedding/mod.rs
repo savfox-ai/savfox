@@ -5,13 +5,12 @@ mod openai;
 mod voyage;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
 pub use custom_http::CustomHttpEmbeddingProvider;
 pub use gemini::GeminiEmbeddingProvider;
 pub use ollama::OllamaEmbeddingProvider;
 pub use openai::OpenAIEmbeddingProvider;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 pub use voyage::VoyageEmbeddingProvider;
 
 use crate::types::EmbeddingProviderConfig;

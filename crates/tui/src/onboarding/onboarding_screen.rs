@@ -1,16 +1,16 @@
-﻿use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock};
 
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use savfox_core::AuthManager;
-use savfox_core::config::Config;
-use savfox_core::git_info::get_git_repo_root;
-use savfox_protocol::config_types::ForcedLoginMethod;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::Widget;
 use ratatui::style::Color;
 use ratatui::widgets::{Clear, WidgetRef};
+use savfox_core::AuthManager;
+use savfox_core::config::Config;
+use savfox_core::git_info::get_git_repo_root;
+use savfox_protocol::config_types::ForcedLoginMethod;
 
 use crate::LoginStatus;
 use crate::onboarding::auth::{AuthModeWidget, SignInOption, SignInState};

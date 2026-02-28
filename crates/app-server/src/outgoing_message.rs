@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use savfox_app_server_protocol::{
@@ -183,12 +183,12 @@ pub(crate) struct OutgoingError {
 
 #[cfg(test)]
 mod tests {
+    use pretty_assertions::assert_eq;
     use savfox_app_server_protocol::{
         AccountLoginCompletedNotification, AccountRateLimitsUpdatedNotification,
         AccountUpdatedNotification, AuthMode, ConfigWarningNotification,
         LoginChatGptCompleteNotification, RateLimitSnapshot, RateLimitWindow,
     };
-    use pretty_assertions::assert_eq;
     use serde_json::json;
     use uuid::Uuid;
 

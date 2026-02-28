@@ -1,4 +1,4 @@
-﻿use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
+use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
 
 pub fn summarize_sandbox_policy(sandbox_policy: &SandboxPolicy) -> String {
     match sandbox_policy {
@@ -44,8 +44,8 @@ pub fn summarize_sandbox_policy(sandbox_policy: &SandboxPolicy) -> String {
 
 #[cfg(test)]
 mod tests {
-    use savfox_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
+    use savfox_utils_absolute_path::AbsolutePathBuf;
 
     use super::*;
 

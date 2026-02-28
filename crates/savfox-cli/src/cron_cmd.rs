@@ -1,4 +1,4 @@
-﻿//! `savfox cron` — Manage cron jobs on the gateway from the CLI.
+//! `savfox cron` — Manage cron jobs on the gateway from the CLI.
 
 use clap::Parser;
 use serde_json::json;

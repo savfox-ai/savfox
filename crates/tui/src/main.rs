@@ -1,4 +1,4 @@
-﻿use clap::Parser;
+use clap::Parser;
 use savfox_arg0::arg0_dispatch_or_else;
 use savfox_common::CliConfigOverrides;
 use savfox_tui::{Cli, run_main};

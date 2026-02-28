@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,6 +7,9 @@ use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{Result, WrapErr};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use ratatui::style::Stylize;
+use ratatui::text::Line;
+use ratatui::widgets::{Paragraph, Wrap};
 use savfox_ansi_escape::ansi_escape_line;
 use savfox_app_server_protocol::ConfigLayerSource;
 use savfox_core::auth::CLIENT_ID;
@@ -25,7 +28,9 @@ use savfox_core::protocol::{
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{AuthManager, SavfoxAuth, SessionManager, built_in_model_providers};
-use savfox_login_oauth::{ServerOptions, complete_device_code_login, request_device_code, run_login_server};
+use savfox_login_oauth::{
+    ServerOptions, complete_device_code_login, request_device_code, run_login_server,
+};
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::config_types::Personality;
@@ -37,9 +42,6 @@ use savfox_protocol::openai_models::{
 };
 use savfox_protocol::protocol::SessionConfiguredEvent;
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use ratatui::style::Stylize;
-use ratatui::text::Line;
-use ratatui::widgets::{Paragraph, Wrap};
 use tokio::select;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::mpsc::unbounded_channel;
@@ -984,8 +986,8 @@ impl App {
 
         tui.enter_alt_screen()?;
 
-        // Load provider auth persisted in ~/.savfox/models/*.json so provider API keys are available even
-        // when env vars are unset.
+        // Load provider auth persisted in ~/.savfox/models/*.json so provider API keys are
+        // available even when env vars are unset.
         savfox_core::inject_provider_auth_overrides_from_store(config.savfox_home.as_path());
 
         let harness_overrides =
@@ -1652,16 +1654,17 @@ impl App {
                                     ),
                                 );
                                 self.chat_screen.add_info_message(
-                                    format!("If the browser did not open, use this URL: {auth_url}"),
+                                    format!(
+                                        "If the browser did not open, use this URL: {auth_url}"
+                                    ),
                                     None,
                                 );
 
                                 let tx = self.app_event_tx.clone();
                                 tokio::spawn(async move {
-                                    let result = server
-                                        .block_until_done()
-                                        .await
-                                        .map_err(|err| format!("ChatGPT browser sign-in failed: {err}"));
+                                    let result = server.block_until_done().await.map_err(|err| {
+                                        format!("ChatGPT browser sign-in failed: {err}")
+                                    });
                                     tx.send(AppEvent::OpenAiConnectAuthCompleted {
                                         provider_id,
                                         method: OpenAiConnectAuthMethod::Browser,
@@ -1732,30 +1735,28 @@ impl App {
                 provider_id,
                 method,
                 result,
-            } => {
-                match result {
-                    Ok(()) => {
-                        self.auth_manager.reload();
-                        let method_label = match method {
-                            OpenAiConnectAuthMethod::Browser => "browser",
-                            OpenAiConnectAuthMethod::Headless => "headless",
-                        };
-                        self.chat_screen.add_info_message(
-                            format!(
-                                "ChatGPT sign-in completed ({method_label}). Importing OpenAI models..."
-                            ),
-                            None,
-                        );
-                        self.app_event_tx.send(AppEvent::BeginProviderConnect {
-                            provider_id,
-                            api_key: None,
-                        });
-                    }
-                    Err(err) => {
-                        self.chat_screen.add_error_message(err);
-                    }
+            } => match result {
+                Ok(()) => {
+                    self.auth_manager.reload();
+                    let method_label = match method {
+                        OpenAiConnectAuthMethod::Browser => "browser",
+                        OpenAiConnectAuthMethod::Headless => "headless",
+                    };
+                    self.chat_screen.add_info_message(
+                        format!(
+                            "ChatGPT sign-in completed ({method_label}). Importing OpenAI models..."
+                        ),
+                        None,
+                    );
+                    self.app_event_tx.send(AppEvent::BeginProviderConnect {
+                        provider_id,
+                        api_key: None,
+                    });
                 }
-            }
+                Err(err) => {
+                    self.chat_screen.add_error_message(err);
+                }
+            },
             AppEvent::BeginProviderConnect {
                 provider_id,
                 api_key,
@@ -2898,6 +2899,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use insta::assert_snapshot;
+    use pretty_assertions::assert_eq;
+    use ratatui::prelude::Line;
     use savfox_core::config::{ConfigBuilder, ConfigOverrides};
     use savfox_core::models_manager::manager::ModelsManager;
     use savfox_core::protocol::{
@@ -2907,8 +2910,6 @@ mod tests {
     use savfox_otel::OtelManager;
     use savfox_protocol::SessionId;
     use savfox_protocol::user_input::TextElement;
-    use pretty_assertions::assert_eq;
-    use ratatui::prelude::Line;
     use tempfile::tempdir;
     use tokio::time;
 

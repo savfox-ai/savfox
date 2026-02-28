@@ -1,12 +1,12 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
+use ratatui::style::Stylize;
+use ratatui::text::{Line, Span};
 use savfox_core::protocol::{
     AgentStatus, CollabAgentInteractionEndEvent, CollabAgentSpawnEndEvent, CollabCloseEndEvent,
     CollabWaitingBeginEvent, CollabWaitingEndEvent,
 };
 use savfox_protocol::SessionId;
-use ratatui::style::Stylize;
-use ratatui::text::{Line, Span};
 
 use crate::history_cell::PlainHistoryCell;
 use crate::render::line_utils::prefix_lines;

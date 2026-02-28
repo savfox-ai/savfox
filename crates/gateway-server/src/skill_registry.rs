@@ -1,8 +1,9 @@
-﻿//! Skill registry  - discover, search, and install skills from a remote registry.
+//! Skill registry  - discover, search, and install skills from a remote registry.
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::info;
 

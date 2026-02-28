@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use chrono::{DateTime, Local};
 use savfox_core::config::Config;

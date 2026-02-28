@@ -1,17 +1,17 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::StreamExt;
 use http::{HeaderMap, StatusCode};
+use pretty_assertions::assert_eq;
 use savfox_api::requests::responses::Compression;
 use savfox_api::{
     AggregateStreamExt, AuthProvider, Provider, ResponseEvent, ResponsesClient, WireApi,
 };
 use savfox_client::{HttpTransport, Request, Response, StreamResponse, TransportError};
 use savfox_protocol::models::{ContentItem, ResponseItem};
-use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 #[derive(Clone)]

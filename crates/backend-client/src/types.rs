@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 
 pub use savfox_backend_openapi_models::models::{
     ConfigFileResponse, CreditStatusDetails, PaginatedListTaskListItem, PlanType,

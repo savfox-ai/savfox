@@ -1,4 +1,4 @@
-﻿//! Utility to compute the current Git diff for the working directory.
+//! Utility to compute the current Git diff for the working directory.
 //!
 //! The implementation mirrors the behaviour of the TypeScript version in
 //! `savfox-cli`: it returns the diff for tracked changes as well as any

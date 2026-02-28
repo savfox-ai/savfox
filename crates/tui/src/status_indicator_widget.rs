@@ -1,15 +1,15 @@
-﻿//! A live status indicator that shows the *latest* log line emitted by the
+//! A live status indicator that shows the *latest* log line emitted by the
 //! application while the agent is processing a long‑running task.
 
 use std::time::{Duration, Instant};
 
 use crossterm::event::KeyCode;
-use savfox_core::protocol::Op;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, WidgetRef};
+use savfox_core::protocol::Op;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app_event::AppEvent;
