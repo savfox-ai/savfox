@@ -750,10 +750,23 @@ pub fn set_default_oss_provider(savfox_home: &Path, provider: &str) -> std::io::
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(untagged)]
+enum ModelProviderFieldValue {
+    String(String),
+    Structured(StructuredModelProviderField),
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct StructuredModelProviderField {
+    id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct StructuredModelField {
-    provider: String,
-    model_code: String,
+    id: Option<String>,
+    #[serde(alias = "model_code")]
+    code: Option<String>,
+    provider: Option<ModelProviderFieldValue>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -761,6 +774,25 @@ struct StructuredModelField {
 enum ModelFieldValue {
     String(String),
     Structured(StructuredModelField),
+}
+
+fn trim_to_non_empty(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn provider_id_from_field(value: Option<ModelProviderFieldValue>) -> Option<String> {
+    match value {
+        Some(ModelProviderFieldValue::String(provider_id)) => trim_to_non_empty(Some(provider_id)),
+        Some(ModelProviderFieldValue::Structured(provider)) => trim_to_non_empty(provider.id),
+        None => None,
+    }
 }
 
 pub(crate) fn deserialize_model_field<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -779,14 +811,32 @@ where
             }
         }
         Some(ModelFieldValue::Structured(structured)) => {
-            let provider = structured.provider.trim();
-            let model_code = structured.model_code.trim();
-            if provider.is_empty() || model_code.is_empty() {
-                return Err(D::Error::custom(
-                    "`model.provider` and `model.model_code` must be non-empty",
-                ));
+            let id = trim_to_non_empty(structured.id);
+            let parsed_from_id = id
+                .as_deref()
+                .and_then(parse_provider_prefixed_model)
+                .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
+
+            let provider_id = provider_id_from_field(structured.provider)
+                .or_else(|| parsed_from_id.as_ref().map(|(provider, _)| provider.clone()));
+            let model_code = trim_to_non_empty(structured.code)
+                .or_else(|| parsed_from_id.as_ref().map(|(_, model_code)| model_code.clone()));
+
+            match (provider_id, model_code) {
+                (Some(provider), Some(model_code)) => Ok(Some(format!("{provider}/{model_code}"))),
+                (None, None) => {
+                    if let Some(id) = id {
+                        Ok(Some(id))
+                    } else {
+                        Err(D::Error::custom(
+                            "`model` object must include either `id` or both `provider` and `code`",
+                        ))
+                    }
+                }
+                _ => Err(D::Error::custom(
+                    "`model` object must include either `id = \"provider/model_code\"` or both `provider` and `code`",
+                )),
             }
-            Ok(Some(format!("{provider}/{model_code}")))
         }
     }
 }
@@ -800,7 +850,9 @@ pub struct ConfigToml {
     /// Accepted forms:
     /// - `"glm-5"`
     /// - `"provider/model_code"` (parsed using the last `/`)
-    /// - `{ provider = "provider", model_code = "glm-5" }`
+    /// - `{ provider = "provider", code = "glm-5" }`
+    /// - `{ id = "provider/model_code", code = "glm-5", provider = "provider" }`
+    /// - `{ id = "provider/model_code", code = "glm-5", provider = { id = "provider" } }`
     #[serde(default, deserialize_with = "deserialize_model_field")]
     pub model: Option<String>,
     /// Review model override used by the `/review` feature.
@@ -1873,6 +1925,17 @@ persistence = "none"
     fn model_field_deserializes_struct_form() {
         let cfg: ConfigToml = toml::from_str(
             r#"
+model = { provider = "zhipuai-coding-plan", code = "glm-5" }
+"#,
+        )
+        .expect("TOML deserialization should succeed");
+        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+    }
+
+    #[test]
+    fn model_field_deserializes_struct_form_with_legacy_model_code_alias() {
+        let cfg: ConfigToml = toml::from_str(
+            r#"
 model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
 "#,
         )
@@ -1885,7 +1948,7 @@ model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
         let cfg: ConfigToml = toml::from_str(
             r#"
 [profiles.dev]
-model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
+model = { provider = "zhipuai-coding-plan", code = "glm-5" }
 "#,
         )
         .expect("TOML deserialization should succeed");
@@ -1895,6 +1958,28 @@ model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
                 .and_then(|profile| profile.model.as_deref()),
             Some("zhipuai-coding-plan/glm-5")
         );
+    }
+
+    #[test]
+    fn model_field_deserializes_full_object_form_with_provider_string() {
+        let cfg: ConfigToml = toml::from_str(
+            r#"
+model = { id = "zhipuai-coding-plan/glm-5", code = "glm-5", name = "Glm 5", provider = "zhipuai-coding-plan" }
+"#,
+        )
+        .expect("TOML deserialization should succeed");
+        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+    }
+
+    #[test]
+    fn model_field_deserializes_full_object_form_with_provider_object() {
+        let cfg: ConfigToml = toml::from_str(
+            r#"
+model = { id = "zhipuai-coding-plan/glm-5", provider = { id = "zhipuai-coding-plan", name = "Zhipuai Coding Plan" } }
+"#,
+        )
+        .expect("TOML deserialization should succeed");
+        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
     }
 
     #[test]

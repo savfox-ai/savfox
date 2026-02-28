@@ -4736,6 +4736,134 @@ async fn handle_channels_config_delete(params: &Value, bridge: &Arc<GatewayBridg
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
+fn to_title_case_segment(segment: &str) -> String {
+    let mut chars = segment.chars();
+    if let Some(first) = chars.next() {
+        let mut out = String::new();
+        out.push(first.to_ascii_uppercase());
+        out.push_str(chars.as_str());
+        out
+    } else {
+        String::new()
+    }
+}
+
+fn humanize_hyphenated_id(raw: &str) -> String {
+    raw.split('-')
+        .filter(|segment| !segment.is_empty())
+        .map(to_title_case_segment)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn non_empty_trimmed(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalized_provider_object(provider_id: &str) -> Value {
+    json!({
+        "id": provider_id,
+        "name": humanize_hyphenated_id(provider_id),
+    })
+}
+
+fn normalized_model_object(provider_id: &str, model_code: &str) -> Value {
+    json!({
+        "id": format!("{provider_id}/{model_code}"),
+        "code": model_code,
+        "name": humanize_hyphenated_id(model_code),
+        "provider": normalized_provider_object(provider_id),
+    })
+}
+
+fn extract_provider_id(provider_value: &Value) -> Option<String> {
+    match provider_value {
+        Value::String(provider_id) => non_empty_trimmed(provider_id),
+        Value::Object(provider) => provider
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(non_empty_trimmed),
+        _ => None,
+    }
+}
+
+fn normalize_provider_value(provider_value: &mut Value) {
+    if let Some(provider_id) = extract_provider_id(provider_value) {
+        *provider_value = normalized_provider_object(&provider_id);
+    }
+}
+
+fn normalize_model_value(model_value: &mut Value) {
+    match model_value {
+        Value::String(model_id) => {
+            if let Some((provider_id, model_code)) =
+                savfox_core::parse_provider_prefixed_model(model_id.as_str())
+            {
+                *model_value = normalized_model_object(provider_id, model_code);
+            }
+        }
+        Value::Object(model) => {
+            let id = model
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(non_empty_trimmed);
+            let parsed_from_id = id
+                .as_deref()
+                .and_then(savfox_core::parse_provider_prefixed_model)
+                .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
+
+            let provider_id = model
+                .get("provider")
+                .and_then(extract_provider_id)
+                .or_else(|| parsed_from_id.as_ref().map(|(provider, _)| provider.clone()));
+            let model_code = model
+                .get("code")
+                .and_then(Value::as_str)
+                .and_then(non_empty_trimmed)
+                .or_else(|| {
+                    model
+                        .get("model_code")
+                        .and_then(Value::as_str)
+                        .and_then(non_empty_trimmed)
+                })
+                .or_else(|| parsed_from_id.as_ref().map(|(_, code)| code.clone()));
+
+            if let (Some(provider_id), Some(model_code)) = (provider_id, model_code) {
+                *model_value = normalized_model_object(&provider_id, &model_code);
+                return;
+            }
+
+            if let Some(provider_value) = model.get_mut("provider") {
+                normalize_provider_value(provider_value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn normalize_config_model_fields(config: &mut Value) {
+    if let Some(model_value) = config.get_mut("model") {
+        normalize_model_value(model_value);
+    }
+
+    let Some(profiles) = config.get_mut("profiles").and_then(Value::as_object_mut) else {
+        return;
+    };
+
+    for profile in profiles.values_mut() {
+        if let Some(profile_map) = profile.as_object_mut()
+            && let Some(model_value) = profile_map.get_mut("model")
+        {
+            normalize_model_value(model_value);
+        }
+    }
+}
+
 async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
     let session_count = bridge.websocket_manager().session_count().await;
 
@@ -4746,11 +4874,12 @@ async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
         .unwrap_or_default();
 
     // Parse as TOML value for structured output.
-    let config_value = config_content
+    let mut config_value = config_content
         .parse::<toml::Value>()
         .ok()
         .and_then(|v| serde_json::to_value(&v).ok())
         .unwrap_or(Value::Object(serde_json::Map::new()));
+    normalize_config_model_fields(&mut config_value);
 
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -12771,4 +12900,65 @@ async fn handle_tools_categories() -> RpcResult {
         .collect();
 
     Ok(json!({ "categories": categories, "profiles": profiles }))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::normalize_config_model_fields;
+
+    #[test]
+    fn expands_top_level_model_string_into_full_object() {
+        let mut config = json!({
+            "model": "zhipuai-coding-plan/glm-5"
+        });
+
+        normalize_config_model_fields(&mut config);
+
+        assert_eq!(config["model"]["id"], json!("zhipuai-coding-plan/glm-5"));
+        assert_eq!(config["model"]["code"], json!("glm-5"));
+        assert_eq!(config["model"]["name"], json!("Glm 5"));
+        assert_eq!(
+            config["model"]["provider"]["id"],
+            json!("zhipuai-coding-plan")
+        );
+        assert_eq!(
+            config["model"]["provider"]["name"],
+            json!("Zhipuai Coding Plan")
+        );
+    }
+
+    #[test]
+    fn expands_profile_model_with_provider_string() {
+        let mut config = json!({
+            "profiles": {
+                "dev": {
+                    "model": {
+                        "provider": "openai",
+                        "code": "gpt-4o-mini"
+                    }
+                }
+            }
+        });
+
+        normalize_config_model_fields(&mut config);
+
+        assert_eq!(config["profiles"]["dev"]["model"]["id"], json!("openai/gpt-4o-mini"));
+        assert_eq!(config["profiles"]["dev"]["model"]["code"], json!("gpt-4o-mini"));
+        assert_eq!(config["profiles"]["dev"]["model"]["name"], json!("Gpt 4o Mini"));
+        assert_eq!(config["profiles"]["dev"]["model"]["provider"]["id"], json!("openai"));
+        assert_eq!(config["profiles"]["dev"]["model"]["provider"]["name"], json!("Openai"));
+    }
+
+    #[test]
+    fn keeps_bare_model_string_unchanged() {
+        let mut config = json!({
+            "model": "gpt-5.1"
+        });
+
+        normalize_config_model_fields(&mut config);
+
+        assert_eq!(config["model"], json!("gpt-5.1"));
+    }
 }
