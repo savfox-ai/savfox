@@ -192,7 +192,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let chatgpt_base_url = config_toml
         .chatgpt_base_url
         .clone()
-        .unwrap_or_else(|| "https://taidge.com/backend-api/".to_string());
+        .unwrap_or_else(|| "https://chatgpt.com/backend-api/".to_string());
     // TODO(gt): Make cloud requirements failures blocking once we can fail-closed.
     let cloud_requirements = cloud_requirements_loader(cloud_auth_manager, chatgpt_base_url);
 

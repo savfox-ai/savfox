@@ -26,6 +26,7 @@ use crate::error::EnvVarError;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_STREAM_MAX_RETRIES: u64 = 5;
 const DEFAULT_REQUEST_MAX_RETRIES: u64 = 4;
+const DEFAULT_CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
 /// Hard cap for user-configured `stream_max_retries`.
 const MAX_STREAM_MAX_RETRIES: u64 = 100;
 /// Hard cap for user-configured `request_max_retries`.
@@ -294,16 +295,17 @@ impl ModelProviderInfo {
     pub(crate) fn to_api_provider(
         &self,
         auth_mode: Option<AuthMode>,
+        chatgpt_base_url: Option<&str>,
     ) -> crate::error::Result<ApiProvider> {
         let default_base_url = if matches!(auth_mode, Some(AuthMode::Chatgpt)) {
-            "https://taidge.com/backend-api/savfox"
+            default_chatgpt_openai_base_url(chatgpt_base_url)
         } else {
-            "https://api.openai.com/v1"
+            "https://api.openai.com/v1".to_string()
         };
         let base_url = self
             .base_url
             .clone()
-            .unwrap_or_else(|| default_base_url.to_string());
+            .unwrap_or(default_base_url);
 
         let headers = self.build_header_map()?;
         let retry = ApiRetryConfig {
@@ -435,6 +437,35 @@ impl ModelProviderInfo {
     pub fn is_openai(&self) -> bool {
         self.name == OPENAI_PROVIDER_NAME
     }
+}
+
+fn normalize_chatgpt_base_url(base_url: &str) -> String {
+    let mut normalized = base_url.trim().trim_end_matches('/').to_string();
+    if (normalized.starts_with("https://taidge.com")
+        || normalized.starts_with("https://chat.openai.com"))
+        && !normalized.contains("/backend-api")
+    {
+        normalized = format!("{normalized}/backend-api");
+    }
+    normalized
+}
+
+fn default_chatgpt_openai_base_url(chatgpt_base_url: Option<&str>) -> String {
+    let configured = chatgpt_base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_CHATGPT_BASE_URL);
+    let base = normalize_chatgpt_base_url(configured);
+    if base.ends_with("/savfox") {
+        return base;
+    }
+    if base.contains("/backend-api") {
+        return format!("{base}/savfox");
+    }
+    if base.contains("/api/savfox") {
+        return base;
+    }
+    format!("{base}/api/savfox")
 }
 
 pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;
@@ -915,5 +946,23 @@ env_key = "GEMINI_API_KEY"
         // Cleanup global override maps to avoid cross-test leakage.
         remove_env_override(env_key);
         remove_bearer_token_override(provider_id);
+    }
+
+    #[test]
+    fn to_api_provider_derives_chatgpt_backend_models_base_url() {
+        let provider = ModelProviderInfo::create_openai_provider();
+        let api_provider = provider
+            .to_api_provider(Some(AuthMode::Chatgpt), Some("https://chatgpt.com/backend-api/"))
+            .expect("convert provider");
+        assert_eq!(api_provider.base_url, "https://chatgpt.com/backend-api/savfox");
+    }
+
+    #[test]
+    fn to_api_provider_derives_savfox_api_models_base_url() {
+        let provider = ModelProviderInfo::create_openai_provider();
+        let api_provider = provider
+            .to_api_provider(Some(AuthMode::Chatgpt), Some("https://api.taidge.com"))
+            .expect("convert provider");
+        assert_eq!(api_provider.base_url, "https://api.taidge.com/api/savfox");
     }
 }

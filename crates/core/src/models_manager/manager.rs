@@ -186,21 +186,23 @@ impl ModelsManager {
                 if self.try_load_cache().await {
                     return Ok(());
                 }
-                self.fetch_and_update_models().await
+                self.fetch_and_update_models(config).await
             }
             RefreshStrategy::Online => {
                 // Always fetch from network
-                self.fetch_and_update_models().await
+                self.fetch_and_update_models(config).await
             }
         }
     }
 
-    async fn fetch_and_update_models(&self) -> CoreResult<()> {
+    async fn fetch_and_update_models(&self, config: &Config) -> CoreResult<()> {
         let _timer =
             savfox_otel::start_global_timer("savfox.remote_models.fetch_update.duration_ms", &[]);
         let auth = self.auth_manager.auth().await;
         let auth_mode = self.auth_manager.get_internal_auth_mode();
-        let api_provider = self.provider.to_api_provider(auth_mode)?;
+        let api_provider = self
+            .provider
+            .to_api_provider(auth_mode, Some(config.chatgpt_base_url.as_str()))?;
         let api_auth = auth_provider_from_auth(auth.clone(), &self.provider, "openai")?;
         let provider_name = api_provider.name.clone();
         let models_url = api_provider.url_for_path("models");
