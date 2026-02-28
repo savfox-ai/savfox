@@ -817,10 +817,16 @@ where
                 .and_then(parse_provider_prefixed_model)
                 .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
 
-            let provider_id = provider_id_from_field(structured.provider)
-                .or_else(|| parsed_from_id.as_ref().map(|(provider, _)| provider.clone()));
-            let model_code = trim_to_non_empty(structured.code)
-                .or_else(|| parsed_from_id.as_ref().map(|(_, model_code)| model_code.clone()));
+            let provider_id = provider_id_from_field(structured.provider).or_else(|| {
+                parsed_from_id
+                    .as_ref()
+                    .map(|(provider, _)| provider.clone())
+            });
+            let model_code = trim_to_non_empty(structured.code).or_else(|| {
+                parsed_from_id
+                    .as_ref()
+                    .map(|(_, model_code)| model_code.clone())
+            });
 
             match (provider_id, model_code) {
                 (Some(provider), Some(model_code)) => Ok(Some(format!("{provider}/{model_code}"))),

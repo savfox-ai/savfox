@@ -1,7 +1,10 @@
 ﻿[package]
 name = "savfox-gateway-dioxus"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+documentation.workspace = true
 
 [dependencies]
 savfox-gateway-shared = { workspace = true }
