@@ -7422,17 +7422,14 @@ struct ProviderAuth {
 /// Load a provider file, auto-detecting v1 (bare array) vs v2 (object).
 async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> ProviderFile {
     let path = models_dir(bridge).join(format!("{provider_id}.json"));
-    let data = match tokio::fs::read_to_string(&path).await {
-        Ok(d) => d,
-        Err(_) => {
-            return ProviderFile {
-                version: 2,
-                provider_id: provider_id.to_string(),
-                display_name: String::new(),
-                auth: None,
-                models: Vec::new(),
-            };
-        }
+    let Ok(data) = tokio::fs::read_to_string(&path).await else {
+        return ProviderFile {
+            version: 2,
+            provider_id: provider_id.to_string(),
+            display_name: String::new(),
+            auth: None,
+            models: Vec::new(),
+        };
     };
 
     // Try v2 (object with "models" key) first, then fall back to v1 (bare array).
@@ -7992,8 +7989,8 @@ async fn load_provider_models(bridge: &GatewayBridge, provider_id: &str) -> Vec<
 /// Load all models from all `models/*.json` files, merged into a flat HashMap keyed by model ID.
 async fn load_all_provider_models(bridge: &GatewayBridge) -> HashMap<String, Value> {
     maybe_migrate_legacy_models(bridge).await;
-    let dir = models_dir(bridge);
     let mut out = HashMap::new();
+    let dir = models_dir(bridge);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
         return out;
     };

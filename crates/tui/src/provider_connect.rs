@@ -87,10 +87,12 @@ pub(crate) struct ProviderStoreAuth {
     pub(crate) api_key: Option<String>,
 }
 
+pub(crate) fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
+    savfox_home.join(MODELS_DIR_NAME)
+}
+
 fn provider_store_path(savfox_home: &Path, provider_id: &str) -> PathBuf {
-    savfox_home
-        .join(MODELS_DIR_NAME)
-        .join(format!("{provider_id}.json"))
+    provider_models_store_dir(savfox_home).join(format!("{provider_id}.json"))
 }
 
 fn trim_nonempty(value: &str) -> Option<String> {
@@ -100,7 +102,8 @@ fn trim_nonempty(value: &str) -> Option<String> {
 
 fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderStoreFile {
     let path = provider_store_path(savfox_home, provider_id);
-    let Ok(data) = std::fs::read_to_string(path) else {
+    let data = std::fs::read_to_string(&path);
+    let Ok(data) = data else {
         return ProviderStoreFile {
             version: 2,
             provider_id: provider_id.to_string(),
@@ -138,7 +141,7 @@ fn save_provider_store_file(
     provider_id: &str,
     file: &ProviderStoreFile,
 ) -> Result<(), String> {
-    let dir = savfox_home.join(MODELS_DIR_NAME);
+    let dir = provider_models_store_dir(savfox_home);
     std::fs::create_dir_all(&dir).map_err(|err| format!("create models dir: {err}"))?;
     let path = provider_store_path(savfox_home, provider_id);
     let data =
@@ -687,6 +690,7 @@ pub(crate) fn select_default_model(models: &[Value], provider_id: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn parse_remote_models_reads_openai_shape() {
@@ -784,5 +788,34 @@ mod tests {
             },
         );
         assert_eq!(base_url.as_deref(), Some(DEFAULT_CHATGPT_OPENAI_BASE_URL));
+    }
+
+    #[test]
+    fn persist_provider_connection_writes_to_savfox_models_dir() {
+        let tmp = TempDir::new().expect("temp root");
+        let savfox_home = tmp.path().join(".savfox");
+        std::fs::create_dir_all(&savfox_home).expect("create savfox home");
+
+        let result = ProviderConnectResult {
+            provider_id: "anthropic".to_string(),
+            provider_name: "Anthropic".to_string(),
+            base_url: "https://api.anthropic.com/v1".to_string(),
+            api_key: Some("sk-anthropic".to_string()),
+            env_key: Some("ANTHROPIC_API_KEY".to_string()),
+            models: vec![json!({
+                "id": "anthropic/claude-sonnet",
+                "name": "Claude Sonnet",
+                "is_default": true
+            })],
+        };
+
+        persist_provider_connection(&savfox_home, &result).expect("persist provider");
+
+        let savfox_file = tmp.path().join(".savfox/models/anthropic.json");
+        assert!(savfox_file.exists(), "expected provider file in ~/.savfox/models");
+        assert_eq!(
+            read_provider_store_api_key(&savfox_home, "anthropic").as_deref(),
+            Some("sk-anthropic")
+        );
     }
 }

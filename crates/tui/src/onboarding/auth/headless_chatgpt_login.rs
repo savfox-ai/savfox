@@ -57,7 +57,8 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                                     request_frame.schedule_frame();
                                 }
                                 _ => {
-                                    *sign_in_state.write().unwrap() = SignInState::PickMode;
+                                    *sign_in_state.write().unwrap() =
+                                        SignInState::OpenAiAuthMethod;
                                     request_frame.schedule_frame();
                                 }
                             }
@@ -67,7 +68,7 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                                 &sign_in_state,
                                 &request_frame,
                                 &cancel,
-                                SignInState::PickMode,
+                                SignInState::OpenAiAuthMethod,
                             );
                         }
                     }
@@ -76,7 +77,7 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                         &sign_in_state,
                         &request_frame,
                         &cancel,
-                        SignInState::PickMode,
+                        SignInState::OpenAiAuthMethod,
                     );
                 }
 
@@ -113,7 +114,7 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                             &sign_in_state,
                             &request_frame,
                             &cancel,
-                            SignInState::PickMode,
+                            SignInState::OpenAiAuthMethod,
                         );
                     }
                 }

@@ -984,8 +984,8 @@ impl App {
 
         tui.enter_alt_screen()?;
 
-        // Load provider auth persisted by gateway in ~/.savfox/models/*.json
-        // so provider API keys are available even when env vars are unset.
+        // Load provider auth persisted in ~/.savfox/models/*.json so provider API keys are available even
+        // when env vars are unset.
         savfox_core::inject_provider_auth_overrides_from_store(config.savfox_home.as_path());
 
         let harness_overrides =

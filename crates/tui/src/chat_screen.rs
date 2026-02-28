@@ -112,7 +112,7 @@ use crate::key_hint::KeyBinding;
 use crate::markdown::append_markdown;
 use crate::provider_connect::{
     connect_provider_candidates, provider_has_auth_in_env, provider_requires_api_key,
-    read_provider_store_api_key,
+    provider_models_store_dir, read_provider_store_api_key,
 };
 use crate::render::Insets;
 use crate::render::renderable::{
@@ -152,7 +152,6 @@ use crate::streaming::controller::{PlanStreamController, StreamController};
 const USER_SHELL_COMMAND_HELP_TITLE: &str = "Prefix a command with ! to run it locally";
 const USER_SHELL_COMMAND_HELP_HINT: &str = "Example: !ls";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const PROVIDER_MODELS_DIR: &str = "models";
 // Track information about an in-flight exec command.
 struct RunningCommand {
     command: Vec<String>,
@@ -6911,9 +6910,9 @@ struct ProviderStoreFile {
 }
 
 fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPreset>> {
-    let models_dir = savfox_home.join(PROVIDER_MODELS_DIR);
+    let primary_models_dir = provider_models_store_dir(savfox_home);
     let mut entries: Vec<std::fs::DirEntry> =
-        std::fs::read_dir(&models_dir).ok()?.flatten().collect();
+        std::fs::read_dir(&primary_models_dir).ok()?.flatten().collect();
     entries.sort_by_key(|entry| entry.file_name());
 
     let mut seen_models: HashSet<String> = HashSet::new();
