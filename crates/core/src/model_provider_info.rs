@@ -340,6 +340,7 @@ impl ModelProviderInfo {
             retry_transport: true,
         };
 
+        println!("Constructed provider `{}` with base URL `{}`", self.name, base_url);
         Ok(ApiProvider {
             name: self.name.clone(),
             base_url,
@@ -1023,13 +1024,14 @@ env_key = "GEMINI_API_KEY"
             .expect("convert provider");
         assert_eq!(
             api_provider.base_url,
-            "https://chatgpt.com/backend-api/savfox"
+            "https://chatgpt.com/backend-api/codex"
         );
     }
 
     #[test]
     fn to_api_provider_derives_savfox_api_models_base_url() {
         let provider = ModelProviderInfo::create_openai_provider();
+        println!("Testing with provider base_url: {:#?}", provider);
         let api_provider = provider
             .to_api_provider(
                 Some("openai"),

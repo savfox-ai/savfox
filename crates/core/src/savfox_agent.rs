@@ -523,6 +523,7 @@ impl SessionConfiguration {
         let mut next_configuration = self.clone();
         if let Some(collaboration_mode) = updates.collaboration_mode.clone() {
             next_configuration.collaboration_mode = collaboration_mode;
+            next_configuration.sync_provider_from_model_prefix();
         }
         if let Some(summary) = updates.reasoning_summary {
             next_configuration.model_reasoning_summary = summary;
@@ -543,6 +544,37 @@ impl SessionConfiguration {
             next_configuration.cwd = cwd;
         }
         Ok(next_configuration)
+    }
+
+    fn sync_provider_from_model_prefix(&mut self) {
+        let Some((provider_id, _)) =
+            crate::parse_provider_prefixed_model(self.collaboration_mode.model())
+        else {
+            return;
+        };
+
+        let Some((resolved_provider_id, resolved_provider)) = self
+            .original_config_do_not_use
+            .model_providers
+            .iter()
+            .find(|(configured_id, _)| configured_id.eq_ignore_ascii_case(provider_id))
+        else {
+            return;
+        };
+
+        if self
+            .original_config_do_not_use
+            .model_provider_id
+            .eq_ignore_ascii_case(resolved_provider_id)
+        {
+            return;
+        }
+
+        self.provider = resolved_provider.clone();
+        let mut per_turn_config = (*self.original_config_do_not_use).clone();
+        per_turn_config.model_provider_id = resolved_provider_id.clone();
+        per_turn_config.model_provider = resolved_provider.clone();
+        self.original_config_do_not_use = Arc::new(per_turn_config);
     }
 }
 
@@ -4859,6 +4891,40 @@ mod tests {
 
         let history = sess.clone_history().await;
         assert_eq!(initial_context, history.raw_items());
+    }
+
+    #[tokio::test]
+    async fn override_turn_context_prefixed_model_switches_provider() {
+        let (sess, _tc) = make_session_and_context().await;
+        let before_provider = {
+            let state = sess.state.lock().await;
+            state
+                .session_configuration
+                .original_config_do_not_use
+                .model_provider_id
+                .clone()
+        };
+        assert_eq!(before_provider, "openai");
+
+        let current_mode = sess.current_collaboration_mode().await;
+        let updated_mode =
+            current_mode.with_updates(Some("zhipuai-coding-plan/glm-5".to_string()), None, None);
+        sess.update_settings(SessionSettingsUpdate {
+            collaboration_mode: Some(updated_mode),
+            ..Default::default()
+        })
+        .await
+        .expect("update settings should succeed");
+
+        let after_provider = {
+            let state = sess.state.lock().await;
+            state
+                .session_configuration
+                .original_config_do_not_use
+                .model_provider_id
+                .clone()
+        };
+        assert_eq!(after_provider, "zhipuai-coding-plan");
     }
 
     #[tokio::test]

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 const MODELS_DIR_NAME: &str = "models";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
-const DEFAULT_CHATGPT_OPENAI_BASE_URL: &str = "https://chatgpt.com/backend-api/savfox";
+const DEFAULT_CHATGPT_OPENAI_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 const DEFAULT_LMSTUDIO_BASE_URL: &str = "http://localhost:1234/v1";
 
