@@ -340,7 +340,6 @@ impl ModelProviderInfo {
             retry_transport: true,
         };
 
-        println!("Constructed provider `{}` with base URL `{}`", self.name, base_url);
         Ok(ApiProvider {
             name: self.name.clone(),
             base_url,
@@ -520,16 +519,16 @@ fn default_chatgpt_openai_base_url(chatgpt_base_url: Option<&str>) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_CHATGPT_BASE_URL);
     let base = normalize_chatgpt_base_url(configured);
-    if base.ends_with("/savfox") {
+    if base.ends_with("/codex") {
         return base;
     }
     if base.contains("/backend-api") {
-        return format!("{base}/savfox");
+        return format!("{base}/codex");
     }
-    if base.contains("/api/savfox") {
+    if base.contains("/api/codex") {
         return base;
     }
-    format!("{base}/api/savfox")
+    format!("{base}/api/codex")
 }
 
 pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;
@@ -1031,7 +1030,6 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_derives_savfox_api_models_base_url() {
         let provider = ModelProviderInfo::create_openai_provider();
-        println!("Testing with provider base_url: {:#?}", provider);
         let api_provider = provider
             .to_api_provider(
                 Some("openai"),
@@ -1039,7 +1037,7 @@ env_key = "GEMINI_API_KEY"
                 Some("https://api.taidge.com"),
             )
             .expect("convert provider");
-        assert_eq!(api_provider.base_url, "https://api.taidge.com/api/savfox");
+        assert_eq!(api_provider.base_url, "https://api.taidge.com/api/codex");
     }
 
     #[test]
