@@ -433,6 +433,10 @@ async fn fetch_remote_models(
         request = request.header("ChatGPT-Account-ID", account_id);
     }
 
+    if provider_api_debug_enabled() {
+        debug_provider_api_request(provider_id, &url, bearer_token, account_id);
+    }
+
     let response = request
         .send()
         .await
@@ -440,6 +444,10 @@ async fn fetch_remote_models(
     let status = response.status();
     let request_id = extract_request_id(response.headers());
     let body = response.text().await.unwrap_or_default();
+
+    if provider_api_debug_enabled() {
+        debug_provider_api_response(provider_id, &url, status, request_id.as_deref(), &body);
+    }
 
     Ok(RemoteModelsHttpResponse {
         url,
@@ -461,6 +469,44 @@ fn extract_request_id(headers: &reqwest::header::HeaderMap) -> Option<String> {
         .or_else(|| headers.get("cf-ray"))
         .and_then(|value| value.to_str().ok())
         .and_then(trim_nonempty)
+}
+
+fn provider_api_debug_enabled() -> bool {
+    std::env::var("SAVFOX_DEBUG_PROVIDER_API")
+        .ok()
+        .is_some_and(|value| {
+            let trimmed = value.trim();
+            !trimmed.is_empty() && trimmed != "0" && !trimmed.eq_ignore_ascii_case("false")
+        })
+}
+
+#[allow(clippy::print_stdout)]
+fn debug_provider_api_request(
+    provider_id: &str,
+    url: &str,
+    bearer_token: Option<&str>,
+    account_id: Option<&str>,
+) {
+    let has_bearer_token = bearer_token.is_some();
+    let has_account_id = account_id.and_then(trim_nonempty).is_some();
+    println!(
+        "[savfox][provider-api][request] provider={provider_id} url={url} has_bearer_token={has_bearer_token} has_account_id={has_account_id}"
+    );
+}
+
+#[allow(clippy::print_stdout)]
+fn debug_provider_api_response(
+    provider_id: &str,
+    url: &str,
+    status: reqwest::StatusCode,
+    request_id: Option<&str>,
+    body: &str,
+) {
+    let request_id = request_id.unwrap_or("-");
+    let body_preview = truncate_oneline(body, 240);
+    println!(
+        "[savfox][provider-api][response] provider={provider_id} url={url} status={status} request_id={request_id} body={body_preview}"
+    );
 }
 
 fn truncate_oneline(input: &str, max_chars: usize) -> String {

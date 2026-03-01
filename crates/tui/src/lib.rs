@@ -4,6 +4,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![deny(clippy::disallowed_methods)]
 #![allow(unreachable_pub, unsafe_code)]
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
@@ -16,8 +17,9 @@ use savfox_common::oss::{
     ensure_oss_provider_ready, get_default_model_for_oss_provider, ollama_chat_deprecation_notice,
 };
 use savfox_core::auth::enforce_login_restrictions;
+use savfox_core::config::edit::ConfigEditsBuilder;
 use savfox_core::config::{
-    Config, ConfigBuilder, ConfigOverrides, find_savfox_home,
+    Config, ConfigBuilder, ConfigOverrides, ConfigToml, find_savfox_home,
     load_config_as_toml_with_cli_overrides, resolve_oss_provider,
 };
 use savfox_core::config_loader::{
@@ -29,12 +31,16 @@ use savfox_core::terminal::Multiplexer;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
     AuthManager, INTERACTIVE_SESSION_SOURCES, RolloutRecorder, SessionSortKey,
-    find_session_path_by_id_str, find_session_path_by_name_str, path_utils, read_session_meta_line,
+    find_session_path_by_id_str, find_session_path_by_name_str, parse_provider_prefixed_model,
+    path_utils, read_session_meta_line,
 };
 use savfox_protocol::config_types::{AltScreenMode, SandboxMode, WindowsSandboxLevel};
+use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::protocol::{RolloutItem, RolloutLine};
 use savfox_state::log_db;
 use savfox_utils_absolute_path::AbsolutePathBuf;
+use serde::Deserialize;
+use serde_json::Value;
 use tracing::error;
 use tracing_appender::non_blocking;
 use tracing_subscriber::EnvFilter;
@@ -112,6 +118,296 @@ use crate::provider_connect::has_provider_store_configuration;
 use crate::tui::Tui;
 // (tests access modules directly within the crate)
 
+const PROVIDER_MODELS_DIR: &str = "models";
+
+#[derive(Debug, Deserialize)]
+struct ProviderStoreModelFile {
+    #[serde(default)]
+    provider_id: String,
+    #[serde(default)]
+    models: Vec<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderModelCatalog {
+    provider_id: String,
+    first_model: String,
+    model_ids_lower: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct EffectiveModelSelection {
+    write_profile: Option<String>,
+    configured_model: String,
+    configured_provider: Option<String>,
+    effective_effort: Option<ReasoningEffort>,
+}
+
+fn trim_nonempty(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn model_id_from_store_item(item: &Value, provider_id: &str) -> Option<String> {
+    let provider_id = provider_id.trim();
+    if provider_id.is_empty() {
+        return None;
+    }
+
+    let raw = item
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(trim_nonempty)
+        .or_else(|| {
+            item.get("model")
+                .and_then(Value::as_str)
+                .and_then(trim_nonempty)
+        })
+        .or_else(|| {
+            item.get("model_code")
+                .and_then(Value::as_str)
+                .and_then(trim_nonempty)
+        })
+        .or_else(|| item.as_str().and_then(trim_nonempty))?;
+
+    if raw.contains('/') {
+        Some(raw)
+    } else {
+        Some(format!("{provider_id}/{raw}"))
+    }
+}
+
+fn load_provider_model_catalog(savfox_home: &Path) -> Vec<ProviderModelCatalog> {
+    let models_dir = savfox_home.join(PROVIDER_MODELS_DIR);
+    let Ok(entries) = std::fs::read_dir(models_dir) else {
+        return Vec::new();
+    };
+
+    let mut catalogs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+
+        let provider_from_filename = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .and_then(trim_nonempty);
+        let Some(provider_from_filename) = provider_from_filename else {
+            continue;
+        };
+
+        let Ok(data) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+
+        let (provider_id, models) = if let Ok(file) =
+            serde_json::from_str::<ProviderStoreModelFile>(&data)
+        {
+            let provider_id = trim_nonempty(&file.provider_id).unwrap_or(provider_from_filename);
+            (provider_id, file.models)
+        } else if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
+            (provider_from_filename, models)
+        } else {
+            continue;
+        };
+
+        if provider_id.trim().is_empty() {
+            continue;
+        }
+
+        let mut model_ids: Vec<String> = Vec::new();
+        let mut model_ids_lower: Vec<String> = Vec::new();
+        let mut seen_lower = HashSet::new();
+        for item in models.iter() {
+            let Some(model_id) = model_id_from_store_item(item, provider_id.as_str()) else {
+                continue;
+            };
+            let lower = model_id.to_ascii_lowercase();
+            if !seen_lower.insert(lower.clone()) {
+                continue;
+            }
+            model_ids.push(model_id);
+            model_ids_lower.push(lower);
+        }
+        let Some(first_model) = model_ids.first().cloned() else {
+            continue;
+        };
+
+        if catalogs.iter().any(|existing: &ProviderModelCatalog| {
+            existing.provider_id.eq_ignore_ascii_case(&provider_id)
+        }) {
+            continue;
+        }
+
+        catalogs.push(ProviderModelCatalog {
+            provider_id,
+            first_model,
+            model_ids_lower,
+        });
+    }
+
+    catalogs.sort_by(|left, right| {
+        left.provider_id
+            .to_ascii_lowercase()
+            .cmp(&right.provider_id.to_ascii_lowercase())
+    });
+    catalogs
+}
+
+fn model_exists_in_catalog(model: &str, catalog: &ProviderModelCatalog) -> bool {
+    let normalized = model.trim().to_ascii_lowercase();
+    catalog.model_ids_lower.iter().any(|id| id == &normalized)
+}
+
+fn effective_model_selection(
+    config_toml: &ConfigToml,
+    override_profile: Option<String>,
+) -> std::io::Result<Option<EffectiveModelSelection>> {
+    let active_profile = override_profile
+        .clone()
+        .or_else(|| config_toml.profile.clone());
+    let profile = config_toml.get_config_profile(override_profile)?;
+
+    let profile_model = profile.model.and_then(|model| trim_nonempty(&model));
+    let profile_provider = profile
+        .model_provider
+        .and_then(|provider| trim_nonempty(&provider));
+
+    let configured_model = profile_model
+        .clone()
+        .or_else(|| config_toml.model.as_deref().and_then(trim_nonempty));
+    let Some(configured_model) = configured_model else {
+        return Ok(None);
+    };
+
+    let provider_from_model = parse_provider_prefixed_model(&configured_model)
+        .map(|(provider_id, _)| provider_id.to_string());
+    let configured_provider = provider_from_model.or_else(|| {
+        profile_provider.clone().or_else(|| {
+            config_toml
+                .model_provider
+                .as_deref()
+                .and_then(trim_nonempty)
+        })
+    });
+
+    let write_profile =
+        if active_profile.is_some() && (profile_model.is_some() || profile_provider.is_some()) {
+            active_profile
+        } else {
+            None
+        };
+    let effective_effort = profile
+        .model_reasoning_effort
+        .or(config_toml.model_reasoning_effort);
+
+    Ok(Some(EffectiveModelSelection {
+        write_profile,
+        configured_model,
+        configured_provider,
+        effective_effort,
+    }))
+}
+
+fn find_catalog_for_provider<'a>(
+    catalogs: &'a [ProviderModelCatalog],
+    provider_id: &str,
+) -> Option<&'a ProviderModelCatalog> {
+    catalogs
+        .iter()
+        .find(|entry| entry.provider_id.eq_ignore_ascii_case(provider_id))
+}
+
+fn configured_model_for_provider(model: &str, provider_id: Option<&str>) -> Option<String> {
+    if let Some((provider, code)) = parse_provider_prefixed_model(model) {
+        return Some(format!("{}/{}", provider.trim(), code.trim()));
+    }
+    provider_id
+        .and_then(trim_nonempty)
+        .map(|provider| format!("{}/{}", provider, model.trim()))
+}
+
+async fn maybe_repair_model_from_provider_store(
+    savfox_home: &Path,
+    config_toml: &ConfigToml,
+    override_profile: Option<String>,
+) -> std::io::Result<Option<String>> {
+    let catalogs = load_provider_model_catalog(savfox_home);
+    if catalogs.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(selection) = effective_model_selection(config_toml, override_profile.clone())? else {
+        return Ok(None);
+    };
+
+    let configured_full_model = configured_model_for_provider(
+        selection.configured_model.as_str(),
+        selection.configured_provider.as_deref(),
+    );
+
+    let mut target_catalog: Option<&ProviderModelCatalog> = None;
+    let mut warning = None;
+
+    if let Some(provider_id) = selection.configured_provider.as_deref() {
+        if let Some(catalog) = find_catalog_for_provider(&catalogs, provider_id) {
+            let model_exists = configured_full_model
+                .as_deref()
+                .is_some_and(|model| model_exists_in_catalog(model, catalog));
+            if !model_exists {
+                target_catalog = Some(catalog);
+                warning = Some(format!(
+                    "Configured model `{}` is not available for provider `{}` in `~/.savfox/models`; falling back to `{}`.",
+                    selection.configured_model, provider_id, catalog.first_model
+                ));
+            }
+        } else if let Some(fallback) = catalogs.first() {
+            target_catalog = Some(fallback);
+            warning = Some(format!(
+                "Configured provider `{}` (from model `{}`) was not found in `~/.savfox/models`; falling back to `{}`.",
+                provider_id, selection.configured_model, fallback.first_model
+            ));
+        }
+    } else if let Some(fallback) = catalogs.first() {
+        target_catalog = Some(fallback);
+        warning = Some(format!(
+            "Could not resolve provider for configured model `{}`; falling back to `{}` from `~/.savfox/models`.",
+            selection.configured_model, fallback.first_model
+        ));
+    }
+
+    let Some(target) = target_catalog else {
+        return Ok(None);
+    };
+    let Some(warning) = warning else {
+        return Ok(None);
+    };
+
+    if selection
+        .configured_model
+        .trim()
+        .eq_ignore_ascii_case(target.first_model.as_str())
+    {
+        return Ok(None);
+    }
+
+    ConfigEditsBuilder::new(savfox_home)
+        .with_profile(selection.write_profile.as_deref())
+        .set_model(
+            Some(target.first_model.as_str()),
+            selection.effective_effort,
+        )
+        .apply()
+        .await
+        .map_err(|err| {
+            std::io::Error::other(format!("failed to update config.toml model: {err}"))
+        })?;
+
+    Ok(Some(warning))
+}
+
 pub async fn run_main(
     mut cli: Cli,
     savfox_linux_sandbox_exe: Option<PathBuf>,
@@ -172,7 +468,7 @@ pub async fn run_main(
     };
 
     #[allow(clippy::print_stderr)]
-    let config_toml = match load_config_as_toml_with_cli_overrides(
+    let mut config_toml = match load_config_as_toml_with_cli_overrides(
         &savfox_home,
         &config_cwd,
         cli_kv_overrides.clone(),
@@ -202,6 +498,42 @@ pub async fn run_main(
             .await
     {
         tracing::warn!(error = %err, "failed to run personality migration");
+    }
+
+    let has_model_cli_override = cli_kv_overrides.iter().any(|(key, _)| {
+        key == "model"
+            || key == "model_provider"
+            || key.ends_with(".model")
+            || key.ends_with(".model_provider")
+    });
+    if !cli.oss && cli.model.is_none() && !has_model_cli_override {
+        match maybe_repair_model_from_provider_store(
+            &savfox_home,
+            &config_toml,
+            cli.config_profile.clone(),
+        )
+        .await
+        {
+            Ok(Some(warning)) => {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!("Warning: {warning}");
+                }
+                config_toml = load_config_as_toml_with_cli_overrides(
+                    &savfox_home,
+                    &config_cwd,
+                    cli_kv_overrides.clone(),
+                )
+                .await?;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!("Warning: failed to auto-repair model config: {err}");
+                }
+            }
+        }
     }
 
     let cloud_auth_manager = AuthManager::shared(
@@ -912,7 +1244,7 @@ fn should_show_provider_setup_screen(config: &Config, has_connected_provider: bo
 
 #[cfg(test)]
 mod tests {
-    use savfox_core::config::{ConfigBuilder, ConfigOverrides, ProjectConfig};
+    use savfox_core::config::{ConfigBuilder, ConfigOverrides, ConfigToml, ProjectConfig};
     use savfox_core::protocol::AskForApproval;
     use savfox_protocol::protocol::{
         RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, TurnContextItem,
@@ -1213,6 +1545,72 @@ trust_level = "untrusted"
         let connected = has_connected_provider(&config);
         assert!(connected);
         assert!(!should_show_provider_setup_screen(&config, connected));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auto_repairs_model_when_provider_missing_from_store() -> std::io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let models_dir = temp_dir.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("zhipuai-coding-plan.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "zhipuai-coding-plan",
+  "models": [
+    { "id": "zhipuai-coding-plan/glm-5" },
+    { "id": "zhipuai-coding-plan/glm-4.7" }
+  ]
+}"#,
+        )?;
+
+        let config_toml: ConfigToml = toml::from_str(
+            r#"
+model = "missing-provider/missing-model"
+"#,
+        )
+        .expect("parse config toml");
+
+        let warning =
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+        assert!(warning.is_some());
+
+        let updated = std::fs::read_to_string(temp_dir.path().join("config.toml"))?;
+        assert!(updated.contains(r#"model = "zhipuai-coding-plan/glm-5""#));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auto_repairs_model_when_provider_exists_but_model_missing() -> std::io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let models_dir = temp_dir.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("zhipuai-coding-plan.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "zhipuai-coding-plan",
+  "models": [
+    { "id": "zhipuai-coding-plan/glm-4.5" },
+    { "id": "zhipuai-coding-plan/glm-5" }
+  ]
+}"#,
+        )?;
+
+        let config_toml: ConfigToml = toml::from_str(
+            r#"
+model = "zhipuai-coding-plan/does-not-exist"
+"#,
+        )
+        .expect("parse config toml");
+
+        let warning =
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+        assert!(warning.is_some());
+
+        let updated = std::fs::read_to_string(temp_dir.path().join("config.toml"))?;
+        assert!(updated.contains(r#"model = "zhipuai-coding-plan/glm-4.5""#));
         Ok(())
     }
 }

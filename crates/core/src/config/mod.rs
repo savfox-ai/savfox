@@ -38,7 +38,7 @@ use crate::git_info::resolve_root_git_project_for_trust;
 use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::model_provider_info::{
     LMSTUDIO_OSS_PROVIDER_ID, ModelProviderInfo, OLLAMA_CHAT_PROVIDER_ID, OLLAMA_OSS_PROVIDER_ID,
-    built_in_model_providers,
+    built_in_model_providers, provider_default_base_url,
 };
 use crate::project_doc::{DEFAULT_PROJECT_DOC_FILENAME, LOCAL_PROJECT_DOC_FILENAME};
 use crate::protocol::{AskForApproval, SandboxPolicy};
@@ -63,6 +63,99 @@ pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
 pub const CONFIG_TOML_FILE: &str = "config.toml";
 pub const CONFIG_YAML_FILE: &str = "config.yaml";
 pub const CONFIG_YML_FILE: &str = "config.yml";
+const PROVIDER_MODELS_DIR: &str = "models";
+
+#[derive(Debug, Deserialize)]
+struct ProviderStoreConfigFile {
+    #[serde(default)]
+    provider_id: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    auth: Option<ProviderStoreConfigAuth>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProviderStoreConfigAuth {
+    #[serde(default)]
+    env_key: Option<String>,
+}
+
+fn trim_nonempty(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn merge_provider_store_model_providers(
+    model_providers: &mut HashMap<String, ModelProviderInfo>,
+    savfox_home: &Path,
+) {
+    let models_dir = savfox_home.join(PROVIDER_MODELS_DIR);
+    let Ok(entries) = std::fs::read_dir(models_dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+
+        let provider_id_from_filename = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .and_then(trim_nonempty);
+        let Some(provider_id_from_filename) = provider_id_from_filename else {
+            continue;
+        };
+
+        let file = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<ProviderStoreConfigFile>(&data).ok());
+        let provider_id = file
+            .as_ref()
+            .and_then(|file| trim_nonempty(&file.provider_id))
+            .unwrap_or(provider_id_from_filename);
+
+        if model_providers.contains_key(provider_id.as_str()) {
+            continue;
+        }
+
+        let Some(base_url) = provider_default_base_url(provider_id.as_str()) else {
+            continue;
+        };
+
+        let name = file
+            .as_ref()
+            .and_then(|file| trim_nonempty(&file.display_name))
+            .unwrap_or_else(|| provider_id.clone());
+        let env_key = file
+            .as_ref()
+            .and_then(|file| file.auth.as_ref())
+            .and_then(|auth| auth.env_key.as_deref())
+            .and_then(trim_nonempty);
+
+        model_providers.insert(
+            provider_id,
+            ModelProviderInfo {
+                name,
+                base_url: Some(base_url),
+                env_key,
+                env_key_instructions: None,
+                experimental_bearer_token: None,
+                wire_api: crate::WireApi::Chat,
+                query_params: None,
+                http_headers: None,
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                requires_openai_auth: false,
+                supports_websockets: false,
+            },
+        );
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn test_config() -> Config {
@@ -1449,6 +1542,7 @@ impl Config {
         for (key, provider) in cfg.model_providers.into_iter() {
             model_providers.entry(key).or_insert(provider);
         }
+        merge_provider_store_model_providers(&mut model_providers, &savfox_home);
 
         let model = model.or(config_profile.model).or(cfg.model);
 
@@ -3903,6 +3997,59 @@ model_verbosity = "high"
 
         assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
         assert_eq!(config.model_provider, zhipu_provider);
+        Ok(())
+    }
+
+    #[test]
+    fn infers_model_provider_from_prefixed_model_using_provider_store() -> std::io::Result<()> {
+        let cfg = ConfigToml {
+            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            ..Default::default()
+        };
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+
+        let savfox_home = TempDir::new()?;
+        let models_dir = savfox_home.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("zhipuai-coding-plan.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "zhipuai-coding-plan",
+  "display_name": "Zhipu AI Coding Plan",
+  "auth": {
+    "type": "api_key",
+    "env_key": "ZHIPUAI_API_KEY",
+    "api_key": "sk-test-zhipu"
+  },
+  "models": [
+    { "id": "zhipuai-coding-plan/glm-5", "name": "GLM-5" }
+  ]
+}"#,
+        )?;
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
+        assert_eq!(config.model_provider.name, "Zhipu AI Coding Plan");
+        assert_eq!(
+            config.model_provider.base_url.as_deref(),
+            Some("https://open.bigmodel.cn/api/coding/paas/v4")
+        );
+        assert_eq!(
+            config.model_provider.env_key.as_deref(),
+            Some("ZHIPUAI_API_KEY")
+        );
+        assert_eq!(config.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
         Ok(())
     }
 

@@ -299,21 +299,34 @@ impl ModelProviderInfo {
         auth_mode: Option<AuthMode>,
         chatgpt_base_url: Option<&str>,
     ) -> crate::error::Result<ApiProvider> {
-        let default_base_url = if self.base_url.is_some() {
-            String::new()
+        let base_url = if let Some(base_url) = self
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            base_url.to_string()
         } else {
             let is_openai_provider = provider_id.is_some_and(is_openai_provider_id)
                 || (provider_id.is_none() && self.is_openai());
 
             if matches!(auth_mode, Some(AuthMode::Chatgpt)) && is_openai_provider {
                 default_chatgpt_openai_base_url(chatgpt_base_url)
+            } else if is_openai_provider {
+                DEFAULT_OPENAI_API_BASE_URL.to_string()
+            } else if let Some(provider_id) = provider_id {
+                provider_default_base_url(provider_id).ok_or_else(|| {
+                    crate::error::SavfoxError::Fatal(format!(
+                        "Model provider `{provider_id}` has no base_url configured. Set `model_providers.{provider_id}.base_url` in config.toml."
+                    ))
+                })?
             } else {
-                provider_id
-                    .and_then(provider_default_base_url)
-                    .unwrap_or_else(|| DEFAULT_OPENAI_API_BASE_URL.to_string())
+                return Err(crate::error::SavfoxError::Fatal(format!(
+                    "Model provider `{}` has no base_url configured.",
+                    self.name
+                )));
             }
         };
-        let base_url = self.base_url.clone().unwrap_or(default_base_url);
 
         let headers = self.build_header_map()?;
         let retry = ApiRetryConfig {
@@ -1186,6 +1199,37 @@ env_key = "GEMINI_API_KEY"
         assert_eq!(
             api_provider.base_url,
             "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        );
+    }
+
+    #[test]
+    fn to_api_provider_errors_when_provider_has_no_base_url_and_no_default() {
+        let provider = ModelProviderInfo {
+            name: "Other".to_string(),
+            base_url: None,
+            env_key: None,
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            wire_api: WireApi::Chat,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+        };
+
+        let err = provider
+            .to_api_provider(Some("other"), None, None)
+            .expect_err("missing base_url should error");
+        let crate::error::SavfoxError::Fatal(message) = err else {
+            panic!("expected fatal missing-base-url error");
+        };
+        assert!(
+            message.contains("other") && message.contains("base_url"),
+            "unexpected error message: {message}"
         );
     }
 
