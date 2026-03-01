@@ -12,8 +12,8 @@ pub use model_info::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Model {
     pub id: &'static str,
-    pub name: &'static str,
-    pub code: &'static str,
+    pub slug: &'static str,
+    pub display_name: &'static str,
     pub is_default: bool,
 }
 
@@ -26,38 +26,38 @@ pub struct Provider {
 pub const OPENAI_DEFAULT_MODELS: [Model; 6] = [
     Model {
         id: "openai/gpt-5.2-codex",
-        name: "gpt-5.2-codex",
-        code: "gpt-5.2-codex",
+        slug: "gpt-5.2-codex",
+        display_name: "gpt-5.2-codex",
         is_default: true,
     },
     Model {
         id: "openai/gpt-5.2",
-        name: "gpt-5.2",
-        code: "gpt-5.2",
+        slug: "gpt-5.2",
+        display_name: "gpt-5.2",
         is_default: false,
     },
     Model {
         id: "openai/gpt-5.1-codex-max",
-        name: "gpt-5.1-codex-max",
-        code: "gpt-5.1-codex-max",
+        slug: "gpt-5.1-codex-max",
+        display_name: "gpt-5.1-codex-max",
         is_default: false,
     },
     Model {
         id: "openai/gpt-5.1-codex-mini",
-        name: "gpt-5.1-codex-mini",
-        code: "gpt-5.1-codex-mini",
+        slug: "gpt-5.1-codex-mini",
+        display_name: "gpt-5.1-codex-mini",
         is_default: false,
     },
     Model {
         id: "openai/o3",
-        name: "o3",
-        code: "o3",
+        slug: "o3",
+        display_name: "o3",
         is_default: false,
     },
     Model {
         id: "openai/gpt-4.1",
-        name: "gpt-4.1",
-        code: "gpt-4.1",
+        slug: "gpt-4.1",
+        display_name: "gpt-4.1",
         is_default: false,
     },
 ];
