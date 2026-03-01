@@ -364,6 +364,31 @@ impl SessionEventChannel {
     }
 }
 
+fn normalized_session_name(name: Option<&str>) -> Option<String> {
+    name.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn session_name_from_event_store(store: &SessionEventStore, session_id: SessionId) -> Option<String> {
+    for event in store.buffer.iter().rev() {
+        if let EventMsg::SessionNameUpdated(updated) = &event.msg
+            && updated.session_id == session_id
+        {
+            return normalized_session_name(updated.session_name.as_deref());
+        }
+    }
+
+    if let Some(event) = store.session_configured.as_ref()
+        && let EventMsg::SessionConfigured(configured) = &event.msg
+        && configured.session_id == session_id
+    {
+        return normalized_session_name(configured.session_name.as_deref());
+    }
+
+    None
+}
+
 fn should_show_model_migration_prompt(
     current_model: &str,
     target_model: &str,
@@ -824,26 +849,58 @@ impl App {
             return;
         }
 
-        let mut session_ids: Vec<SessionId> = self.session_event_channels.keys().cloned().collect();
-        session_ids.sort_by_key(ToString::to_string);
+        let mut sessions: Vec<(SessionId, Option<String>)> = self
+            .session_event_channels
+            .iter()
+            .map(|(session_id, channel)| {
+                let session_name = channel
+                    .store
+                    .try_lock()
+                    .ok()
+                    .and_then(|store| session_name_from_event_store(&store, *session_id));
+                (*session_id, session_name)
+            })
+            .collect();
+        sessions.sort_by(|(left_id, left_name), (right_id, right_name)| {
+            let left_display = left_name
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let right_display = right_name
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            left_display
+                .cmp(&right_display)
+                .then_with(|| left_id.to_string().cmp(&right_id.to_string()))
+        });
 
         let mut initial_selected_idx = None;
-        let items: Vec<SelectionItem> = session_ids
+        let items: Vec<SelectionItem> = sessions
             .iter()
             .enumerate()
-            .map(|(idx, session_id)| {
+            .map(|(idx, (session_id, session_name))| {
                 if self.active_session_id == Some(*session_id) {
                     initial_selected_idx = Some(idx);
                 }
                 let id = *session_id;
+                let display_name = session_name
+                    .clone()
+                    .unwrap_or_else(|| session_id.to_string());
                 SelectionItem {
-                    name: session_id.to_string(),
+                    name: display_name.clone(),
                     is_current: self.active_session_id == Some(*session_id),
+                    description: session_name
+                        .as_ref()
+                        .map(|_| format!("Session ID: {session_id}")),
                     actions: vec![Box::new(move |tx| {
                         tx.send(AppEvent::SelectAgentSession(id));
                     })],
                     dismiss_on_select: true,
-                    search_value: Some(session_id.to_string()),
+                    search_value: Some(match session_name.as_ref() {
+                        Some(_) => format!("{display_name} {session_id}"),
+                        None => session_id.to_string(),
+                    }),
                     ..Default::default()
                 }
             })

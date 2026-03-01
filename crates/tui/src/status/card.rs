@@ -29,6 +29,12 @@ use crate::history_cell::{
 use crate::version::SAVFOX_CLI_VERSION;
 use crate::wrapping::{RtOptions, word_wrap_lines};
 
+fn normalized_session_name(name: Option<&str>) -> Option<String> {
+    name.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 #[derive(Debug, Clone)]
 struct StatusContextWindowData {
     percent_remaining: i64,
@@ -369,7 +375,8 @@ impl HistoryCell for StatusHistoryCell {
                 .map(str::to_string)
                 .collect();
         let mut seen: BTreeSet<String> = labels.iter().cloned().collect();
-        let session_name = self.session_name.as_deref().filter(|name| !name.is_empty());
+        let session_name = normalized_session_name(self.session_name.as_deref());
+        let has_session_label = session_name.is_some() || self.session_id.is_some();
 
         if self.model_provider.is_some() {
             push_label(&mut labels, &mut seen, "Model provider");
@@ -377,11 +384,11 @@ impl HistoryCell for StatusHistoryCell {
         if account_value.is_some() {
             push_label(&mut labels, &mut seen, "Account");
         }
-        if session_name.is_some() {
-            push_label(&mut labels, &mut seen, "Session name");
-        }
-        if self.session_id.is_some() {
+        if has_session_label {
             push_label(&mut labels, &mut seen, "Session");
+        }
+        if session_name.is_some() && self.session_id.is_some() {
+            push_label(&mut labels, &mut seen, "Session ID");
         }
         if self.session_id.is_some() && self.forked_from.is_some() {
             push_label(&mut labels, &mut seen, "Forked from");
@@ -438,14 +445,14 @@ impl HistoryCell for StatusHistoryCell {
             lines.push(formatter.line("Account", vec![Span::from(account_value)]));
         }
 
-        if let Some(session_name) = session_name {
-            lines.push(formatter.line("Session name", vec![Span::from(session_name.to_string())]));
+        if let Some(session_label) = session_name.as_ref().or(self.session_id.as_ref()) {
+            lines.push(formatter.line("Session", vec![Span::from(session_label.clone())]));
+        }
+        if session_name.is_some() && let Some(session_id) = self.session_id.as_ref() {
+            lines.push(formatter.line("Session ID", vec![Span::from(session_id.clone())]));
         }
         if let Some(collab_mode) = self.collaboration_mode.as_ref() {
             lines.push(formatter.line("Collaboration mode", vec![Span::from(collab_mode.clone())]));
-        }
-        if let Some(session) = self.session_id.as_ref() {
-            lines.push(formatter.line("Session", vec![Span::from(session.clone())]));
         }
         if self.session_id.is_some()
             && let Some(forked_from) = self.forked_from.as_ref()
