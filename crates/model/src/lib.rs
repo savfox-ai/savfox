@@ -1,6 +1,13 @@
 //! Shared provider registry data used by multiple Savfox crates.
 
+mod bundled_models;
+mod model_info;
+
 pub const DEFAULT_OPENAI_API_BASE_URL: &str = "https://api.openai.com/v1";
+pub use bundled_models::{bundled_models, bundled_models_json, bundled_models_response};
+pub use model_info::{
+    BASE_INSTRUCTIONS, BASE_INSTRUCTIONS_WITH_APPLY_PATCH, find_model_info_for_slug,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Model {
@@ -11,7 +18,7 @@ pub struct Model {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Registry {
+pub struct Provider {
     pub base_url: Option<&'static str>,
     pub models: &'static [Model],
 }
@@ -185,9 +192,9 @@ pub fn provider_default_models(provider_id: &str) -> &'static [Model] {
     }
 }
 
-pub fn provider_registry(provider_id: &str) -> Option<Registry> {
+pub fn provider_registry(provider_id: &str) -> Option<Provider> {
     let base_url = provider_default_base_url_entry(provider_id)?;
-    Some(Registry {
+    Some(Provider {
         base_url,
         models: provider_default_models(provider_id),
     })

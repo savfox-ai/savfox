@@ -5,7 +5,7 @@ use std::time::Duration;
 use http::HeaderMap;
 use savfox_api::{ModelsClient, ReqwestTransport};
 use savfox_protocol::config_types::CollaborationModeMask;
-use savfox_protocol::openai_models::{ModelInfo, ModelPreset, ModelsResponse};
+use savfox_protocol::openai_models::{ModelInfo, ModelPreset};
 use tokio::sync::{RwLock, TryLockError};
 use tokio::time::timeout;
 use tracing::{debug, error};
@@ -288,8 +288,7 @@ impl ModelsManager {
     }
 
     fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
-        let file_contents = include_str!("../../models.json");
-        let response: ModelsResponse = serde_json::from_str(file_contents)?;
+        let response = savfox_model_registry::bundled_models_response().map_err(std::io::Error::other)?;
         Ok(response.models)
     }
 
@@ -850,7 +849,7 @@ mod tests {
 
     #[test]
     fn bundled_models_json_roundtrips() {
-        let file_contents = include_str!("../../models.json");
+        let file_contents = savfox_model_registry::bundled_models_json();
         let response: ModelsResponse =
             serde_json::from_str(file_contents).expect("bundled models.json should deserialize");
 

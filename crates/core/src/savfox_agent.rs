@@ -4480,7 +4480,7 @@ mod tests {
     #[tokio::test]
     async fn get_base_instructions_no_user_content() {
         let prompt_with_apply_patch_instructions =
-            include_str!("../prompt_with_apply_patch_instructions.md");
+            savfox_model_registry::BASE_INSTRUCTIONS_WITH_APPLY_PATCH;
         let test_cases = vec![
             InstructionsTestCase {
                 slug: "gpt-3.5",
