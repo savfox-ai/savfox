@@ -1522,6 +1522,7 @@ mod tests {
     }
 
     #[cfg(test)]
+    #[allow(unsafe_code)]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = env::var_os(key);
@@ -1533,6 +1534,7 @@ mod tests {
     }
 
     #[cfg(test)]
+    #[allow(unsafe_code)]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             unsafe {

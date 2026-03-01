@@ -883,8 +883,8 @@ mod tests {
         let manager = session_manager();
         session.services.agent_control = manager.agent_control();
         let config = turn.client.config().as_ref().clone();
-        let session = manager.start_session(config).await.expect("start session");
-        let agent_id = session.session_id;
+        let started = manager.start_session(config).await.expect("start session");
+        let agent_id = started.session_id;
         let invocation = invocation(
             Arc::new(session),
             Arc::new(turn),
@@ -909,7 +909,7 @@ mod tests {
         assert!(matches!(ops_for_agent[0], Op::Interrupt));
         assert!(matches!(ops_for_agent[1], Op::UserInput { .. }));
 
-        let _ = session
+        let _ = started
             .session
             .submit(Op::Shutdown {})
             .await
@@ -1026,8 +1026,8 @@ mod tests {
         let manager = session_manager();
         session.services.agent_control = manager.agent_control();
         let config = turn.client.config().as_ref().clone();
-        let session = manager.start_session(config).await.expect("start session");
-        let agent_id = session.session_id;
+        let started = manager.start_session(config).await.expect("start session");
+        let agent_id = started.session_id;
         let invocation = invocation(
             Arc::new(session),
             Arc::new(turn),
@@ -1058,7 +1058,7 @@ mod tests {
         );
         assert_eq!(success, None);
 
-        let _ = session
+        let _ = started
             .session
             .submit(Op::Shutdown {})
             .await
@@ -1071,8 +1071,8 @@ mod tests {
         let manager = session_manager();
         session.services.agent_control = manager.agent_control();
         let config = turn.client.config().as_ref().clone();
-        let session = manager.start_session(config).await.expect("start session");
-        let agent_id = session.session_id;
+        let started = manager.start_session(config).await.expect("start session");
+        let agent_id = started.session_id;
         let invocation = invocation(
             Arc::new(session),
             Arc::new(turn),
@@ -1089,7 +1089,7 @@ mod tests {
             "wait should not return before the minimum timeout clamp"
         );
 
-        let _ = session
+        let _ = started
             .session
             .submit(Op::Shutdown {})
             .await
@@ -1102,15 +1102,15 @@ mod tests {
         let manager = session_manager();
         session.services.agent_control = manager.agent_control();
         let config = turn.client.config().as_ref().clone();
-        let session = manager.start_session(config).await.expect("start session");
-        let agent_id = session.session_id;
+        let started = manager.start_session(config).await.expect("start session");
+        let agent_id = started.session_id;
         let mut status_rx = manager
             .agent_control()
             .subscribe_status(agent_id)
             .await
             .expect("subscribe should succeed");
 
-        let _ = session
+        let _ = started
             .session
             .submit(Op::Shutdown {})
             .await
@@ -1156,8 +1156,8 @@ mod tests {
         let manager = session_manager();
         session.services.agent_control = manager.agent_control();
         let config = turn.client.config().as_ref().clone();
-        let session = manager.start_session(config).await.expect("start session");
-        let agent_id = session.session_id;
+        let started = manager.start_session(config).await.expect("start session");
+        let agent_id = started.session_id;
         let status_before = manager.agent_control().get_status(agent_id).await;
 
         let invocation = invocation(

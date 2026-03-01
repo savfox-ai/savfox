@@ -259,7 +259,7 @@ mod tests {
         assert!(rendered.ends_with(b"bc"));
     }
 
-    #[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unified_exec_persists_across_requests() -> anyhow::Result<()> {
         skip_if_sandbox!(Ok(()));
 
@@ -295,7 +295,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn multi_unified_exec_sessions() -> anyhow::Result<()> {
         skip_if_sandbox!(Ok(()));
 
@@ -433,7 +433,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn reusing_completed_process_returns_unknown_process() -> anyhow::Result<()> {
         skip_if_sandbox!(Ok(()));
 

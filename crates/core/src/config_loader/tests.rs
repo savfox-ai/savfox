@@ -568,7 +568,7 @@ allowed_approval_policies = ["never"]
     Ok(())
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn load_requirements_toml_produces_expected_constraints() -> anyhow::Result<()> {
     let tmp = tempdir()?;
     let requirements_file = tmp.path().join("requirements.toml");
@@ -612,7 +612,7 @@ enforce_residency = "us"
     Ok(())
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn cloud_requirements_are_not_overwritten_by_system_requirements() -> anyhow::Result<()> {
     let tmp = tempdir()?;
     let requirements_file = tmp.path().join("requirements.toml");

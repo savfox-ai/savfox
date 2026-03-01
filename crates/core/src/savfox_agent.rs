@@ -5608,7 +5608,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[test_log::test]
     async fn abort_regular_task_emits_turn_aborted_only() {
         let (sess, tc, rx) = make_session_and_context_with_rx().await;
@@ -5675,7 +5675,7 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
-    #[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn abort_review_task_emits_exited_then_aborted_and_records_history() {
         let (sess, tc, rx) = make_session_and_context_with_rx().await;
         let input = vec![UserInput::Text {
