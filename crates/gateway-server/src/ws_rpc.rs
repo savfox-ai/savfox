@@ -7842,16 +7842,16 @@ fn model_test_is_openai_platform_base_url(base_url: &str) -> bool {
     normalized == "https://api.openai.com" || normalized == "https://api.openai.com/v1"
 }
 
-fn model_test_chatgpt_savfox_base_url(bridge: &Arc<GatewayBridge>) -> String {
+fn model_test_chatgpt_codex_base_url(bridge: &Arc<GatewayBridge>) -> String {
     let base = bridge
         .config()
         .chatgpt_base_url
         .trim()
         .trim_end_matches('/');
-    if base.ends_with("/savfox") {
+    if base.ends_with("/codex") {
         base.to_string()
     } else {
-        format!("{base}/savfox")
+        format!("{base}/codex")
     }
 }
 
@@ -7883,7 +7883,7 @@ async fn model_test_apply_openai_auth_fallback(
     }
 
     if auth.is_chatgpt_auth() && model_test_is_openai_platform_base_url(&request.base_url) {
-        request.base_url = model_test_chatgpt_savfox_base_url(bridge);
+        request.base_url = model_test_chatgpt_codex_base_url(bridge);
     }
 }
 
