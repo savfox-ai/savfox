@@ -124,7 +124,7 @@ impl ModelsManager {
             .iter()
             .find(|model| model.is_default)
             .or_else(|| available.first())
-            .map(|model| model.model.clone())
+            .map(|model| model.slug.clone())
             .unwrap_or_default()
     }
 
@@ -382,7 +382,7 @@ impl ModelsManager {
             .iter()
             .find(|preset| preset.show_in_picker)
             .or_else(|| presets.first())
-            .map(|preset| preset.model.clone())
+            .map(|preset| preset.slug.clone())
             .unwrap_or_default()
     }
 
@@ -514,11 +514,11 @@ mod tests {
             .await;
         let high_idx = available
             .iter()
-            .position(|model| model.model == "priority-high")
+            .position(|model| model.slug == "priority-high")
             .expect("priority-high should be listed");
         let low_idx = available
             .iter()
-            .position(|model| model.model == "priority-low")
+            .position(|model| model.slug == "priority-low")
             .expect("priority-low should be listed");
         assert!(
             high_idx < low_idx,
@@ -807,11 +807,11 @@ mod tests {
             .try_list_models(&config)
             .expect("models should be available");
         assert!(
-            available.iter().any(|preset| preset.model == "remote-new"),
+            available.iter().any(|preset| preset.slug == "remote-new"),
             "new remote model should be listed"
         );
         assert!(
-            !available.iter().any(|preset| preset.model == "remote-old"),
+            !available.iter().any(|preset| preset.slug == "remote-old"),
             "removed remote model should not be listed"
         );
         assert_eq!(

@@ -407,7 +407,7 @@ fn should_show_model_migration_prompt(
 
     if available_models
         .iter()
-        .any(|preset| preset.model == current_model && preset.upgrade.is_some())
+        .any(|preset| preset.slug == current_model && preset.upgrade.is_some())
     {
         return true;
     }
@@ -441,7 +441,7 @@ fn target_preset_for_upgrade<'a>(
 ) -> Option<&'a ModelPreset> {
     available_models
         .iter()
-        .find(|preset| preset.model == target_model)
+        .find(|preset| preset.slug == target_model)
 }
 
 async fn handle_model_migration_prompt_if_needed(
@@ -453,7 +453,7 @@ async fn handle_model_migration_prompt_if_needed(
 ) -> Option<AppExitInfo> {
     let upgrade = available_models
         .iter()
-        .find(|preset| preset.model == model)
+        .find(|preset| preset.slug == model)
         .and_then(|preset| preset.upgrade.as_ref());
 
     if let Some(ModelUpgrade {
@@ -479,7 +479,7 @@ async fn handle_model_migration_prompt_if_needed(
             return None;
         }
 
-        let current_preset = available_models.iter().find(|preset| preset.model == model);
+        let current_preset = available_models.iter().find(|preset| preset.slug == model);
         let target_preset = target_preset_for_upgrade(&available_models, &target_model);
         let target_preset = target_preset?;
         let target_display_name = target_preset.display_name.clone();
@@ -3201,13 +3201,13 @@ mod tests {
                 .as_str();
             assert!(
                 should_show_model_migration_prompt(
-                    preset.model.as_str(),
+                    preset.slug.as_str(),
                     target,
                     &seen,
                     presets.as_slice()
                 ),
                 "expected migration prompt for deprecated model {} -> {target}",
-                preset.model
+                preset.slug
             );
         }
 
@@ -3216,8 +3216,8 @@ mod tests {
             .find(|preset| preset.upgrade.is_none())
             .expect("expected at least one non-deprecated model preset");
         assert!(!should_show_model_migration_prompt(
-            stable.model.as_str(),
-            stable.model.as_str(),
+            stable.slug.as_str(),
+            stable.slug.as_str(),
             &seen,
             presets.as_slice()
         ));
@@ -3246,7 +3246,7 @@ mod tests {
         let mut available = all_model_presets();
         let mut current = available
             .iter()
-            .find(|preset| preset.model == "gpt-5-savfox")
+            .find(|preset| preset.slug == "gpt-5-savfox")
             .cloned()
             .expect("preset present");
         current.upgrade = Some(ModelUpgrade {
@@ -3257,11 +3257,11 @@ mod tests {
             upgrade_copy: None,
             migration_markdown: None,
         });
-        available.retain(|preset| preset.model != "gpt-5-savfox");
+        available.retain(|preset| preset.slug != "gpt-5-savfox");
         available.push(current.clone());
 
         assert!(should_show_model_migration_prompt(
-            &current.model,
+            &current.slug,
             "missing-target",
             &BTreeMap::new(),
             &available,
@@ -3282,7 +3282,7 @@ mod tests {
         let available_models = all_model_presets();
         let current = available_models
             .iter()
-            .find(|preset| preset.model == "gpt-5.1-savfox")
+            .find(|preset| preset.slug == "gpt-5.1-savfox")
             .cloned()
             .expect("gpt-5.1-savfox preset present");
         assert!(
@@ -3293,7 +3293,7 @@ mod tests {
         let upgrade = current.upgrade.as_ref().expect("upgrade configured");
         assert!(
             should_show_model_migration_prompt(
-                &current.model,
+                &current.slug,
                 &upgrade.id,
                 &config.notices.model_migrations,
                 &available_models,
@@ -3307,7 +3307,7 @@ mod tests {
             (!target.description.is_empty()).then(|| target.description.clone());
         let can_opt_out = true;
         let copy = migration_copy_for_models(
-            &current.model,
+            &current.slug,
             &upgrade.id,
             upgrade.model_link.clone(),
             upgrade.upgrade_copy.clone(),

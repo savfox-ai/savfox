@@ -101,7 +101,8 @@ pub struct ModelPreset {
     /// Stable identifier for the preset.
     pub id: String,
     /// Model slug (e.g., "gpt-5").
-    pub model: String,
+    #[serde(alias = "model")]
+    pub slug: String,
     /// Display name shown in UIs.
     pub display_name: String,
     /// Short human description shown in UIs.
@@ -464,7 +465,7 @@ impl From<ModelInfo> for ModelPreset {
         let supports_personality = info.supports_personality();
         ModelPreset {
             id: info.slug.clone(),
-            model: info.slug.clone(),
+            slug: info.slug.clone(),
             display_name: info.display_name,
             description: info.description.unwrap_or_default(),
             default_reasoning_effort: info
@@ -516,12 +517,12 @@ impl ModelPreset {
 
         let remote_slugs: HashSet<&str> = remote_presets
             .iter()
-            .map(|preset| preset.model.as_str())
+            .map(|preset| preset.slug.as_str())
             .collect();
 
         let mut merged_presets = remote_presets.clone();
         for mut preset in existing_presets {
-            if remote_slugs.contains(preset.model.as_str()) {
+            if remote_slugs.contains(preset.slug.as_str()) {
                 continue;
             }
             preset.is_default = false;

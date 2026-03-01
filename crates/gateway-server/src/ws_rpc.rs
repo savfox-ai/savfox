@@ -8038,7 +8038,7 @@ async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
 
         let ok = models.iter().any(|preset| {
             preset.id == model_id
-                || preset.model == model_id
+                || preset.slug == model_id
                 || preset.display_name.eq_ignore_ascii_case(model_id)
         });
 

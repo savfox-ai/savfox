@@ -3838,7 +3838,7 @@ impl ChatScreen {
         let models = self.models_manager.try_list_models(&self.config).ok()?;
         models
             .iter()
-            .find(|preset| preset.show_in_picker && preset.model == NUDGE_MODEL_SLUG)
+            .find(|preset| preset.show_in_picker && preset.slug == NUDGE_MODEL_SLUG)
             .cloned()
     }
 
@@ -3869,7 +3869,7 @@ impl ChatScreen {
     }
 
     fn open_rate_limit_switch_prompt(&mut self, preset: ModelPreset) {
-        let switch_model = preset.model.to_string();
+        let switch_model = preset.slug.to_string();
         let display_name = preset.display_name.to_string();
         let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
 
@@ -4141,7 +4141,7 @@ impl ChatScreen {
 
         presets.retain(|preset| {
             preset
-                .model
+                .slug
                 .split_once('/')
                 .is_some_and(|(id, _)| id.eq_ignore_ascii_case(provider_id))
         });
@@ -4352,7 +4352,7 @@ impl ChatScreen {
     ) -> Vec<ModelProviderBucket> {
         let provider_ids: HashSet<String> = presets
             .iter()
-            .filter_map(|preset| preset.model.split_once('/'))
+            .filter_map(|preset| preset.slug.split_once('/'))
             .map(|(provider_id, _)| provider_id.trim())
             .filter(|provider_id| !provider_id.is_empty())
             .map(ToOwned::to_owned)
@@ -4482,7 +4482,7 @@ impl ChatScreen {
             return 0;
         }
 
-        if let Some((provider_id, _)) = preset.model.split_once('/')
+        if let Some((provider_id, _)) = preset.slug.split_once('/')
             && let Some(index) = buckets
                 .iter()
                 .position(|bucket| bucket.id.eq_ignore_ascii_case(provider_id))
@@ -4490,7 +4490,7 @@ impl ChatScreen {
             return index;
         }
 
-        let model_name = preset.model.to_ascii_lowercase();
+        let model_name = preset.slug.to_ascii_lowercase();
         let display_name = preset.display_name.to_ascii_lowercase();
         let mut best_match: Option<(usize, usize)> = None;
 
@@ -4533,27 +4533,27 @@ impl ChatScreen {
         let current_model = self.current_model();
         let current_label = presets
             .iter()
-            .find(|preset| Self::model_matches_current_selection(current_model, &preset.model))
+            .find(|preset| Self::model_matches_current_selection(current_model, &preset.slug))
             .map(|preset| preset.display_name.to_string())
             .unwrap_or_else(|| self.model_display_name().to_string());
 
         let (mut auto_presets, other_presets): (Vec<ModelPreset>, Vec<ModelPreset>) = presets
             .into_iter()
-            .partition(|preset| Self::is_auto_model(&preset.model));
+            .partition(|preset| Self::is_auto_model(&preset.slug));
 
         if auto_presets.is_empty() {
             self.open_all_models_popup(other_presets);
             return;
         }
 
-        auto_presets.sort_by_key(|preset| Self::auto_model_order(&preset.model));
+        auto_presets.sort_by_key(|preset| Self::auto_model_order(&preset.slug));
 
         let mut items: Vec<SelectionItem> = auto_presets
             .into_iter()
             .map(|preset| {
                 let description =
                     (!preset.description.is_empty()).then_some(preset.description.clone());
-                let model = preset.model.clone();
+                let model = preset.slug.clone();
                 let actions = Self::model_selection_actions(
                     model.clone(),
                     self.config.model_provider_id.clone(),
@@ -4684,12 +4684,12 @@ impl ChatScreen {
                 let description =
                     (!preset.description.is_empty()).then_some(preset.description.to_string());
                 let is_current =
-                    Self::model_matches_current_selection(current_model.as_str(), &preset.model);
+                    Self::model_matches_current_selection(current_model.as_str(), &preset.slug);
                 let single_supported_effort = preset.supported_reasoning_efforts.len() == 1;
                 let search_value = Some(
                     format!(
                         "{} {} {} {}",
-                        preset.display_name, preset.model, bucket.name, bucket.id
+                        preset.display_name, preset.slug, bucket.name, bucket.id
                     )
                     .to_ascii_lowercase(),
                 );
@@ -4842,9 +4842,9 @@ impl ChatScreen {
             let effort_label = Self::reasoning_effort_label(effort);
             format!("⚠ {effort_label} reasoning effort can quickly consume Plus plan rate limits.")
         });
-        let warn_for_model = preset.model.starts_with("gpt-5.1-codex")
-            || preset.model.starts_with("gpt-5.1-codex-max")
-            || preset.model.starts_with("gpt-5.2");
+        let warn_for_model = preset.slug.starts_with("gpt-5.1-codex")
+            || preset.slug.starts_with("gpt-5.1-codex-max")
+            || preset.slug.starts_with("gpt-5.2");
 
         struct EffortChoice {
             stored: Option<ReasoningEffortConfig>,
@@ -4868,9 +4868,9 @@ impl ChatScreen {
 
         if choices.len() == 1 {
             if let Some(effort) = choices.first().and_then(|c| c.stored) {
-                self.apply_model_and_effort(preset.model, Some(effort));
+                self.apply_model_and_effort(preset.slug, Some(effort));
             } else {
-                self.apply_model_and_effort(preset.model, None);
+                self.apply_model_and_effort(preset.slug, None);
             }
             return;
         }
@@ -4883,9 +4883,9 @@ impl ChatScreen {
             .or_else(|| choices.iter().find_map(|choice| choice.stored))
             .or(Some(default_effort));
 
-        let model_slug = preset.model.to_string();
+        let model_slug = preset.slug.to_string();
         let is_current_model =
-            Self::model_matches_current_selection(self.current_model(), &preset.model);
+            Self::model_matches_current_selection(self.current_model(), &preset.slug);
         let highlight_choice = if is_current_model {
             self.effective_reasoning_effort()
         } else {
@@ -5870,7 +5870,7 @@ impl ChatScreen {
             .and_then(|models| {
                 models
                     .into_iter()
-                    .find(|preset| preset.model == model)
+                    .find(|preset| preset.slug == model)
                     .map(|preset| preset.supports_personality)
             })
             .unwrap_or(false)
@@ -5888,7 +5888,7 @@ impl ChatScreen {
             .and_then(|models| {
                 models
                     .into_iter()
-                    .find(|preset| preset.model == model)
+                    .find(|preset| preset.slug == model)
                     .map(|preset| preset.input_modalities.contains(&InputModality::Image))
             })
             .unwrap_or(true)
@@ -6962,7 +6962,7 @@ fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPres
             let Some(preset) = provider_model_to_preset(provider_id, &model) else {
                 continue;
             };
-            if seen_models.insert(preset.model.clone()) {
+            if seen_models.insert(preset.slug.clone()) {
                 presets.push(preset);
             }
         }
@@ -7027,7 +7027,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
 
     Some(ModelPreset {
         id: model_id.clone(),
-        model: model_id,
+        slug: model_id,
         display_name,
         description,
         default_reasoning_effort,

@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -117,7 +117,7 @@ async fn renews_cache_ttl_on_matching_models_etag() -> Result<()> {
     assert!(
         offline_models
             .iter()
-            .any(|preset| preset.model == REMOTE_MODEL),
+            .any(|preset| preset.slug == REMOTE_MODEL),
         "offline listing should use renewed cache"
     );
 
@@ -160,7 +160,7 @@ async fn uses_cache_when_version_matches() -> Result<()> {
         .await;
 
     assert!(
-        models.iter().any(|preset| preset.model == VERSIONED_MODEL),
+        models.iter().any(|preset| preset.slug == VERSIONED_MODEL),
         "expected cached model"
     );
     assert_eq!(
@@ -208,7 +208,7 @@ async fn refreshes_when_cache_version_missing() -> Result<()> {
         .await;
 
     assert!(
-        models.iter().any(|preset| preset.model == "remote-missing"),
+        models.iter().any(|preset| preset.slug == "remote-missing"),
         "expected refreshed models"
     );
     assert_eq!(
@@ -259,7 +259,7 @@ async fn refreshes_when_cache_version_differs() -> Result<()> {
     assert!(
         models
             .iter()
-            .any(|preset| preset.model == "remote-different"),
+            .any(|preset| preset.slug == "remote-different"),
         "expected refreshed models"
     );
     assert_eq!(

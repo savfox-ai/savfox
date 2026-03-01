@@ -844,7 +844,7 @@ async fn wait_for_model_available(
         let models = manager
             .list_models(config, RefreshStrategy::OnlineIfUncached)
             .await;
-        if models.iter().any(|model| model.model == slug) {
+        if models.iter().any(|model| model.slug == slug) {
             return;
         }
         if Instant::now() >= deadline {

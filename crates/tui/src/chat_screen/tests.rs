@@ -1774,7 +1774,7 @@ fn get_available_model(chat: &ChatScreen, model: &str) -> ModelPreset {
         .expect("models lock available");
     models
         .iter()
-        .find(|&preset| preset.model == model)
+        .find(|&preset| preset.slug == model)
         .cloned()
         .unwrap_or_else(|| panic!("{model} preset not found"))
 }
@@ -3336,7 +3336,7 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     chat.session_id = Some(SessionId::new());
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
         id: slug.to_string(),
-        model: slug.to_string(),
+        slug: slug.to_string(),
         display_name: slug.to_string(),
         description: format!("{slug} description"),
         default_reasoning_effort: ReasoningEffortConfig::Medium,
@@ -3464,7 +3464,7 @@ fn provider_store_loader_parses_legacy_array_files() {
     let presets = load_provider_store_model_presets(savfox_home.path())
         .expect("models dir exists and should be read");
     assert_eq!(presets.len(), 1, "expected one parsed preset");
-    assert_eq!(presets[0].model, "legacy-provider/legacy-one");
+    assert_eq!(presets[0].slug, "legacy-provider/legacy-one");
     assert_eq!(presets[0].display_name, "Legacy One");
     assert!(presets[0].is_default);
 }
@@ -3689,7 +3689,7 @@ async fn single_reasoning_option_skips_selection() {
     }];
     let preset = ModelPreset {
         id: "model-with-single-reasoning".to_string(),
-        model: "model-with-single-reasoning".to_string(),
+        slug: "model-with-single-reasoning".to_string(),
         display_name: "model-with-single-reasoning".to_string(),
         description: "".to_string(),
         default_reasoning_effort: ReasoningEffortConfig::High,

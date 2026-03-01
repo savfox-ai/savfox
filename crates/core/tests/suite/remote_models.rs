@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 #![allow(clippy::expect_used)]
 // unified exec is not supported on Windows OS
 use std::sync::Arc;
@@ -97,7 +97,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     let available_model =
         wait_for_model_available(&models_manager, REMOTE_MODEL_SLUG, &config).await;
 
-    assert_eq!(available_model.model, REMOTE_MODEL_SLUG);
+    assert_eq!(available_model.slug, REMOTE_MODEL_SLUG);
 
     let requests = models_mock.requests();
     assert_eq!(
@@ -420,7 +420,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
         .await;
     let remote = available
         .iter()
-        .find(|model| model.model == "remote-alpha")
+        .find(|model| model.slug == "remote-alpha")
         .expect("remote model should be listed");
     let mut expected_remote: ModelPreset = remote_model.into();
     expected_remote.is_default = remote.is_default;
@@ -438,7 +438,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
     assert!(
         available
             .iter()
-            .any(|model| model.model == "gpt-5.1-savfox-max"),
+            .any(|model| model.slug == "gpt-5.1-savfox-max"),
         "builtin presets should remain available after refresh"
     );
     assert_eq!(
@@ -484,7 +484,7 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
         .await;
     assert_eq!(
-        available.first().map(|model| model.model.as_str()),
+        available.first().map(|model| model.slug.as_str()),
         Some("remote-top")
     );
     assert_eq!(
@@ -534,7 +534,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
         .await;
     let overridden = available
         .iter()
-        .find(|model| model.model == slug)
+        .find(|model| model.slug == slug)
         .expect("overlapping model should be listed");
     assert_eq!(overridden.display_name, remote_model.display_name);
     assert_eq!(
@@ -580,7 +580,7 @@ async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Res
         .await;
     let bundled_slug = bundled_model_slug();
     assert!(
-        available.iter().any(|model| model.model == bundled_slug),
+        available.iter().any(|model| model.slug == bundled_slug),
         "bundled models should remain available after empty remote response"
     );
     assert_eq!(
@@ -700,7 +700,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
         .await;
     let hidden = available
         .iter()
-        .find(|model| model.model == "savfox-auto-balanced")
+        .find(|model| model.slug == "savfox-auto-balanced")
         .expect("hidden remote model should be listed");
     assert!(!hidden.show_in_picker, "hidden models should remain hidden");
 
@@ -718,7 +718,7 @@ async fn wait_for_model_available(
             let guard = manager
                 .list_models(config, RefreshStrategy::OnlineIfUncached)
                 .await;
-            guard.iter().find(|model| model.model == slug).cloned()
+            guard.iter().find(|model| model.slug == slug).cloned()
         } {
             return model;
         }
