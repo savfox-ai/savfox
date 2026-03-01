@@ -19,7 +19,7 @@ use savfox_core::config_loader::ConfigLayerStackOrdering;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::models_manager::model_presets::{
-    HIDE_GPT_5_1_SAVFOX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
+    HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
 };
 use savfox_core::protocol::{
     AskForApproval, DeprecationNoticeEvent, Event, EventMsg, FinalOutput, ListSkillsResponseEvent,
@@ -399,7 +399,7 @@ fn should_show_model_migration_prompt(
 
 fn migration_prompt_hidden(config: &Config, migration_config_key: &str) -> bool {
     match migration_config_key {
-        HIDE_GPT_5_1_SAVFOX_MAX_MIGRATION_PROMPT_CONFIG => config
+        HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG => config
             .notices
             .hide_gpt_5_1_savfox_max_migration_prompt
             .unwrap_or(false),

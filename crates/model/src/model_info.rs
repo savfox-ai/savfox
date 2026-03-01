@@ -114,7 +114,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     } else if slug.starts_with("test-gpt-5") {
         model_info!(
             slug,
-            base_instructions: GPT_5_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_CODEX_INSTRUCTIONS.to_string(),
             experimental_supported_tools: vec![
                 "grep_files".to_string(),
                 "list_dir".to_string(),
@@ -130,13 +130,13 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     } else if slug.starts_with("exp-savfox") || slug.starts_with("savfox-1p") {
         model_info!(
             slug,
-            base_instructions: GPT_5_2_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
             model_messages: Some(ModelMessages {
-                instructions_template: Some(GPT_5_2_SAVFOX_INSTRUCTIONS_TEMPLATE.to_string()),
+                instructions_template: Some(GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE.to_string()),
                 instructions_variables: Some(ModelInstructionsVariables {
                     personality_default: Some("".to_string()),
-                    personality_friendly: Some(GPT_5_2_SAVFOX_PERSONALITY_FRIENDLY.to_string()),
-                    personality_pragmatic: Some(GPT_5_2_SAVFOX_PERSONALITY_PRAGMATIC.to_string()),
+                    personality_friendly: Some(GPT_5_2_CODEX_PERSONALITY_FRIENDLY.to_string()),
+                    personality_pragmatic: Some(GPT_5_2_CODEX_PERSONALITY_PRAGMATIC.to_string()),
                 }),
             }),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
@@ -164,7 +164,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     } else if slug.starts_with("gpt-5.2-codex") || slug.starts_with("bengalfox") {
         model_info!(
             slug,
-            base_instructions: GPT_5_2_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
@@ -173,20 +173,20 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh(),
-            base_instructions: GPT_5_2_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
             model_messages: Some(ModelMessages {
-                instructions_template: Some(GPT_5_2_SAVFOX_INSTRUCTIONS_TEMPLATE.to_string()),
+                instructions_template: Some(GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE.to_string()),
                 instructions_variables: Some(ModelInstructionsVariables {
                     personality_default: Some("".to_string()),
-                    personality_friendly: Some(GPT_5_2_SAVFOX_PERSONALITY_FRIENDLY.to_string()),
-                    personality_pragmatic: Some(GPT_5_2_SAVFOX_PERSONALITY_PRAGMATIC.to_string()),
+                    personality_friendly: Some(GPT_5_2_CODEX_PERSONALITY_FRIENDLY.to_string()),
+                    personality_pragmatic: Some(GPT_5_2_CODEX_PERSONALITY_PRAGMATIC.to_string()),
                 }),
             }),
         )
     } else if slug.starts_with("gpt-5.1-codex-max") {
         model_info!(
             slug,
-            base_instructions: GPT_5_1_SAVFOX_MAX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_1_CODEX_MAX_INSTRUCTIONS.to_string(),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: false,
@@ -203,7 +203,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     {
         model_info!(
             slug,
-            base_instructions: GPT_5_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_CODEX_INSTRUCTIONS.to_string(),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: false,
@@ -219,7 +219,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     {
         model_info!(
             slug,
-            base_instructions: GPT_5_SAVFOX_INSTRUCTIONS.to_string(),
+            base_instructions: GPT_5_CODEX_INSTRUCTIONS.to_string(),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: false,
