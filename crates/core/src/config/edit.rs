@@ -9,6 +9,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable
 
 use crate::config::CONFIG_TOML_FILE;
 use crate::config::types::{McpServerConfig, Notice};
+use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
 
 /// Discrete config mutations supported by the persistence engine.
@@ -261,6 +262,14 @@ impl ConfigDocument {
                     &["model"],
                     model.as_ref().map(|model_value| value(model_value.clone())),
                 );
+                if let Some(provider_id) = model
+                    .as_deref()
+                    .and_then(parse_provider_prefixed_model)
+                    .map(|(provider_id, _)| provider_id.to_string())
+                {
+                    mutated |=
+                        self.write_profile_value(&["model_provider"], Some(value(provider_id)));
+                }
                 mutated |= self.write_profile_value(
                     &["model_reasoning_effort"],
                     effort.map(|effort| value(effort.to_string())),
@@ -1155,6 +1164,69 @@ model_reasoning_effort = "minimal"
 model = "o5-preview"
 "#;
         assert_eq!(contents, expected);
+    }
+
+    #[test]
+    fn blocking_set_model_prefixed_updates_model_provider() {
+        let tmp = tempdir().expect("tmpdir");
+        let savfox_home = tmp.path();
+        std::fs::write(
+            savfox_home.join(CONFIG_TOML_FILE),
+            r#"model_provider = "openai"
+"#,
+        )
+        .expect("seed");
+
+        apply_blocking(
+            savfox_home,
+            None,
+            &[ConfigEdit::SetModel {
+                model: Some("zhipuai-coding-plan/glm-5".to_string()),
+                effort: None,
+            }],
+        )
+        .expect("persist");
+
+        let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&raw).expect("parse config");
+        assert_eq!(
+            value.get("model").and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan/glm-5")
+        );
+        assert_eq!(
+            value.get("model_provider").and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
+    }
+
+    #[test]
+    fn blocking_set_model_bare_preserves_existing_model_provider() {
+        let tmp = tempdir().expect("tmpdir");
+        let savfox_home = tmp.path();
+        std::fs::write(
+            savfox_home.join(CONFIG_TOML_FILE),
+            r#"model_provider = "zhipuai-coding-plan"
+"#,
+        )
+        .expect("seed");
+
+        apply_blocking(
+            savfox_home,
+            None,
+            &[ConfigEdit::SetModel {
+                model: Some("glm-5".to_string()),
+                effort: None,
+            }],
+        )
+        .expect("persist");
+
+        let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&raw).expect("parse config");
+        assert_eq!(value.get("model").and_then(|v| v.as_str()), Some("glm-5"));
+        assert_eq!(
+            value.get("model_provider").and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
     }
 
     #[test]

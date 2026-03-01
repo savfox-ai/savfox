@@ -50,6 +50,48 @@ async fn set_default_model_persists_overrides() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+async fn set_default_model_prefixed_updates_model_provider() -> Result<()> {
+    let savfox_home = TempDir::new()?;
+    std::fs::write(
+        savfox_home.path().join("config.toml"),
+        r#"
+model = "gpt-5.1-savfox-max"
+model_provider = "openai"
+"#,
+    )?;
+
+    let mut mcp = McpProcess::new(savfox_home.path()).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+
+    let params = SetDefaultModelParams {
+        model: Some("zhipuai-coding-plan/glm-5".to_string()),
+        reasoning_effort: None,
+    };
+    let request_id = mcp.send_set_default_model_request(params).await?;
+
+    let resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
+    )
+    .await??;
+    let _: SetDefaultModelResponse = to_response(resp)?;
+
+    let config_path = savfox_home.path().join("config.toml");
+    let config_contents = tokio::fs::read_to_string(&config_path).await?;
+    let config_toml: ConfigToml = toml::from_str(&config_contents)?;
+
+    assert_eq!(
+        ConfigToml {
+            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            model_provider: Some("zhipuai-coding-plan".to_string()),
+            ..Default::default()
+        },
+        config_toml
+    );
+    Ok(())
+}
+
 // Helper to create a config.toml; mirrors create_conversation.rs
 fn create_config_toml(savfox_home: &Path) -> std::io::Result<()> {
     let config_toml = savfox_home.join("config.toml");
