@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 pub mod auth;
 pub mod common;
 pub mod endpoint;

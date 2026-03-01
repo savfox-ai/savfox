@@ -1,4 +1,5 @@
 #![allow(unreachable_pub)]
+#![allow(missing_debug_implementations)]
 
 mod auth_status;
 mod logging_client_handler;

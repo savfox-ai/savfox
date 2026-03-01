@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 pub mod account;
 mod session_id;
 pub use session_id::SessionId;

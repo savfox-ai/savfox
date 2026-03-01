@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 pub mod config;
 pub mod metrics;
 pub mod otel_provider;

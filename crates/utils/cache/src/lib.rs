@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 use std::borrow::Borrow;
 use std::hash::Hash;
 use std::num::NonZeroUsize;

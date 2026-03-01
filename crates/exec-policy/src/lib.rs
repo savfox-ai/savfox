@@ -1,4 +1,5 @@
 #![allow(unsafe_code)]
+#![allow(missing_debug_implementations)]
 
 pub mod amend;
 pub mod decision;

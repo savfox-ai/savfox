@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 mod default_client;
 mod error;
 mod request;

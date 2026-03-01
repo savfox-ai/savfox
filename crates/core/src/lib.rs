@@ -5,6 +5,7 @@
 // the TUI or the tracing stack).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
+#![allow(missing_debug_implementations)]
 
 mod analytics_client;
 pub mod api_bridge;

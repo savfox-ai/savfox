@@ -1,3 +1,5 @@
+#![allow(missing_debug_implementations)]
+
 use std::fmt;
 use std::path::PathBuf;
 

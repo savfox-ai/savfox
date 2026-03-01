@@ -1,4 +1,5 @@
 #![allow(unreachable_pub)]
+#![allow(missing_debug_implementations)]
 
 mod experimental_api;
 mod export;
