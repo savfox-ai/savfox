@@ -1,4 +1,4 @@
-use savfox_provider_registry::{
+use savfox_model_registry::{
     canonical_provider_id as canonical_provider_registry_id,
     provider_default_base_url as shared_provider_default_base_url,
     provider_default_base_url_entry as shared_provider_default_base_url_entry,

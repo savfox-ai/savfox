@@ -11,9 +11,10 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
+use savfox_model_registry::provider_default_models;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
@@ -111,9 +112,30 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 tokens: auth.tokens.clone(),
                 last_refresh: auth.last_refresh,
             }),
-            models: Vec::new(),
+            models: default_chatgpt_models(),
         }
     }
+}
+
+fn default_chatgpt_models() -> Vec<Value> {
+    provider_default_models(CHATGPT_PROVIDER_ID)
+        .iter()
+        .map(|model| {
+            let provider_id = model
+                .id
+                .split_once('/')
+                .map(|(provider, _)| provider)
+                .unwrap_or("openai");
+            json!({
+                "id": model.id,
+                "name": model.name,
+                "provider": provider_id,
+                "model_code": model.code,
+                "is_default": model.is_default,
+                "builtin": true,
+            })
+        })
+        .collect()
 }
 
 impl ProviderStoreFile {
@@ -494,10 +516,14 @@ mod tests {
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");
+        let models = raw_file["models"]
+            .as_array()
+            .expect("provider store file should include a models array");
         assert!(
-            raw_file["models"].as_array().is_some(),
-            "provider store file should include a models array"
+            !models.is_empty(),
+            "provider store file should include default ChatGPT models"
         );
+        assert_eq!(models[0]["id"], "openai/gpt-5.2-savfox");
         Ok(())
     }
 

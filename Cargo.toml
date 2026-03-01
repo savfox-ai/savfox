@@ -76,7 +76,7 @@ savfox-debug-client = { version = "0.3.0", path = "crates/debug-client", default
 savfox-exec-server = { version = "0.3.0", path = "crates/exec-server", default-features = true }
 savfox-gateway-server = { version = "0.3.0", path = "crates/gateway-server", default-features = true }
 savfox-gateway-shared = { version = "0.3.0", path = "crates/gateway-shared", default-features = true }
-savfox-provider-registry = { version = "0.3.0", path = "crates/provider-registry", default-features = true }
+savfox-model-registry = { version = "0.3.0", path = "crates/model-registry", default-features = true }
 savfox-experimental-api-macros = { version = "0.3.0", path = "crates/codex-experimental-api-macros", default-features = true }
 savfox-git = { version = "0.3.0", path = "crates/utils/git", default-features = true }
 savfox-keyring-store = { version = "0.3.0", path = "crates/keyring-store", default-features = true }

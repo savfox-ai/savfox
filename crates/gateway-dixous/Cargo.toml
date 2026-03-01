@@ -8,7 +8,7 @@ documentation.workspace = true
 
 [dependencies]
 savfox-gateway-shared = { workspace = true }
-savfox-provider-registry = { workspace = true }
+savfox-model-registry = { workspace = true }
 dioxus = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

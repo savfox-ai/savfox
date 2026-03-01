@@ -2,8 +2,64 @@
 
 pub const DEFAULT_OPENAI_API_BASE_URL: &str = "https://api.openai.com/v1";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Model {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub code: &'static str,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Registry {
+    pub base_url: Option<&'static str>,
+    pub models: &'static [Model],
+}
+
+pub const OPENAI_DEFAULT_MODELS: [Model; 6] = [
+    Model {
+        id: "openai/gpt-5.2-codex",
+        name: "gpt-5.2-codex",
+        code: "gpt-5.2-codex",
+        is_default: true,
+    },
+    Model {
+        id: "openai/gpt-5.2",
+        name: "gpt-5.2",
+        code: "gpt-5.2",
+        is_default: false,
+    },
+    Model {
+        id: "openai/gpt-5.1-codex-max",
+        name: "gpt-5.1-codex-max",
+        code: "gpt-5.1-codex-max",
+        is_default: false,
+    },
+    Model {
+        id: "openai/gpt-5.1-codex-mini",
+        name: "gpt-5.1-codex-mini",
+        code: "gpt-5.1-codex-mini",
+        is_default: false,
+    },
+    Model {
+        id: "openai/o3",
+        name: "o3",
+        code: "o3",
+        is_default: false,
+    },
+    Model {
+        id: "openai/gpt-4.1",
+        name: "gpt-4.1",
+        code: "gpt-4.1",
+        is_default: false,
+    },
+];
+
+const EMPTY_PROVIDER_MODELS: [Model; 0] = [];
+
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
+        "chatgpt" | "chat-gpt" => "openai".to_string(),
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
@@ -121,15 +177,33 @@ pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
     provider_default_base_url_entry(provider_id).flatten()
 }
 
+pub fn provider_default_models(provider_id: &str) -> &'static [Model] {
+    let canonical = canonical_provider_id(provider_id);
+    match canonical.as_str() {
+        "openai" => &OPENAI_DEFAULT_MODELS,
+        _ => &EMPTY_PROVIDER_MODELS,
+    }
+}
+
+pub fn provider_registry(provider_id: &str) -> Option<Registry> {
+    let base_url = provider_default_base_url_entry(provider_id)?;
+    Some(Registry {
+        base_url,
+        models: provider_default_models(provider_id),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_OPENAI_API_BASE_URL, canonical_provider_id, provider_default_base_url,
-        provider_default_base_url_entry,
+        DEFAULT_OPENAI_API_BASE_URL, OPENAI_DEFAULT_MODELS, canonical_provider_id,
+        provider_default_base_url, provider_default_base_url_entry, provider_default_models,
+        provider_registry,
     };
 
     #[test]
     fn canonical_provider_aliases() {
+        assert_eq!(canonical_provider_id("chatgpt"), "openai");
         assert_eq!(canonical_provider_id("zhipu-ai"), "zhipuai");
         assert_eq!(
             canonical_provider_id("zhipu-ai-coding-plan"),
@@ -151,5 +225,19 @@ mod tests {
     fn provider_other_has_entry_but_no_default_url() {
         assert_eq!(provider_default_base_url_entry("other"), Some(None));
         assert_eq!(provider_default_base_url("other"), None);
+    }
+
+    #[test]
+    fn openai_default_models_exposed() {
+        assert_eq!(provider_default_models("openai"), OPENAI_DEFAULT_MODELS);
+        assert_eq!(provider_default_models("chatgpt"), OPENAI_DEFAULT_MODELS);
+        assert!(OPENAI_DEFAULT_MODELS[0].is_default);
+    }
+
+    #[test]
+    fn provider_registry_includes_base_url_and_models() {
+        let registry = provider_registry("openai").expect("openai should be known");
+        assert_eq!(registry.base_url, Some(DEFAULT_OPENAI_API_BASE_URL));
+        assert_eq!(registry.models, OPENAI_DEFAULT_MODELS);
     }
 }
