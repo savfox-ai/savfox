@@ -11,7 +11,6 @@ use additional_dirs::add_dir_warning_message;
 use app::App;
 pub use app::{AppExitInfo, ExitReason};
 use cwd_prompt::{CwdPromptAction, CwdSelection};
-use savfox_app_server_protocol::AuthMode;
 use savfox_cloud_requirements::cloud_requirements_loader;
 use savfox_common::oss::{
     ensure_oss_provider_ready, get_default_model_for_oss_provider, ollama_chat_deprecation_notice,
@@ -29,7 +28,7 @@ use savfox_core::protocol::AskForApproval;
 use savfox_core::terminal::Multiplexer;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
-    AuthManager, INTERACTIVE_SESSION_SOURCES, RolloutRecorder, SavfoxAuth, SessionSortKey,
+    AuthManager, INTERACTIVE_SESSION_SOURCES, RolloutRecorder, SessionSortKey,
     find_session_path_by_id_str, find_session_path_by_name_str, path_utils, read_session_meta_line,
 };
 use savfox_protocol::config_types::{AltScreenMode, SandboxMode, WindowsSandboxLevel};
@@ -109,6 +108,7 @@ pub use markdown_render::render_markdown_text;
 pub use public_widgets::composer_input::{ComposerAction, ComposerInput};
 
 use crate::onboarding::onboarding_screen::{OnboardingScreenArgs, run_onboarding_app};
+use crate::provider_connect::has_provider_store_configuration;
 use crate::tui::Tui;
 // (tests access modules directly within the crate)
 
@@ -455,17 +455,23 @@ async fn run_ratatui_app(
         false,
         initial_config.cli_auth_credentials_store_mode,
     );
-    let login_status = get_login_status(&initial_config);
+    let has_connected_provider = has_connected_provider(&initial_config);
     let should_show_trust_screen_flag = should_show_trust_screen(&initial_config);
-    let should_show_onboarding =
-        should_show_onboarding(login_status, &initial_config, should_show_trust_screen_flag);
+    let should_show_onboarding = should_show_onboarding(
+        &initial_config,
+        should_show_trust_screen_flag,
+        has_connected_provider,
+    );
 
     let config = if should_show_onboarding {
         let onboarding_result = run_onboarding_app(
             OnboardingScreenArgs {
-                show_login_screen: should_show_login_screen(login_status, &initial_config),
+                show_provider_setup_screen: should_show_provider_setup_screen(
+                    &initial_config,
+                    has_connected_provider,
+                ),
+                has_connected_provider,
                 show_trust_screen: should_show_trust_screen_flag,
-                login_status,
                 auth_manager: auth_manager.clone(),
                 config: initial_config.clone(),
             },
@@ -825,30 +831,6 @@ fn determine_alt_screen_mode(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LoginStatus {
-    AuthMode(AuthMode),
-    NotAuthenticated,
-}
-
-fn get_login_status(config: &Config) -> LoginStatus {
-    if config.model_provider.requires_openai_auth {
-        // Reading the OpenAI API key is an async operation because it may need
-        // to refresh the token. Block on it.
-        let savfox_home = config.savfox_home.clone();
-        match SavfoxAuth::from_auth_storage(&savfox_home, config.cli_auth_credentials_store_mode) {
-            Ok(Some(auth)) => LoginStatus::AuthMode(auth.api_auth_mode()),
-            Ok(None) => LoginStatus::NotAuthenticated,
-            Err(err) => {
-                error!("Failed to read auth storage: {err}");
-                LoginStatus::NotAuthenticated
-            }
-        }
-    } else {
-        LoginStatus::NotAuthenticated
-    }
-}
-
 async fn load_config_or_exit(
     cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
@@ -901,25 +883,31 @@ fn should_show_trust_screen(config: &Config) -> bool {
 }
 
 fn should_show_onboarding(
-    login_status: LoginStatus,
     config: &Config,
     show_trust_screen: bool,
+    has_connected_provider: bool,
 ) -> bool {
     if show_trust_screen {
         return true;
     }
 
-    should_show_login_screen(login_status, config)
+    should_show_provider_setup_screen(config, has_connected_provider)
 }
 
-fn should_show_login_screen(login_status: LoginStatus, config: &Config) -> bool {
-    // Only show the login screen for providers that actually require OpenAI auth
-    // (OpenAI or equivalents). For OSS/other providers, skip login entirely.
-    if !config.model_provider.requires_openai_auth {
+fn has_connected_provider(config: &Config) -> bool {
+    has_provider_store_configuration(config.savfox_home.as_path())
+}
+
+fn should_show_provider_setup_screen(config: &Config, has_connected_provider: bool) -> bool {
+    if has_connected_provider {
         return false;
     }
 
-    login_status == LoginStatus::NotAuthenticated
+    let has_configured_model = config
+        .model
+        .as_ref()
+        .is_some_and(|model| !model.trim().is_empty());
+    !has_configured_model
 }
 
 #[cfg(test)]
@@ -1196,6 +1184,35 @@ trust_level = "untrusted"
 
         let cwd = read_session_cwd(&rollout_path).await.expect("expected cwd");
         assert_eq!(cwd, session_cwd);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn skips_provider_setup_when_provider_store_is_configured() -> std::io::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config = build_config(&temp_dir).await?;
+        let models_dir = temp_dir.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("zhipuai-coding-plan.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "zhipuai-coding-plan",
+  "display_name": "ZhipuAI Coding Plan",
+  "auth": {
+    "type": "api_key",
+    "env_key": "ZHIPUAI_API_KEY",
+    "api_key": "sk-test-zhipu"
+  },
+  "models": [
+    { "id": "zhipuai-coding-plan/glm-5", "is_default": true }
+  ]
+}"#,
+        )?;
+
+        let connected = has_connected_provider(&config);
+        assert!(connected);
+        assert!(!should_show_provider_setup_screen(&config, connected));
         Ok(())
     }
 }

@@ -337,6 +337,46 @@ pub(crate) fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str)
         .and_then(|api_key| trim_nonempty(&api_key))
 }
 
+pub(crate) fn has_provider_store_configuration(savfox_home: &Path) -> bool {
+    let dir = provider_models_store_dir(savfox_home);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            return false;
+        }
+
+        let provider_id = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("")
+            .trim();
+        if provider_id.is_empty() {
+            return false;
+        }
+
+        let file = load_provider_store_file(savfox_home, provider_id);
+        let has_models = !file.models.is_empty();
+        let has_api_key = file
+            .auth
+            .as_ref()
+            .and_then(|auth| auth.api_key.as_deref())
+            .is_some_and(|value| !value.trim().is_empty());
+        let has_auth_object = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<Value>(&data).ok())
+            .and_then(|json| json.get("auth").cloned())
+            .is_some_and(|auth| {
+                !auth.is_null() && !auth.as_object().is_some_and(|obj| obj.is_empty())
+            });
+
+        has_models || has_api_key || has_auth_object
+    })
+}
+
 #[derive(Debug)]
 struct RemoteModelsHttpResponse {
     url: String,
@@ -820,5 +860,68 @@ mod tests {
             read_provider_store_api_key(&savfox_home, "anthropic").as_deref(),
             Some("sk-anthropic")
         );
+    }
+
+    #[test]
+    fn has_provider_store_configuration_detects_saved_provider() {
+        let tmp = TempDir::new().expect("temp root");
+        let savfox_home = tmp.path().join(".savfox");
+        std::fs::create_dir_all(&savfox_home).expect("create savfox home");
+        let models_dir = savfox_home.join("models");
+        std::fs::create_dir_all(&models_dir).expect("create models dir");
+        std::fs::write(
+            models_dir.join("zhipuai-coding-plan.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "zhipuai-coding-plan",
+  "display_name": "ZhipuAI Coding Plan",
+  "auth": {
+    "type": "api_key",
+    "env_key": "ZHIPUAI_API_KEY",
+    "api_key": "sk-test-zhipu"
+  },
+  "models": [
+    { "id": "zhipuai-coding-plan/glm-5", "is_default": true }
+  ]
+}"#,
+        )
+        .expect("write provider file");
+
+        assert!(has_provider_store_configuration(&savfox_home));
+    }
+
+    #[test]
+    fn has_provider_store_configuration_is_false_without_models_dir() {
+        let tmp = TempDir::new().expect("temp root");
+        let savfox_home = tmp.path().join(".savfox");
+        std::fs::create_dir_all(&savfox_home).expect("create savfox home");
+        assert!(!has_provider_store_configuration(&savfox_home));
+    }
+
+    #[test]
+    fn has_provider_store_configuration_detects_chatgpt_token_store() {
+        let tmp = TempDir::new().expect("temp root");
+        let savfox_home = tmp.path().join(".savfox");
+        let models_dir = savfox_home.join("models");
+        std::fs::create_dir_all(&models_dir).expect("create models dir");
+        std::fs::write(
+            models_dir.join("chatgpt.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "chatgpt",
+  "display_name": "ChatGPT",
+  "auth": {
+    "auth_mode": "chatgpt",
+    "tokens": {
+      "id_token": "id-token",
+      "access_token": "access-token"
+    }
+  },
+  "models": []
+}"#,
+        )
+        .expect("write chatgpt provider file");
+
+        assert!(has_provider_store_configuration(&savfox_home));
     }
 }

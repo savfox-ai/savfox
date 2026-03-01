@@ -12,7 +12,6 @@ use savfox_core::config::Config;
 use savfox_core::git_info::get_git_repo_root;
 use savfox_protocol::config_types::ForcedLoginMethod;
 
-use crate::LoginStatus;
 use crate::onboarding::auth::{AuthModeWidget, SignInOption, SignInState};
 use crate::onboarding::trust_directory::{TrustDirectorySelection, TrustDirectoryWidget};
 use crate::onboarding::welcome::WelcomeWidget;
@@ -50,8 +49,8 @@ pub(crate) struct OnboardingScreen {
 
 pub(crate) struct OnboardingScreenArgs {
     pub show_trust_screen: bool,
-    pub show_login_screen: bool,
-    pub login_status: LoginStatus,
+    pub show_provider_setup_screen: bool,
+    pub has_connected_provider: bool,
     pub auth_manager: Arc<AuthManager>,
     pub config: Config,
 }
@@ -65,8 +64,8 @@ impl OnboardingScreen {
     pub(crate) fn new(tui: &mut Tui, args: OnboardingScreenArgs) -> Self {
         let OnboardingScreenArgs {
             show_trust_screen,
-            show_login_screen,
-            login_status,
+            show_provider_setup_screen,
+            has_connected_provider,
             auth_manager,
             config,
         } = args;
@@ -77,11 +76,11 @@ impl OnboardingScreen {
         let cli_auth_credentials_store_mode = config.cli_auth_credentials_store_mode;
         let mut steps: Vec<Step> = Vec::new();
         steps.push(Step::Welcome(WelcomeWidget::new(
-            !matches!(login_status, LoginStatus::NotAuthenticated),
+            has_connected_provider,
             tui.frame_requester(),
             config.animations,
         )));
-        if show_login_screen {
+        if show_provider_setup_screen {
             let highlighted_mode = match forced_login_method {
                 Some(ForcedLoginMethod::Api) => SignInOption::ApiKey,
                 _ => SignInOption::ChatGpt,
@@ -95,7 +94,6 @@ impl OnboardingScreen {
                 sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
                 savfox_home: savfox_home.clone(),
                 cli_auth_credentials_store_mode,
-                login_status,
                 auth_manager,
                 model_providers: config.model_providers.clone(),
                 active_profile: config.active_profile.clone(),

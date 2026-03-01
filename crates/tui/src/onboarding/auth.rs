@@ -11,7 +11,6 @@ use ratatui::prelude::Widget;
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, WidgetRef, Wrap};
-use savfox_app_server_protocol::AuthMode;
 use savfox_core::auth::{AuthCredentialsStoreMode, CLIENT_ID};
 use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
 use savfox_core::{AuthManager, ModelProviderInfo};
@@ -21,7 +20,6 @@ use tokio::sync::Notify;
 use toml_edit::value as toml_edit_value;
 
 use super::onboarding_screen::StepState;
-use crate::LoginStatus;
 use crate::onboarding::onboarding_screen::{KeyboardHandler, StepStateProvider};
 use crate::provider_connect::{
     ConnectProviderCandidate, ProviderConnectRuntimeAuth, connect_provider,
@@ -160,7 +158,6 @@ pub(crate) struct AuthModeWidget {
     pub sign_in_state: Arc<RwLock<SignInState>>,
     pub savfox_home: PathBuf,
     pub cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
-    pub login_status: LoginStatus,
     pub auth_manager: Arc<AuthManager>,
     pub model_providers: HashMap<String, ModelProviderInfo>,
     pub active_profile: Option<String>,
@@ -925,10 +922,11 @@ impl AuthModeWidget {
     }
 
     fn handle_existing_chatgpt_login(&mut self) -> bool {
-        if matches!(
-            self.login_status,
-            LoginStatus::AuthMode(AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens)
-        ) {
+        if self
+            .auth_manager
+            .auth_cached()
+            .is_some_and(|auth| auth.is_chatgpt_auth())
+        {
             *self.sign_in_state.write().unwrap() = SignInState::ChatGptSuccessMessage;
             self.request_frame.schedule_frame();
             true
@@ -1114,7 +1112,6 @@ mod tests {
             sign_in_state: Arc::new(RwLock::new(SignInState::PickMode)),
             savfox_home: savfox_home_path.clone(),
             cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-            login_status: LoginStatus::NotAuthenticated,
             auth_manager: AuthManager::shared(
                 savfox_home_path,
                 false,
@@ -1153,6 +1150,5 @@ mod tests {
             &*widget.sign_in_state.read().unwrap(),
             SignInState::OpenAiAuthMethod
         ));
-        assert_eq!(widget.login_status, LoginStatus::NotAuthenticated);
     }
 }
