@@ -76,7 +76,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             supports_reasoning_summaries: true,
             context_window: Some(200_000),
         )
-    } else if slug.starts_with("savfox-mini-latest") {
+    } else if slug.starts_with("gpt-mini-latest") {
         model_info!(
             slug,
             base_instructions: BASE_INSTRUCTIONS_WITH_APPLY_PATCH.to_string(),
@@ -161,7 +161,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             supports_parallel_tool_calls: true,
             context_window: Some(CONTEXT_WINDOW_272K),
         )
-    } else if slug.starts_with("gpt-5.2-savfox") || slug.starts_with("bengalfox") {
+    } else if slug.starts_with("gpt-5.2-codex") || slug.starts_with("bengalfox") {
         model_info!(
             slug,
             base_instructions: GPT_5_2_SAVFOX_INSTRUCTIONS.to_string(),
@@ -183,7 +183,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
                 }),
             }),
         )
-    } else if slug.starts_with("gpt-5.1-savfox-max") {
+    } else if slug.starts_with("gpt-5.1-codex-max") {
         model_info!(
             slug,
             base_instructions: GPT_5_1_SAVFOX_MAX_INSTRUCTIONS.to_string(),
@@ -196,9 +196,9 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh(),
         )
-    } else if (slug.starts_with("gpt-5-savfox")
-        || slug.starts_with("gpt-5.1-savfox")
-        || slug.starts_with("savfox-"))
+    } else if (slug.starts_with("gpt-5-codex")
+        || slug.starts_with("gpt-5.1-codex")
+        || slug.starts_with("codex-"))
         && !slug.contains("-mini")
     {
         model_info!(
@@ -213,9 +213,9 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             context_window: Some(CONTEXT_WINDOW_272K),
             supported_reasoning_levels: supported_reasoning_level_low_medium_high(),
         )
-    } else if slug.starts_with("gpt-5-savfox")
-        || slug.starts_with("gpt-5.1-savfox")
-        || slug.starts_with("savfox-")
+    } else if slug.starts_with("gpt-5-codex")
+        || slug.starts_with("gpt-5.1-codex")
+        || slug.starts_with("codex-")
     {
         model_info!(
             slug,

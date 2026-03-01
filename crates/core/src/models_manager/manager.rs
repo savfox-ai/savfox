@@ -288,7 +288,8 @@ impl ModelsManager {
     }
 
     fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
-        let response = savfox_model_registry::bundled_models_response().map_err(std::io::Error::other)?;
+        let response =
+            savfox_model_registry::bundled_models_response().map_err(std::io::Error::other)?;
         Ok(response.models)
     }
 

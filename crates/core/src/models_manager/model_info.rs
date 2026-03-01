@@ -17,7 +17,8 @@ pub(crate) fn with_config_overrides(mut model: ModelInfo, config: &Config) -> Mo
     if let Some(token_limit) = config.tool_output_token_limit {
         model.truncation_policy = match model.truncation_policy.mode {
             TruncationMode::Bytes => {
-                let byte_limit = i64::try_from(approx_bytes_for_tokens(token_limit)).unwrap_or(i64::MAX);
+                let byte_limit =
+                    i64::try_from(approx_bytes_for_tokens(token_limit)).unwrap_or(i64::MAX);
                 TruncationPolicyConfig::bytes(byte_limit)
             }
             TruncationMode::Tokens => {

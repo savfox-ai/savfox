@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
-use savfox_model_registry::provider_default_models;
+use savfox_model_registry::{
+    canonical_provider_id, provider_default_model_slug, provider_default_models,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -118,20 +120,18 @@ impl From<&AuthDotJson> for ProviderStoreFile {
 }
 
 fn default_chatgpt_models() -> Vec<Value> {
+    let provider_id = canonical_provider_id(CHATGPT_PROVIDER_ID);
+    let default_slug = provider_default_model_slug(CHATGPT_PROVIDER_ID);
+
     provider_default_models(CHATGPT_PROVIDER_ID)
         .iter()
         .map(|model| {
-            let provider_id = model
-                .id
-                .split_once('/')
-                .map(|(provider, _)| provider)
-                .unwrap_or("openai");
             json!({
-                "id": model.id,
-                "name": model.name,
-                "provider": provider_id,
-                "model_code": model.code,
-                "is_default": model.is_default,
+                "id": format!("{provider_id}/{}", model.slug),
+                "name": model.display_name,
+                "provider": provider_id.as_str(),
+                "model_code": model.slug,
+                "is_default": default_slug == Some(model.slug.as_str()),
                 "builtin": true,
             })
         })
@@ -523,7 +523,7 @@ mod tests {
             !models.is_empty(),
             "provider store file should include default ChatGPT models"
         );
-        assert_eq!(models[0]["id"], "openai/gpt-5.2-savfox");
+        assert_eq!(models[0]["id"], "openai/gpt-5.2-codex");
         Ok(())
     }
 

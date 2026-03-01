@@ -208,28 +208,86 @@ const fn default_effective_context_window_percent() -> i64 {
     95
 }
 
+fn default_supported_reasoning_levels() -> Vec<ReasoningEffortPreset> {
+    Vec::new()
+}
+
+const fn default_shell_type() -> ConfigShellToolType {
+    ConfigShellToolType::Default
+}
+
+const fn default_visibility() -> ModelVisibility {
+    ModelVisibility::None
+}
+
+const fn default_supported_in_api() -> bool {
+    true
+}
+
+const fn default_priority() -> i32 {
+    99
+}
+
+fn default_base_instructions() -> String {
+    String::new()
+}
+
+const fn default_supports_reasoning_summaries() -> bool {
+    false
+}
+
+const fn default_support_verbosity() -> bool {
+    false
+}
+
+fn default_truncation_policy() -> TruncationPolicyConfig {
+    TruncationPolicyConfig::bytes(10_000)
+}
+
+const fn default_supports_parallel_tool_calls() -> bool {
+    false
+}
+
+fn default_experimental_supported_tools() -> Vec<String> {
+    Vec::new()
+}
+
 /// Model metadata returned by the Savfox backend `/models` endpoint.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelInfo {
     pub slug: String,
     pub display_name: String,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_reasoning_level: Option<ReasoningEffort>,
+    #[serde(default = "default_supported_reasoning_levels")]
     pub supported_reasoning_levels: Vec<ReasoningEffortPreset>,
+    #[serde(default = "default_shell_type")]
     pub shell_type: ConfigShellToolType,
+    #[serde(default = "default_visibility")]
     pub visibility: ModelVisibility,
+    #[serde(default = "default_supported_in_api")]
     pub supported_in_api: bool,
+    #[serde(default = "default_priority")]
     pub priority: i32,
+    #[serde(default)]
     pub upgrade: Option<ModelInfoUpgrade>,
+    #[serde(default = "default_base_instructions")]
     pub base_instructions: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_messages: Option<ModelMessages>,
+    #[serde(default = "default_supports_reasoning_summaries")]
     pub supports_reasoning_summaries: bool,
+    #[serde(default = "default_support_verbosity")]
     pub support_verbosity: bool,
+    #[serde(default)]
     pub default_verbosity: Option<Verbosity>,
+    #[serde(default)]
     pub apply_patch_tool_type: Option<ApplyPatchToolType>,
+    #[serde(default = "default_truncation_policy")]
     pub truncation_policy: TruncationPolicyConfig,
+    #[serde(default = "default_supports_parallel_tool_calls")]
     pub supports_parallel_tool_calls: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<i64>,
@@ -241,13 +299,52 @@ pub struct ModelInfo {
     /// reserving headroom for system prompts, tool overhead, and model output.
     #[serde(default = "default_effective_context_window_percent")]
     pub effective_context_window_percent: i64,
+    #[serde(default = "default_experimental_supported_tools")]
     pub experimental_supported_tools: Vec<String>,
     /// Input modalities accepted by the backend for this model.
     #[serde(default = "default_input_modalities")]
     pub input_modalities: Vec<InputModality>,
 }
 
+impl Default for ModelInfo {
+    fn default() -> Self {
+        Self {
+            slug: String::new(),
+            display_name: String::new(),
+            description: None,
+            default_reasoning_level: None,
+            supported_reasoning_levels: default_supported_reasoning_levels(),
+            shell_type: default_shell_type(),
+            visibility: default_visibility(),
+            supported_in_api: default_supported_in_api(),
+            priority: default_priority(),
+            upgrade: None,
+            base_instructions: default_base_instructions(),
+            model_messages: None,
+            supports_reasoning_summaries: default_supports_reasoning_summaries(),
+            support_verbosity: default_support_verbosity(),
+            default_verbosity: None,
+            apply_patch_tool_type: None,
+            truncation_policy: default_truncation_policy(),
+            supports_parallel_tool_calls: default_supports_parallel_tool_calls(),
+            context_window: None,
+            auto_compact_token_limit: None,
+            effective_context_window_percent: default_effective_context_window_percent(),
+            experimental_supported_tools: default_experimental_supported_tools(),
+            input_modalities: default_input_modalities(),
+        }
+    }
+}
+
 impl ModelInfo {
+    pub fn new(slug: impl Into<String>, display_name: impl Into<String>) -> Self {
+        Self {
+            slug: slug.into(),
+            display_name: display_name.into(),
+            ..Self::default()
+        }
+    }
+
     pub fn auto_compact_token_limit(&self) -> Option<i64> {
         self.auto_compact_token_limit.or_else(|| {
             self.context_window
@@ -475,6 +572,7 @@ fn nearest_effort(target: ReasoningEffort, supported: &[ReasoningEffort]) -> Rea
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use serde_json::json;
 
     use super::*;
 
@@ -638,5 +736,40 @@ mod tests {
             Some("pragmatic".to_string())
         );
         assert_eq!(personality_variables.get_personality_message(None), None);
+    }
+
+    #[test]
+    fn model_info_new_sets_required_fields_and_defaults_the_rest() {
+        let model = ModelInfo::new("gpt-test", "GPT Test");
+
+        assert_eq!(model.slug, "gpt-test");
+        assert_eq!(model.display_name, "GPT Test");
+        assert_eq!(model.priority, 99);
+        assert!(model.supported_in_api);
+        assert_eq!(model.visibility, ModelVisibility::None);
+        assert_eq!(model.shell_type, ConfigShellToolType::Default);
+    }
+
+    #[test]
+    fn deserialize_model_info_with_only_required_fields_uses_defaults() {
+        let value = json!({
+            "slug": "gpt-test",
+            "display_name": "GPT Test"
+        });
+        let model: ModelInfo = serde_json::from_value(value).expect("model should deserialize");
+
+        assert_eq!(model.slug, "gpt-test");
+        assert_eq!(model.display_name, "GPT Test");
+        assert_eq!(model.priority, 99);
+        assert!(model.supported_in_api);
+        assert_eq!(
+            model.supported_reasoning_levels,
+            Vec::<ReasoningEffortPreset>::new()
+        );
+        assert_eq!(
+            model.truncation_policy,
+            TruncationPolicyConfig::bytes(10_000)
+        );
+        assert_eq!(model.input_modalities, default_input_modalities());
     }
 }

@@ -3,6 +3,9 @@
 mod bundled_models;
 mod model_info;
 
+use once_cell::sync::Lazy;
+use savfox_protocol::openai_models::ModelInfo;
+
 pub const DEFAULT_OPENAI_API_BASE_URL: &str = "https://api.openai.com/v1";
 pub use bundled_models::{bundled_models, bundled_models_json, bundled_models_response};
 pub use model_info::{
@@ -10,59 +13,33 @@ pub use model_info::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Model {
-    pub id: &'static str,
-    pub slug: &'static str,
-    pub display_name: &'static str,
-    pub is_default: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Provider {
     pub base_url: Option<&'static str>,
-    pub models: &'static [Model],
+    pub models: &'static [ModelInfo],
 }
 
-pub const OPENAI_DEFAULT_MODELS: [Model; 6] = [
-    Model {
-        id: "openai/gpt-5.2-codex",
-        slug: "gpt-5.2-codex",
-        display_name: "gpt-5.2-codex",
-        is_default: true,
-    },
-    Model {
-        id: "openai/gpt-5.2",
-        slug: "gpt-5.2",
-        display_name: "gpt-5.2",
-        is_default: false,
-    },
-    Model {
-        id: "openai/gpt-5.1-codex-max",
-        slug: "gpt-5.1-codex-max",
-        display_name: "gpt-5.1-codex-max",
-        is_default: false,
-    },
-    Model {
-        id: "openai/gpt-5.1-codex-mini",
-        slug: "gpt-5.1-codex-mini",
-        display_name: "gpt-5.1-codex-mini",
-        is_default: false,
-    },
-    Model {
-        id: "openai/o3",
-        slug: "o3",
-        display_name: "o3",
-        is_default: false,
-    },
-    Model {
-        id: "openai/gpt-4.1",
-        slug: "gpt-4.1",
-        display_name: "gpt-4.1",
-        is_default: false,
-    },
-];
+const OPENAI_DEFAULT_MODEL_SLUG: &str = "gpt-5.2-codex";
+const EMPTY_PROVIDER_MODELS: &[ModelInfo] = &[];
 
-const EMPTY_PROVIDER_MODELS: [Model; 0] = [];
+/// Build a `ModelInfo` using model-registry defaults, while requiring only the
+/// fields needed for provider model lists.
+pub fn model_info_with_defaults(slug: &str, display_name: &str) -> ModelInfo {
+    let mut model = find_model_info_for_slug(slug);
+    model.slug = slug.to_string();
+    model.display_name = display_name.to_string();
+    model
+}
+
+pub static OPENAI_DEFAULT_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
+    vec![
+        model_info_with_defaults("gpt-5.2-codex", "gpt-5.2-codex"),
+        model_info_with_defaults("gpt-5.2", "gpt-5.2"),
+        model_info_with_defaults("gpt-5.1-codex-max", "gpt-5.1-codex-max"),
+        model_info_with_defaults("gpt-5.1-codex-mini", "gpt-5.1-codex-mini"),
+        model_info_with_defaults("o3", "o3"),
+        model_info_with_defaults("gpt-4.1", "gpt-4.1"),
+    ]
+});
 
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
@@ -184,11 +161,19 @@ pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
     provider_default_base_url_entry(provider_id).flatten()
 }
 
-pub fn provider_default_models(provider_id: &str) -> &'static [Model] {
+pub fn provider_default_models(provider_id: &str) -> &'static [ModelInfo] {
     let canonical = canonical_provider_id(provider_id);
     match canonical.as_str() {
-        "openai" => &OPENAI_DEFAULT_MODELS,
-        _ => &EMPTY_PROVIDER_MODELS,
+        "openai" => OPENAI_DEFAULT_MODELS.as_slice(),
+        _ => EMPTY_PROVIDER_MODELS,
+    }
+}
+
+pub fn provider_default_model_slug(provider_id: &str) -> Option<&'static str> {
+    let canonical = canonical_provider_id(provider_id);
+    match canonical.as_str() {
+        "openai" => Some(OPENAI_DEFAULT_MODEL_SLUG),
+        _ => None,
     }
 }
 
@@ -204,8 +189,8 @@ pub fn provider_registry(provider_id: &str) -> Option<Provider> {
 mod tests {
     use super::{
         DEFAULT_OPENAI_API_BASE_URL, OPENAI_DEFAULT_MODELS, canonical_provider_id,
-        provider_default_base_url, provider_default_base_url_entry, provider_default_models,
-        provider_registry,
+        provider_default_base_url, provider_default_base_url_entry, provider_default_model_slug,
+        provider_default_models, provider_registry,
     };
 
     #[test]
@@ -236,15 +221,24 @@ mod tests {
 
     #[test]
     fn openai_default_models_exposed() {
-        assert_eq!(provider_default_models("openai"), OPENAI_DEFAULT_MODELS);
-        assert_eq!(provider_default_models("chatgpt"), OPENAI_DEFAULT_MODELS);
-        assert!(OPENAI_DEFAULT_MODELS[0].is_default);
+        assert_eq!(
+            provider_default_models("openai"),
+            OPENAI_DEFAULT_MODELS.as_slice()
+        );
+        assert_eq!(
+            provider_default_models("chatgpt"),
+            OPENAI_DEFAULT_MODELS.as_slice()
+        );
+        assert_eq!(
+            provider_default_model_slug("openai"),
+            Some(OPENAI_DEFAULT_MODELS[0].slug.as_str())
+        );
     }
 
     #[test]
     fn provider_registry_includes_base_url_and_models() {
         let registry = provider_registry("openai").expect("openai should be known");
         assert_eq!(registry.base_url, Some(DEFAULT_OPENAI_API_BASE_URL));
-        assert_eq!(registry.models, OPENAI_DEFAULT_MODELS);
+        assert_eq!(registry.models, OPENAI_DEFAULT_MODELS.as_slice());
     }
 }
