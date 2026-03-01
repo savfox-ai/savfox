@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use savfox_gateway_shared::{derive_session_label, short_id};
+use savfox_gateway_shared::derive_session_label;
 use serde_json::{Value, json};
 
 use crate::api::client::stream_chat;
@@ -583,7 +583,15 @@ pub fn Sessions() -> Element {
     let active_session_id = current_session_id();
     let active_session_label = active_session_id
         .as_deref()
-        .map(short_id)
+        .and_then(|session_id| {
+            sessions
+                .iter()
+                .find(|entry| {
+                    entry.session_id.as_deref() == Some(session_id)
+                        || entry.id.as_deref() == Some(session_id)
+                })
+                .map(SessionEntry::display_label)
+        })
         .unwrap_or_else(|| "Draft Session".to_string());
 
     let msgs: Vec<ChatMessage> = messages.read().clone();

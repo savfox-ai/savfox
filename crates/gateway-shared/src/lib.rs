@@ -97,6 +97,7 @@ pub struct SessionEntry {
     pub id: Option<String>,
     pub scope: Option<String>,
     pub label: Option<String>,
+    pub title: Option<String>,
     pub subject: Option<String>,
     pub sender: Option<SessionSender>,
     pub last_activity: Option<String>,
@@ -126,6 +127,7 @@ impl SessionEntry {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(ToString::to_string)
+            .or_else(|| self.title.clone())
             .or_else(|| self.subject.clone())
             .or_else(|| self.sender.as_ref().and_then(|s| s.display_name.clone()))
             .unwrap_or_else(|| short_id(&self.display_id()))
