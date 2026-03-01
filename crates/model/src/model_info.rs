@@ -10,19 +10,19 @@ pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
 pub const BASE_INSTRUCTIONS_WITH_APPLY_PATCH: &str =
     include_str!("../prompt_with_apply_patch_instructions.md");
 
-const GPT_5_SAVFOX_INSTRUCTIONS: &str = include_str!("../gpt_5_savfox_prompt.md");
-const GPT_5_1_INSTRUCTIONS: &str = include_str!("../gpt_5_1_prompt.md");
-const GPT_5_2_INSTRUCTIONS: &str = include_str!("../gpt_5_2_prompt.md");
-const GPT_5_1_SAVFOX_MAX_INSTRUCTIONS: &str = include_str!("../gpt-5.1-savfox-max_prompt.md");
+const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../gpt-5-codex_prompt.md");
+const GPT_5_1_INSTRUCTIONS: &str = include_str!("../gpt-5.1_prompt.md");
+const GPT_5_2_INSTRUCTIONS: &str = include_str!("../gpt-5.2_prompt.md");
+const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str = include_str!("../gpt-5.1-codex-max_prompt.md");
 
-const GPT_5_2_SAVFOX_INSTRUCTIONS: &str = include_str!("../gpt-5.2-savfox_prompt.md");
-const GPT_5_2_SAVFOX_INSTRUCTIONS_TEMPLATE: &str =
-    include_str!("../templates/model_instructions/gpt-5.2-savfox_instructions_template.md");
+const GPT_5_2_CODEX_INSTRUCTIONS: &str = include_str!("../gpt-5.2-codex_prompt.md");
+const GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE: &str =
+    include_str!("../templates/model_instructions/gpt-5.2-codex_instructions_template.md");
 
-const GPT_5_2_SAVFOX_PERSONALITY_FRIENDLY: &str =
-    include_str!("../templates/personalities/gpt-5.2-savfox_friendly.md");
-const GPT_5_2_SAVFOX_PERSONALITY_PRAGMATIC: &str =
-    include_str!("../templates/personalities/gpt-5.2-savfox_pragmatic.md");
+const GPT_5_2_CODEX_PERSONALITY_FRIENDLY: &str =
+    include_str!("../templates/personalities/gpt-5.2-codex_friendly.md");
+const GPT_5_2_CODEX_PERSONALITY_PRAGMATIC: &str =
+    include_str!("../templates/personalities/gpt-5.2-codex_pragmatic.md");
 
 const CONTEXT_WINDOW_272K: i64 = 272_000;
 
