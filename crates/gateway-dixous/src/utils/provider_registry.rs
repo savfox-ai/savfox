@@ -1,6 +1,8 @@
-use savfox_provider_registry::canonical_provider_id as canonical_provider_registry_id;
-use savfox_provider_registry::provider_default_base_url as shared_provider_default_base_url;
-use savfox_provider_registry::provider_default_base_url_entry as shared_provider_default_base_url_entry;
+use savfox_provider_registry::{
+    canonical_provider_id as canonical_provider_registry_id,
+    provider_default_base_url as shared_provider_default_base_url,
+    provider_default_base_url_entry as shared_provider_default_base_url_entry,
+};
 
 const POPULAR_PROVIDER_ORDER: [&str; 7] = [
     "opencode",

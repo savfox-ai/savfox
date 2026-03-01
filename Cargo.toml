@@ -47,7 +47,7 @@ savfox-cloud-tasks = { version = "0.3.0", path = "crates/cloud-tasks", default-f
 savfox-common = { version = "0.3.0", path = "crates/common", default-features = true }
 savfox-core = { version = "0.3.0", path = "crates/core", default-features = true }
 savfox-exec = { version = "0.3.0", path = "crates/exec", default-features = true }
-savfox-exec-policy = { version = "0.3.0", path = "crates/exec_policy", default-features = true }
+savfox-exec-policy = { version = "0.3.0", path = "crates/exec-policy", default-features = true }
 savfox-feedback = { version = "0.3.0", path = "crates/feedback", default-features = true }
 savfox-file-search = { version = "0.3.0", path = "crates/file-search", default-features = true }
 savfox-login-oauth = { version = "0.3.0", path = "crates/login-oauth", default-features = true }

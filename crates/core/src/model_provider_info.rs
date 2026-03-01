@@ -17,9 +17,10 @@ use savfox_api::provider::RetryConfig as ApiRetryConfig;
 use savfox_api::{
     Provider as ApiProvider, WireApi as ApiWireApi, is_azure_responses_wire_base_url,
 };
-use savfox_provider_registry::DEFAULT_OPENAI_API_BASE_URL;
-use savfox_provider_registry::canonical_provider_id as canonical_provider_registry_id;
-use savfox_provider_registry::provider_default_base_url_entry as provider_default_base_url_registry_entry;
+use savfox_provider_registry::{
+    DEFAULT_OPENAI_API_BASE_URL, canonical_provider_id as canonical_provider_registry_id,
+    provider_default_base_url_entry as provider_default_base_url_registry_entry,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
