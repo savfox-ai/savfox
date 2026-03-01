@@ -234,13 +234,13 @@ pub struct ModelsResponse {
 
 // ── Agents ──
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct AgentModels {
     pub primary: Option<String>,
     pub fallbacks: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct AgentEntry {
     pub id: Option<String>,
     pub name: String,

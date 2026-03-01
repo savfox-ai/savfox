@@ -139,7 +139,14 @@ pub fn Agents() -> Element {
             // ── Right panel: detail / create (~70%) ──
             div { style: "flex:1;display:flex;flex-direction:column;min-width:0;",
                 if show_create() {
-                    { render_create_form(ws.clone(), refresh_tick, show_create, new_name, new_model, new_prompt) }
+                    AgentCreateForm {
+                        ws: ws.clone(),
+                        refresh_tick,
+                        show_create,
+                        new_name,
+                        new_model,
+                        new_prompt,
+                    }
                 } else if let Some(ref entry) = selected_entry {
                     TabBar {
                         tabs: tabs.clone(),
@@ -148,12 +155,49 @@ pub fn Agents() -> Element {
                     }
                     div { style: "flex:1;overflow:auto;",
                         match active_tab().as_str() {
-                            "overview" => rsx! { { render_overview(ws.clone(), refresh_tick, entry, selected_agent) } },
-                            "files" => rsx! { { render_files_tab(ws.clone(), refresh_tick, entry) } },
-                            "tools" => rsx! { { render_tools_tab(ws.clone(), refresh_tick, entry) } },
-                            "skills" => rsx! { { render_skills_tab(ws.clone(), refresh_tick, entry) } },
-                            "channels" => rsx! { { render_channels_tab(ws.clone(), refresh_tick, entry) } },
-                            "cron" => rsx! { { render_cron_tab(ws.clone(), refresh_tick, entry) } },
+                            "overview" => rsx! {
+                                AgentOverviewTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                    selected_agent,
+                                }
+                            },
+                            "files" => rsx! {
+                                AgentFilesTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                }
+                            },
+                            "tools" => rsx! {
+                                AgentToolsTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                }
+                            },
+                            "skills" => rsx! {
+                                AgentSkillsTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                }
+                            },
+                            "channels" => rsx! {
+                                AgentChannelsTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                }
+                            },
+                            "cron" => rsx! {
+                                AgentCronTab {
+                                    ws: ws.clone(),
+                                    refresh_tick,
+                                    entry: entry.clone(),
+                                }
+                            },
                             _ => rsx! { div { "Unknown tab" } },
                         }
                     }
@@ -171,7 +215,8 @@ pub fn Agents() -> Element {
 // Create form
 // ---------------------------------------------------------------------------
 
-fn render_create_form(
+#[component]
+fn AgentCreateForm(
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     mut show_create: Signal<bool>,
@@ -256,10 +301,11 @@ fn render_create_form(
 // Tab 1 -- Overview
 // ---------------------------------------------------------------------------
 
-fn render_overview(
+#[component]
+fn AgentOverviewTab(
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
-    entry: &AgentEntry,
+    entry: AgentEntry,
     mut selected_agent: Signal<Option<String>>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
@@ -668,7 +714,8 @@ fn render_overview(
 
 const KNOWN_FILES: [&str; 3] = ["persona.md", "identity.json", "tool_guidance.md"];
 
-fn render_files_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry) -> Element {
+#[component]
+fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
 
@@ -1000,7 +1047,8 @@ fn tool_categories() -> Vec<ToolCategory> {
     ]
 }
 
-fn render_tools_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry) -> Element {
+#[component]
+fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
 
@@ -1153,7 +1201,8 @@ fn render_tools_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry
 // Tab 4 -- Skills
 // ---------------------------------------------------------------------------
 
-fn render_skills_tab(ws: WsRpc, refresh_tick: Signal<u32>, entry: &AgentEntry) -> Element {
+#[component]
+fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
     let mut search_query = use_signal(String::new);
@@ -1373,7 +1422,8 @@ fn render_skill_group_section(
 // Tab 5 -- Channels
 // ---------------------------------------------------------------------------
 
-fn render_channels_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry) -> Element {
+#[component]
+fn AgentChannelsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
 
@@ -1525,7 +1575,8 @@ fn render_channels_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEn
 // Tab 6 -- Cron
 // ---------------------------------------------------------------------------
 
-fn render_cron_tab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: &AgentEntry) -> Element {
+#[component]
+fn AgentCronTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let ws_connected = use_context::<Signal<bool>>();
 
     // Fetch all cron jobs, then filter by agent_id

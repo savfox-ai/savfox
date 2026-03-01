@@ -1194,7 +1194,15 @@ fn render_channel_card(
             }
 
             // ---- Per-channel configuration (collapsible) ----
-            { render_channel_config(&config_ch_id, &config_ch_name, &config_fields, ws_config, refresh_tick, testing_channel, test_result) }
+            ChannelInlineConfig {
+                channel_id: config_ch_id.clone(),
+                channel_name: config_ch_name.clone(),
+                fields: config_fields.clone(),
+                ws: ws_config.clone(),
+                refresh_tick,
+                testing_channel,
+                test_result,
+            }
         }
     }
 }
@@ -1205,10 +1213,11 @@ fn render_channel_card(
 
 /// Dispatches to the appropriate per-channel config renderer wrapped in a
 /// collapsible `<details>` element placed below the channel card actions.
-fn render_channel_config(
-    channel_id: &str,
-    channel_name: &str,
-    fields: &[ConfigField],
+#[component]
+fn ChannelInlineConfig(
+    channel_id: String,
+    channel_name: String,
+    fields: Vec<ConfigField>,
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     mut testing_channel: Signal<Option<String>>,
@@ -1222,9 +1231,9 @@ fn render_channel_config(
     let mut revealed: Signal<std::collections::HashSet<String>> =
         use_signal(|| std::collections::HashSet::new());
 
-    let ch_id = channel_id.to_string();
-    let ch_name = channel_name.to_string();
-    let fields_vec = fields.to_vec();
+    let ch_id = channel_id;
+    let ch_name = channel_name;
+    let fields_vec = fields;
     let ws_save = ws.clone();
     let ws_test = ws.clone();
 
