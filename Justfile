@@ -13,12 +13,12 @@ token := "test123"
 
 # Build web frontend + run gateway server (debug)
 gateway:
-    pwsh -NoProfile -File scripts/build-web.ps1
+    pwsh -NoProfile -File scripts/build-web.ps1; if ($LASTEXITCODE -ne 0) { Write-Warning "Web frontend build failed; continuing with existing assets."; }
     cargo run --bin savfox -- gateway --port {{port}} --token {{token}}
 
 # Build web frontend + run gateway server (release)
 gateway-release:
-    pwsh -NoProfile -File scripts/build-web.ps1 -Release
+    pwsh -NoProfile -File scripts/build-web.ps1 -Release; if ($LASTEXITCODE -ne 0) { Write-Warning "Web frontend release build failed; continuing with existing assets."; }
     cargo run --release --bin savfox -- gateway --port {{port}} --token {{token}}
 
 # Run gateway server without rebuilding the web frontend
