@@ -94,7 +94,7 @@ impl SessionsHandler {
         arguments: &str,
         gateway_url: &str,
     ) -> Result<ToolOutput, FunctionCallError> {
-        let _args: SessionsListArgs = parse_arguments(arguments)?;
+        let args: SessionsListArgs = parse_arguments(arguments)?;
 
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
@@ -103,7 +103,12 @@ impl SessionsHandler {
                 FunctionCallError::RespondToModel(format!("failed to build HTTP client: {err}"))
             })?;
 
-        let url = format!("{gateway_url}/api/sessions");
+        let url = match args.filter {
+            Some(filter) if !filter.trim().is_empty() => {
+                format!("{gateway_url}/api/sessions?filter={filter}")
+            }
+            _ => format!("{gateway_url}/api/sessions"),
+        };
         let response = client.get(&url).send().await.map_err(|err| {
             FunctionCallError::RespondToModel(format!("failed to list sessions: {err}"))
         })?;
@@ -139,6 +144,7 @@ impl SessionsHandler {
         Ok(ToolOutput::Function {
             content: serde_json::json!({
                 "session_id": args.session_id,
+                "limit": args.limit,
                 "messages": [],
                 "note": "Session history retrieval via SessionManager - implement when session storage API is available"
             })
@@ -165,8 +171,9 @@ impl SessionsHandler {
         // For now, return a placeholder.
         Ok(ToolOutput::Function {
             content: format!(
-                "Message queued for session {} (direct session messaging requires SessionManager integration)",
-                args.session_id
+                "Message queued for session {} ({} chars; direct session messaging requires SessionManager integration)",
+                args.session_id,
+                args.message.chars().count()
             ),
             content_items: None,
             success: Some(true),

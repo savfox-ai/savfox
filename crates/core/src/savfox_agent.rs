@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 use async_channel::{Receiver, Sender};
 use futures::future::BoxFuture;
@@ -74,7 +74,6 @@ use crate::mentions::{
     build_connector_slug_counts, build_skill_name_counts, collect_explicit_app_paths,
     collect_tool_mentions_from_messages,
 };
-use crate::model_provider_info::CHAT_WIRE_API_DEPRECATION_SUMMARY;
 use crate::models_manager::manager::ModelsManager;
 use crate::parse_command::parse_command;
 use crate::project_doc::get_user_instructions;
@@ -122,8 +121,8 @@ use crate::user_notification::{UserNotification, UserNotifier};
 use crate::util::{backoff, error_or_panic};
 use crate::windows_sandbox::WindowsSandboxLevelExt;
 use crate::{
-    AuthManager, ModelProviderInfo, SandboxState, SavfoxAuth, WireApi, compact, connectors,
-    feedback_tags, parse_turn_item, shell, state_db, terminal,
+    AuthManager, ModelProviderInfo, SandboxState, SavfoxAuth, compact, connectors, feedback_tags,
+    parse_turn_item, shell, state_db, terminal,
 };
 
 /// The high-level interface to the Savfox system.
@@ -149,11 +148,10 @@ pub struct SavfoxSpawnOk {
 
 pub(crate) const INITIAL_SUBMIT_ID: &str = "";
 pub(crate) const SUBMISSION_CHANNEL_CAPACITY: usize = 64;
-static CHAT_WIRE_API_DEPRECATION_EMITTED: AtomicBool = AtomicBool::new(false);
 
 fn maybe_push_chat_wire_api_deprecation(
-    config: &Config,
-    post_session_configured_events: &mut Vec<Event>,
+    _config: &Config,
+    _post_session_configured_events: &mut Vec<Event>,
 ) {
     // if config.model_provider.wire_api != WireApi::Chat {
     //     return;

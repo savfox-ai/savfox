@@ -58,7 +58,7 @@ mod defaults {
     }
 
     pub fn timeout_secs() -> u64 {
-        30
+        super::REQUEST_TIMEOUT.as_secs()
     }
 }
 
@@ -518,6 +518,7 @@ async fn validate_target_url(url: &url::Url) -> Result<(), FunctionCallError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn is_private_host(host: &str) -> bool {
     if is_blocked_hostname(host) {
         return true;

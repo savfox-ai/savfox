@@ -72,8 +72,9 @@ impl<T: HttpTransport, A: AuthProvider> StreamingClient<T, A> {
         spawner: StreamSpawner,
         turn_state: Option<Arc<OnceLock<String>>>,
     ) -> Result<ResponseStream, ApiError> {
-        let url = self.provider.url_for_path(path);
-        let body_pretty = serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string());
+        let _url = self.provider.url_for_path(path);
+        let _body_pretty =
+            serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string());
         // eprintln!("\n========== STREAMING REQUEST DEBUG ==========");
         // eprintln!("Provider: {}", self.provider.name);
         // eprintln!("URL: {url}");

@@ -1,6 +1,7 @@
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 pub(crate) const MEMORY_INSTRUCTIONS_PREFIX: &str = "# Memory Context";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -10,6 +11,7 @@ pub(crate) struct MemoryInstructions {
 }
 
 impl MemoryInstructions {
+    #[allow(dead_code)]
     pub fn is_memory_instructions(message: &[ContentItem]) -> bool {
         if let [ContentItem::InputText { text }] = message {
             text.starts_with(MEMORY_INSTRUCTIONS_PREFIX)

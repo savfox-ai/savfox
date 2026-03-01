@@ -28,3 +28,4 @@ _todos.md
 
 crates/gateway-server/static
 .tmp*
+*.log

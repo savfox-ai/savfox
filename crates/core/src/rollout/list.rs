@@ -148,6 +148,7 @@ impl AnchorState {
 /// We need to apply different logic if we're ultimately going to be returning
 /// sessions ordered by created_at or updated_at.
 #[async_trait]
+#[allow(dead_code)]
 trait RolloutFileVisitor {
     async fn visit(
         &mut self,
@@ -160,6 +161,7 @@ trait RolloutFileVisitor {
 
 /// Collects session items during directory traversal in created_at order,
 /// applying pagination and filters inline.
+#[allow(dead_code)]
 struct FilesByCreatedAtVisitor<'a> {
     items: &'a mut Vec<SessionItem>,
     page_size: usize,
@@ -209,6 +211,7 @@ impl<'a> RolloutFileVisitor for FilesByCreatedAtVisitor<'a> {
 
 /// Collects lightweight file candidates (path + id + mtime).
 /// Sorting after mtime happens after all files are collected.
+#[allow(dead_code)]
 struct FilesByUpdatedAtVisitor<'a> {
     candidates: &'a mut Vec<SessionCandidate>,
 }
@@ -326,6 +329,7 @@ pub(crate) async fn get_sessions_in_root(
 ///
 /// Directory layout: `~/.savfox/sessions/<uuid>.jsonl` (UUID v7)
 /// Returned newest (based on sort key) first.
+#[allow(dead_code)]
 async fn traverse_directories_for_paths(
     root: PathBuf,
     page_size: usize,
@@ -384,6 +388,7 @@ async fn traverse_flat_paths(
 /// Ordering comes from directory/filename sorting, so created_at is derived
 /// from the filename timestamp. Pagination is handled by the anchor cursor
 /// so we resume strictly after the last returned `(ts, id)` pair.
+#[allow(dead_code)]
 async fn traverse_directories_for_paths_created(
     root: PathBuf,
     page_size: usize,
@@ -431,6 +436,7 @@ async fn traverse_directories_for_paths_created(
 ///
 /// NOTE: This can be optimized in the future if we store additional state on disk
 /// to cache updated_at timestamps.
+#[allow(dead_code)]
 async fn traverse_directories_for_paths_updated(
     root: PathBuf,
     page_size: usize,
@@ -681,6 +687,7 @@ async fn build_session_item(
 
 /// Collects immediate subdirectories of `parent`, parses their (string) names with `parse`,
 /// and returns them sorted descending by the parsed key.
+#[allow(dead_code)]
 async fn collect_dirs_desc<T, F>(parent: &Path, parse: F) -> io::Result<Vec<(T, PathBuf)>>
 where
     T: Ord + Copy,
@@ -705,6 +712,7 @@ where
 }
 
 /// Collects files in a directory and parses them with `parse`.
+#[allow(dead_code)]
 async fn collect_files<T, F>(parent: &Path, parse: F) -> io::Result<Vec<T>>
 where
     F: Fn(&str, &Path) -> Option<T>,
@@ -764,6 +772,7 @@ async fn collect_flat_rollout_files(
     Ok(collected)
 }
 
+#[allow(dead_code)]
 async fn collect_rollout_day_files(
     day_path: &Path,
 ) -> io::Result<Vec<(OffsetDateTime, Uuid, PathBuf)>> {
@@ -813,6 +822,7 @@ struct SessionCandidate {
     updated_at: Option<OffsetDateTime>,
 }
 
+#[allow(dead_code)]
 async fn collect_files_by_updated_at(
     root: &Path,
     scanned_files: &mut usize,
@@ -869,6 +879,7 @@ async fn collect_flat_files_by_updated_at(
     Ok(candidates)
 }
 
+#[allow(dead_code)]
 async fn walk_rollout_files(
     root: &Path,
     scanned_files: &mut usize,

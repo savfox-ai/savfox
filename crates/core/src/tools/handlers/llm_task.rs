@@ -65,7 +65,7 @@ impl ToolHandler for LlmTaskHandler {
             .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
         let token = std::env::var("SAVFOX_GATEWAY_TOKEN").ok();
 
-        let timeout_secs = args.timeout_secs.unwrap_or(120);
+        let timeout_secs = args.timeout_secs.unwrap_or(REQUEST_TIMEOUT.as_secs());
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .build()
