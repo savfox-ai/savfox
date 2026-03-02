@@ -641,7 +641,8 @@ pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> Mod
 
 fn create_anthropic_provider() -> ModelProviderInfo {
     ModelProviderInfo {
-        name: "Anthropic".into(),
+        slug: "anthropic".into(),
+        display_name: "Anthropic".into(),
         base_url: Some("https://api.anthropic.com".into()),
         env_key: None,
         env_key_instructions: None,
@@ -668,7 +669,8 @@ fn create_anthropic_provider() -> ModelProviderInfo {
 
 fn create_cloud_chat_provider(name: &str, base_url: &str, env_key: &str) -> ModelProviderInfo {
     ModelProviderInfo {
-        name: name.into(),
+        slug: name.to_lowercase().into(),
+        display_name: name.into(),
         base_url: Some(base_url.into()),
         env_key: Some(env_key.into()),
         env_key_instructions: None,
@@ -690,7 +692,8 @@ fn create_gemini_provider() -> ModelProviderInfo {
     // The API key is passed via the `key` query parameter OR via Bearer token.
     // We use the OpenAI-compatible endpoint which accepts Bearer auth.
     ModelProviderInfo {
-        name: "Gemini".into(),
+        slug: "gemini".into(),
+        display_name: "Gemini".into(),
         base_url: Some(
             std::env::var("GEMINI_BASE_URL")
                 .ok()
@@ -724,7 +727,8 @@ fn create_bedrock_provider() -> ModelProviderInfo {
     // For direct Bedrock access, users typically deploy a proxy like
     // `bedrock-access-gateway` or use LiteLLM as a middleware.
     ModelProviderInfo {
-        name: "Bedrock".into(),
+        slug: "bedrock".into(),
+        display_name: "Bedrock".into(),
         base_url: std::env::var("BEDROCK_BASE_URL")
             .ok()
             .filter(|v| !v.trim().is_empty()),
@@ -750,7 +754,8 @@ fn create_bedrock_provider() -> ModelProviderInfo {
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
     ModelProviderInfo {
-        name: "gpt-oss".into(),
+        slug: "gpt-oss".into(),
+        display_name: "gpt-oss".into(),
         base_url: Some(base_url.into()),
         env_key: None,
         env_key_instructions: None,
