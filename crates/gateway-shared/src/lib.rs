@@ -7,8 +7,31 @@
 use serde::{Deserialize, Serialize};
 
 pub const SESSION_LABEL_MAX_CHARS: usize = 48;
+const USER_INSTRUCTIONS_PREFIX: &str = "# agents.md instructions for ";
+const USER_INSTRUCTIONS_OPEN_TAG_LEGACY: &str = "<user_instructions>";
+const ENVIRONMENT_CONTEXT_OPEN_TAG: &str = "<environment_context>";
+const TURN_ABORTED_OPEN_TAG: &str = "<turn_aborted>";
+const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
+
+pub fn is_internal_session_message(raw: &str) -> bool {
+    let trimmed = raw.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lowered = trimmed.to_ascii_lowercase();
+    lowered.starts_with(USER_INSTRUCTIONS_PREFIX)
+        || lowered.starts_with(USER_INSTRUCTIONS_OPEN_TAG_LEGACY)
+        || lowered.starts_with(ENVIRONMENT_CONTEXT_OPEN_TAG)
+        || lowered.starts_with(TURN_ABORTED_OPEN_TAG)
+        || lowered.starts_with(SKILL_INSTRUCTIONS_PREFIX)
+}
 
 pub fn normalize_session_label(raw: &str) -> Option<String> {
+    if is_internal_session_message(raw) {
+        return None;
+    }
+
     let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let compact = compact.trim();
     if compact.is_empty() {
@@ -860,4 +883,41 @@ pub struct MsTeamsStatus {
     pub bot_name: Option<String>,
     pub last_activity: Option<i64>,
     pub last_error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        derive_session_label, is_internal_session_message, normalize_session_label, short_id,
+    };
+
+    #[test]
+    fn normalize_session_label_filters_internal_prefix_messages() {
+        assert!(normalize_session_label("# AGENTS.md instructions for /tmp").is_none());
+        assert!(
+            normalize_session_label("<environment_context>\nctx\n</environment_context>").is_none()
+        );
+    }
+
+    #[test]
+    fn derive_session_label_ignores_internal_message_and_falls_back() {
+        let label = derive_session_label(
+            Some("# AGENTS.md instructions for /tmp"),
+            Some("Topic Label"),
+            None,
+        );
+        assert_eq!(label.as_deref(), Some("Topic Label"));
+    }
+
+    #[test]
+    fn internal_session_message_detection_is_case_insensitive() {
+        assert!(is_internal_session_message(
+            "<EnViRoNmEnT_CoNtExT>ctx</EnViRoNmEnT_CoNtExT>"
+        ));
+        assert!(is_internal_session_message(
+            "# agents.md instructions for /repo"
+        ));
+        assert!(!is_internal_session_message("Regular user message"));
+        assert_eq!(short_id("1234567890abcdefxyz"), "1234567890abcdef...");
+    }
 }

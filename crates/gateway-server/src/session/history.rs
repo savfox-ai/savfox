@@ -4,6 +4,7 @@ use std::sync::Arc;
 use savfox_core::{
     RolloutRecorder, find_archived_session_path_by_id_str, find_session_path_by_id_str,
 };
+use savfox_gateway_shared::{is_internal_session_message, normalize_session_label};
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::{EventMsg, RolloutItem};
 use serde_json::{Value, json};
@@ -269,6 +270,9 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
                 }
                 let text = content_text(content);
                 if !text.is_empty() {
+                    if role == "user" && is_internal_session_message(&text) {
+                        continue;
+                    }
                     from_responses.push((index, role.clone(), text, "response_item"));
                 }
             }
@@ -292,7 +296,9 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
     for (index, item) in items.iter().enumerate() {
         match item {
             RolloutItem::EventMsg(EventMsg::UserMessage(message)) => {
-                if !message.message.is_empty() {
+                if !message.message.is_empty()
+                    && !is_internal_session_message(message.message.as_str())
+                {
                     from_events.push((index, "user".to_string(), message.message.clone(), "event"));
                 }
             }
@@ -347,6 +353,41 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
         .collect()
 }
 
+pub(crate) fn derive_session_label_from_messages(messages: &[Value]) -> Option<String> {
+    messages.iter().find_map(|message| {
+        if message.get("role").and_then(Value::as_str) != Some("user") {
+            return None;
+        }
+        message
+            .get("text")
+            .or_else(|| message.get("content"))
+            .and_then(Value::as_str)
+            .and_then(normalize_session_label)
+    })
+}
+
+pub(crate) async fn derive_session_label_from_history(
+    session_ref: &str,
+    session_store: &Arc<SessionStore>,
+    bridge: &Arc<GatewayBridge>,
+) -> Option<String> {
+    let entry = match session_store.get(session_ref).await {
+        Some(v) => Some(v),
+        None => session_store.get_by_session_id(session_ref).await,
+    };
+    let savfox_home = &bridge.config().savfox_home;
+    let rollout_path = resolve_rollout_path(savfox_home, session_ref, entry.as_ref())
+        .await
+        .ok()
+        .flatten()?;
+    let history = RolloutRecorder::get_rollout_history(&rollout_path)
+        .await
+        .ok()?;
+    let items = history.get_rollout_items();
+    let messages = extract_messages(&items);
+    derive_session_label_from_messages(&messages)
+}
+
 fn content_text(content: &[ContentItem]) -> String {
     let mut buf = String::new();
     for item in content {
@@ -377,7 +418,7 @@ mod tests {
     use savfox_protocol::models::{ContentItem, ResponseItem};
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem, UserMessageEvent};
 
-    use super::extract_messages;
+    use super::{derive_session_label_from_messages, extract_messages};
 
     #[test]
     fn extract_messages_keeps_user_event_when_response_items_only_have_assistant() {
@@ -439,5 +480,66 @@ mod tests {
         assert_eq!(messages[0]["text"], "question");
         assert_eq!(messages[1]["role"], "assistant");
         assert_eq!(messages[1]["text"], "answer");
+    }
+
+    #[test]
+    fn extract_messages_filters_internal_prefix_messages() {
+        let items = vec![
+            RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "# AGENTS.md instructions for /repo".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            }),
+            RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "<environment_context>\nctx\n</environment_context>".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            }),
+            RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: "user".to_string(),
+                content: vec![ContentItem::InputText {
+                    text: "actual user question".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            }),
+            RolloutItem::ResponseItem(ResponseItem::Message {
+                id: None,
+                role: "assistant".to_string(),
+                content: vec![ContentItem::OutputText {
+                    text: "answer".to_string(),
+                }],
+                end_turn: None,
+                phase: None,
+            }),
+        ];
+
+        let messages = extract_messages(&items);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["text"], "actual user question");
+        assert_eq!(messages[1]["role"], "assistant");
+    }
+
+    #[test]
+    fn derive_session_label_prefers_first_meaningful_user_message() {
+        let messages = vec![
+            serde_json::json!({ "role": "assistant", "text": "hello" }),
+            serde_json::json!({ "role": "user", "text": "   " }),
+            serde_json::json!({ "role": "user", "text": "First valid label message" }),
+            serde_json::json!({ "role": "user", "text": "Other" }),
+        ];
+
+        let label = derive_session_label_from_messages(&messages);
+        assert_eq!(label.as_deref(), Some("First valid label message"));
     }
 }

@@ -24,6 +24,7 @@ savfox-cloud-requirements = { workspace = true }
 savfox-chatgpt = { workspace = true }
 savfox-login-oauth = { workspace = true }
 savfox-feedback = { workspace = true }
+savfox-gateway-shared = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils-json-to-toml = { workspace = true }
 savfox-skill-registry = { workspace = true }

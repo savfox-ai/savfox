@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use savfox_gateway_shared::derive_session_label;
+use savfox_gateway_shared::{derive_session_label, is_internal_session_message};
 use serde_json::{Value, json};
 
 use crate::api::client::stream_chat;
@@ -118,7 +118,7 @@ fn parse_history_message(item: &Value) -> Option<ChatMessage> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    if content.trim().is_empty() {
+    if content.trim().is_empty() || is_internal_session_message(&content) {
         return None;
     }
 

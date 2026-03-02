@@ -36,7 +36,7 @@ use crate::identity_links::{
 use crate::media_store::MediaStore;
 use crate::session::{
     DmScope, GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore,
-    build_history_payload, build_routing_id,
+    build_history_payload, build_routing_id, derive_session_label_from_history,
 };
 use crate::{
     approval_policy_store, log_store, pairing_store, plugin, skills_store, tts_service,
@@ -192,7 +192,7 @@ pub(crate) async fn dispatch_rpc(
         "chat.inject" => handle_chat_inject(&params, session_store).await,
 
         // ── Sessions ────────────────────────────────────────────────────
-        "sessions.list" => handle_sessions_list(session_mgr, session_store).await,
+        "sessions.list" => handle_sessions_list(session_mgr, session_store, bridge).await,
         "sessions.preview" => handle_sessions_preview(&params, session_store, bridge).await,
         "sessions.patch" => handle_sessions_patch(&params, session_store).await,
         "sessions.reset" => {
@@ -2496,6 +2496,7 @@ async fn handle_chat_inject(
 async fn handle_sessions_list(
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
+    bridge: &Arc<GatewayBridge>,
 ) -> RpcResult {
     let ws_ids = session_mgr.session_ids().await;
     let persistent = session_store.list().await;
@@ -2506,38 +2507,40 @@ async fn handle_sessions_list(
         .iter()
         .map(|e| e.session_id.clone())
         .collect();
-    let entries: Vec<Value> = sorted_sessions
-        .iter()
-        .map(|entry| {
-            let label = entry
-                .label
-                .clone()
-                .or_else(|| entry.subject.clone())
-                .or_else(|| entry.sender.as_ref().and_then(|s| s.display_name.clone()));
+    let mut entries: Vec<Value> = Vec::with_capacity(sorted_sessions.len());
+    for entry in sorted_sessions {
+        let mut label = entry
+            .label
+            .clone()
+            .or_else(|| entry.subject.clone())
+            .or_else(|| entry.sender.as_ref().and_then(|s| s.display_name.clone()));
+        if label.is_none() {
+            label =
+                derive_session_label_from_history(&entry.session_id, session_store, bridge).await;
+        }
 
-            let last_activity =
-                chrono::DateTime::<chrono::Utc>::from_timestamp_millis(entry.updated_at as i64)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+        let last_activity =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(entry.updated_at as i64)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
-            json!({
-                "session_id": entry.session_id,
-                "id": entry.session_id,
-                "scope": entry.session_id,
-                "label": label,
-                "subject": entry.subject,
-                "sender": entry.sender,
-                "identity": entry.identity,
-                "provenance_count": entry.provenance.len(),
-                "last_activity": last_activity,
-                "message_count": Value::Null,
-                "messages": Value::Null,
-                "model": entry.model,
-                "provider": entry.provider,
-                "thread_id": entry.thread_id,
-            })
-        })
-        .collect();
+        entries.push(json!({
+            "session_id": entry.session_id,
+            "id": entry.session_id,
+            "scope": entry.session_id,
+            "label": label,
+            "subject": entry.subject,
+            "sender": entry.sender,
+            "identity": entry.identity,
+            "provenance_count": entry.provenance.len(),
+            "last_activity": last_activity,
+            "message_count": Value::Null,
+            "messages": Value::Null,
+            "model": entry.model,
+            "provider": entry.provider,
+            "thread_id": entry.thread_id,
+        }));
+    }
     let stats = session_store.stats().await;
     Ok(json!({
         "active_connections": ws_ids,
