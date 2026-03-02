@@ -3333,7 +3333,7 @@ impl ChatComposer {
         let cursor_color = terminal_bg.map(cursor_fg).unwrap_or(border_color);
         let style = user_message_style().bg(composer_bg);
         // Fill the composer background.
-        Block::default().style(style).render_ref(composer_rect, buf);
+        (&Block::default().style(style)).render_ref(composer_rect, buf);
         if !self.is_session_mode && composer_rect.height > 0 {
             let header_area = Rect::new(composer_rect.x, composer_rect.y, composer_rect.width, 1);
             if !self.cwd_display.is_empty() {
@@ -3419,7 +3419,7 @@ impl ChatComposer {
             };
             if !textarea_rect.is_empty() {
                 let placeholder = Span::from(text).dim();
-                Line::from(vec![placeholder])
+                (&Line::from(vec![placeholder]))
                     .render_ref(textarea_rect.inner(Margin::new(0, 0)), buf);
             }
         }

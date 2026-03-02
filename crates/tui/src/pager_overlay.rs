@@ -118,7 +118,7 @@ fn render_key_hints(area: Rect, buf: &mut Buffer, pairs: &[(&[KeyBinding], &str)
         spans.push(Span::from(desc.to_string()));
         first = false;
     }
-    Paragraph::new(vec![Line::from(spans).dim()]).render_ref(area, buf);
+    (&Paragraph::new(vec![Line::from(spans).dim()])).render_ref(area, buf);
 }
 
 /// Generic widget for rendering a pager view.
@@ -173,11 +173,9 @@ impl PagerView {
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
-        Span::from("/ ".repeat(area.width as usize / 2))
-            .dim()
-            .render_ref(area, buf);
+        (&Span::from("/ ".repeat(area.width as usize / 2)).dim()).render_ref(area, buf);
         let header = format!("/ {}", self.title);
-        header.dim().render_ref(area, buf);
+        (&header.dim()).render_ref(area, buf);
     }
 
     fn render_content(&self, area: Rect, buf: &mut Buffer) {
@@ -226,9 +224,7 @@ impl PagerView {
         let sep_y = content_area.bottom();
         let sep_rect = Rect::new(full_area.x, sep_y, full_area.width, 1);
 
-        Span::from("─".repeat(sep_rect.width as usize))
-            .dim()
-            .render_ref(sep_rect, buf);
+        (&Span::from("─".repeat(sep_rect.width as usize)).dim()).render_ref(sep_rect, buf);
         let percent = if total_len == 0 {
             100
         } else {
@@ -243,9 +239,7 @@ impl PagerView {
         let pct_text = format!(" {percent}% ");
         let pct_w = pct_text.chars().count() as u16;
         let pct_x = sep_rect.x + sep_rect.width - pct_w - 1;
-        Span::from(pct_text)
-            .dim()
-            .render_ref(Rect::new(pct_x, sep_rect.y, pct_w, 1), buf);
+        (&Span::from(pct_text).dim()).render_ref(Rect::new(pct_x, sep_rect.y, pct_w, 1), buf);
     }
 
     fn handle_key_event(&mut self, tui: &mut tui::Tui, key_event: KeyEvent) -> Result<()> {

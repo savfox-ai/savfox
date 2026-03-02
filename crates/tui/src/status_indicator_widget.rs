@@ -230,7 +230,7 @@ impl Renderable for StatusIndicatorWidget {
             lines.extend(details.into_iter().take(max_details));
         }
 
-        Paragraph::new(Text::from(lines)).render_ref(area, buf);
+        (&Paragraph::new(Text::from(lines))).render_ref(area, buf);
     }
 }
 
