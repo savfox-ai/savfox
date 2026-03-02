@@ -266,8 +266,14 @@ fn AgentCreateForm(
         }
     });
     let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
-    let providers: Vec<String> = {
+    let (providers, provider_models): (
+        Vec<String>,
+        std::collections::BTreeMap<String, Vec<(String, String)>>,
+    ) = {
         let mut set = std::collections::BTreeSet::new();
+        let mut model_map =
+            std::collections::BTreeMap::<String, std::collections::BTreeMap<String, String>>::new(
+            );
         for m in &models {
             let from_field = m.provider.as_deref().and_then(|p| {
                 let trimmed = p.trim();
@@ -281,10 +287,51 @@ fn AgentCreateForm(
             if let Some(provider_id) = from_field.or(from_id)
                 && !provider_id.is_empty()
             {
-                set.insert(provider_id);
+                set.insert(provider_id.clone());
+
+                let full_model_id = m.id.trim();
+                if !full_model_id.is_empty() {
+                    let display = m
+                        .name
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| full_model_id.to_string());
+
+                    let label = if display == full_model_id {
+                        display
+                    } else {
+                        format!("{display} ({full_model_id})")
+                    };
+
+                    model_map
+                        .entry(provider_id)
+                        .or_default()
+                        .insert(full_model_id.to_string(), label);
+                }
             }
         }
-        set.into_iter().collect()
+
+        let mut normalized =
+            std::collections::BTreeMap::<String, Vec<(String, String)>>::new();
+        for (provider_id, entries) in model_map {
+            let mut options: Vec<(String, String)> = entries.into_iter().collect();
+            options.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+            normalized.insert(provider_id, options);
+        }
+
+        (set.into_iter().collect(), normalized)
+    };
+    let selected_provider = new_provider();
+    let model_options = provider_models
+        .get(selected_provider.as_str())
+        .cloned()
+        .unwrap_or_default();
+    let model_placeholder = if selected_provider.is_empty() {
+        "-- Select provider first --"
+    } else {
+        "-- Select model --"
     };
 
     rsx! {
@@ -313,7 +360,11 @@ fn AgentCreateForm(
                     label { style: "{LABEL}", "Model Provider" }
                     select {
                         value: "{new_provider}",
-                        onchange: move |e| new_provider.set(e.value()),
+                        onchange: move |e| {
+                            new_provider.set(e.value());
+                            // Keep model in sync with selected provider options.
+                            new_model.set(String::new());
+                        },
                         style: "{INPUT}",
                         option { value: "", "-- Select provider --" }
                         for provider_id in providers.iter() {
@@ -333,11 +384,26 @@ fn AgentCreateForm(
                 }
                 div {
                     label { style: "{LABEL}", "Model" }
-                    input {
+                    select {
                         value: "{new_model}",
-                        oninput: move |e| new_model.set(e.value()),
-                        placeholder: "gpt-4o",
+                        onchange: move |e| new_model.set(e.value()),
                         style: "{INPUT}",
+                        disabled: selected_provider.is_empty(),
+                        option { value: "", "{model_placeholder}" }
+                        for model in model_options.iter() {
+                            {
+                                let model_id = model.0.as_str();
+                                let model_label = model.1.as_str();
+                                rsx! {
+                                    option { key: "{model_id}", value: "{model_id}", "{model_label}" }
+                                }
+                            }
+                        }
+                    }
+                    if !selected_provider.is_empty() && model_options.is_empty() {
+                        p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                            "No models available for selected provider."
+                        }
                     }
                 }
                 div {
