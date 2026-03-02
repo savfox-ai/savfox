@@ -12,8 +12,7 @@ use crate::protocol::AskForApproval;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ConfigProfile {
-    #[serde(default, deserialize_with = "crate::config::deserialize_model_field")]
-    pub model: Option<String>,
+    pub model: Option<crate::config::SelectedModel>,
     /// The key in the `model_providers` map identifying the
     /// [`ModelProviderInfo`] to use.
     pub model_provider: Option<String>,
@@ -47,9 +46,20 @@ pub struct ConfigProfile {
 
 impl From<ConfigProfile> for savfox_app_server_protocol::Profile {
     fn from(config_profile: ConfigProfile) -> Self {
+        let model_from_selected = config_profile
+            .model
+            .as_ref()
+            .and_then(crate::config::SelectedModel::normalized_slug);
+        let model_provider_from_selected = config_profile
+            .model
+            .as_ref()
+            .and_then(crate::config::SelectedModel::normalized_provider);
+
         Self {
-            model: config_profile.model,
-            model_provider: config_profile.model_provider,
+            model: model_from_selected,
+            model_provider: config_profile
+                .model_provider
+                .or(model_provider_from_selected),
             approval_policy: config_profile.approval_policy,
             model_reasoning_effort: config_profile.model_reasoning_effort,
             model_reasoning_summary: config_profile.model_reasoning_summary,

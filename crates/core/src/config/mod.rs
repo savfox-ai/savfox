@@ -11,7 +11,6 @@ use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_rmcp_client::OAuthCredentialsStoreMode;
 use savfox_utils_absolute_path::{AbsolutePathBuf, AbsolutePathBufGuard};
 use schemars::JsonSchema;
-use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use similar::DiffableStr;
 #[cfg(test)]
@@ -861,132 +860,8 @@ impl SelectedModel {
     }
 
     pub fn normalized_provider(&self) -> Option<String> {
-        self.provider.as_deref().and_then(trim_nonempty)
+        trim_nonempty(self.provider.as_str())
     }
-}
-
-fn trim_to_non_empty(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
-}
-
-pub(crate) fn deserialize_model_field<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let parsed = Option::<ModelFieldValue>::deserialize(deserializer)?;
-    match parsed {
-        None => Ok(None),
-        Some(ModelFieldValue::String(value)) => {
-            let trimmed = value.trim();
-            if let Some((provider, model_code)) = parse_provider_prefixed_model(trimmed) {
-                Ok(Some(format!("{provider}/{model_code}")))
-            } else {
-                Ok(Some(trimmed.to_string()))
-            }
-        }
-        Some(ModelFieldValue::Structured(structured)) => {
-            let id = trim_to_non_empty(structured.id);
-            let parsed_from_id = id
-                .as_deref()
-                .and_then(parse_provider_prefixed_model)
-                .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
-
-            let provider_id = provider_id_from_field(structured.provider).or_else(|| {
-                parsed_from_id
-                    .as_ref()
-                    .map(|(provider, _)| provider.clone())
-            });
-            let model_code = trim_to_non_empty(structured.slug)
-                .or_else(|| trim_to_non_empty(structured.code))
-                .or_else(|| {
-                    parsed_from_id
-                        .as_ref()
-                        .map(|(_, model_code)| model_code.clone())
-                });
-
-            match (provider_id, model_code) {
-                (Some(provider), Some(model_code)) => Ok(Some(format!("{provider}/{model_code}"))),
-                (None, Some(model_code)) => Ok(Some(model_code)),
-                (None, None) => {
-                    if let Some(id) = id {
-                        Ok(Some(id))
-                    } else {
-                        Err(D::Error::custom(
-                            "`model` object must include `slug`, `id`, or both `provider` and `code`",
-                        ))
-                    }
-                }
-                _ => Err(D::Error::custom(
-                    "`model` object must include `slug`, `id = \"provider/model_code\"`, or both `provider` and `code`",
-                )),
-            }
-        }
-    }
-}
-
-fn selected_model_from_field_value<E>(parsed: ModelFieldValue) -> Result<SelectedModel, E>
-where
-    E: serde::de::Error,
-{
-    match parsed {
-        ModelFieldValue::String(value) => {
-            let slug = trim_to_non_empty(Some(value)).ok_or_else(|| {
-                E::custom("`model` string must not be empty after trimming whitespace")
-            })?;
-            Ok(SelectedModel {
-                slug,
-                provider: None,
-                reasoning_effort: None,
-            })
-        }
-        ModelFieldValue::Structured(structured) => {
-
-            let slug = trim_to_non_empty(structured.slug)
-                .or_else(|| trim_to_non_empty(structured.slug))
-                .or_else(|| {
-                    parsed_from_id
-                        .as_ref()
-                        .map(|(_, model_code)| model_code.clone())
-                })
-                .or_else(|| {
-                    id.clone().and_then(|raw_id| {
-                        if parse_provider_prefixed_model(raw_id.as_str()).is_some() {
-                            None
-                        } else {
-                            Some(raw_id)
-                        }
-                    })
-                })
-                .ok_or_else(|| {
-                    E::custom(
-                        "`model` object must include `slug` and `provider`",
-                    )
-                })?;
-
-            Ok(SelectedModel {
-                slug,
-                provider,
-                reasoning_effort: structured.reasoning_effort,
-            })
-        }
-    }
-}
-
-pub(crate) fn deserialize_selected_model_field<'de, D>(
-    deserializer: D,
-) -> Result<Option<SelectedModel>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let parsed = Option::<ModelFieldValue>::deserialize(deserializer)?;
-    parsed.map(selected_model_from_field_value).transpose()
 }
 
 /// Base config deserialized from ~/.savfox/config.toml.
@@ -995,13 +870,8 @@ where
 pub struct ConfigToml {
     /// Optional override of model selection.
     ///
-    /// Accepted forms:
-    /// - `"glm-5"` (legacy string form)
-    /// - `"provider/model_code"` (legacy string form)
-    /// - `{ slug = "glm-5", provider = "openai", reasoning_level = "medium" }`
-    /// - `{ provider = "provider", code = "glm-5" }` (legacy object form)
-    /// - `{ id = "provider/model_code", code = "glm-5", provider = "provider" }` (legacy object form)
-    /// - `{ id = "provider/model_code", code = "glm-5", provider = { id = "provider" } }` (legacy object form)
+    /// Accepted form:
+    /// - `{ slug = "glm-5", provider = "openai", reasoning_effort = "medium" }`
     #[serde(default, deserialize_with = "deserialize_selected_model_field")]
     pub model: Option<SelectedModel>,
     /// Review model override used by the `/review` feature.
@@ -1605,7 +1475,15 @@ impl Config {
         merge_provider_store_model_providers(&mut model_providers, &savfox_home);
 
         let model_from_selected = cfg.model.as_ref().and_then(SelectedModel::normalized_slug);
+        let model_from_profile_selected = config_profile
+            .model
+            .as_ref()
+            .and_then(SelectedModel::normalized_slug);
         let model_provider_from_selected = cfg
+            .model
+            .as_ref()
+            .and_then(SelectedModel::normalized_provider);
+        let model_provider_from_profile_selected = config_profile
             .model
             .as_ref()
             .and_then(SelectedModel::normalized_provider);
@@ -1613,10 +1491,17 @@ impl Config {
             .model
             .as_ref()
             .and_then(|selected| selected.reasoning_effort);
-        let model = model.or(config_profile.model).or(model_from_selected);
+        let model_reasoning_from_profile_selected = config_profile
+            .model
+            .as_ref()
+            .and_then(|selected| selected.reasoning_effort);
+        let model = model
+            .or(model_from_profile_selected)
+            .or(model_from_selected);
 
         let explicit_model_provider = model_provider
             .or(config_profile.model_provider)
+            .or(model_provider_from_profile_selected)
             .or(model_provider_from_selected)
             .or(cfg.model_provider);
         let inferred_model_provider = if explicit_model_provider.is_none() {
@@ -1823,6 +1708,7 @@ impl Config {
                 .unwrap_or(false),
             model_reasoning_effort: config_profile
                 .model_reasoning_effort
+                .or(model_reasoning_from_profile_selected)
                 .or(model_reasoning_from_selected)
                 .or(cfg.model_reasoning_effort),
             model_reasoning_summary: config_profile
