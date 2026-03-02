@@ -3,6 +3,8 @@ use dioxus::prelude::*;
 use crate::api::client::validate_token;
 use crate::api::ws::set_token;
 
+const SAVFOX_LOGO: Asset = asset!("/assets/savfox.svg");
+
 #[component]
 pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
     let mut token_input = use_signal(String::new);
@@ -45,7 +47,7 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
         div { class: "auth-container",
             div { class: "auth-card",
                 div { class: "auth-logo",
-                    img { src: "assets/savfox.svg", alt: "Savfox", class: "auth-logo-img" }
+                    img { src: SAVFOX_LOGO, alt: "Savfox", class: "auth-logo-img" }
                 }
                 h1 { class: "auth-title", "Savfox Gateway" }
                 p { class: "auth-subtitle", "Enter your gateway token to continue" }

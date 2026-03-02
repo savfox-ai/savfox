@@ -9,6 +9,8 @@ use crate::components::exec_approval_modal::ExecApprovalModal;
 use crate::components::toast::{ToastContainer, Toaster};
 use crate::route::Route;
 
+const SAVFOX_LOGO: Asset = asset!("/assets/savfox.svg");
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum NavGroup {
     Main,
@@ -425,7 +427,7 @@ pub fn Layout() -> Element {
                     }
                     div { class: "top-header__brand",
                         img {
-                            src: "assets/savfox.svg",
+                            src: SAVFOX_LOGO,
                             alt: "Savfox Logo",
                             style: "width: 24px; height: 24px; object-fit: contain;",
                         }
