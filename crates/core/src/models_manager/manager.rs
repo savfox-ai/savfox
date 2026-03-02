@@ -206,7 +206,7 @@ impl ModelsManager {
             Some(config.chatgpt_base_url.as_str()),
         )?;
         let api_auth = auth_provider_from_auth(auth.clone(), &self.provider, "openai")?;
-        let provider_name = api_provider.name.clone();
+        let provider_name = api_provider.slug.clone();
         let models_url = api_provider.url_for_path("models");
         let has_bearer_token = api_auth.has_bearer_token();
         let has_account_id = api_auth.has_account_id();

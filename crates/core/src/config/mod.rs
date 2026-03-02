@@ -135,9 +135,10 @@ fn merge_provider_store_model_providers(
             .and_then(trim_nonempty);
 
         model_providers.insert(
-            provider_id,
+            provider_id.clone(),
             ModelProviderInfo {
-                name,
+                slug: provider_id,
+                display_name: name,
                 base_url: Some(base_url),
                 env_key,
                 env_key_instructions: None,
