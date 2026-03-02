@@ -177,6 +177,7 @@ pub(crate) async fn dispatch_rpc(
 
         // ── Agents (multi-agent CRUD) ───────────────────────────────────
         "agents.list" => handle_agents_list(bridge).await,
+        "agents.get" => handle_agents_get(&params, bridge).await,
         "agents.create" => handle_agents_create(&params, bridge).await,
         "agents.update" => handle_agents_update(&params, bridge).await,
         "agents.delete" => handle_agents_delete(&params, bridge).await,
@@ -1152,6 +1153,138 @@ async fn read_agent_config(path: &std::path::Path) -> Option<Value> {
     serde_json::from_str(&data).ok()
 }
 
+fn sanitize_agent_file_stem(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        let mapped = match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            _ => ch,
+        };
+        out.push(mapped);
+    }
+
+    let out = out.trim_matches([' ', '.']).to_string();
+    if out.is_empty() || out == "." || out == ".." {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
+    config
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            config
+                .get("identity")
+                .and_then(|v| v.get("name"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+async fn resolve_agent_file_stem(bridge: &GatewayBridge, agent_ref: &str) -> Option<String> {
+    let dir = agents_dir(bridge);
+    let trimmed = agent_ref.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(safe_ref) = sanitize_agent_file_stem(trimmed) {
+        let direct = dir.join(format!("{safe_ref}.json"));
+        if direct.exists() {
+            return Some(safe_ref);
+        }
+    }
+
+    let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !path.extension().is_some_and(|ext| ext == "json") {
+            continue;
+        }
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+        else {
+            continue;
+        };
+
+        if stem.eq_ignore_ascii_case(trimmed) {
+            return Some(stem);
+        }
+
+        let Some(config) = read_agent_config(&path).await else {
+            continue;
+        };
+
+        let id_match = config
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .is_some_and(|id| id.eq_ignore_ascii_case(trimmed));
+        if id_match {
+            return Some(stem);
+        }
+
+        let name_match = config
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .is_some_and(|name| name.eq_ignore_ascii_case(trimmed));
+        if name_match {
+            return Some(stem);
+        }
+
+        let identity_match = config
+            .get("identity")
+            .and_then(|v| v.get("name"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .is_some_and(|name| name.eq_ignore_ascii_case(trimmed));
+        if identity_match {
+            return Some(stem);
+        }
+    }
+
+    None
+}
+
+async fn resolve_agent_files_dir(bridge: &GatewayBridge, agent_ref: &str) -> PathBuf {
+    let base = agents_dir(bridge);
+    let safe_ref = sanitize_agent_file_stem(agent_ref).unwrap_or_else(|| "default".to_string());
+    let by_ref = base.join(&safe_ref);
+    if by_ref.exists() {
+        return by_ref;
+    }
+
+    if let Some(stem) = resolve_agent_file_stem(bridge, agent_ref).await {
+        let by_stem = base.join(&stem);
+        if by_stem.exists() {
+            return by_stem;
+        }
+    }
+
+    by_ref
+}
+
 async fn handle_agents_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
     let dir = agents_dir(bridge);
     let mut agents = vec![json!({
@@ -1166,7 +1299,30 @@ async fn handle_agents_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "json") {
-                if let Some(config) = read_agent_config(&path).await {
+                let Some(file_stem) = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+                else {
+                    continue;
+                };
+                if let Some(mut config) = read_agent_config(&path).await {
+                    let id_missing = config
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .is_none_or(|v| v.is_empty());
+                    if id_missing {
+                        config["id"] = json!(file_stem.clone());
+                    }
+                    let name_missing = config
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .is_none_or(|v| v.is_empty());
+                    if name_missing {
+                        config["name"] = json!(default_agent_name_from_config(&config, &file_stem));
+                    }
                     agents.push(config);
                 }
             }
@@ -1204,17 +1360,92 @@ async fn handle_agents_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
     Ok(json!({ "agents": enriched }))
 }
 
-async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    if name.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
+async fn handle_agents_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+    let agent_ref = params
+        .get("id")
+        .or_else(|| params.get("name"))
+        .or_else(|| params.get("agent"))
+        .or_else(|| params.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    if agent_ref.trim().is_empty() {
+        return Err((
+            INVALID_REQUEST,
+            "missing 'name' or 'id' parameter".to_string(),
+        ));
     }
 
-    let id = params
+    if agent_ref.trim().eq_ignore_ascii_case("default") {
+        return Ok(json!({
+            "id": "default",
+            "name": "Savfox Agent",
+            "status": "active",
+            "builtin": true,
+        }));
+    }
+
+    let Some(file_stem) = resolve_agent_file_stem(bridge, agent_ref).await else {
+        return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
+    };
+    let path = agents_dir(bridge).join(format!("{file_stem}.json"));
+    let Some(mut config) = read_agent_config(&path).await else {
+        return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
+    };
+
+    let id_missing = config
         .get("id")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        .map(str::trim)
+        .is_none_or(|v| v.is_empty());
+    if id_missing {
+        config["id"] = json!(file_stem.clone());
+    }
+    let name_missing = config
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .is_none_or(|v| v.is_empty());
+    if name_missing {
+        config["name"] = json!(default_agent_name_from_config(&config, &file_stem));
+    }
+
+    Ok(config)
+}
+
+async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+    let raw_id = params
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    if raw_id.is_empty() {
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+    }
+    let id = sanitize_agent_file_stem(raw_id).ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "invalid 'id' parameter (empty after sanitization)".to_string(),
+        )
+    })?;
+    if id != raw_id {
+        return Err((
+            INVALID_REQUEST,
+            "invalid 'id' parameter: use letters, numbers, '-', '_' without path/special characters"
+                .to_string(),
+        ));
+    }
+
+    let display_name = params
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .unwrap_or_default();
+    if display_name.is_empty() {
+        return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
+    }
 
     let description = params
         .get("description")
@@ -1231,7 +1462,7 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
     let mut agent_config = json!({
         "id": id,
-        "name": name,
+        "name": display_name,
         "description": description,
         "system_prompt": system_prompt,
         "created_at": chrono::Utc::now().to_rfc3339(),
@@ -1251,6 +1482,7 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
     // Per-agent config overrides
     for key in &[
+        "provider",
         "thinking",
         "verbose",
         "tools",
@@ -1270,6 +1502,9 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     let dir = agents_dir(bridge);
     let _ = tokio::fs::create_dir_all(&dir).await;
     let path = dir.join(format!("{id}.json"));
+    if path.exists() {
+        return Err((INVALID_REQUEST, format!("agent already exists: {id}")));
+    }
     let data = serde_json::to_string_pretty(&agent_config).unwrap_or_default();
     if let Err(err) = tokio::fs::write(&path, data).await {
         return Err((
@@ -1280,22 +1515,43 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
     Ok(json!({
         "id": id,
-        "name": name,
+        "name": display_name,
         "status": "created",
     }))
 }
 
 async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+    let agent_ref = params
+        .get("id")
+        .or_else(|| params.get("name"))
+        .or_else(|| params.get("agent"))
+        .or_else(|| params.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if agent_ref.trim().is_empty() {
+        return Err((
+            INVALID_REQUEST,
+            "missing 'id' or 'name' parameter".to_string(),
+        ));
     }
 
     let dir = agents_dir(bridge);
-    let path = dir.join(format!("{id}.json"));
+    let resolved_id = resolve_agent_file_stem(bridge, agent_ref)
+        .await
+        .or_else(|| sanitize_agent_file_stem(agent_ref))
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                format!("invalid agent reference: {agent_ref}"),
+            )
+        })?;
+    let path = dir.join(format!("{resolved_id}.json"));
 
     // Read existing config or start fresh.
-    let mut config = read_agent_config(&path).await.unwrap_or(json!({"id": id}));
+    let mut config = read_agent_config(&path)
+        .await
+        .unwrap_or(json!({"id": resolved_id, "name": agent_ref}));
+    config["id"] = json!(resolved_id.clone());
 
     // Merge updatable fields.
     if let Some(name) = params.get("name").and_then(|v| v.as_str()) {
@@ -1306,6 +1562,9 @@ async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }
     if let Some(model) = params.get("model").and_then(|v| v.as_str()) {
         config["model"] = json!(model);
+    }
+    if let Some(provider) = params.get("provider").and_then(|v| v.as_str()) {
+        config["provider"] = json!(provider);
     }
     if let Some(prompt) = params.get("system_prompt").and_then(|v| v.as_str()) {
         config["system_prompt"] = json!(prompt);
@@ -1348,39 +1607,63 @@ async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         ));
     }
 
-    Ok(json!({ "id": id, "status": "updated" }))
+    Ok(json!({ "id": resolved_id, "status": "updated" }))
 }
 
 async fn handle_agents_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+    let agent_ref = params
+        .get("id")
+        .or_else(|| params.get("name"))
+        .or_else(|| params.get("agent"))
+        .or_else(|| params.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if agent_ref.trim().is_empty() {
+        return Err((
+            INVALID_REQUEST,
+            "missing 'id' or 'name' parameter".to_string(),
+        ));
     }
-    if id == "default" {
+    if agent_ref == "default" {
         return Err((
             INVALID_REQUEST,
             "cannot delete the default agent".to_string(),
         ));
     }
 
+    let resolved_id = resolve_agent_file_stem(bridge, agent_ref)
+        .await
+        .or_else(|| sanitize_agent_file_stem(agent_ref))
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                format!("invalid agent reference: {agent_ref}"),
+            )
+        })?;
+
     let dir = agents_dir(bridge);
-    let path = dir.join(format!("{id}.json"));
+    let path = dir.join(format!("{resolved_id}.json"));
     let _ = tokio::fs::remove_file(&path).await;
 
     // Also remove the agent's files directory.
-    let files_dir = dir.join(id);
+    let files_dir = dir.join(&resolved_id);
     let _ = tokio::fs::remove_dir_all(&files_dir).await;
+    if let Some(ref_dir) = sanitize_agent_file_stem(agent_ref)
+        && ref_dir != resolved_id
+    {
+        let _ = tokio::fs::remove_dir_all(dir.join(ref_dir)).await;
+    }
 
-    Ok(json!({ "id": id, "status": "deleted" }))
+    Ok(json!({ "id": resolved_id, "status": "deleted" }))
 }
 
 async fn handle_agents_files_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let agent_id = params
+    let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let dir = agents_dir(bridge).join(agent_id);
+    let dir = resolve_agent_files_dir(bridge, agent_ref).await;
     let mut files = Vec::new();
 
     if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
@@ -1398,11 +1681,11 @@ async fn handle_agents_files_list(params: &Value, bridge: &Arc<GatewayBridge>) -
         }
     }
 
-    Ok(json!({ "agent_id": agent_id, "files": files }))
+    Ok(json!({ "agent_id": agent_ref, "files": files }))
 }
 
 async fn handle_agents_files_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let agent_id = params
+    let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
@@ -1417,15 +1700,16 @@ async fn handle_agents_files_get(params: &Value, bridge: &Arc<GatewayBridge>) ->
         .and_then(|n| n.to_str())
         .unwrap_or(file_path);
 
-    let path = agents_dir(bridge).join(agent_id).join(safe_name);
+    let dir = resolve_agent_files_dir(bridge, agent_ref).await;
+    let path = dir.join(safe_name);
     match tokio::fs::read_to_string(&path).await {
-        Ok(content) => Ok(json!({ "agent_id": agent_id, "path": safe_name, "content": content })),
-        Err(_) => Ok(json!({ "agent_id": agent_id, "path": safe_name, "content": null })),
+        Ok(content) => Ok(json!({ "agent_id": agent_ref, "path": safe_name, "content": content })),
+        Err(_) => Ok(json!({ "agent_id": agent_ref, "path": safe_name, "content": null })),
     }
 }
 
 async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let agent_id = params
+    let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
@@ -1441,7 +1725,7 @@ async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayBridge>) ->
         .and_then(|n| n.to_str())
         .unwrap_or(file_path);
 
-    let dir = agents_dir(bridge).join(agent_id);
+    let dir = resolve_agent_files_dir(bridge, agent_ref).await;
     let _ = tokio::fs::create_dir_all(&dir).await;
     let path = dir.join(safe_name);
 
@@ -1449,11 +1733,11 @@ async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayBridge>) ->
         return Err((INTERNAL_ERROR, format!("failed to write file: {err}")));
     }
 
-    Ok(json!({ "agent_id": agent_id, "path": safe_name, "status": "saved" }))
+    Ok(json!({ "agent_id": agent_ref, "path": safe_name, "status": "saved" }))
 }
 
 async fn handle_agents_files_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    let agent_id = params
+    let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
@@ -1468,11 +1752,12 @@ async fn handle_agents_files_delete(params: &Value, bridge: &Arc<GatewayBridge>)
         .and_then(|n| n.to_str())
         .unwrap_or(file_path);
 
-    let path = agents_dir(bridge).join(agent_id).join(safe_name);
+    let dir = resolve_agent_files_dir(bridge, agent_ref).await;
+    let path = dir.join(safe_name);
     match tokio::fs::remove_file(&path).await {
-        Ok(_) => Ok(json!({ "agent_id": agent_id, "path": safe_name, "status": "deleted" })),
+        Ok(_) => Ok(json!({ "agent_id": agent_ref, "path": safe_name, "status": "deleted" })),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({
-            "agent_id": agent_id,
+            "agent_id": agent_ref,
             "path": safe_name,
             "status": "deleted"
         })),

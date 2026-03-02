@@ -11,6 +11,17 @@ use crate::components::search_input::SearchInput;
 use crate::components::tab_bar::{TabBar, TabItem};
 use crate::components::toast::Toaster;
 use crate::components::toggle_switch::ToggleSwitch;
+use crate::utils::provider_registry::{canonical_provider_id, provider_display_name};
+
+fn agent_ref(entry: &AgentEntry) -> String {
+    entry
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| entry.name.clone())
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -24,9 +35,11 @@ pub fn Agents() -> Element {
 
     let mut selected_agent = use_signal(|| Option::<String>::None);
     let mut show_create = use_signal(|| false);
-    let new_name = use_signal(String::new);
-    let new_model = use_signal(String::new);
-    let new_prompt = use_signal(String::new);
+    let mut new_id = use_signal(String::new);
+    let mut new_name = use_signal(String::new);
+    let mut new_provider = use_signal(String::new);
+    let mut new_model = use_signal(String::new);
+    let mut new_prompt = use_signal(String::new);
     let mut active_tab = use_signal(|| "overview".to_string());
 
     // Fetch agent list
@@ -46,8 +59,8 @@ pub fn Agents() -> Element {
     let agents: Vec<AgentEntry> = agents_data.read().as_ref().cloned().unwrap_or_default();
     let is_loading = agents_data.read().is_none();
 
-    let selected_entry: Option<AgentEntry> =
-        selected_agent().and_then(|name| agents.iter().find(|a| a.name == name).cloned());
+    let selected_entry: Option<AgentEntry> = selected_agent()
+        .and_then(|selected| agents.iter().find(|a| agent_ref(a) == selected).cloned());
 
     let tabs = vec![
         TabItem {
@@ -89,7 +102,15 @@ pub fn Agents() -> Element {
                             "Refresh"
                         }
                         button {
-                            onclick: move |_| { show_create.set(true); selected_agent.set(None); },
+                            onclick: move |_| {
+                                show_create.set(true);
+                                selected_agent.set(None);
+                                new_id.set(String::new());
+                                new_name.set(String::new());
+                                new_provider.set(String::new());
+                                new_model.set(String::new());
+                                new_prompt.set(String::new());
+                            },
                             style: "{TOOL_BTN}background:var(--accent);color:#fff;border:none;",
                             "+ New"
                         }
@@ -104,16 +125,17 @@ pub fn Agents() -> Element {
                     } else {
                         for agent in agents.iter() {
                             {
-                                let is_sel = selected_agent() == Some(agent.name.clone());
+                                let aid = agent_ref(agent);
+                                let is_sel = selected_agent() == Some(aid.clone());
                                 let bg = if is_sel { "var(--bg-hover)" } else { "transparent" };
                                 let a = agent.clone();
                                 let status = agent.status.as_deref().unwrap_or("idle");
                                 let sc = status_color(status);
                                 rsx! {
                                     div {
-                                        key: "{agent.name}",
+                                        key: "{aid}",
                                         onclick: move |_| {
-                                            selected_agent.set(Some(a.name.clone()));
+                                            selected_agent.set(Some(agent_ref(&a)));
                                             show_create.set(false);
                                             active_tab.set("overview".to_string());
                                         },
@@ -143,7 +165,9 @@ pub fn Agents() -> Element {
                         ws: ws.clone(),
                         refresh_tick,
                         show_create,
+                        new_id,
                         new_name,
+                        new_provider,
                         new_model,
                         new_prompt,
                     }
@@ -220,16 +244,62 @@ fn AgentCreateForm(
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     mut show_create: Signal<bool>,
+    mut new_id: Signal<String>,
     mut new_name: Signal<String>,
+    mut new_provider: Signal<String>,
     mut new_model: Signal<String>,
     mut new_prompt: Signal<String>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
+    let ws_connected = use_context::<Signal<bool>>();
+
+    // Fetch configured models so we can derive available providers.
+    let ws_models = ws.clone();
+    let models_data = use_resource(move || {
+        let _c = ws_connected();
+        let ws = ws_models.clone();
+        async move {
+            ws.call::<ModelsResponse>("models.list", None)
+                .await
+                .map(|r| r.models)
+                .unwrap_or_default()
+        }
+    });
+    let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
+    let providers: Vec<String> = {
+        let mut set = std::collections::BTreeSet::new();
+        for m in &models {
+            let from_field = m.provider.as_deref().and_then(|p| {
+                let trimmed = p.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(canonical_provider_id(trimmed))
+                }
+            });
+            let from_id = m.id.split_once('/').map(|(p, _)| canonical_provider_id(p));
+            if let Some(provider_id) = from_field.or(from_id)
+                && !provider_id.is_empty()
+            {
+                set.insert(provider_id);
+            }
+        }
+        set.into_iter().collect()
+    };
 
     rsx! {
         div { style: "padding:24px;",
             h3 { style: "font-size:18px;margin-bottom:16px;", "New Agent" }
             div { style: "display:flex;flex-direction:column;gap:12px;max-width:600px;",
+                div {
+                    label { style: "{LABEL}", "ID" }
+                    input {
+                        value: "{new_id}",
+                        oninput: move |e| new_id.set(e.value()),
+                        placeholder: "assistant-main",
+                        style: "{INPUT}",
+                    }
+                }
                 div {
                     label { style: "{LABEL}", "Name" }
                     input {
@@ -237,6 +307,28 @@ fn AgentCreateForm(
                         oninput: move |e| new_name.set(e.value()),
                         placeholder: "my-agent",
                         style: "{INPUT}",
+                    }
+                }
+                div {
+                    label { style: "{LABEL}", "Model Provider" }
+                    select {
+                        value: "{new_provider}",
+                        onchange: move |e| new_provider.set(e.value()),
+                        style: "{INPUT}",
+                        option { value: "", "-- Select provider --" }
+                        for provider_id in providers.iter() {
+                            {
+                                let label = provider_display_name(provider_id);
+                                rsx! {
+                                    option { key: "{provider_id}", value: "{provider_id}", "{label} ({provider_id})" }
+                                }
+                            }
+                        }
+                    }
+                    if providers.is_empty() {
+                        p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                            "No configured providers found. Add models/providers in Models page first."
+                        }
                     }
                 }
                 div {
@@ -261,20 +353,47 @@ fn AgentCreateForm(
                 div { style: "display:flex;gap:8px;",
                     button {
                         onclick: move |_| {
+                            let id = new_id().trim().to_string();
                             let name = new_name().trim().to_string();
-                            let model = new_model().trim().to_string();
+                            let provider = new_provider().trim().to_string();
+                            let model_input = new_model().trim().to_string();
+                            let model = if model_input.is_empty() {
+                                String::new()
+                            } else if model_input.contains('/') || provider.is_empty() {
+                                model_input
+                            } else {
+                                format!("{provider}/{model_input}")
+                            };
                             let prompt = new_prompt();
-                            if name.is_empty() { return; }
+                            if id.is_empty() {
+                                toaster.error("Agent ID is required");
+                                return;
+                            }
+                            if name.is_empty() {
+                                toaster.error("Agent name is required");
+                                return;
+                            }
                             let ws = ws.clone();
                             spawn(async move {
-                                let res = ws.call::<serde_json::Value>("agents.create", Some(json!({
-                                    "name": name, "model": model, "system_prompt": prompt,
-                                }))).await;
+                                let mut payload = json!({
+                                    "id": id,
+                                    "name": name,
+                                    "system_prompt": prompt,
+                                });
+                                if !model.is_empty() {
+                                    payload["model"] = json!(model);
+                                }
+                                if !provider.is_empty() {
+                                    payload["provider"] = json!(provider);
+                                }
+                                let res = ws.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                 match res {
                                     Ok(_) => {
                                         toaster.success("Agent created");
                                         show_create.set(false);
+                                        new_id.set(String::new());
                                         new_name.set(String::new());
+                                        new_provider.set(String::new());
                                         new_model.set(String::new());
                                         new_prompt.set(String::new());
                                         refresh_tick += 1;
@@ -311,7 +430,8 @@ fn AgentOverviewTab(
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
 
-    let name_del = entry.name.clone();
+    let agent_id = agent_ref(&entry);
+    let id_del = agent_id.clone();
     let ws_del = ws.clone();
     let status = entry.status.as_deref().unwrap_or("idle");
     let sc = status_color(status);
@@ -335,14 +455,14 @@ fn AgentOverviewTab(
 
     // Fetch full AgentDetail for extra fields
     let ws_detail = ws.clone();
-    let detail_name = entry.name.clone();
+    let detail_id = agent_id.clone();
     let detail_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_detail.clone();
-        let name = detail_name.clone();
+        let id = detail_id.clone();
         async move {
-            ws.call::<AgentDetail>("agents.get", Some(json!({ "name": name })))
+            ws.call::<AgentDetail>("agents.get", Some(json!({ "id": id })))
                 .await
                 .ok()
         }
@@ -388,7 +508,7 @@ fn AgentOverviewTab(
         form_name() != orig_name || form_model() != orig_model || form_desc() != orig_desc
     };
 
-    let entry_name = entry.name.clone();
+    let entry_id = agent_id.clone();
     let ws_save = ws.clone();
 
     rsx! {
@@ -404,10 +524,13 @@ fn AgentOverviewTab(
                 }
                 button {
                     onclick: move |_| {
-                        let name = name_del.clone();
+                        let id = id_del.clone();
                         let ws = ws_del.clone();
                         spawn(async move {
-                            let res = ws.call::<serde_json::Value>("agents.delete", Some(json!({ "name": name }))).await;
+                            let res = ws.call::<serde_json::Value>(
+                                "agents.delete",
+                                Some(json!({ "id": id })),
+                            ).await;
                             match res {
                                 Ok(_) => {
                                     toaster.success("Agent deleted");
@@ -636,11 +759,12 @@ fn AgentOverviewTab(
                 button {
                     disabled: !is_dirty,
                     onclick: {
-                        let name = entry_name.clone();
+                        let id = entry_id.clone();
                         let ws = ws_save.clone();
                         move |_| {
-                            let name = name.clone();
+                            let id = id.clone();
                             let ws = ws.clone();
+                            let display_name = form_name().trim().to_string();
                             let model_val = form_model().trim().to_string();
                             let desc_val = form_desc();
                             let fallback_str = form_fallback();
@@ -653,7 +777,8 @@ fn AgentOverviewTab(
                                 .collect();
                             spawn(async move {
                                 let mut params = json!({
-                                    "name": name,
+                                    "id": id,
+                                    "name": display_name,
                                     "model": model_val.clone(),
                                     "system_prompt": desc_val,
                                 });
@@ -718,6 +843,7 @@ const KNOWN_FILES: [&str; 3] = ["persona.md", "identity.json", "tool_guidance.md
 fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
+    let agent_id = agent_ref(&entry);
 
     let mut selected_file = use_signal(|| Option::<String>::None);
     let mut file_content = use_signal(String::new);
@@ -727,7 +853,7 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
 
     // Fetch file list
     let ws_files = ws.clone();
-    let agent_name = entry.name.clone();
+    let agent_name = agent_id.clone();
     let files_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
@@ -777,7 +903,7 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                             disabled: new_file_name().trim().is_empty(),
                             onclick: {
                                 let ws = ws.clone();
-                                let agent = entry.name.clone();
+                                let agent = agent_id.clone();
                                 move |_| {
                                     let ws = ws.clone();
                                     let agent = agent.clone();
@@ -815,9 +941,9 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                         let exists = *exists;
                         let file_size = *size;
                         let ws_get = ws.clone();
-                        let agent_get = entry.name.clone();
+                        let agent_get = agent_id.clone();
                         let ws_create = ws.clone();
-                        let agent_create = entry.name.clone();
+                        let agent_create = agent_id.clone();
                         rsx! {
                             div {
                                 key: "{fname}",
@@ -908,7 +1034,7 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                             disabled: !file_dirty(),
                             onclick: {
                                 let ws = ws.clone();
-                                let agent = entry.name.clone();
+                                let agent = agent_id.clone();
                                 move |_| {
                                     let ws = ws.clone();
                                     let agent = agent.clone();
@@ -946,7 +1072,7 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                         button {
                             onclick: {
                                 let ws = ws.clone();
-                                let agent = entry.name.clone();
+                                let agent = agent_id.clone();
                                 move |_| {
                                     let ws = ws.clone();
                                     let agent = agent.clone();
@@ -1051,6 +1177,7 @@ fn tool_categories() -> Vec<ToolCategory> {
 fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
+    let agent_id = agent_ref(&entry);
 
     let profiles = ["minimal", "coding", "messaging", "full", "inherit"];
     let mut tools_profile = use_signal(|| "coding".to_string());
@@ -1059,14 +1186,14 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
 
     // Fetch current tools config
     let ws_get = ws.clone();
-    let agent_name = entry.name.clone();
+    let agent_name = agent_id.clone();
     let tools_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_get.clone();
         let name = agent_name.clone();
         async move {
-            ws.call::<AgentDetail>("agents.get", Some(json!({ "name": name })))
+            ws.call::<AgentDetail>("agents.get", Some(json!({ "id": name })))
                 .await
                 .ok()
         }
@@ -1156,10 +1283,10 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                 button {
                     onclick: {
                         let ws = ws.clone();
-                        let name = entry.name.clone();
+                        let id = agent_id.clone();
                         move |_| {
                             let ws = ws.clone();
-                            let name = name.clone();
+                            let id = id.clone();
                             let profile = tools_profile();
                             let enabled: Vec<String> = tool_states
                                 .read()
@@ -1174,7 +1301,7 @@ fn AgentToolsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
                                 let res = ws.call::<serde_json::Value>(
                                     "agents.tools.set",
                                     Some(json!({
-                                        "agent": name,
+                                        "agent": id,
                                         "profile": profile,
                                         "tools": enabled,
                                     })),
@@ -1206,6 +1333,7 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
     let toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
     let mut search_query = use_signal(String::new);
+    let agent_id = agent_ref(&entry);
 
     // Fetch all available skills
     let ws_bins = ws.clone();
@@ -1246,7 +1374,7 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
 
     // Fetch agent-specific skill config
     let ws_agent_skills = ws.clone();
-    let agent_name = entry.name.clone();
+    let agent_name = agent_id.clone();
     let agent_skills_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
@@ -1334,15 +1462,15 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
             } else {
                 // Workspace group
                 if !workspace.is_empty() {
-                    { render_skill_group_section("Workspace", &workspace, &agent_enabled_skills, ws.clone(), refresh_tick, entry.name.clone(), toaster) }
+                    { render_skill_group_section("Workspace", &workspace, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
                 }
                 // Built-in group
                 if !builtin.is_empty() {
-                    { render_skill_group_section("Built-in", &builtin, &agent_enabled_skills, ws.clone(), refresh_tick, entry.name.clone(), toaster) }
+                    { render_skill_group_section("Built-in", &builtin, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
                 }
                 // Third-party group
                 if !third_party.is_empty() {
-                    { render_skill_group_section("Third-party", &third_party, &agent_enabled_skills, ws.clone(), refresh_tick, entry.name.clone(), toaster) }
+                    { render_skill_group_section("Third-party", &third_party, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
                 }
             }
         }
@@ -1355,7 +1483,7 @@ fn render_skill_group_section(
     enabled_skills: &[String],
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
-    agent_name: String,
+    agent_id: String,
     mut toaster: Toaster,
 ) -> Element {
     rsx! {
@@ -1367,7 +1495,7 @@ fn render_skill_group_section(
                         let is_enabled = enabled_skills.contains(&skill.name);
                         let skill_name = skill.name.clone();
                         let ws_toggle = ws.clone();
-                        let agent = agent_name.clone();
+                        let agent = agent_id.clone();
                         rsx! {
                             div {
                                 key: "{skill.name}",
@@ -1426,6 +1554,7 @@ fn render_skill_group_section(
 fn AgentChannelsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
+    let agent_id = agent_ref(&entry);
 
     // Fetch all channels
     let ws_channels = ws.clone();
@@ -1442,14 +1571,14 @@ fn AgentChannelsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry)
 
     // Fetch agent channel assignments
     let ws_agent_ch = ws.clone();
-    let agent_name = entry.name.clone();
+    let agent_name = agent_id.clone();
     let agent_channels_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_agent_ch.clone();
         let name = agent_name.clone();
         async move {
-            ws.call::<serde_json::Value>("agents.get", Some(json!({ "name": name })))
+            ws.call::<serde_json::Value>("agents.get", Some(json!({ "id": name })))
                 .await
                 .ok()
                 .and_then(|v| v.get("channels").cloned())
@@ -1523,7 +1652,7 @@ fn AgentChannelsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry)
                                 let is_assigned = agent_channels.contains(ch_id);
                                 let ch_toggle = ch_id.clone();
                                 let ws_toggle = ws.clone();
-                                let agent_toggle = entry.name.clone();
+                                let agent_toggle = agent_id.clone();
 
                                 rsx! {
                                     div {
@@ -1578,14 +1707,16 @@ fn AgentChannelsTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry)
 #[component]
 fn AgentCronTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> Element {
     let ws_connected = use_context::<Signal<bool>>();
+    let agent_id = agent_ref(&entry);
+    let agent_name = entry.name.clone();
 
     // Fetch all cron jobs, then filter by agent_id
     let ws_cron = ws.clone();
-    let agent_name = entry.name.clone();
     let cron_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_cron.clone();
+        let id = agent_id.clone();
         let name = agent_name.clone();
         async move {
             // Try filtered call first; if server doesn't support it, fetch all + filter
@@ -1601,15 +1732,17 @@ fn AgentCronTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> 
                     // Check if payload contains agent reference
                     if let Some(ref payload) = job.payload {
                         if let Some(agent_id) = payload.get("agent_id").and_then(|v| v.as_str()) {
-                            return agent_id == name;
+                            return agent_id == id || agent_id == name;
                         }
                         if let Some(agent_id) = payload.get("agent").and_then(|v| v.as_str()) {
-                            return agent_id == name;
+                            return agent_id == id || agent_id == name;
                         }
                     }
                     // Check job name prefix convention
                     if let Some(ref jname) = job.name {
-                        if jname.starts_with(&format!("{}/", name))
+                        if jname.starts_with(&format!("{}/", id))
+                            || jname.starts_with(&format!("{}:", id))
+                            || jname.starts_with(&format!("{}/", name))
                             || jname.starts_with(&format!("{}:", name))
                         {
                             return true;
