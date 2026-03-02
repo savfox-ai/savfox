@@ -3997,7 +3997,7 @@ impl ChatScreen {
         };
 
         if provider_id.eq_ignore_ascii_case("openai") {
-            self.open_openai_connect_auth_method_popup(provider_id, provider.name);
+            self.open_openai_connect_auth_method_popup(provider_id, provider.display_name);
             return;
         }
 
@@ -4092,7 +4092,7 @@ impl ChatScreen {
         provider: ModelProviderInfo,
     ) {
         if !provider_requires_api_key(&provider_id) {
-            self.add_info_message(format!("Connecting to {}...", provider.name), None);
+            self.add_info_message(format!("Connecting to {}...", provider.display_name), None);
             self.app_event_tx.send(AppEvent::BeginProviderConnect {
                 provider_id,
                 api_key: None,
@@ -4110,7 +4110,7 @@ impl ChatScreen {
         };
 
         let tx = self.app_event_tx.clone();
-        let title = format!("Connect {}", provider.name);
+        let title = format!("Connect {}", provider.display_name);
         let provider_id_for_action = provider_id.clone();
         let view = CustomPromptView::new(
             title,
@@ -4303,8 +4303,8 @@ impl ChatScreen {
                 Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)
                     .then(|| ModelProviderBucket {
                         id: provider_id.clone(),
-                        name: provider.name.clone(),
-                        aliases: Self::provider_aliases(provider_id, &provider.name),
+                        name: provider.display_name.clone(),
+                        aliases: Self::provider_aliases(provider_id, &provider.display_name),
                     })
             })
             .collect();
@@ -4315,10 +4315,10 @@ impl ChatScreen {
         {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.name.clone(),
+                name: self.config.model_provider.display_name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.name,
+                    &self.config.model_provider.display_name,
                 ),
             });
         }
@@ -4326,10 +4326,10 @@ impl ChatScreen {
         if buckets.is_empty() {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.name.clone(),
+                name: self.config.model_provider.display_name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.name,
+                    &self.config.model_provider.display_name,
                 ),
             });
         }
@@ -4370,11 +4370,11 @@ impl ChatScreen {
                     .config
                     .model_providers
                     .get(provider_id.as_str())
-                    .map(|provider| provider.name.clone())
+                    .map(|provider| provider.display_name.clone())
                     .or_else(|| {
                         builtins
                             .get(provider_id.as_str())
-                            .map(|provider| provider.name.clone())
+                            .map(|provider| provider.display_name.clone())
                     })
                     .unwrap_or_else(|| provider_id.clone());
                 ModelProviderBucket {
@@ -6020,10 +6020,10 @@ impl ChatScreen {
                 .config
                 .model_providers
                 .get(provider_id)
-                .map(|provider| provider.name.clone())
+                .map(|provider| provider.display_name.clone())
                 .unwrap_or_else(|| provider_id.to_string());
         }
-        self.config.model_provider.name.clone()
+        self.config.model_provider.display_name.clone()
     }
 
     /// Get the label for the current collaboration mode.

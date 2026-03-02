@@ -32,16 +32,16 @@ const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConnectProviderCandidate {
-    pub(crate) slug: String,
-    pub(crate) display_name: String,
+    pub(crate) id: String,
+    pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) requires_api_key: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderConnectResult {
-    pub(crate) provider_slug: String,
-    pub(crate) provider_display_name: String,
+    pub(crate) provider_id: String,
+    pub(crate) provider_name: String,
     pub(crate) base_url: String,
     pub(crate) api_key: Option<String>,
     pub(crate) env_key: Option<String>,
@@ -185,7 +185,7 @@ pub(crate) fn connect_provider_candidates(
             }
             let description = description_parts.join(" · ");
             Some(ConnectProviderCandidate {
-                slug: provider_slug.to_string(),
+                id: provider_id.to_string(),
                 name: provider.display_name.clone(),
                 description,
                 requires_api_key,
@@ -643,7 +643,7 @@ pub(crate) async fn connect_provider(
             || {
                 format!(
                     "Provider `{}` does not define a default base URL. Configure the provider endpoint first.",
-                    provider.name
+                    provider.display_name
                 )
             },
         )?;
@@ -679,7 +679,7 @@ pub(crate) async fn connect_provider(
     {
         return Err(format!(
             "{} requires credentials. Enter an API key or set provider credentials in your environment.",
-            provider.name
+            provider.display_name
         ));
     }
 
@@ -708,11 +708,11 @@ pub(crate) async fn connect_provider(
     }
 
     let env_key = provider_env_key_for_store(&provider_id, &provider);
-    let provider_name = provider.name.clone();
+    let provider_name = provider.display_name.clone();
 
     Ok(ProviderConnectResult {
-        provider_id,
-        provider_name,
+        provider_id: provider_id.clone(),
+        provider_name: provider_name,
         base_url,
         api_key: persisted_api_key,
         env_key,

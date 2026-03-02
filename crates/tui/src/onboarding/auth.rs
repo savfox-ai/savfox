@@ -814,7 +814,7 @@ impl AuthModeWidget {
             return;
         };
 
-        let provider_name = provider.name.clone();
+        let provider_name = provider.display_name.clone();
         self.error = None;
         *self.sign_in_state.write().unwrap() =
             SignInState::ProviderConnecting(ProviderConnectingState {

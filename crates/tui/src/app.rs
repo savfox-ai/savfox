@@ -1835,7 +1835,7 @@ impl App {
                 };
 
                 self.chat_screen
-                    .add_info_message(format!("Connecting to {}...", provider.name), None);
+                    .add_info_message(format!("Connecting to {}...", provider.display_name), None);
                 let tx = self.app_event_tx.clone();
                 let savfox_home = self.config.savfox_home.clone();
                 let runtime_auth = self.provider_connect_runtime_auth().await;
