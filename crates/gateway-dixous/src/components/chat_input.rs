@@ -425,6 +425,12 @@ pub fn ChatInput(
                                 on_change: move |model: String| on_model_change(model),
                             }
                         }
+                        button {
+                            class: "chat-effort-btn",
+                            title: "Reasoning effort",
+                            aria_label: "Reasoning effort",
+                            "Reasoning: Default"
+                        }
                     }
                     div { class: "chat-input-actions-right",
                         div { class: "chat-input-hint", "Enter to send • Shift+Enter for new line" }
@@ -537,6 +543,23 @@ const CHAT_INPUT_STYLES: &str = r#"
         height: 38px;
     }
 
+    .chat-effort-btn {
+        height: 38px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
+        color: var(--text-primary);
+        padding: 0 12px;
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .chat-effort-btn:hover {
+        background: var(--bg-hover);
+    }
+
     .chat-input-actions-right {
         margin-left: auto;
         display: flex;
@@ -618,6 +641,12 @@ const CHAT_INPUT_STYLES: &str = r#"
         .chat-model-select-wrap .model-selector__trigger {
             min-width: 160px;
             height: 36px;
+        }
+
+        .chat-effort-btn {
+            height: 36px;
+            font-size: 11px;
+            padding: 0 10px;
         }
 
         .chat-input-hint {

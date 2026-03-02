@@ -37,30 +37,6 @@ fn normalize_verbose_mode(value: &str) -> String {
     }
 }
 
-fn cycle_thinking_level(current: &str) -> String {
-    let idx = THINKING_LEVELS
-        .iter()
-        .position(|level| *level == current)
-        .unwrap_or(0);
-    THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.len()].to_string()
-}
-
-fn cycle_reasoning_mode(current: &str) -> String {
-    let idx = REASONING_MODES
-        .iter()
-        .position(|mode| *mode == current)
-        .unwrap_or(1);
-    REASONING_MODES[(idx + 1) % REASONING_MODES.len()].to_string()
-}
-
-fn cycle_verbose_mode(current: &str) -> String {
-    let idx = VERBOSE_MODES
-        .iter()
-        .position(|mode| *mode == current)
-        .unwrap_or(1);
-    VERBOSE_MODES[(idx + 1) % VERBOSE_MODES.len()].to_string()
-}
-
 fn sort_sessions(mut entries: Vec<SessionEntry>) -> Vec<SessionEntry> {
     entries.sort_by(|a, b| {
         let a_activity = a.last_activity.as_deref().unwrap_or("");
@@ -588,22 +564,6 @@ pub fn Sessions() -> Element {
     let message_count = msgs.len();
     let has_sidebar = sidebar_content().is_some();
 
-    let reasoning_btn_style = if reasoning_mode() != "off" {
-        "session-pill-btn session-pill-btn--active"
-    } else {
-        "session-pill-btn"
-    };
-    let verbose_btn_style = if verbose_mode() != "off" {
-        "session-pill-btn session-pill-btn--active"
-    } else {
-        "session-pill-btn"
-    };
-    let thinking_btn_style = if thinking_level() != "off" {
-        "session-pill-btn session-pill-btn--active"
-    } else {
-        "session-pill-btn"
-    };
-
     rsx! {
         div { class: "session-page",
             div { class: "session-shell",
@@ -750,21 +710,6 @@ pub fn Sessions() -> Element {
                             }
                         }
                         div { class: "session-main-header__right",
-                            button {
-                                class: "{thinking_btn_style}",
-                                onclick: move |_| thinking_level.set(cycle_thinking_level(&thinking_level())),
-                                "Think {thinking_level()}"
-                            }
-                            button {
-                                class: "{reasoning_btn_style}",
-                                onclick: move |_| reasoning_mode.set(cycle_reasoning_mode(&reasoning_mode())),
-                                "Reason {reasoning_mode()}"
-                            }
-                            button {
-                                class: "{verbose_btn_style}",
-                                onclick: move |_| verbose_mode.set(cycle_verbose_mode(&verbose_mode())),
-                                "Verbose {verbose_mode()}"
-                            }
                             button {
                                 class: "session-pill-btn",
                                 onclick: on_new_session,
