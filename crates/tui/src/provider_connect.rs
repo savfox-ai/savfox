@@ -712,7 +712,7 @@ pub(crate) async fn connect_provider(
 
     Ok(ProviderConnectResult {
         provider_id: provider_id.clone(),
-        provider_name: provider_name,
+        provider_name,
         base_url,
         api_key: persisted_api_key,
         env_key,

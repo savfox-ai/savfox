@@ -226,7 +226,6 @@ pub fn Sessions() -> Element {
     let mut session_buffers = use_signal(HashMap::<String, Vec<ChatMessage>>::new);
     let mut streaming = use_signal(|| false);
 
-    let mut selected_agent = use_signal(|| "default".to_string());
     let initial_pending_model = load_pending_session_model();
     let initial_selected_model = initial_pending_model
         .clone()
@@ -274,19 +273,10 @@ pub fn Sessions() -> Element {
     });
 
     use_effect(move || {
-        let selected = selected_agent();
         let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
         let preserve_draft_model =
             current_session_id().is_none() && pending_session_model().is_some();
-        web_sys::console::log_1(
-            &format!(
-                "Agent selected: {}, available agents: {}",
-                selected,
-                agents_snapshot.len()
-            )
-            .into(),
-        );
-        if let Some(agent) = find_agent_entry(&agents_snapshot, &selected) {
+        if let Some(agent) = find_agent_entry(&agents_snapshot, "default") {
             if let Some(level) = agent.thinking.as_deref() {
                 if THINKING_LEVELS.iter().any(|candidate| *candidate == level) {
                     thinking_level.set(level.to_string());
@@ -304,7 +294,7 @@ pub fn Sessions() -> Element {
                     selected_model.set("default".to_string());
                 }
             }
-        } else if selected == "default" && !preserve_draft_model {
+        } else if !preserve_draft_model {
             selected_model.set("default".to_string());
             web_sys::console::log_1(&"Model set to: default".into());
         }
@@ -597,13 +587,6 @@ pub fn Sessions() -> Element {
     let msgs: Vec<ChatMessage> = messages.read().clone();
     let message_count = msgs.len();
     let has_sidebar = sidebar_content().is_some();
-    let agent_entries = agents_data.read().as_ref().cloned().unwrap_or_default();
-    let default_agent_name = agent_entries
-        .iter()
-        .find(|agent| agent.id.as_deref() == Some("default"))
-        .map(|agent| agent.name.clone())
-        .unwrap_or_else(|| "Savfox Agent".to_string());
-    let default_agent_option_label = format!("{default_agent_name} (Default)");
 
     let reasoning_btn_style = if reasoning_mode() != "off" {
         "session-pill-btn session-pill-btn--active"
@@ -767,30 +750,6 @@ pub fn Sessions() -> Element {
                             }
                         }
                         div { class: "session-main-header__right",
-                            select {
-                                class: "session-agent-select",
-                                value: "{selected_agent}",
-                                onchange: move |e: Event<FormData>| selected_agent.set(e.value()),
-                                option { value: "default", "{default_agent_option_label}" }
-                                for agent in agent_entries.iter() {
-                                    if agent.id.as_deref() != Some("default") {
-                                        {
-                                            let agent_id = agent
-                                                .id
-                                                .as_deref()
-                                                .unwrap_or(agent.name.as_str())
-                                                .to_string();
-                                            rsx! {
-                                                option {
-                                                    key: "{agent_id}",
-                                                    value: "{agent_id}",
-                                                    "{agent.name}"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                             button {
                                 class: "{thinking_btn_style}",
                                 onclick: move |_| thinking_level.set(cycle_thinking_level(&thinking_level())),

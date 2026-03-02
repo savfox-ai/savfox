@@ -448,7 +448,9 @@ impl HistoryCell for StatusHistoryCell {
         if let Some(session_label) = session_name.as_ref().or(self.session_id.as_ref()) {
             lines.push(formatter.line("Session", vec![Span::from(session_label.clone())]));
         }
-        if session_name.is_some() && let Some(session_id) = self.session_id.as_ref() {
+        if session_name.is_some()
+            && let Some(session_id) = self.session_id.as_ref()
+        {
             lines.push(formatter.line("Session ID", vec![Span::from(session_id.clone())]));
         }
         if let Some(collab_mode) = self.collaboration_mode.as_ref() {

@@ -370,7 +370,10 @@ fn normalized_session_name(name: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn session_name_from_event_store(store: &SessionEventStore, session_id: SessionId) -> Option<String> {
+fn session_name_from_event_store(
+    store: &SessionEventStore,
+    session_id: SessionId,
+) -> Option<String> {
     for event in store.buffer.iter().rev() {
         if let EventMsg::SessionNameUpdated(updated) = &event.msg
             && updated.session_id == session_id

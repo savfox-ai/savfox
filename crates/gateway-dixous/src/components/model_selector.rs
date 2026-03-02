@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::api::types::ModelsResponse;
+use crate::api::types::{ModelInfo, ModelsResponse};
 use crate::api::ws::WsRpc;
 use crate::route::Route;
 use crate::utils::model_visibility::{
@@ -10,6 +10,58 @@ use crate::utils::model_visibility::{
 use crate::utils::provider_catalog::{
     build_provider_catalog, find_model_by_full_id, first_default_full_id, model_display_name,
 };
+
+const DEFAULT_MODEL_STORAGE_KEY: &str = "savfox_default_model";
+
+fn fallback_model_display_name(full_id: &str) -> String {
+    let trimmed = full_id.trim();
+    if trimmed.is_empty() {
+        return "Default Model".to_string();
+    }
+    if let Some((_, model_id)) = trimmed.split_once('/') {
+        let model_id = model_id.trim();
+        if !model_id.is_empty() {
+            return model_id.to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn model_info_display_name(model: &ModelInfo) -> String {
+    model
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            model
+                .model_code
+                .as_deref()
+                .map(str::trim)
+                .filter(|code| !code.is_empty())
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| fallback_model_display_name(&model.id))
+}
+
+fn load_saved_default_model_id() -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return web_sys::window()
+            .and_then(|window| window.local_storage().ok())
+            .flatten()
+            .and_then(|storage| storage.get_item(DEFAULT_MODEL_STORAGE_KEY).ok())
+            .flatten()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
 
 #[component]
 pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element {
@@ -60,10 +112,25 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
 
     let catalog = build_provider_catalog(&models_snapshot);
     let default_full_id = first_default_full_id(&catalog);
+    let saved_default_full_id = load_saved_default_model_id();
     let default_model_name = default_full_id
         .as_deref()
         .and_then(|full_id| {
             find_model_by_full_id(&catalog, full_id).map(|(_, model)| model_display_name(model))
+        })
+        .or_else(|| {
+            saved_default_full_id.as_deref().map(|full_id| {
+                find_model_by_full_id(&catalog, full_id)
+                    .map(|(_, model)| model_display_name(model))
+                    .unwrap_or_else(|| fallback_model_display_name(full_id))
+            })
+        })
+        .or_else(|| {
+            models_snapshot
+                .iter()
+                .find(|model| model.is_default.unwrap_or(false))
+                .or_else(|| models_snapshot.first())
+                .map(model_info_display_name)
         })
         .unwrap_or_else(|| "Default Model".to_string());
     let default_model_label = format!("{default_model_name} (Default)");

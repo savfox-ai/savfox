@@ -43,14 +43,20 @@ pub fn ansi_escape(s: &str) -> ratatui::text::Text<'static> {
             // Since the Text from into_text() has a non-static lifetime, we need
             // to convert it. For now, we'll clone the content without preserving
             // complex styling to avoid type compatibility issues between ratatui versions.
-            let lines: Vec<ratatui::text::Line<'static>> = text.lines.into_iter().map(|line| {
-                let spans: Vec<ratatui::text::Span> = line.spans.into_iter().map(|span| {
-                    ratatui::text::Span::raw(span.content.to_string())
-                }).collect();
-                ratatui::text::Line::from(spans)
-            }).collect();
+            let lines: Vec<ratatui::text::Line<'static>> = text
+                .lines
+                .into_iter()
+                .map(|line| {
+                    let spans: Vec<ratatui::text::Span> = line
+                        .spans
+                        .into_iter()
+                        .map(|span| ratatui::text::Span::raw(span.content.to_string()))
+                        .collect();
+                    ratatui::text::Line::from(spans)
+                })
+                .collect();
             ratatui::text::Text::from(lines)
-        },
+        }
         Err(err) => match err {
             Error::NomError(message) => {
                 tracing::error!(

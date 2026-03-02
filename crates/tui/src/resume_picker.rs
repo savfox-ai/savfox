@@ -843,7 +843,10 @@ fn draw_picker(tui: &mut Tui, state: &PickerState) -> std::io::Result<()> {
         .areas(area);
 
         // Header
-        frame.render_widget_ref(&Line::from(vec![state.action.title().bold().cyan()]), header);
+        frame.render_widget_ref(
+            &Line::from(vec![state.action.title().bold().cyan()]),
+            header,
+        );
 
         // Search line
         let q = if state.query.is_empty() {

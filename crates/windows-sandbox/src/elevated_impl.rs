@@ -107,7 +107,11 @@ mod windows_impl {
     /// Generates a unique named-pipe path used to communicate with the runner process.
     fn pipe_name(suffix: &str) -> String {
         let mut rng = SmallRng::from_os_rng();
-        format!(r"\\.\pipe\savfox-runner-{:x}-{}", rng.random::<u128>(), suffix)
+        format!(
+            r"\\.\pipe\savfox-runner-{:x}-{}",
+            rng.random::<u128>(),
+            suffix
+        )
     }
 
     /// Creates a named pipe with permissive ACLs so the sandbox user can connect.

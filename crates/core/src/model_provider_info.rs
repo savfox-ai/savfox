@@ -943,7 +943,10 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
     fn built_in_providers_all_have_names() {
         let providers = built_in_model_providers();
         for (id, provider) in &providers {
-            assert!(!provider.display_name.is_empty(), "provider {id} has empty name");
+            assert!(
+                !provider.display_name.is_empty(),
+                "provider {id} has empty name"
+            );
         }
     }
 
