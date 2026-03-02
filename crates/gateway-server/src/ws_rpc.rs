@@ -3564,6 +3564,30 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
         },
     });
 
+    // Overlay persisted channel configs so UI can restore configured channels on page load.
+    if let Ok(saved_configs) =
+        crate::channel_store::list_channel_configs(&bridge.config().savfox_home).await
+        && let Some(channels_map) = channels.as_object_mut()
+    {
+        for saved in saved_configs {
+            let key = saved.id.to_ascii_lowercase();
+            let entry = channels_map.entry(key.clone()).or_insert_with(|| {
+                json!({
+                    "configured": false,
+                    "running": false,
+                    "connected": false,
+                })
+            });
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("configured".to_string(), json!(true));
+                obj.insert("saved".to_string(), json!(true));
+                obj.insert("enabled".to_string(), json!(saved.enabled));
+                obj.insert("channelName".to_string(), json!(saved.name));
+                obj.insert("agentId".to_string(), json!(saved.agent_id));
+            }
+        }
+    }
+
     let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
     let to_rfc3339 = |timestamp_ms: Option<u64>| -> Value {
         timestamp_ms

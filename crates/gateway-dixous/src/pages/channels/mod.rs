@@ -14,7 +14,7 @@ pub mod telegram;
 pub mod whatsapp;
 
 use dioxus::prelude::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
@@ -554,6 +554,16 @@ fn format_uptime_compact(ms: u64) -> String {
     }
 }
 
+fn value_to_field_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Array(_) | Value::Object(_) => Some(value.to_string()),
+    }
+}
+
 #[component]
 pub fn Channels() -> Element {
     let ws = use_context::<WsRpc>();
@@ -573,6 +583,57 @@ pub fn Channels() -> Element {
     let mut selected_agent = use_signal(|| None::<String>);
 
     let channel_types = get_channel_types();
+
+    let ws_config_get = ws.clone();
+    use_effect(move || {
+        let modal_open = show_add_modal();
+        let selected = selected_channel();
+        if !modal_open {
+            return;
+        }
+
+        let Some(channel_id) = selected else {
+            config_values.write().clear();
+            selected_agent.set(None);
+            return;
+        };
+
+        let ws = ws_config_get.clone();
+        spawn(async move {
+            let result = ws
+                .call::<serde_json::Value>(
+                    "channels.config.get",
+                    Some(json!({ "channel": channel_id })),
+                )
+                .await;
+            let Ok(payload) = result else {
+                return;
+            };
+            let Some(saved) = payload.get("config") else {
+                return;
+            };
+            if saved.is_null() {
+                return;
+            }
+
+            let mut restored = std::collections::HashMap::<String, String>::new();
+            if let Some(config_obj) = saved.get("config").and_then(|value| value.as_object()) {
+                for (field, field_value) in config_obj {
+                    if let Some(text) = value_to_field_text(field_value) {
+                        restored.insert(format!("{channel_id}.{field}"), text);
+                    }
+                }
+            }
+
+            let restored_agent = saved
+                .get("agent_id")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
+
+            config_values.set(restored);
+            selected_agent.set(restored_agent);
+        });
+    });
 
     // Auto-refresh every 30s when enabled (uses spawn to avoid leaked closures)
     use_effect(move || {
@@ -654,7 +715,7 @@ pub fn Channels() -> Element {
             d.as_array().map(|arr| {
                 arr.iter()
                     .filter_map(|c| {
-                        let id = c.get("id").and_then(|v| v.as_str())?.to_string();
+                        let id = c.get("id").and_then(|v| v.as_str())?.to_ascii_lowercase();
                         let agent_id = c
                             .get("agent_id")
                             .and_then(|v| v.as_str())
@@ -686,10 +747,11 @@ pub fn Channels() -> Element {
     let configured_channel_types: Vec<&ChannelTypeInfo> = channel_types
         .iter()
         .filter(|ch_type| {
+            let has_saved = channel_configs.contains_key(ch_type.id.as_str());
             let Some(channel) =
                 status_channels.and_then(|channels| channels.get(ch_type.id.as_str()))
             else {
-                return false;
+                return has_saved;
             };
             let is_configured = channel
                 .get("configured")
@@ -703,7 +765,7 @@ pub fn Channels() -> Element {
                 .get("connected")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            is_configured || is_running || is_connected
+            is_configured || is_running || is_connected || has_saved
         })
         .collect();
 
@@ -764,8 +826,10 @@ pub fn Channels() -> Element {
                         onclick: move |_| {
                             show_add_modal.set(true);
                             selected_channel.set(None);
+                            config_values.write().clear();
                             add_channel_search.set(String::new());
                             save_msg.set(None);
+                            selected_agent.set(None);
                         },
                         class: "channels-btn channels-btn--primary",
                         "+ Add Channel"
@@ -878,10 +942,12 @@ fn render_channel_card(
                 .map(|(id, name)| (id.clone(), name.clone()))
         });
 
-    let is_configured = channel_data
+    let status_configured = channel_data
         .and_then(|c| c.get("configured"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let has_saved_config = channel_configs.contains_key(&ch_type.id);
+    let is_configured = status_configured || has_saved_config;
 
     let is_running = channel_data
         .and_then(|c| c.get("running"))
@@ -1236,6 +1302,39 @@ fn ChannelInlineConfig(
     let fields_vec = fields;
     let ws_save = ws.clone();
     let ws_test = ws.clone();
+    let ws_load = ws.clone();
+    let load_ch_id = ch_id.clone();
+    let load_fields = fields_vec.clone();
+
+    use_effect(move || {
+        let ws = ws_load.clone();
+        let ch_id = load_ch_id.clone();
+        let fields = load_fields.clone();
+        spawn(async move {
+            let result = ws
+                .call::<serde_json::Value>("channels.config.get", Some(json!({ "channel": ch_id })))
+                .await;
+            let Ok(payload) = result else {
+                return;
+            };
+            let Some(saved) = payload.get("config") else {
+                return;
+            };
+            let Some(config_obj) = saved.get("config").and_then(Value::as_object) else {
+                return;
+            };
+
+            let mut restored = std::collections::HashMap::<String, String>::new();
+            for field in &fields {
+                if let Some(raw) = config_obj.get(&field.key)
+                    && let Some(text) = value_to_field_text(raw)
+                {
+                    restored.insert(format!("{ch_id}.{}", field.key), text);
+                }
+            }
+            inline_values.set(restored);
+        });
+    });
 
     rsx! {
         details { class: "channels-cfg",
@@ -1262,10 +1361,12 @@ fn ChannelInlineConfig(
                         onclick: {
                             let ws = ws_save.clone();
                             let ch_id = ch_id.clone();
+                            let ch_name = ch_name.clone();
                             let fields = fields_vec.clone();
                             move |_| {
                                 let ws = ws.clone();
                                 let ch_id = ch_id.clone();
+                                let ch_name = ch_name.clone();
                                 let fields = fields.clone();
                                 let vals = inline_values.read();
                                 let mut patch = json!({});
@@ -1282,19 +1383,58 @@ fn ChannelInlineConfig(
                                         }
                                     }
                                 }
+                                let persist_patch = patch.clone();
+                                let persist_channel = ch_id.clone();
+                                let runtime_channel = ch_id.clone();
                                 inline_saving.set(true);
                                 spawn(async move {
-                                    let result = ws.call::<serde_json::Value>(
-                                        "config.patch",
-                                        Some(json!({ "patch": { "gateway": { "bridges": { ch_id: patch } } } })),
-                                    ).await;
-                                    inline_saving.set(false);
-                                    match result {
+                                    let persist_result = ws
+                                        .call::<serde_json::Value>(
+                                            "channels.config.save",
+                                            Some(json!({
+                                                "channel": persist_channel,
+                                                "name": ch_name,
+                                                "config": persist_patch,
+                                            })),
+                                        )
+                                        .await;
+                                    match persist_result {
                                         Ok(_) => {
-                                            inline_msg.set(Some((true, "Configuration saved.".into())));
+                                            let runtime_result = ws
+                                                .call::<serde_json::Value>(
+                                                    "config.patch",
+                                                    Some(json!({
+                                                        "patch": {
+                                                            "gateway": {
+                                                                "bridges": {
+                                                                    (runtime_channel): patch
+                                                                }
+                                                            }
+                                                        }
+                                                    })),
+                                                )
+                                                .await;
+                                            inline_saving.set(false);
+                                            match runtime_result {
+                                                Ok(_) => {
+                                                    inline_msg.set(Some((
+                                                        true,
+                                                        "Configuration saved.".into(),
+                                                    )));
+                                                }
+                                                Err(e) => {
+                                                    inline_msg.set(Some((
+                                                        true,
+                                                        format!(
+                                                            "Saved to channels store, but runtime patch failed: {e}"
+                                                        ),
+                                                    )));
+                                                }
+                                            }
                                             refresh_tick += 1;
                                         }
                                         Err(e) => {
+                                            inline_saving.set(false);
                                             inline_msg.set(Some((false, format!("Save failed: {e}"))));
                                         }
                                     }
@@ -1548,6 +1688,7 @@ fn render_add_modal(
                 show_add_modal.set(false);
                 add_channel_search.set(String::new());
                 selected_channel.set(None);
+                config_values.write().clear();
                 save_msg.set(None);
                 selected_agent.set(None);
             },
@@ -1567,6 +1708,7 @@ fn render_add_modal(
                             show_add_modal.set(false);
                             add_channel_search.set(String::new());
                             selected_channel.set(None);
+                            config_values.write().clear();
                             save_msg.set(None);
                             selected_agent.set(None);
                         },
@@ -1696,7 +1838,11 @@ fn render_add_modal(
 
                         div { class: "channels-modal__form-actions",
                             button {
-                                onclick: move |_| selected_channel.set(None),
+                                onclick: move |_| {
+                                    selected_channel.set(None);
+                                    config_values.write().clear();
+                                    selected_agent.set(None);
+                                },
                                 class: "channels-action-btn",
                                 "Back"
                             }
@@ -1785,6 +1931,8 @@ fn render_add_modal(
                                         key: "{ch_type.id}",
                                         onclick: move |_| {
                                             selected_channel.set(Some(ch_id.clone()));
+                                            config_values.write().clear();
+                                            selected_agent.set(None);
                                             save_msg.set(None);
                                             add_channel_search.set(String::new());
                                         },
