@@ -865,33 +865,6 @@ impl SelectedModel {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ModelProviderFieldValue {
-    String(String),
-    Structured(StructuredModelProviderField),
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct StructuredModelProviderField {
-    id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct StructuredModelField {
-    #[serde(alias = "model_slug")]
-    slug: String,
-    provider: ModelProviderFieldValue,
-    reasoning_effort: Option<ReasoningEffort>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ModelFieldValue {
-    String(String),
-    Structured(StructuredModelField),
-}
-
 fn trim_to_non_empty(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
         let trimmed = value.trim();
@@ -974,17 +947,6 @@ where
             })
         }
         ModelFieldValue::Structured(structured) => {
-            let id = trim_to_non_empty(structured.id);
-            let parsed_from_id = id
-                .as_deref()
-                .and_then(parse_provider_prefixed_model)
-                .map(|(provider_id, model_code)| (provider_id.to_string(), model_code.to_string()));
-
-            let provider = provider_id_from_field(structured.provider).or_else(|| {
-                parsed_from_id
-                    .as_ref()
-                    .map(|(provider, _)| provider.clone())
-            });
 
             let slug = trim_to_non_empty(structured.slug)
                 .or_else(|| trim_to_non_empty(structured.slug))

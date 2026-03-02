@@ -341,7 +341,8 @@ impl ModelProviderInfo {
         };
 
         Ok(ApiProvider {
-            name: self.name.clone(),
+            display_name: self.display_name.clone(),
+            slug: self.slug.clone(),
             base_url,
             query_params: self.query_params.clone(),
             wire: match self.wire_api {
