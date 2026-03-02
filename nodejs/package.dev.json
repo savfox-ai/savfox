@@ -1,0 +1,19 @@
+{
+  "name": "@savfox/savfox-dev",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Development scripts for building and testing Savfox npm package",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/dev.js build",
+    "vendor": "node scripts/dev.js vendor",
+    "test": "node scripts/dev.js test",
+    "dev": "node scripts/dev.js all",
+    "build:all": "bash scripts/build-binaries.sh",
+    "package": "bash scripts/package-npm.sh"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16"
+  }
+}

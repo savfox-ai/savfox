@@ -1,0 +1,186 @@
+name: Publish NPM Packages
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g., 0.3.0)"
+        required: true
+        default: "0.3.0"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      - name: Build Linux x64
+        run: cargo build --release --target x86_64-unknown-linux-musl -p savfox-cli
+
+      - name: Build Linux ARM64
+        run: cargo build --release --target aarch64-unknown-linux-musl -p savfox-cli
+
+      - name: Package Linux binaries
+        run: |
+          mkdir -p dist/x86_64-unknown-linux-musl/savfox
+          mkdir -p dist/aarch64-unknown-linux-musl/savfox
+          cp target/x86_64-unknown-linux-musl/release/savfox dist/x86_64-unknown-linux-musl/savfox/
+          cp target/aarch64-unknown-linux-musl/release/savfox dist/aarch64-unknown-linux-musl/savfox/
+          chmod +x dist/*/savfox/savfox
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Build macOS x64
+        run: cargo build --release --target x86_64-apple-darwin -p savfox-cli
+
+      - name: Build macOS ARM64
+        run: cargo build --release --target aarch64-apple-darwin -p savfox-cli
+
+      - name: Package macOS binaries
+        run: |
+          mkdir -p dist/x86_64-apple-darwin/savfox
+          mkdir -p dist/aarch64-apple-darwin/savfox
+          cp target/x86_64-apple-darwin/release/savfox dist/x86_64-apple-darwin/savfox/
+          cp target/aarch64-apple-darwin/release/savfox dist/aarch64-apple-darwin/savfox/
+          chmod +x dist/*/savfox/savfox
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: dist/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Windows x64
+        run: cargo build --release --target x86_64-pc-windows-msvc -p savfox-cli
+
+      - name: Package Windows binaries
+        run: |
+          mkdir -p dist/x86_64-pc-windows-msvc/savfox
+          cp target/x86_64-pc-windows-msvc/release/savfox.exe dist/x86_64-pc-windows-msvc/savfox/
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/
+
+  package-and-publish:
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-binaries
+          path: dist/
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-binaries
+          path: dist/
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Make scripts executable
+        run: chmod +x nodejs/scripts/*.sh
+
+      - name: Package npm packages
+        run: |
+          cd nodejs/scripts
+          ./package-npm.sh ${{ steps.get_version.outputs.VERSION }}
+
+      - name: Publish to npm
+        run: |
+          cd npm-packages
+          npm publish --access public ./savfox
+          npm publish --access public ./savfox-linux-x64
+          npm publish --access public ./savfox-linux-arm64
+          npm publish --access public ./savfox-darwin-x64
+          npm publish --access public ./savfox-darwin-arm64
+          npm publish --access public ./savfox-win32-x64
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create release notes
+        if: github.event_name == 'release'
+        run: |
+          cat > release-notes.md << EOF
+          # Savfox ${{ steps.get_version.outputs.VERSION }}
+
+          ## Installation
+
+          \`\`\`bash
+          npm install -g @savfox/savfox@${{ steps.get_version.outputs.VERSION }}
+          \`\`\`
+
+          ## Supported Platforms
+
+          - Linux (x64, ARM64)
+          - macOS (x64, Apple Silicon)
+          - Windows (x64)
+
+          ## What's Changed
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          EOF
+
+          # Update release with notes
+          gh release edit ${{ github.event.release.tag_name }} --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
