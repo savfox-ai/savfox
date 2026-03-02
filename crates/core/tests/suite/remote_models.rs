@@ -731,7 +731,7 @@ async fn wait_for_model_available(
 
 fn bundled_model_slug() -> String {
     let response: ModelsResponse =
-        serde_json::from_str(savfox_model_registry::bundled_models_json())
+        serde_json::from_str(savfox_model::bundled_models_json())
         .expect("bundled models.json should deserialize");
     response
         .models

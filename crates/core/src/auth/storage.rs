@@ -11,9 +11,7 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
-use savfox_model_registry::{
-    canonical_provider_id, provider_default_model_slug, provider_default_models,
-};
+use savfox_model::{canonical_provider_id, provider_default_model_slug, provider_default_models};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

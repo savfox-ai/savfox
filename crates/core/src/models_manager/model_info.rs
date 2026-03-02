@@ -39,5 +39,5 @@ pub(crate) fn with_config_overrides(mut model: ModelInfo, config: &Config) -> Mo
 }
 
 pub(crate) fn find_model_info_for_slug(slug: &str) -> ModelInfo {
-    savfox_model_registry::find_model_info_for_slug(slug)
+    savfox_model::find_model_info_for_slug(slug)
 }

@@ -288,8 +288,7 @@ impl ModelsManager {
     }
 
     fn load_remote_models_from_file() -> Result<Vec<ModelInfo>, std::io::Error> {
-        let response =
-            savfox_model_registry::bundled_models_response().map_err(std::io::Error::other)?;
+        let response = savfox_model::bundled_models_response().map_err(std::io::Error::other)?;
         Ok(response.models)
     }
 
@@ -850,7 +849,7 @@ mod tests {
 
     #[test]
     fn bundled_models_json_roundtrips() {
-        let file_contents = savfox_model_registry::bundled_models_json();
+        let file_contents = savfox_model::bundled_models_json();
         let response: ModelsResponse =
             serde_json::from_str(file_contents).expect("bundled models.json should deserialize");
 

@@ -37,7 +37,7 @@ savfox-file-search = { workspace = true }
 savfox-git = { workspace = true }
 savfox-keyring-store = { workspace = true }
 savfox-otel = { workspace = true }
-savfox-model-registry = { workspace = true }
+savfox-model = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-rmcp-client = { workspace = true }
 savfox-state = { workspace = true }

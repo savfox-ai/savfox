@@ -17,7 +17,7 @@ use savfox_api::provider::RetryConfig as ApiRetryConfig;
 use savfox_api::{
     Provider as ApiProvider, WireApi as ApiWireApi, is_azure_responses_wire_base_url,
 };
-use savfox_model_registry::{
+use savfox_model::{
     DEFAULT_OPENAI_API_BASE_URL, canonical_provider_id as canonical_provider_registry_id,
     provider_default_base_url_entry as provider_default_base_url_registry_entry,
 };
