@@ -48,7 +48,8 @@ impl RetryConfig {
 /// stream idle timeout, plus helper methods for building requests.
 #[derive(Debug, Clone)]
 pub struct Provider {
-    pub name: String,
+    pub slug: String,
+    pub display_name: String,
     pub base_url: String,
     pub query_params: Option<HashMap<String, String>>,
     pub wire: WireApi,
@@ -94,7 +95,7 @@ impl Provider {
     }
 
     pub fn is_azure_responses_endpoint(&self) -> bool {
-        is_azure_responses_wire_base_url(self.wire.clone(), &self.name, Some(&self.base_url))
+        is_azure_responses_wire_base_url(self.wire.clone(), &self.slug, Some(&self.base_url))
     }
 
     pub fn websocket_url_for_path(&self, path: &str) -> Result<Url, url::ParseError> {

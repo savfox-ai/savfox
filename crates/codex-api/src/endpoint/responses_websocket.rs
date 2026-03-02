@@ -130,7 +130,7 @@ impl<A: AuthProvider> ResponsesWebsocketClient<A> {
             .map(http::header::HeaderName::as_str)
             .collect::<Vec<_>>();
         debug!(
-            provider = %self.provider.name,
+            provider = %self.provider.slug,
             url = %ws_url,
             has_bearer_auth = headers.contains_key(http::header::AUTHORIZATION),
             has_account_id = headers.contains_key("ChatGPT-Account-ID"),

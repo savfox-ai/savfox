@@ -903,14 +903,6 @@ fn trim_to_non_empty(value: Option<String>) -> Option<String> {
     })
 }
 
-fn provider_id_from_field(value: Option<ModelProviderFieldValue>) -> Option<String> {
-    match value {
-        Some(ModelProviderFieldValue::String(provider_id)) => trim_to_non_empty(Some(provider_id)),
-        Some(ModelProviderFieldValue::Structured(provider)) => trim_to_non_empty(provider.id),
-        None => None,
-    }
-}
-
 pub(crate) fn deserialize_model_field<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
