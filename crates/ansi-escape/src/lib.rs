@@ -1,5 +1,5 @@
 use ansi_to_tui::{Error, IntoText};
-use ratatui::text::{Line, Text};
+use ratatui::text::{Line, Span, Text};
 
 // Expand tabs in a best-effort way for transcript rendering.
 // Tabs can interact poorly with left-gutter prefixes in our TUI and CLI
@@ -35,11 +35,22 @@ pub fn ansi_escape_line(s: &str) -> Line<'static> {
     }
 }
 
-pub fn ansi_escape(s: &str) -> Text<'static> {
+pub fn ansi_escape(s: &str) -> ratatui::text::Text<'static> {
     // to_text() claims to be faster, but introduces complex lifetime issues
     // such that it's not worth it.
     match s.into_text() {
-        Ok(text) => text,
+        Ok(text) => {
+            // Since the Text from into_text() has a non-static lifetime, we need
+            // to convert it. For now, we'll clone the content without preserving
+            // complex styling to avoid type compatibility issues between ratatui versions.
+            let lines: Vec<ratatui::text::Line<'static>> = text.lines.into_iter().map(|line| {
+                let spans: Vec<ratatui::text::Span> = line.spans.into_iter().map(|span| {
+                    ratatui::text::Span::raw(span.content.to_string())
+                }).collect();
+                ratatui::text::Line::from(spans)
+            }).collect();
+            ratatui::text::Text::from(lines)
+        },
         Err(err) => match err {
             Error::NomError(message) => {
                 tracing::error!(

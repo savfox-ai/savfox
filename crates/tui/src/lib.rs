@@ -270,7 +270,7 @@ fn effective_model_selection(
         .or_else(|| config_toml.profile.clone());
     let profile = config_toml.get_config_profile(override_profile)?;
 
-    let profile_model = profile.model.as_ref().and_then(|model| trim_nonempty(&model.slug));
+    let profile_model = profile.model.as_ref().and_then(|model| model.to_model_id());
     let profile_provider = profile
         .model_provider
         .and_then(|provider| trim_nonempty(&provider));
@@ -279,7 +279,7 @@ fn effective_model_selection(
         config_toml
             .model
             .as_ref()
-            .and_then(|model| model.normalized_slug())
+            .and_then(|model| model.to_model_id())
     });
     let Some(configured_model) = configured_model else {
         return Ok(None);

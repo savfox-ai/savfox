@@ -49,7 +49,7 @@ impl From<ConfigProfile> for savfox_app_server_protocol::Profile {
         let model_from_selected = config_profile
             .model
             .as_ref()
-            .and_then(crate::config::SelectedModel::normalized_slug);
+            .and_then(crate::config::SelectedModel::to_model_id);
         let model_provider_from_selected = config_profile
             .model
             .as_ref()

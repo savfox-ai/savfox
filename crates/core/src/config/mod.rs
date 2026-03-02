@@ -863,6 +863,20 @@ impl SelectedModel {
     pub fn normalized_provider(&self) -> Option<String> {
         trim_nonempty(self.provider.as_str())
     }
+
+    /// Returns the full model identifier in "provider/slug" format.
+    /// If the slug already contains a provider prefix, returns it as-is.
+    /// Otherwise, formats as "provider/slug".
+    pub fn to_model_id(&self) -> Option<String> {
+        let slug = self.normalized_slug()?;
+        // If slug already has a provider prefix (e.g., "provider/model"), use it as-is
+        if slug.contains('/') {
+            Some(slug)
+        } else {
+            let provider = self.normalized_provider()?;
+            Some(format!("{}/{}", provider, slug))
+        }
+    }
 }
 
 /// Base config deserialized from ~/.savfox/config.toml.
@@ -1081,7 +1095,7 @@ impl From<ConfigToml> for UserSavedConfig {
         let model = config_toml
             .model
             .as_ref()
-            .and_then(SelectedModel::normalized_slug);
+            .and_then(SelectedModel::to_model_id);
         let model_reasoning_effort = config_toml.model_reasoning_effort.or_else(|| {
             config_toml
                 .model
@@ -1475,11 +1489,11 @@ impl Config {
         }
         merge_provider_store_model_providers(&mut model_providers, &savfox_home);
 
-        let model_from_selected = cfg.model.as_ref().and_then(SelectedModel::normalized_slug);
+        let model_from_selected = cfg.model.as_ref().and_then(SelectedModel::to_model_id);
         let model_from_profile_selected = config_profile
             .model
             .as_ref()
-            .and_then(SelectedModel::normalized_slug);
+            .and_then(SelectedModel::to_model_id);
         let model_provider_from_selected = cfg
             .model
             .as_ref()
