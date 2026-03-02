@@ -314,7 +314,7 @@ fn effective_model_selection(
             config_toml
                 .model
                 .as_ref()
-                .and_then(|model| model.reasoning_level)
+                .and_then(|model| model.reasoning_effort)
         })
         .or(config_toml.model_reasoning_effort);
 

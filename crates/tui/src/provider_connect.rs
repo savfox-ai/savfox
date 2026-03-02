@@ -32,16 +32,16 @@ const CONNECT_PROVIDER_PRIORITY: [&str; 15] = [
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConnectProviderCandidate {
-    pub(crate) id: String,
-    pub(crate) name: String,
+    pub(crate) slug: String,
+    pub(crate) display_name: String,
     pub(crate) description: String,
     pub(crate) requires_api_key: bool,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderConnectResult {
-    pub(crate) provider_id: String,
-    pub(crate) provider_name: String,
+    pub(crate) provider_slug: String,
+    pub(crate) provider_display_name: String,
     pub(crate) base_url: String,
     pub(crate) api_key: Option<String>,
     pub(crate) env_key: Option<String>,
@@ -185,8 +185,8 @@ pub(crate) fn connect_provider_candidates(
             }
             let description = description_parts.join(" · ");
             Some(ConnectProviderCandidate {
-                id: provider_id.to_string(),
-                name: provider.name.clone(),
+                slug: provider_slug.to_string(),
+                name: provider.display_name.clone(),
                 description,
                 requires_api_key,
             })
