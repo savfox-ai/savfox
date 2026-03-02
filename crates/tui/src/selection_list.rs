@@ -1,4 +1,4 @@
-use ratatui::style::{Style, Styled as _, Stylize as _};
+use ratatui::style::{Style, Styled as _};
 use ratatui::widgets::{Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 

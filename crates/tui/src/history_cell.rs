@@ -49,7 +49,6 @@ use crate::render::line_utils::{line_to_static, prefix_lines, push_owned_lines};
 use crate::render::renderable::Renderable;
 use crate::style::{proposed_plan_style, user_message_style};
 use crate::text_formatting::{format_and_truncate_tool_result, truncate_text};
-use crate::tooltips;
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use crate::update_action::UpdateAction;
 use crate::version::SAVFOX_CLI_VERSION;

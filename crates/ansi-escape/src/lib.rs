@@ -1,5 +1,5 @@
 use ansi_to_tui::{Error, IntoText};
-use ratatui::text::{Line, Span, Text};
+use ratatui::text::Line;
 
 // Expand tabs in a best-effort way for transcript rendering.
 // Tabs can interact poorly with left-gutter prefixes in our TUI and CLI

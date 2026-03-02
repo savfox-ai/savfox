@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::Span;
 
 #[cfg(test)]
