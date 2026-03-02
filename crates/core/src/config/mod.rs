@@ -872,7 +872,7 @@ pub struct ConfigToml {
     ///
     /// Accepted form:
     /// - `{ slug = "glm-5", provider = "openai", reasoning_effort = "medium" }`
-    #[serde(default, deserialize_with = "deserialize_selected_model_field")]
+    #[serde(default)]
     pub model: Option<SelectedModel>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,

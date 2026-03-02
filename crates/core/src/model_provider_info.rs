@@ -214,8 +214,9 @@ pub enum WireApi {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ModelProviderInfo {
+    pub slug: String,
     /// Friendly display name.
-    pub name: String,
+    pub display_name: String,
     /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: Option<String>,
     /// Environment variable that stores the user's API key for this provider.
