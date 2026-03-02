@@ -5819,6 +5819,7 @@ impl ChatScreen {
         {
             mask.reasoning_effort = Some(effort);
         }
+        self.refresh_model_display();
     }
 
     /// Set the personality in the widget's config copy.
@@ -5981,7 +5982,7 @@ impl ChatScreen {
         // Keep composer paste affordances aligned with the currently effective model.
         self.sync_image_paste_enabled();
         // Push model + provider info to the footer right-side context area.
-        let model = self.model_display_name().to_string();
+        let model = self.model_display_with_reasoning_effort();
         let provider = self.model_provider_display_name();
         self.bottom_pane.set_model_display(model, provider);
         // Push cwd display to the footer.
@@ -6011,6 +6012,15 @@ impl ChatScreen {
             // Strip the provider prefix (e.g. "zhipuai-coding-plan/glm-5" → "glm-5").
             model.rsplit('/').next().unwrap_or(model)
         }
+    }
+
+    fn model_display_with_reasoning_effort(&self) -> String {
+        let mut model = self.model_display_name().to_string();
+        if let Some(reasoning_effort) = self.effective_reasoning_effort() {
+            model.push(' ');
+            model.push_str(reasoning_effort.to_string().as_str());
+        }
+        model
     }
 
     fn model_provider_display_name(&self) -> String {
