@@ -256,26 +256,76 @@ impl ConfigDocument {
 
     fn apply(&mut self, edit: &ConfigEdit) -> anyhow::Result<bool> {
         match edit {
-            ConfigEdit::SetModel { model, effort } => Ok({
-                let mut mutated = false;
-                mutated |= self.write_profile_value(
-                    &["model"],
-                    model.as_ref().map(|model_value| value(model_value.clone())),
-                );
-                if let Some(provider_id) = model
+            ConfigEdit::SetModel { model, effort } => {
+                let model = model
                     .as_deref()
-                    .and_then(parse_provider_prefixed_model)
-                    .map(|(provider_id, _)| provider_id.to_string())
-                {
-                    mutated |=
-                        self.write_profile_value(&["model_provider"], Some(value(provider_id)));
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned);
+
+                if self.profile.is_none() {
+                    Ok({
+                        let mut mutated = false;
+                        if let Some(model_value) = model {
+                            let (provider_id, slug) = if let Some((provider, model_code)) =
+                                parse_provider_prefixed_model(model_value.as_str())
+                            {
+                                (Some(provider.to_string()), model_code.to_string())
+                            } else {
+                                (None, model_value)
+                            };
+
+                            mutated |=
+                                self.write_profile_value(&["model", "slug"], Some(value(slug)));
+                            if let Some(provider_id) = provider_id {
+                                mutated |= self.write_profile_value(
+                                    &["model", "provider"],
+                                    Some(value(provider_id.clone())),
+                                );
+                                // Keep legacy field in sync for older readers.
+                                mutated |= self.write_profile_value(
+                                    &["model_provider"],
+                                    Some(value(provider_id)),
+                                );
+                            }
+                            mutated |= self.write_profile_value(
+                                &["model", "reasoning_level"],
+                                effort.map(|effort| value(effort.to_string())),
+                            );
+                            // Keep legacy field in sync for older readers.
+                            mutated |= self.write_profile_value(
+                                &["model_reasoning_effort"],
+                                effort.map(|effort| value(effort.to_string())),
+                            );
+                        } else {
+                            mutated |= self.write_profile_value(&["model"], None);
+                            mutated |= self.write_profile_value(&["model_reasoning_effort"], None);
+                        }
+                        mutated
+                    })
+                } else {
+                    Ok({
+                        let mut mutated = false;
+                        mutated |= self.write_profile_value(
+                            &["model"],
+                            model.as_ref().map(|model_value| value(model_value.clone())),
+                        );
+                        if let Some(provider_id) = model
+                            .as_deref()
+                            .and_then(parse_provider_prefixed_model)
+                            .map(|(provider_id, _)| provider_id.to_string())
+                        {
+                            mutated |= self
+                                .write_profile_value(&["model_provider"], Some(value(provider_id)));
+                        }
+                        mutated |= self.write_profile_value(
+                            &["model_reasoning_effort"],
+                            effort.map(|effort| value(effort.to_string())),
+                        );
+                        mutated
+                    })
                 }
-                mutated |= self.write_profile_value(
-                    &["model_reasoning_effort"],
-                    effort.map(|effort| value(effort.to_string())),
-                );
-                mutated
-            }),
+            }
             ConfigEdit::SetModelPersonality { personality } => Ok(self.write_profile_value(
                 &["personality"],
                 personality.map(|personality| value(personality.to_string())),

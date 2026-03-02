@@ -275,9 +275,12 @@ fn effective_model_selection(
         .model_provider
         .and_then(|provider| trim_nonempty(&provider));
 
-    let configured_model = profile_model
-        .clone()
-        .or_else(|| config_toml.model.as_deref().and_then(trim_nonempty));
+    let configured_model = profile_model.clone().or_else(|| {
+        config_toml
+            .model
+            .as_ref()
+            .and_then(|model| model.normalized_slug())
+    });
     let Some(configured_model) = configured_model else {
         return Ok(None);
     };
@@ -287,9 +290,15 @@ fn effective_model_selection(
     let configured_provider = provider_from_model.or_else(|| {
         profile_provider.clone().or_else(|| {
             config_toml
-                .model_provider
-                .as_deref()
-                .and_then(trim_nonempty)
+                .model
+                .as_ref()
+                .and_then(|model| model.normalized_provider())
+                .or_else(|| {
+                    config_toml
+                        .model_provider
+                        .as_deref()
+                        .and_then(trim_nonempty)
+                })
         })
     });
 
@@ -301,6 +310,12 @@ fn effective_model_selection(
         };
     let effective_effort = profile
         .model_reasoning_effort
+        .or_else(|| {
+            config_toml
+                .model
+                .as_ref()
+                .and_then(|model| model.reasoning_level)
+        })
         .or(config_toml.model_reasoning_effort);
 
     Ok(Some(EffectiveModelSelection {
