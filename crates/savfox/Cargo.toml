@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 publish = true
-description = "Compatibility crate that re-exports savfox-cli."
+description = "Savfox is an AI assistant."
 readme = "README.md"
 
 [lints]

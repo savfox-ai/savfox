@@ -23,8 +23,7 @@ examples/**/pnpm-lock.yaml
 .DS_Store
 .claude/
 nul
-_tasks.md
-_todos.md
+_*.md
 
 crates/gateway-server/static
 .tmp*

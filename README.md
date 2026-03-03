@@ -3,11 +3,9 @@
 [![CI](https://github.com/savfox-ai/savfox/workflows/CI/badge.svg)](https://github.com/savfox-ai/savfox/actions)
 [![codecov](https://codecov.io/gh/savfox-ai/savfox/graph/badge.svg)](https://codecov.io/gh/savfox-ai/savfox)
 
-Savfox is an AI-powered coding agent for the terminal. It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI.
+Savfox is an AI assistant. It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI.
 
 [English Documentation](docs/en/getting-started.md) | [中文文档](docs/zh/getting-started.md)
-
-Compatibility crate: [`crates/savfox`](crates/savfox/README.md) re-exports `savfox-cli` for users who prefer depending on `savfox`.
 
 ## Features
 

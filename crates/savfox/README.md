@@ -1,10 +1,17 @@
 # savfox
 
-`savfox` is a compatibility crate that re-exports `savfox-cli`.
+`savfox` is a placeholder crate in the Savfox workspace.
 
-Savfox is an AI-powered coding agent for the terminal, with an interactive TUI, a non-interactive CLI, and gateway/server integrations.
+Savfox is an AI assistant project for the terminal, including an interactive TUI, a non-interactive CLI, a Gateway server, chat bridges, sandbox capabilities, and MCP integrations.
 
-- Project repository: <https://github.com/savfox-ai/savfox>
-- Project overview: [Root README](../../README.md)
+Because the project is structurally complex and contains multiple internal crates/modules, not all crates in this repository are published to crates.io.  
+This crate is published only for placeholder/compatibility purposes and is not the full distribution entrypoint.
 
-This means you can depend on `savfox` and use the same public API exposed by `savfox-cli`.
+If you want the full CLI experience, install:
+
+```bash
+cargo install savfox-cli
+```
+
+- Repository: <https://github.com/savfox-ai/savfox>
+- Project overview: <https://github.com/savfox-ai/savfox/blob/main/README.md>
