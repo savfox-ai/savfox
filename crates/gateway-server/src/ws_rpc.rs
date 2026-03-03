@@ -5341,18 +5341,7 @@ fn deep_merge_patch(target: &mut Value, patch: &Value) {
 async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
     let session_count = bridge.websocket_manager().session_count().await;
 
-    // Read the config file if it exists.
-    let config_path = bridge.config().savfox_home.join("config.toml");
-    let config_content = tokio::fs::read_to_string(&config_path)
-        .await
-        .unwrap_or_default();
-
-    // Parse as TOML value for structured output.
-    let mut config_value = config_content
-        .parse::<toml::Value>()
-        .ok()
-        .and_then(|v| serde_json::to_value(&v).ok())
-        .unwrap_or(Value::Object(serde_json::Map::new()));
+    let mut config_value = load_config_value_or_empty(bridge).await;
     normalize_config_model_fields(&mut config_value);
 
     Ok(json!({
@@ -5373,6 +5362,30 @@ async fn load_config_intermediate(
     bridge: &GatewayBridge,
 ) -> Result<crate::security_audit::ConfigDocument, String> {
     crate::security_audit::load_config_document(&bridge.config().savfox_home).await
+}
+
+fn primary_config_json_path(bridge: &GatewayBridge) -> PathBuf {
+    bridge.config().savfox_home.join("config.json")
+}
+
+async fn load_config_value_or_empty(bridge: &GatewayBridge) -> Value {
+    let mut config = load_config_intermediate(bridge)
+        .await
+        .map(|doc| doc.value)
+        .unwrap_or_else(|_| Value::Object(serde_json::Map::new()));
+    if !config.is_object() {
+        config = Value::Object(serde_json::Map::new());
+    }
+    config
+}
+
+async fn write_config_json(bridge: &GatewayBridge, config: &Value) -> Result<(), String> {
+    let path = primary_config_json_path(bridge);
+    let content = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("JSON serialization failed: {e}"))?;
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|e| format!("failed to write config: {e}"))
 }
 
 async fn handle_config_export(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
@@ -5467,14 +5480,9 @@ async fn handle_config_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
 
     let mut sanitized = config_value.clone();
     sanitize_config_before_write(&mut sanitized, bridge).await?;
-
-    // Convert JSON to TOML and write to config file.
-    let toml_str = json_value_to_toml_string(&sanitized).map_err(|e| (INVALID_REQUEST, e))?;
-
-    let config_path = bridge.config().savfox_home.join("config.toml");
-    if let Err(err) = tokio::fs::write(&config_path, &toml_str).await {
-        return Err((INTERNAL_ERROR, format!("failed to write config: {err}")));
-    }
+    write_config_json(bridge, &sanitized)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, e))?;
 
     Ok(json!({ "status": "ok" }))
 }
@@ -5487,24 +5495,20 @@ async fn handle_config_apply(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
 
     let mut sanitized = config_value.clone();
     sanitize_config_before_write(&mut sanitized, bridge).await?;
-
-    // Convert and write the full config (replace).
-    let toml_str = json_value_to_toml_string(&sanitized).map_err(|e| (INVALID_REQUEST, e))?;
-
-    let config_path = bridge.config().savfox_home.join("config.toml");
+    let config_path = primary_config_json_path(bridge);
 
     // Auto-snapshot before applying (#33)
     let _ = handle_config_snapshot(bridge).await;
 
     // Create a backup before applying.
     if config_path.exists() {
-        let backup = bridge.config().savfox_home.join("config.toml.bak");
+        let backup = bridge.config().savfox_home.join("config.json.bak");
         let _ = tokio::fs::copy(&config_path, &backup).await;
     }
 
-    if let Err(err) = tokio::fs::write(&config_path, &toml_str).await {
-        return Err((INTERNAL_ERROR, format!("failed to write config: {err}")));
-    }
+    write_config_json(bridge, &sanitized)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, e))?;
 
     Ok(json!({
         "status": "applied",
@@ -5518,21 +5522,7 @@ async fn handle_config_patch(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
         return Err((INVALID_REQUEST, "missing 'patch' parameter".to_string()));
     };
 
-    // Read existing config.
-    let config_path = bridge.config().savfox_home.join("config.toml");
-    let existing = tokio::fs::read_to_string(&config_path)
-        .await
-        .unwrap_or_default();
-    let mut config = if existing.is_empty() {
-        Value::Object(serde_json::Map::new())
-    } else {
-        existing
-            .parse::<toml::Value>()
-            .ok()
-            .and_then(|v| serde_json::to_value(&v).ok())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| Value::Object(serde_json::Map::new()))
-    };
+    let mut config = load_config_value_or_empty(bridge).await;
 
     // Merge patch fields (deep merge, null deletes keys).
     if patch_value.is_object() {
@@ -5540,13 +5530,9 @@ async fn handle_config_patch(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     }
 
     sanitize_config_before_write(&mut config, bridge).await?;
-
-    // Write back as TOML.
-    let toml_str = json_value_to_toml_string(&config).map_err(|e| (INTERNAL_ERROR, e))?;
-
-    if let Err(err) = tokio::fs::write(&config_path, &toml_str).await {
-        return Err((INTERNAL_ERROR, format!("failed to write config: {err}")));
-    }
+    write_config_json(bridge, &config)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, e))?;
 
     Ok(json!({ "status": "patched" }))
 }
@@ -8953,11 +8939,12 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     // Inject auth into runtime so the engine can authenticate immediately
     inject_provider_auth(&file);
 
-    // Patch config.toml: set API key + active model + provider
+    // Patch user config: set API key + active model + provider.
     let base_url = params
         .get("base_url")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let config_provider_id = savfox_core::canonical_provider_id(provider_id);
 
     // Find the first default model (or first model)
     let default_entry = entries
@@ -8993,26 +8980,17 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         if !model_code.is_empty() {
             patch["model"] = json!({
                 "slug": model_code,
-                "provider": provider_id,
+                "provider": config_provider_id.clone(),
             });
         }
     }
 
-    // Read existing config to deep-merge env and model_providers
-    let config_path = bridge.config().savfox_home.join("config.toml");
-    let existing = tokio::fs::read_to_string(&config_path)
+    // Read existing config to deep-merge env and model_providers.
+    let mut config: serde_json::Map<String, Value> = load_config_value_or_empty(bridge)
         .await
+        .as_object()
+        .cloned()
         .unwrap_or_default();
-    let mut config: serde_json::Map<String, Value> = if existing.is_empty() {
-        serde_json::Map::new()
-    } else {
-        existing
-            .parse::<toml::Value>()
-            .ok()
-            .and_then(|v| serde_json::to_value(&v).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default()
-    };
 
     // Deep-merge top-level scalar fields from patch
     if let Some(patch_obj) = patch.as_object() {
@@ -9034,30 +9012,48 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         }
     }
 
-    // Deep-merge [model_providers.<provider_id>]  - create a full entry for
-    // custom providers so the core engine can resolve them.
+    // Keep built-in providers (like openai) out of persisted `model_providers`.
+    // Only custom providers need explicit on-disk entries.
     {
-        let providers = config.entry("model_providers").or_insert_with(|| json!({}));
-        if let Some(providers_map) = providers.as_object_mut() {
-            let provider = providers_map
-                .entry(provider_id.to_string())
-                .or_insert_with(|| json!({ "name": display_name_val, "wire_api": "chat" }));
-            if let Some(provider_map) = provider.as_object_mut() {
-                if !base_url.is_empty() {
-                    provider_map.insert("base_url".to_string(), json!(base_url));
+        let is_builtin_provider = savfox_core::built_in_model_providers()
+            .contains_key(config_provider_id.as_str());
+
+        if is_builtin_provider {
+            if let Some(providers_map) = config
+                .get_mut("model_providers")
+                .and_then(Value::as_object_mut)
+            {
+                providers_map.remove(config_provider_id.as_str());
+                if config_provider_id != provider_id {
+                    providers_map.remove(provider_id);
                 }
-                if !env_key_val.is_empty() {
-                    provider_map.insert("env_key".to_string(), json!(env_key_val));
+                if providers_map.is_empty() {
+                    config.remove("model_providers");
+                }
+            }
+        } else {
+            let providers = config.entry("model_providers").or_insert_with(|| json!({}));
+            if let Some(providers_map) = providers.as_object_mut() {
+                let provider = providers_map
+                    .entry(config_provider_id.clone())
+                    .or_insert_with(|| json!({ "name": display_name_val, "wire_api": "chat" }));
+                if let Some(provider_map) = provider.as_object_mut() {
+                    if !base_url.is_empty() {
+                        provider_map.insert("base_url".to_string(), json!(base_url));
+                    }
+                    if !env_key_val.is_empty() {
+                        provider_map.insert("env_key".to_string(), json!(env_key_val));
+                    }
                 }
             }
         }
     }
 
-    // Write back as TOML
-    let merged = Value::Object(config);
-    if let Ok(toml_str) = json_value_to_toml_string(&merged) {
-        let _ = tokio::fs::write(&config_path, &toml_str).await;
-    }
+    let mut merged = Value::Object(config);
+    sanitize_config_before_write(&mut merged, bridge).await?;
+    write_config_json(bridge, &merged)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, e))?;
 
     let model_count = entries.len();
     Ok(json!({
@@ -12448,8 +12444,8 @@ async fn handle_streaming_config_set(params: &Value, bridge: &GatewayBridge) -> 
 async fn handle_config_format(bridge: &GatewayBridge) -> RpcResult {
     let home = &bridge.config().savfox_home;
     let candidates = [
-        ("toml", home.join("config.toml")),
         ("json", home.join("config.json")),
+        ("toml", home.join("config.toml")),
         ("yaml", home.join("config.yaml")),
         ("yaml", home.join("config.yml")),
     ];

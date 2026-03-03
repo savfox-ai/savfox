@@ -272,8 +272,7 @@ fn AgentCreateForm(
     ) = {
         let mut set = std::collections::BTreeSet::new();
         let mut model_map =
-            std::collections::BTreeMap::<String, std::collections::BTreeMap<String, String>>::new(
-            );
+            std::collections::BTreeMap::<String, std::collections::BTreeMap<String, String>>::new();
         for m in &models {
             let from_field = m.provider.as_deref().and_then(|p| {
                 let trimmed = p.trim();
@@ -313,8 +312,7 @@ fn AgentCreateForm(
             }
         }
 
-        let mut normalized =
-            std::collections::BTreeMap::<String, Vec<(String, String)>>::new();
+        let mut normalized = std::collections::BTreeMap::<String, Vec<(String, String)>>::new();
         for (provider_id, entries) in model_map {
             let mut options: Vec<(String, String)> = entries.into_iter().collect();
             options.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)));

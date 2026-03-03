@@ -14,11 +14,11 @@ pub(crate) struct ConfigDocument {
     pub value: Value,
 }
 
-/// Load config from `{savfox_home}/config.{toml,json,yaml,yml}`.
+/// Load config from `{savfox_home}/config.{json,toml,yaml,yml}`.
 pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigDocument, String> {
     let candidates = [
-        ("toml", savfox_home.join("config.toml")),
         ("json", savfox_home.join("config.json")),
+        ("toml", savfox_home.join("config.toml")),
         ("yaml", savfox_home.join("config.yaml")),
         ("yaml", savfox_home.join("config.yml")),
     ];
@@ -55,8 +55,8 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigDoc
     }
 
     Ok(ConfigDocument {
-        format: "toml".to_string(),
-        path: savfox_home.join("config.toml"),
+        format: "json".to_string(),
+        path: savfox_home.join("config.json"),
         value: Value::Object(serde_json::Map::new()),
     })
 }

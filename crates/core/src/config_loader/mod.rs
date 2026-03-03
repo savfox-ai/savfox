@@ -41,7 +41,7 @@ pub use state::{ConfigLayerEntry, ConfigLayerStack, ConfigLayerStackOrdering, Lo
 use toml::Value as TomlValue;
 
 use crate::config::{
-    CONFIG_TOML_FILE, CONFIG_YAML_FILE, CONFIG_YML_FILE, ConfigToml,
+    CONFIG_JSON_FILE, CONFIG_TOML_FILE, CONFIG_YAML_FILE, CONFIG_YML_FILE, ConfigToml,
     deserialize_config_toml_with_base,
 };
 use crate::config_loader::config_requirements::ConfigRequirementsWithSources;
@@ -72,6 +72,7 @@ async fn resolve_preferred_config_file(
     })?;
 
     let candidates = [
+        default_parent.join(CONFIG_JSON_FILE),
         default_toml_file.as_path().to_path_buf(),
         default_parent.join(CONFIG_YAML_FILE),
         default_parent.join(CONFIG_YML_FILE),
@@ -326,7 +327,7 @@ pub async fn load_config_layers_state(
 }
 
 /// Attempts to load a config file from `config_file`.
-/// Supports TOML (`.toml`) and YAML (`.yaml` / `.yml`).
+/// Supports JSON (`.json`), TOML (`.toml`), and YAML (`.yaml` / `.yml`).
 /// - If the file exists and is valid, passes the parsed `toml::Value` to `create_entry` and returns
 ///   the resulting layer entry.
 /// - If the file does not exist, uses an empty `Table` with `create_entry` and returns the
@@ -334,6 +335,18 @@ pub async fn load_config_layers_state(
 /// - If there is an error reading the file or parsing the content, returns an error.
 fn parse_config_file_content(config_file: &Path, contents: &str) -> io::Result<TomlValue> {
     match config_file.extension().and_then(|ext| ext.to_str()) {
+        Some("json") => {
+            let json_value: serde_json::Value = serde_json::from_str(contents).map_err(|err| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Error parsing JSON config file {}: {err}",
+                        config_file.display()
+                    ),
+                )
+            })?;
+            Ok(json_to_toml_value(&json_value))
+        }
         Some("yaml") | Some("yml") => {
             let yaml_value: serde_yaml::Value = serde_yaml::from_str(contents).map_err(|err| {
                 io::Error::new(

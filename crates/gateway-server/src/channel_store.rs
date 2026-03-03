@@ -122,12 +122,12 @@ pub async fn save_channel_config(
 ) -> std::io::Result<()> {
     ensure_channels_dir(savfox_home).await?;
 
-    let path = if let Some(existing) = find_channel_config_path_by_id(savfox_home, &config.id).await?
-    {
-        existing
-    } else {
-        channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::now_v7()))
-    };
+    let path =
+        if let Some(existing) = find_channel_config_path_by_id(savfox_home, &config.id).await? {
+            existing
+        } else {
+            channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::now_v7()))
+        };
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
@@ -232,7 +232,8 @@ mod tests {
 
     #[tokio::test]
     async fn channel_files_use_uuid_names_and_lookup_by_channel_id() {
-        let home = std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::now_v7()));
+        let home =
+            std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::now_v7()));
         let config = ChannelConfig {
             id: "matrix".to_string(),
             name: "Matrix".to_string(),
@@ -271,7 +272,9 @@ mod tests {
             "http://127.0.0.1:6006"
         );
 
-        let deleted = delete_channel_config(&home, "matrix").await.expect("delete");
+        let deleted = delete_channel_config(&home, "matrix")
+            .await
+            .expect("delete");
         assert!(deleted);
         let files_after = list_json_files(&channels).await;
         assert!(files_after.is_empty());
