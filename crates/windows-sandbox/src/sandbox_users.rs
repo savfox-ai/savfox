@@ -8,7 +8,7 @@ use anyhow::Result;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use rand::rngs::SmallRng;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use savfox_windows_sandbox::{
     SETUP_VERSION, SetupErrorCode, SetupFailure, dpapi_protect, sandbox_dir, sandbox_secrets_dir,
     string_from_sid_bytes, to_wide,
@@ -340,7 +340,8 @@ pub fn sid_bytes_to_psid(sid: &[u8]) -> Result<*mut c_void> {
 fn random_password() -> String {
     const CHARS: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+";
-    let mut rng = SmallRng::from_os_rng();
+    let mut os_rng = rand::rng();
+    let mut rng = SmallRng::from_rng(&mut os_rng);
     let mut buf = [0u8; 24];
     rng.fill_bytes(&mut buf);
     buf.iter()

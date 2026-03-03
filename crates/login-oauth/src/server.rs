@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use chrono::Utc;
-use rand::RngCore;
+use rand::Rng;
 use savfox_app_server_protocol::AuthMode;
 use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
 use savfox_core::default_client::originator;

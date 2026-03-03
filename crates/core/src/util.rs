@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rand::Rng;
+use rand::RngExt;
 use savfox_protocol::SessionId;
 use tracing::{debug, error};
 

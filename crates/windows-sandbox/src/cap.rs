@@ -2,7 +2,7 @@
 use anyhow::Result;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rand::RngCore;
+use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fs;
@@ -20,7 +20,8 @@ pub fn cap_sid_file(savfox_home: &Path) -> PathBuf {
 }
 
 fn make_random_cap_sid_string() -> String {
-    let mut rng = SmallRng::from_os_rng();
+    let mut os_rng = rand::rng();
+    let mut rng = SmallRng::from_rng(&mut os_rng);
     let a = rng.next_u32();
     let b = rng.next_u32();
     let c = rng.next_u32();

@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use tokio::sync::Mutex;
 
 use crate::sandboxing::SandboxPermissions;

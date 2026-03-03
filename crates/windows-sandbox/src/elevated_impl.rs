@@ -6,7 +6,7 @@ mod windows_impl {
 
     use anyhow::Result;
     use rand::rngs::SmallRng;
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
@@ -106,7 +106,8 @@ mod windows_impl {
 
     /// Generates a unique named-pipe path used to communicate with the runner process.
     fn pipe_name(suffix: &str) -> String {
-        let mut rng = SmallRng::from_os_rng();
+        let mut os_rng = rand::rng();
+        let mut rng = SmallRng::from_rng(&mut os_rng);
         format!(
             r"\\.\pipe\savfox-runner-{:x}-{}",
             rng.random::<u128>(),
@@ -272,7 +273,8 @@ mod windows_impl {
         // TODO(iceweasel) - use a different mechanism for invoking the runner.
         let base_tmp = sandbox_base.join("requests");
         std::fs::create_dir_all(&base_tmp)?;
-        let mut rng = SmallRng::from_os_rng();
+        let mut os_rng = rand::rng();
+        let mut rng = SmallRng::from_rng(&mut os_rng);
         let req_file = base_tmp.join(format!("request-{:x}.json", rng.random::<u128>()));
         let payload = RunnerPayload {
             policy_json_or_preset: policy_json_or_preset.to_string(),

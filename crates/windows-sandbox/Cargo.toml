@@ -26,7 +26,7 @@ dunce = { workspace = true }
 savfox-protocol = { workspace = true }
 savfox-utils-absolute-path = { workspace = true }
 savfox-utils-string = { workspace = true }
-rand = { workspace = true, features = ["std", "small_rng", "os_rng"] }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 windows = { workspace = true, features = [

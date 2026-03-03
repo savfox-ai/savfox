@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rand::Rng;
+use rand::RngExt;
 use tokio::sync::{Notify, mpsc};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;

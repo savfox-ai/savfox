@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use savfox_core::features::FEATURES;
 use savfox_protocol::account::PlanType;
 
