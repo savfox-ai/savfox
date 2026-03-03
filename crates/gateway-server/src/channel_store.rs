@@ -24,8 +24,39 @@ fn channels_dir(savfox_home: &PathBuf) -> PathBuf {
     savfox_home.join(CHANNELS_SUBDIR)
 }
 
-fn channel_config_path(savfox_home: &PathBuf, channel_id: &str) -> PathBuf {
-    channels_dir(savfox_home).join(format!("{}.json", channel_id))
+fn is_json_file(path: &std::path::Path) -> bool {
+    path.extension().map(|e| e == "json").unwrap_or(false)
+}
+
+async fn find_channel_config_path_by_id(
+    savfox_home: &PathBuf,
+    channel_id: &str,
+) -> std::io::Result<Option<PathBuf>> {
+    let dir = channels_dir(savfox_home);
+    if !dir.exists() {
+        return Ok(None);
+    }
+
+    let mut entries = tokio::fs::read_dir(&dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if !is_json_file(&path) {
+            continue;
+        }
+
+        let Ok(content) = tokio::fs::read_to_string(&path).await else {
+            continue;
+        };
+        let Ok(config) = serde_json::from_str::<ChannelConfig>(&content) else {
+            continue;
+        };
+
+        if config.id.eq_ignore_ascii_case(channel_id) {
+            return Ok(Some(path));
+        }
+    }
+
+    Ok(None)
 }
 
 pub async fn ensure_channels_dir(savfox_home: &PathBuf) -> std::io::Result<()> {
@@ -48,7 +79,7 @@ pub async fn list_channel_configs(savfox_home: &PathBuf) -> std::io::Result<Vec<
 
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-        if path.extension().map(|e| e == "json").unwrap_or(false) {
+        if is_json_file(&path) {
             match tokio::fs::read_to_string(&path).await {
                 Ok(content) => match serde_json::from_str::<ChannelConfig>(&content) {
                     Ok(config) => configs.push(config),
@@ -71,10 +102,9 @@ pub async fn get_channel_config(
     savfox_home: &PathBuf,
     channel_id: &str,
 ) -> std::io::Result<Option<ChannelConfig>> {
-    let path = channel_config_path(savfox_home, channel_id);
-    if !path.exists() {
+    let Some(path) = find_channel_config_path_by_id(savfox_home, channel_id).await? else {
         return Ok(None);
-    }
+    };
 
     let content = tokio::fs::read_to_string(&path).await?;
     match serde_json::from_str::<ChannelConfig>(&content) {
@@ -92,7 +122,12 @@ pub async fn save_channel_config(
 ) -> std::io::Result<()> {
     ensure_channels_dir(savfox_home).await?;
 
-    let path = channel_config_path(savfox_home, &config.id);
+    let path = if let Some(existing) = find_channel_config_path_by_id(savfox_home, &config.id).await?
+    {
+        existing
+    } else {
+        channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::now_v7()))
+    };
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
@@ -105,10 +140,9 @@ pub async fn delete_channel_config(
     savfox_home: &PathBuf,
     channel_id: &str,
 ) -> std::io::Result<bool> {
-    let path = channel_config_path(savfox_home, channel_id);
-    if !path.exists() {
+    let Some(path) = find_channel_config_path_by_id(savfox_home, channel_id).await? else {
         return Ok(false);
-    }
+    };
 
     tokio::fs::remove_file(&path).await?;
     info!("Deleted channel config: {}", path.display());
@@ -174,4 +208,74 @@ pub fn channel_config_to_json(config: &ChannelConfig) -> Value {
 
 pub fn channel_configs_to_json(configs: &[ChannelConfig]) -> Value {
     serde_json::to_value(configs).unwrap_or(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    async fn list_json_files(dir: &PathBuf) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+            return out;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if is_json_file(&path) {
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[tokio::test]
+    async fn channel_files_use_uuid_names_and_lookup_by_channel_id() {
+        let home = std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::now_v7()));
+        let config = ChannelConfig {
+            id: "matrix".to_string(),
+            name: "Matrix".to_string(),
+            enabled: true,
+            config: json!({
+                "homeserver": "http://127.0.0.1:6006",
+                "userId": "@bot:127.0.0.1:6006"
+            }),
+            agent_id: None,
+            created_at: Some(1),
+            updated_at: Some(1),
+        };
+
+        save_channel_config(&home, &config).await.expect("save");
+        let channels = home.join(CHANNELS_SUBDIR);
+        let files = list_json_files(&channels).await;
+        assert_eq!(files.len(), 1);
+        let file_name = files[0]
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        assert_ne!(file_name, "matrix.json");
+
+        let loaded = get_channel_config(&home, "matrix")
+            .await
+            .expect("lookup")
+            .expect("exists");
+        assert_eq!(loaded.id, "matrix");
+        assert_eq!(
+            loaded
+                .config
+                .get("homeserver")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "http://127.0.0.1:6006"
+        );
+
+        let deleted = delete_channel_config(&home, "matrix").await.expect("delete");
+        assert!(deleted);
+        let files_after = list_json_files(&channels).await;
+        assert!(files_after.is_empty());
+
+        let _ = tokio::fs::remove_dir_all(&home).await;
+    }
 }

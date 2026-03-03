@@ -132,11 +132,9 @@ impl StatusHistoryCell {
             ),
         ];
         if config.model_provider.wire_api == WireApi::Responses {
-            let effort_value = reasoning_effort_override
-                .unwrap_or(None)
-                .map(|effort| effort.to_string())
-                .unwrap_or_else(|| "none".to_string());
-            config_entries.push(("reasoning effort", effort_value));
+            if let Some(effort) = reasoning_effort_override.unwrap_or(None) {
+                config_entries.push(("reasoning effort", effort.to_string()));
+            }
             config_entries.push((
                 "reasoning summaries",
                 config.model_reasoning_summary.to_string(),

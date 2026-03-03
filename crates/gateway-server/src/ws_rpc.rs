@@ -5205,6 +5205,139 @@ fn normalize_config_model_fields(config: &mut Value) {
     }
 }
 
+fn normalize_model_reasoning_key(config: &mut Value) {
+    let Some(model) = config.get_mut("model").and_then(Value::as_object_mut) else {
+        return;
+    };
+
+    if model.get("reasoning_effort").is_none()
+        && let Some(reasoning_level) = model.get("reasoning_level").cloned()
+    {
+        model.insert("reasoning_effort".to_string(), reasoning_level);
+    }
+    model.remove("reasoning_level");
+}
+
+fn remove_legacy_model_fields(config: &mut Value) {
+    let Some(root) = config.as_object_mut() else {
+        return;
+    };
+    if root.get("model").and_then(Value::as_object).is_some() {
+        root.remove("model_provider");
+        root.remove("model_reasoning_effort");
+    }
+}
+
+enum DetachedBridgeConfig {
+    Upsert(Value),
+    Delete,
+}
+
+fn take_detached_matrix_bridge_config(config: &mut Value) -> Option<DetachedBridgeConfig> {
+    let root = config.as_object_mut()?;
+    let (matrix_value, remove_gateway) = {
+        let gateway = root.get_mut("gateway")?.as_object_mut()?;
+        let (matrix, remove_bridges) = {
+            let bridges = gateway.get_mut("bridges")?.as_object_mut()?;
+            let matrix = bridges.remove("matrix")?;
+            (matrix, bridges.is_empty())
+        };
+        if remove_bridges {
+            gateway.remove("bridges");
+        }
+        (matrix, gateway.is_empty())
+    };
+
+    if remove_gateway {
+        root.remove("gateway");
+    }
+
+    if matrix_value.is_null() {
+        Some(DetachedBridgeConfig::Delete)
+    } else {
+        Some(DetachedBridgeConfig::Upsert(matrix_value))
+    }
+}
+
+async fn persist_detached_matrix_bridge_config(
+    bridge: &Arc<GatewayBridge>,
+    detached: DetachedBridgeConfig,
+) -> Result<(), (i64, String)> {
+    use crate::channel_store;
+
+    match detached {
+        DetachedBridgeConfig::Delete => {
+            channel_store::delete_channel_config(&bridge.config().savfox_home, "matrix")
+                .await
+                .map_err(|e| {
+                    (
+                        INTERNAL_ERROR,
+                        format!("failed to delete matrix channel config: {e}"),
+                    )
+                })?;
+        }
+        DetachedBridgeConfig::Upsert(Value::Object(matrix_config)) => {
+            let patch = Value::Object(matrix_config);
+            channel_store::merge_channel_config(
+                &bridge.config().savfox_home,
+                "matrix",
+                "Matrix",
+                &patch,
+            )
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to persist matrix channel config: {e}"),
+                )
+            })?;
+        }
+        DetachedBridgeConfig::Upsert(_) => {
+            return Err((
+                INVALID_PARAMS,
+                "gateway.bridges.matrix must be an object or null".to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn sanitize_config_before_write(
+    config: &mut Value,
+    bridge: &Arc<GatewayBridge>,
+) -> Result<(), (i64, String)> {
+    normalize_model_reasoning_key(config);
+    remove_legacy_model_fields(config);
+
+    if let Some(detached_matrix) = take_detached_matrix_bridge_config(config) {
+        persist_detached_matrix_bridge_config(bridge, detached_matrix).await?;
+    }
+
+    Ok(())
+}
+
+fn deep_merge_patch(target: &mut Value, patch: &Value) {
+    match (target, patch) {
+        (Value::Object(target_obj), Value::Object(patch_obj)) => {
+            for (key, patch_value) in patch_obj {
+                if patch_value.is_null() {
+                    target_obj.remove(key);
+                    continue;
+                }
+                if let Some(existing_value) = target_obj.get_mut(key) {
+                    deep_merge_patch(existing_value, patch_value);
+                } else {
+                    target_obj.insert(key.clone(), patch_value.clone());
+                }
+            }
+        }
+        (target_slot, patch_value) => {
+            *target_slot = patch_value.clone();
+        }
+    }
+}
+
 async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
     let session_count = bridge.websocket_manager().session_count().await;
 
@@ -5332,8 +5465,11 @@ async fn handle_config_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
         return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
     };
 
+    let mut sanitized = config_value.clone();
+    sanitize_config_before_write(&mut sanitized, bridge).await?;
+
     // Convert JSON to TOML and write to config file.
-    let toml_str = json_value_to_toml_string(config_value).map_err(|e| (INVALID_REQUEST, e))?;
+    let toml_str = json_value_to_toml_string(&sanitized).map_err(|e| (INVALID_REQUEST, e))?;
 
     let config_path = bridge.config().savfox_home.join("config.toml");
     if let Err(err) = tokio::fs::write(&config_path, &toml_str).await {
@@ -5349,8 +5485,11 @@ async fn handle_config_apply(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
         return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
     };
 
+    let mut sanitized = config_value.clone();
+    sanitize_config_before_write(&mut sanitized, bridge).await?;
+
     // Convert and write the full config (replace).
-    let toml_str = json_value_to_toml_string(config_value).map_err(|e| (INVALID_REQUEST, e))?;
+    let toml_str = json_value_to_toml_string(&sanitized).map_err(|e| (INVALID_REQUEST, e))?;
 
     let config_path = bridge.config().savfox_home.join("config.toml");
 
@@ -5384,31 +5523,26 @@ async fn handle_config_patch(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     let existing = tokio::fs::read_to_string(&config_path)
         .await
         .unwrap_or_default();
-    let mut config: serde_json::Map<String, Value> = if existing.is_empty() {
-        serde_json::Map::new()
+    let mut config = if existing.is_empty() {
+        Value::Object(serde_json::Map::new())
     } else {
         existing
             .parse::<toml::Value>()
             .ok()
             .and_then(|v| serde_json::to_value(&v).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new()))
     };
 
-    // Merge patch fields (shallow merge).
-    if let Some(patch_obj) = patch_value.as_object() {
-        for (key, value) in patch_obj {
-            if value.is_null() {
-                config.remove(key);
-            } else {
-                config.insert(key.clone(), value.clone());
-            }
-        }
+    // Merge patch fields (deep merge, null deletes keys).
+    if patch_value.is_object() {
+        deep_merge_patch(&mut config, patch_value);
     }
 
+    sanitize_config_before_write(&mut config, bridge).await?;
+
     // Write back as TOML.
-    let merged = Value::Object(config);
-    let toml_str = json_value_to_toml_string(&merged).map_err(|e| (INTERNAL_ERROR, e))?;
+    let toml_str = json_value_to_toml_string(&config).map_err(|e| (INTERNAL_ERROR, e))?;
 
     if let Err(err) = tokio::fs::write(&config_path, &toml_str).await {
         return Err((INTERNAL_ERROR, format!("failed to write config: {err}")));
@@ -8790,7 +8924,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     // Build config patch with top-level fields the core engine expects
     let mut patch = json!({});
 
-    // Set model (bare model code) and model_provider (provider id)
+    // Set selected model in the structured [model] section.
     if let Some(default) = default_entry {
         let model_code = default
             .get("model_code")
@@ -8809,8 +8943,10 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
             })
             .unwrap_or("");
         if !model_code.is_empty() {
-            patch["model"] = json!(model_code);
-            patch["model_provider"] = json!(provider_id);
+            patch["model"] = json!({
+                "slug": model_code,
+                "provider": provider_id,
+            });
         }
     }
 
@@ -8835,6 +8971,15 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         for (key, value) in patch_obj {
             config.insert(key.clone(), value.clone());
         }
+    }
+
+    if config
+        .get("model")
+        .and_then(Value::as_object)
+        .is_some()
+    {
+        config.remove("model_provider");
+        config.remove("model_reasoning_effort");
     }
 
     // Deep-merge [env]: preserve existing keys, add/overwrite new ones
