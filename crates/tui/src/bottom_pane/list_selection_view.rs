@@ -44,6 +44,7 @@ pub(crate) struct SelectionViewParams {
     pub items: Vec<SelectionItem>,
     pub is_searchable: bool,
     pub search_placeholder: Option<String>,
+    pub max_visible_rows: usize,
     pub header: Box<dyn Renderable>,
     pub initial_selected_idx: Option<usize>,
 }
@@ -58,6 +59,7 @@ impl Default for SelectionViewParams {
             items: Vec::new(),
             is_searchable: false,
             search_placeholder: None,
+            max_visible_rows: MAX_POPUP_ROWS,
             header: Box::new(()),
             initial_selected_idx: None,
         }
@@ -74,6 +76,7 @@ pub(crate) struct ListSelectionView {
     is_searchable: bool,
     search_query: String,
     search_placeholder: Option<String>,
+    max_visible_rows: usize,
     filtered_indices: Vec<usize>,
     last_selected_actual_idx: Option<usize>,
     header: Box<dyn Renderable>,
@@ -92,6 +95,7 @@ impl ListSelectionView {
                 Box::new(subtitle),
             ]));
         }
+        let max_visible_rows = params.max_visible_rows.max(1);
         let mut s = Self {
             footer_note: params.footer_note,
             footer_hint: params.footer_hint,
@@ -106,6 +110,7 @@ impl ListSelectionView {
             } else {
                 None
             },
+            max_visible_rows,
             filtered_indices: Vec::new(),
             last_selected_actual_idx: None,
             header,
@@ -119,8 +124,8 @@ impl ListSelectionView {
         self.filtered_indices.len()
     }
 
-    fn max_visible_rows(len: usize) -> usize {
-        MAX_POPUP_ROWS.min(len.max(1))
+    fn max_visible_rows(&self, len: usize) -> usize {
+        self.max_visible_rows.min(len.max(1))
     }
 
     fn apply_filter(&mut self) {
@@ -168,7 +173,7 @@ impl ListSelectionView {
             })
             .or_else(|| (len > 0).then_some(0));
 
-        let visible = Self::max_visible_rows(len);
+        let visible = self.max_visible_rows(len);
         self.state.clamp_selection(len);
         self.state.ensure_visible(len, visible);
     }
@@ -223,7 +228,7 @@ impl ListSelectionView {
     fn move_up(&mut self) {
         let len = self.visible_len();
         self.state.move_up_wrap(len);
-        let visible = Self::max_visible_rows(len);
+        let visible = self.max_visible_rows(len);
         self.state.ensure_visible(len, visible);
         self.skip_disabled_up();
     }
@@ -231,7 +236,7 @@ impl ListSelectionView {
     fn move_down(&mut self) {
         let len = self.visible_len();
         self.state.move_down_wrap(len);
-        let visible = Self::max_visible_rows(len);
+        let visible = self.max_visible_rows(len);
         self.state.ensure_visible(len, visible);
         self.skip_disabled_down();
     }
@@ -420,14 +425,14 @@ impl BottomPaneView for ListSelectionView {
 
 impl Renderable for ListSelectionView {
     fn desired_height(&self, width: u16) -> u16 {
-        // Measure wrapped height for up to MAX_POPUP_ROWS items at the given width.
+        // Measure wrapped height for up to max_visible_rows items at the given width.
         // Build the same display rows used by the renderer so wrapping math matches.
         let rows = self.build_rows();
         let rows_width = Self::rows_width(width);
         let rows_height = measure_rows_height(
             &rows,
             &self.state,
-            MAX_POPUP_ROWS,
+            self.max_visible_rows,
             rows_width.saturating_add(1),
         );
 
@@ -476,7 +481,7 @@ impl Renderable for ListSelectionView {
         let rows_height = measure_rows_height(
             &rows,
             &self.state,
-            MAX_POPUP_ROWS,
+            self.max_visible_rows,
             rows_width.saturating_add(1),
         );
         let [header_area, _, search_area, list_area] = Layout::vertical([

@@ -4734,6 +4734,7 @@ impl ChatScreen {
             header,
             is_searchable: true,
             search_placeholder: Some("Search model".to_string()),
+            max_visible_rows: 15,
             initial_selected_idx,
             ..Default::default()
         });

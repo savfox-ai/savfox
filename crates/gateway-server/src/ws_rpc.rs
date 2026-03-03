@@ -9015,8 +9015,8 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     // Keep built-in providers (like openai) out of persisted `model_providers`.
     // Only custom providers need explicit on-disk entries.
     {
-        let is_builtin_provider = savfox_core::built_in_model_providers()
-            .contains_key(config_provider_id.as_str());
+        let is_builtin_provider =
+            savfox_core::built_in_model_providers().contains_key(config_provider_id.as_str());
 
         if is_builtin_provider {
             if let Some(providers_map) = config
