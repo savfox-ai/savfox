@@ -103,14 +103,14 @@ jobs:
           fi
           echo "savfox-gateway-server coverage: ${COVERAGE}%"
           python - <<PY
-import sys
-coverage = float("${COVERAGE}")
-threshold = 70.0
-if coverage < threshold:
-    print(f"::error::Coverage {coverage:.2f}% is below {threshold:.2f}% threshold")
-    sys.exit(1)
-print(f"Coverage check passed: {coverage:.2f}% >= {threshold:.2f}%")
-PY
+          import sys
+          coverage = float("${COVERAGE}")
+          threshold = 70.0
+          if coverage < threshold:
+              print(f"::error::Coverage {coverage:.2f}% is below {threshold:.2f}% threshold")
+              sys.exit(1)
+          print(f"Coverage check passed: {coverage:.2f}% >= {threshold:.2f}%")
+          PY
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
