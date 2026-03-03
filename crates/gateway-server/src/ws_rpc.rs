@@ -8038,7 +8038,10 @@ struct ProviderFile {
     display_name: String,
     #[serde(default)]
     auth: Option<ProviderAuth>,
+    #[serde(default)]
     models: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    enabled_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8051,6 +8054,46 @@ struct ProviderAuth {
     api_key: Option<String>,
 }
 
+fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[String]) -> Vec<Value> {
+    let canonical_provider = savfox_core::canonical_provider_id(provider_id);
+    let default_slug = savfox_core::provider_default_model_slug(provider_id);
+
+    savfox_core::provider_models_from_enabled_slugs(provider_id, enabled_models)
+        .into_iter()
+        .map(|model| {
+            let model_slug = model.slug;
+            json!({
+                "id": format!("{canonical_provider}/{model_slug}"),
+                "name": model.display_name,
+                "provider": canonical_provider.as_str(),
+                "model_code": model_slug,
+                "is_default": default_slug == Some(model_slug.as_str()),
+                "builtin": true,
+            })
+        })
+        .collect()
+}
+
+fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str) {
+    if !file.models.is_empty() || file.enabled_models.is_empty() {
+        return;
+    }
+
+    let provider_id = if file.provider_id.trim().is_empty() {
+        provider_id_hint.trim().to_string()
+    } else {
+        file.provider_id.trim().to_string()
+    };
+    if provider_id.is_empty() {
+        return;
+    }
+
+    if file.provider_id.trim().is_empty() {
+        file.provider_id = provider_id.clone();
+    }
+    file.models = provider_models_from_enabled_models(&provider_id, &file.enabled_models);
+}
+
 /// Load a provider file, auto-detecting v1 (bare array) vs v2 (object).
 async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> ProviderFile {
     let path = models_dir(bridge).join(format!("{provider_id}.json"));
@@ -8061,11 +8104,13 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
             display_name: String::new(),
             auth: None,
             models: Vec::new(),
+            enabled_models: Vec::new(),
         };
     };
 
     // Try v2 (object with "models" key) first, then fall back to v1 (bare array).
-    if let Ok(file) = serde_json::from_str::<ProviderFile>(&data) {
+    if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
+        hydrate_provider_file_models(&mut file, provider_id);
         return file;
     }
     if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
@@ -8075,6 +8120,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
             display_name: String::new(),
             auth: None,
             models,
+            enabled_models: Vec::new(),
         };
     }
 
@@ -8084,6 +8130,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
         display_name: String::new(),
         auth: None,
         models: Vec::new(),
+        enabled_models: Vec::new(),
     }
 }
 
@@ -8098,7 +8145,7 @@ async fn save_provider_file(
         .await
         .map_err(|e| format!("create models dir: {e}"))?;
     let path = dir.join(format!("{provider_id}.json"));
-    if file.models.is_empty() && file.auth.is_none() {
+    if file.models.is_empty() && file.enabled_models.is_empty() && file.auth.is_none() {
         let _ = tokio::fs::remove_file(&path).await;
         return Ok(());
     }
@@ -8895,6 +8942,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         display_name: display_name_val.to_string(),
         auth,
         models: entries.clone(),
+        enabled_models: Vec::new(),
     };
 
     // Write v2 provider file to models/{provider_id}.json
@@ -8973,11 +9021,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         }
     }
 
-    if config
-        .get("model")
-        .and_then(Value::as_object)
-        .is_some()
-    {
+    if config.get("model").and_then(Value::as_object).is_some() {
         config.remove("model_provider");
         config.remove("model_reasoning_effort");
     }

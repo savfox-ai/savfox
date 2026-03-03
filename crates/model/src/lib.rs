@@ -3,6 +3,8 @@
 mod bundled_models;
 mod model_info;
 
+use std::collections::HashSet;
+
 use once_cell::sync::Lazy;
 use savfox_protocol::openai_models::ModelInfo;
 
@@ -18,7 +20,7 @@ pub struct Provider {
     pub models: &'static [ModelInfo],
 }
 
-const OPENAI_DEFAULT_MODEL_SLUG: &str = "gpt-5.2-codex";
+const OPENAI_DEFAULT_MODEL_SLUG: &str = "gpt-5.3-codex";
 const EMPTY_PROVIDER_MODELS: &[ModelInfo] = &[];
 
 /// Build a `ModelInfo` using model-registry defaults, while requiring only the
@@ -32,6 +34,7 @@ pub fn model_info_with_defaults(slug: &str, display_name: &str) -> ModelInfo {
 
 pub static OPENAI_DEFAULT_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
     vec![
+        model_info_with_defaults("gpt-5.3-codex", "gpt-5.3-codex"),
         model_info_with_defaults("gpt-5.2-codex", "gpt-5.2-codex"),
         model_info_with_defaults("gpt-5.2", "gpt-5.2"),
         model_info_with_defaults("gpt-5.1-codex-max", "gpt-5.1-codex-max"),
@@ -185,12 +188,58 @@ pub fn provider_registry(provider_id: &str) -> Option<Provider> {
     })
 }
 
+/// Resolve detailed model metadata from a `(provider_id, model_slug)` pair.
+///
+/// Returns `None` when the provider is unknown. For known providers that do not
+/// expose an explicit default model list yet, this falls back to generic model
+/// metadata derived from `model_slug`.
+pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelInfo> {
+    let slug = model_slug.trim();
+    if slug.is_empty() {
+        return None;
+    }
+
+    let canonical = canonical_provider_id(provider_id);
+    provider_default_base_url_entry(&canonical)?;
+
+    if let Some(model) = provider_default_models(&canonical)
+        .iter()
+        .find(|model| model.slug == slug)
+    {
+        return Some(model.clone());
+    }
+
+    Some(model_info_with_defaults(slug, slug))
+}
+
+/// Expand a provider's enabled model slug list into detailed model metadata.
+///
+/// Unknown providers are ignored. Duplicate slugs are removed while preserving
+/// the first occurrence order.
+pub fn provider_models_from_enabled_slugs(
+    provider_id: &str,
+    enabled_models: &[String],
+) -> Vec<ModelInfo> {
+    let mut seen = HashSet::new();
+    enabled_models
+        .iter()
+        .filter_map(|slug| {
+            let trimmed = slug.trim();
+            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+                return None;
+            }
+            provider_model_info(provider_id, trimmed)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DEFAULT_OPENAI_API_BASE_URL, OPENAI_DEFAULT_MODELS, canonical_provider_id,
         provider_default_base_url, provider_default_base_url_entry, provider_default_model_slug,
-        provider_default_models, provider_registry,
+        provider_default_models, provider_model_info, provider_models_from_enabled_slugs,
+        provider_registry,
     };
 
     #[test]
@@ -240,5 +289,31 @@ mod tests {
         let registry = provider_registry("openai").expect("openai should be known");
         assert_eq!(registry.base_url, Some(DEFAULT_OPENAI_API_BASE_URL));
         assert_eq!(registry.models, OPENAI_DEFAULT_MODELS.as_slice());
+    }
+
+    #[test]
+    fn provider_model_info_resolves_known_provider_and_slug() {
+        let model = provider_model_info("chatgpt", "gpt-5.3-codex")
+            .expect("chatgpt provider should resolve to openai metadata");
+        assert_eq!(model.slug, "gpt-5.3-codex");
+    }
+
+    #[test]
+    fn provider_model_info_rejects_unknown_provider() {
+        assert!(provider_model_info("unknown-provider", "gpt-5.3-codex").is_none());
+    }
+
+    #[test]
+    fn provider_models_from_enabled_slugs_dedupes_and_preserves_order() {
+        let models = provider_models_from_enabled_slugs(
+            "openai",
+            &[
+                "gpt-5.3-codex".to_string(),
+                "gpt-5.3-codex".to_string(),
+                "gpt-5.2-codex".to_string(),
+            ],
+        );
+        let slugs: Vec<&str> = models.iter().map(|model| model.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["gpt-5.3-codex", "gpt-5.2-codex"]);
     }
 }

@@ -146,6 +146,10 @@ pub use command_safety::{is_dangerous_command, is_safe_command};
 pub use compact::content_items_to_text;
 pub use event_mapping::parse_turn_item;
 pub use exec_policy::{ExecPolicyError, check_execpolicy_for_warnings, load_exec_policy};
+pub use savfox_model::{
+    canonical_provider_id, provider_default_model_slug, provider_model_info,
+    provider_models_from_enabled_slugs,
+};
 // Re-export the protocol types from the standalone `savfox-protocol` crate so existing
 // `savfox_core::protocol::...` references continue to work across the workspace.
 pub use safety::get_platform_sandbox;

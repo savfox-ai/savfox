@@ -11,10 +11,9 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
-use savfox_model::{canonical_provider_id, provider_default_model_slug, provider_default_models};
+use savfox_model::provider_default_models;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
@@ -74,7 +73,7 @@ struct ProviderStoreFile {
     #[serde(default)]
     auth: Option<ProviderStoreAuth>,
     #[serde(default)]
-    models: Vec<Value>,
+    enabled_models: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -112,27 +111,15 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 tokens: auth.tokens.clone(),
                 last_refresh: auth.last_refresh,
             }),
-            models: default_chatgpt_models(),
+            enabled_models: default_chatgpt_enabled_models(),
         }
     }
 }
 
-fn default_chatgpt_models() -> Vec<Value> {
-    let provider_id = canonical_provider_id(CHATGPT_PROVIDER_ID);
-    let default_slug = provider_default_model_slug(CHATGPT_PROVIDER_ID);
-
+fn default_chatgpt_enabled_models() -> Vec<String> {
     provider_default_models(CHATGPT_PROVIDER_ID)
         .iter()
-        .map(|model| {
-            json!({
-                "id": format!("{provider_id}/{}", model.slug),
-                "name": model.display_name,
-                "provider": provider_id.as_str(),
-                "model_code": model.slug,
-                "is_default": default_slug == Some(model.slug.as_str()),
-                "builtin": true,
-            })
-        })
+        .map(|model| model.slug.clone())
         .collect()
 }
 
@@ -487,6 +474,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_storage_load_accepts_legacy_models_array_shape() -> anyhow::Result<()> {
+        let savfox_home = tempdir()?;
+        let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
+        let auth_file = get_auth_file(savfox_home.path());
+        if let Some(parent) = auth_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let legacy_provider_file = json!({
+            "version": 2,
+            "provider_id": "chatgpt",
+            "display_name": "ChatGPT",
+            "auth": {
+                "type": "api_key",
+                "env_key": "OPENAI_API_KEY",
+                "api_key": "legacy-key"
+            },
+            "models": [
+                {
+                    "id": "openai/gpt-5.2-codex",
+                    "name": "gpt-5.2-codex",
+                    "provider": "openai",
+                    "model_code": "gpt-5.2-codex",
+                    "is_default": true,
+                    "builtin": true
+                }
+            ]
+        });
+        std::fs::write(
+            &auth_file,
+            serde_json::to_string_pretty(&legacy_provider_file)?,
+        )?;
+
+        let loaded = storage
+            .load()
+            .context("failed to load legacy provider file")?;
+        assert_eq!(
+            loaded
+                .as_ref()
+                .and_then(|auth| auth.openai_api_key.as_deref()),
+            Some("legacy-key")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn file_storage_save_persists_auth_dot_json() -> anyhow::Result<()> {
         let savfox_home = tempdir()?;
         let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
@@ -514,14 +547,20 @@ mod tests {
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");
-        let models = raw_file["models"]
+        let enabled_models = raw_file["enabled_models"]
             .as_array()
-            .expect("provider store file should include a models array");
+            .expect("provider store file should include an enabled_models array");
         assert!(
-            !models.is_empty(),
-            "provider store file should include default ChatGPT models"
+            !enabled_models.is_empty(),
+            "provider store file should include default ChatGPT enabled models"
         );
-        assert_eq!(models[0]["id"], "openai/gpt-5.2-codex");
+        assert_eq!(enabled_models[0], json!("gpt-5.3-codex"));
+        assert!(
+            enabled_models
+                .iter()
+                .any(|model_slug| model_slug == &json!("gpt-5.3-codex")),
+            "provider store file should include gpt-5.3-codex in default ChatGPT enabled models"
+        );
         Ok(())
     }
 
