@@ -128,7 +128,6 @@ export type { PlanDeltaEvent } from "./PlanDeltaEvent";
 export type { PlanItem } from "./PlanItem";
 export type { PlanItemArg } from "./PlanItemArg";
 export type { PlanType } from "./PlanType";
-export type { Profile } from "./Profile";
 export type { RateLimitSnapshot } from "./RateLimitSnapshot";
 export type { RateLimitWindow } from "./RateLimitWindow";
 export type { RawResponseItemEvent } from "./RawResponseItemEvent";

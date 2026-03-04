@@ -57,7 +57,6 @@ pub struct InitializeResponse {
 pub struct NewConversationParams {
     pub model: Option<String>,
     pub model_provider: Option<String>,
-    pub profile: Option<String>,
     pub cwd: Option<String>,
     pub approval_policy: Option<AskForApproval>,
     pub sandbox: Option<SandboxMode>,
