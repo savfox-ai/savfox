@@ -199,7 +199,7 @@ async fn web_search_mode_defaults_to_disabled_for_azure_responses() {
             provider.display_name = "Azure".to_string();
             provider.base_url = base_url;
             provider.wire_api = WireApi::Responses;
-            config.model_provider_id = provider.slug.clone();
+            config.model_provider_id = provider.id.clone();
             config.model_provider = provider;
             config.web_search_mode = None;
             config.features.disable(Feature::WebSearchCached);

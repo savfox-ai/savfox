@@ -833,7 +833,7 @@ impl Session {
         );
 
         otel_manager.conversation_starts(
-            config.model_provider.slug.as_str(),
+            config.model_provider.id.as_str(),
             session_configuration.collaboration_mode.reasoning_effort(),
             config.model_reasoning_summary,
             config.model_context_window,

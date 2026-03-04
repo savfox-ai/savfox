@@ -59,7 +59,7 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
         Err(e) => panic!("failed to create TempDir: {e}"),
     };
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     config.show_raw_agent_reasoning = true;
     let effort = config.model_reasoning_effort;

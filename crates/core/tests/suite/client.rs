@@ -1168,7 +1168,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
 
     let savfox_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     let effort = config.model_reasoning_effort;
     let summary = config.model_reasoning_summary;

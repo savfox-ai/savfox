@@ -177,16 +177,6 @@ Multiple overrides can be stacked:
 savfox -c model.model=gpt-4o -c sandbox.mode=full-access exec "Do something"
 ```
 
-## Configuration Profiles
-
-Use named profiles to switch between different configurations:
-
-```bash
-savfox --profile work exec "Task for work project"
-savfox --profile personal exec "Personal project task"
-savfox -p oss exec "Use OSS models"
-```
-
 ## Feature Flags
 
 Feature flags control access to experimental and in-development functionality.
@@ -222,7 +212,6 @@ Configuration is resolved in this order (later overrides earlier):
 1. **System defaults** — Built-in defaults
 2. **User config** — `~/.savfox/config.toml`
 3. **Workspace config** — Project-level `.savfox/config.toml`
-4. **Profile** — Named profile overrides
 5. **CLI overrides** — `-c key=value` flags
 6. **Cloud requirements** — Enterprise/managed settings (if applicable)
 
