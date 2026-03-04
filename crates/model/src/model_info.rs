@@ -6,9 +6,9 @@ use savfox_protocol::openai_models::{
 };
 use tracing::warn;
 
-pub const BASE_INSTRUCTIONS: &str = include_str!("../openai/prompt.md");
+pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
 pub const BASE_INSTRUCTIONS_WITH_APPLY_PATCH: &str =
-    include_str!("../openai/prompt_with_apply_patch_instructions.md");
+    include_str!("../prompt_with_apply_patch_instructions.md");
 
 const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5-codex_prompt.md");
 const GPT_5_1_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.1_prompt.md");

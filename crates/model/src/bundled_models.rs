@@ -1,7 +1,7 @@
 use savfox_protocol::openai_models::{ModelInfo, ModelsResponse};
 
 pub fn bundled_models_json() -> &'static str {
-    include_str!("../models.json")
+    include_str!("../openai/models.json")
 }
 
 pub fn bundled_models_response() -> Result<ModelsResponse, serde_json::Error> {

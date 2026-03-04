@@ -1991,17 +1991,6 @@ model = { provider = "zhipuai-coding-plan", code = "glm-5" }
     }
 
     #[test]
-    fn model_field_deserializes_struct_form_with_legacy_model_code_alias() {
-        let cfg: ConfigToml = toml::from_str(
-            r#"
-model = { provider = "zhipuai-coding-plan", model_code = "glm-5" }
-"#,
-        )
-        .expect("TOML deserialization should succeed");
-        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
-    }
-
-    #[test]
     fn profile_model_field_deserializes_struct_form() {
         let cfg: ConfigToml = toml::from_str(
             r#"

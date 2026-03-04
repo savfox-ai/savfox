@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 const STORAGE_KEY: &str = "savfox_model_preferences_v2";
-const LEGACY_STORAGE_KEY: &str = "savfox_model_visibility_v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelKey {
@@ -47,44 +46,6 @@ pub struct ModelPreferences {
     pub variant: HashMap<String, Option<String>>,
 }
 
-fn infer_provider_from_model_id(model_id: &str) -> String {
-    model_id
-        .split_once('/')
-        .map(|(provider, _)| provider.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "other".to_string())
-}
-
-fn normalize_legacy_model_key(model_id: &str) -> ModelKey {
-    if let Some((provider, id)) = model_id.split_once('/') {
-        let provider = provider.trim().to_ascii_lowercase();
-        let id = id.trim();
-        if !provider.is_empty() && !id.is_empty() {
-            return ModelKey::new(provider, id.to_string());
-        }
-    }
-
-    ModelKey::new(infer_provider_from_model_id(model_id), model_id.to_string())
-}
-
-fn migrate_legacy_map_to_preferences(legacy: HashMap<String, bool>) -> ModelPreferences {
-    let mut prefs = ModelPreferences::default();
-    for (model_id, visible) in legacy {
-        let key = normalize_legacy_model_key(&model_id);
-        prefs.user.push(UserPreference {
-            provider_id: key.provider_id,
-            model_id: key.model_id,
-            visibility: if visible {
-                VisibilityState::Show
-            } else {
-                VisibilityState::Hide
-            },
-            favorite: None,
-        });
-    }
-    prefs
-}
-
 pub fn load_model_preferences() -> ModelPreferences {
     #[cfg(target_arch = "wasm32")]
     {
@@ -98,12 +59,6 @@ pub fn load_model_preferences() -> ModelPreferences {
         if let Ok(Some(raw)) = storage.get_item(STORAGE_KEY) {
             if let Ok(parsed) = serde_json::from_str::<ModelPreferences>(&raw) {
                 return parsed;
-            }
-        }
-
-        if let Ok(Some(raw)) = storage.get_item(LEGACY_STORAGE_KEY) {
-            if let Ok(parsed) = serde_json::from_str::<HashMap<String, bool>>(&raw) {
-                return migrate_legacy_map_to_preferences(parsed);
             }
         }
 

@@ -5218,16 +5218,6 @@ fn normalize_model_reasoning_key(config: &mut Value) {
     model.remove("reasoning_level");
 }
 
-fn remove_legacy_model_fields(config: &mut Value) {
-    let Some(root) = config.as_object_mut() else {
-        return;
-    };
-    if root.get("model").and_then(Value::as_object).is_some() {
-        root.remove("model_provider");
-        root.remove("model_reasoning_effort");
-    }
-}
-
 enum DetachedBridgeConfig {
     Upsert(Value),
     Delete,
@@ -5308,8 +5298,6 @@ async fn sanitize_config_before_write(
     bridge: &Arc<GatewayBridge>,
 ) -> Result<(), (i64, String)> {
     normalize_model_reasoning_key(config);
-    remove_legacy_model_fields(config);
-
     if let Some(detached_matrix) = take_detached_matrix_bridge_config(config) {
         persist_detached_matrix_bridge_config(bridge, detached_matrix).await?;
     }
@@ -8000,10 +7988,6 @@ fn models_dir(bridge: &GatewayBridge) -> std::path::PathBuf {
     bridge.config().savfox_home.join("models")
 }
 
-fn legacy_model_store_path(bridge: &GatewayBridge) -> std::path::PathBuf {
-    bridge.config().savfox_home.join("models.json")
-}
-
 // ── Provider file v2 types ──────────────────────────────────────────────
 
 fn default_version() -> u32 {
@@ -8015,7 +7999,7 @@ fn default_auth_type() -> String {
 
 /// On-disk representation of `models/{provider_id}.json` (v2).
 /// Persisted shape is `enabled_models` plus auth/provider metadata.
-/// `models` is kept runtime-only for legacy compatibility and RPC responses.
+/// `models` is kept runtime-only for RPC responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderFile {
     #[serde(default = "default_version")]
@@ -8650,43 +8634,6 @@ async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
     }))
 }
 
-/// Migrate legacy `models.json` (flat HashMap) to per-provider `models/` dir.
-async fn maybe_migrate_legacy_model_store(bridge: &GatewayBridge) {
-    let legacy = legacy_model_store_path(bridge);
-    let dir = models_dir(bridge);
-    if !legacy.exists() || dir.exists() {
-        return;
-    }
-    let Ok(data) = tokio::fs::read_to_string(&legacy).await else {
-        return;
-    };
-    let Ok(old): Result<HashMap<String, Value>, _> = serde_json::from_str(&data) else {
-        return;
-    };
-    // Group by provider
-    let mut by_provider: HashMap<String, Vec<Value>> = HashMap::new();
-    for (_id, entry) in old {
-        let provider = entry
-            .get("provider")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        by_provider.entry(provider).or_default().push(entry);
-    }
-    if tokio::fs::create_dir_all(&dir).await.is_err() {
-        return;
-    }
-    for (provider_id, entries) in &by_provider {
-        let path = dir.join(format!("{provider_id}.json"));
-        if let Ok(json) = serde_json::to_string_pretty(entries) {
-            let _ = tokio::fs::write(&path, json).await;
-        }
-    }
-    // Rename old file
-    let backup = legacy.with_extension("json.bak");
-    let _ = tokio::fs::rename(&legacy, &backup).await;
-}
-
 /// Load models for a single provider (thin wrapper over `load_provider_file`).
 async fn load_provider_models(bridge: &GatewayBridge, provider_id: &str) -> Vec<Value> {
     load_provider_file(bridge, provider_id).await.models
@@ -8694,7 +8641,6 @@ async fn load_provider_models(bridge: &GatewayBridge, provider_id: &str) -> Vec<
 
 /// Load all models from all `models/*.json` files, merged into a flat HashMap keyed by model ID.
 async fn load_all_provider_models(bridge: &GatewayBridge) -> HashMap<String, Value> {
-    maybe_migrate_legacy_model_store(bridge).await;
     let mut out = HashMap::new();
     let dir = models_dir(bridge);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
