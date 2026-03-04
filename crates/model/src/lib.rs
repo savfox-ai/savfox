@@ -43,6 +43,9 @@ pub static OPENAI_DEFAULT_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
         model_info_with_defaults("gpt-4.1", "gpt-4.1"),
     ]
 });
+static OPENAI_BUNDLED_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
+    bundled_models().expect("bundled openai/models.json must deserialize")
+});
 
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
@@ -202,6 +205,12 @@ pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelI
     let canonical = canonical_provider_id(provider_id);
     provider_default_base_url_entry(&canonical)?;
 
+    if canonical.as_str() == "openai"
+        && let Some(model) = OPENAI_BUNDLED_MODELS.iter().find(|model| model.slug == slug)
+    {
+        return Some(model.clone());
+    }
+
     if let Some(model) = provider_default_models(&canonical)
         .iter()
         .find(|model| model.slug == slug)
@@ -241,6 +250,7 @@ mod tests {
         provider_default_models, provider_model_info, provider_models_from_enabled_slugs,
         provider_registry,
     };
+    use savfox_protocol::openai_models::ReasoningEffort;
 
     #[test]
     fn canonical_provider_aliases() {
@@ -296,6 +306,20 @@ mod tests {
         let model = provider_model_info("chatgpt", "gpt-5.3-codex")
             .expect("chatgpt provider should resolve to openai metadata");
         assert_eq!(model.slug, "gpt-5.3-codex");
+    }
+
+    #[test]
+    fn provider_model_info_uses_bundled_reasoning_levels_for_openai() {
+        let model = provider_model_info("openai", "gpt-5.3-codex")
+            .expect("openai model should resolve from bundled metadata");
+        assert_eq!(model.default_reasoning_level, Some(ReasoningEffort::Medium));
+        assert!(
+            model
+                .supported_reasoning_levels
+                .iter()
+                .any(|level| level.effort == ReasoningEffort::XHigh),
+            "expected xhigh reasoning support from bundled models.json"
+        );
     }
 
     #[test]

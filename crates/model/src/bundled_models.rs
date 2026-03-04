@@ -5,7 +5,8 @@ pub fn bundled_models_json() -> &'static str {
 }
 
 pub fn bundled_models_response() -> Result<ModelsResponse, serde_json::Error> {
-    serde_json::from_str(bundled_models_json())
+    let contents = bundled_models_json().trim_start_matches('\u{feff}');
+    serde_json::from_str(contents)
 }
 
 pub fn bundled_models() -> Result<Vec<ModelInfo>, serde_json::Error> {

@@ -62,7 +62,7 @@ use savfox_core::skills::model::SkillMetadata;
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
     ModelProviderInfo, built_in_model_providers, canonical_provider_id,
-    parse_provider_prefixed_model,
+    parse_provider_prefixed_model, provider_model_info,
 };
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
@@ -4827,11 +4827,14 @@ impl ChatScreen {
 
     /// Open a popup to choose the reasoning effort (stage 2) for the given model.
     pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
-        let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
-        let supported = preset.supported_reasoning_efforts;
-        let selected_provider_id = parse_provider_prefixed_model(&preset.slug)
-            .map(|(provider_id, _)| provider_id.to_string())
-            .unwrap_or_else(|| self.config.model_provider_id.clone());
+        let (selected_provider_id, selected_model_slug) = parse_provider_prefixed_model(&preset.slug)
+            .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()))
+            .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
+        let (default_effort, supported) = Self::reasoning_effort_options_for_model(
+            &preset,
+            selected_provider_id.as_str(),
+            selected_model_slug.as_str(),
+        );
         let is_openai_provider = canonical_provider_id(selected_provider_id.as_str()) == "openai";
 
         let warn_effort = if supported
@@ -4851,9 +4854,9 @@ impl ChatScreen {
             let effort_label = Self::reasoning_effort_label(effort);
             format!("⚠ {effort_label} reasoning effort can quickly consume Plus plan rate limits.")
         });
-        let warn_for_model = preset.slug.starts_with("gpt-5.1-codex")
-            || preset.slug.starts_with("gpt-5.1-codex-max")
-            || preset.slug.starts_with("gpt-5.2");
+        let warn_for_model = selected_model_slug.starts_with("gpt-5.1-codex")
+            || selected_model_slug.starts_with("gpt-5.1-codex-max")
+            || selected_model_slug.starts_with("gpt-5.2");
 
         struct EffortChoice {
             stored: Option<ReasoningEffortConfig>,
@@ -4968,6 +4971,24 @@ impl ChatScreen {
             initial_selected_idx,
             ..Default::default()
         });
+    }
+
+    fn reasoning_effort_options_for_model(
+        preset: &ModelPreset,
+        provider_id: &str,
+        model_slug: &str,
+    ) -> (ReasoningEffortConfig, Vec<ReasoningEffortPreset>) {
+        let default_effort = preset.default_reasoning_effort;
+        let supported = preset.supported_reasoning_efforts.clone();
+        let Some(model_info) = provider_model_info(provider_id, model_slug) else {
+            return (default_effort, supported);
+        };
+        let default_effort = model_info.default_reasoning_level.unwrap_or(default_effort);
+        if model_info.supported_reasoning_levels.is_empty() {
+            (default_effort, supported)
+        } else {
+            (default_effort, model_info.supported_reasoning_levels)
+        }
     }
 
     fn reasoning_effort_label(effort: ReasoningEffortConfig) -> &'static str {

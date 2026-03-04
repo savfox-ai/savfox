@@ -3781,6 +3781,44 @@ async fn reasoning_popup_shows_extra_high_with_space() {
 }
 
 #[tokio::test]
+async fn reasoning_popup_uses_model_crate_metadata_for_selected_slug() {
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
+
+    set_chatgpt_auth(&mut chat);
+    chat.config.model_provider_id = "chatgpt".to_string();
+    let preset = ModelPreset {
+        id: "gpt-5.3-codex".to_string(),
+        slug: "gpt-5.3-codex".to_string(),
+        name: "gpt-5.3-codex".to_string(),
+        description: "stale preset".to_string(),
+        default_reasoning_effort: ReasoningEffortConfig::Low,
+        supported_reasoning_efforts: vec![ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Low,
+            description: "stale low effort".to_string(),
+        }],
+        supports_personality: false,
+        is_default: false,
+        upgrade: None,
+        show_in_picker: true,
+        supported_in_api: true,
+        input_modalities: default_input_modalities(),
+    };
+
+    chat.set_model(&preset.slug);
+    chat.open_reasoning_popup(preset);
+
+    let popup = render_bottom_popup(&chat, 120);
+    assert!(
+        popup.contains("Medium (default)"),
+        "expected default effort from bundled model metadata; popup: {popup}"
+    );
+    assert!(
+        popup.contains("Extra high"),
+        "expected xhigh effort from bundled model metadata; popup: {popup}"
+    );
+}
+
+#[tokio::test]
 async fn single_reasoning_option_skips_selection() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
 

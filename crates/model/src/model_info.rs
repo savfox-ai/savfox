@@ -1,8 +1,7 @@
 use savfox_protocol::config_types::Verbosity;
 use savfox_protocol::openai_models::{
     ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
-    ModelVisibility, ReasoningEffort, ReasoningEffortPreset, TruncationPolicyConfig,
-    default_input_modalities,
+    ModelVisibility, ReasoningEffort, TruncationPolicyConfig, default_input_modalities,
 };
 use tracing::warn;
 
@@ -39,7 +38,7 @@ macro_rules! model_info {
             // offline, core generally omits the effort field unless explicitly
             // configured by the user.
             default_reasoning_level: None,
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high(),
+            supported_reasoning_levels: Vec::new(),
             shell_type: ConfigShellToolType::Default,
             visibility: ModelVisibility::None,
             supported_in_api: true,
@@ -172,7 +171,6 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             support_verbosity: false,
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh(),
             base_instructions: GPT_5_2_CODEX_INSTRUCTIONS.to_string(),
             model_messages: Some(ModelMessages {
                 instructions_template: Some(GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE.to_string()),
@@ -194,7 +192,6 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             support_verbosity: false,
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh(),
         )
     } else if (slug.starts_with("gpt-5-codex")
         || slug.starts_with("gpt-5.1-codex")
@@ -211,7 +208,6 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             support_verbosity: false,
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high(),
         )
     } else if slug.starts_with("gpt-5-codex")
         || slug.starts_with("gpt-5.1-codex")
@@ -241,7 +237,6 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
             context_window: Some(CONTEXT_WINDOW_272K),
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high_xhigh_non_savfox(),
         )
     } else if slug.starts_with("gpt-5.1") {
         model_info!(
@@ -256,7 +251,6 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
             context_window: Some(CONTEXT_WINDOW_272K),
-            supported_reasoning_levels: supported_reasoning_level_low_medium_high_non_savfox(),
         )
     } else if slug.starts_with("gpt-5") {
         model_info!(
@@ -313,80 +307,4 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             default_reasoning_level: None
         )
     }
-}
-
-fn supported_reasoning_level_low_medium_high() -> Vec<ReasoningEffortPreset> {
-    vec![
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Low,
-            description: "Fast responses with lighter reasoning".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: "Balances speed and reasoning depth for everyday tasks".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::High,
-            description: "Greater reasoning depth for complex problems".to_string(),
-        },
-    ]
-}
-
-fn supported_reasoning_level_low_medium_high_non_savfox() -> Vec<ReasoningEffortPreset> {
-    vec![
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Low,
-            description: "Balances speed with some reasoning; useful for straightforward queries and short explanations".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: "Provides a solid balance of reasoning depth and latency for general-purpose tasks".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::High,
-            description: "Maximizes reasoning depth for complex or ambiguous problems".to_string(),
-        },
-    ]
-}
-
-fn supported_reasoning_level_low_medium_high_xhigh() -> Vec<ReasoningEffortPreset> {
-    vec![
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Low,
-            description: "Fast responses with lighter reasoning".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: "Balances speed and reasoning depth for everyday tasks".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::High,
-            description: "Greater reasoning depth for complex problems".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::XHigh,
-            description: "Extra high reasoning depth for complex problems".to_string(),
-        },
-    ]
-}
-
-fn supported_reasoning_level_low_medium_high_xhigh_non_savfox() -> Vec<ReasoningEffortPreset> {
-    vec![
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Low,
-            description: "Balances speed with some reasoning; useful for straightforward queries and short explanations".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::Medium,
-            description: "Provides a solid balance of reasoning depth and latency for general-purpose tasks".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::High,
-            description: "Maximizes reasoning depth for complex or ambiguous problems".to_string(),
-        },
-        ReasoningEffortPreset {
-            effort: ReasoningEffort::XHigh,
-            description: "Extra high reasoning for complex problems".to_string(),
-        },
-    ]
 }
