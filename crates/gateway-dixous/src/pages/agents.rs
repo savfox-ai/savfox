@@ -853,8 +853,6 @@ fn AgentOverviewTab(
                                 }
                                 if !fallback_list.is_empty() {
                                     models_obj["fallbacks"] = json!(fallback_list.clone());
-                                    // Keep legacy field too for backward compat
-                                    params["fallback_models"] = json!(fallback_list);
                                 }
                                 params["models"] = models_obj;
                                 if !emoji_val.is_empty() {

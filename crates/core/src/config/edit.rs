@@ -274,33 +274,19 @@ impl ConfigFile {
                 Ok({
                     let mut mutated = false;
                     if let Some(slug_value) = slug {
+                        let Some(provider_to_write) = provider.clone() else {
+                            anyhow::bail!(
+                                "model.provider is required when setting model `{slug_value}`"
+                            );
+                        };
+
                         mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug_value.clone()));
 
-                        let provider_to_write: Option<String> = if let Some(ref provider_value) = provider {
-                            Some(provider_value.clone())
-                        } else {
-                            // If no provider specified, try to read from existing config
-                            self.doc
-                                .as_table()
-                                .get("model_provider")
-                                .and_then(|item| item.as_str())
-                                .map(ToOwned::to_owned)
-                        };
-                        if let Some(provider) = &provider_to_write {
-                            mutated |= self.write_value(
-                                Scope::Global,
-                                &["model", "provider"],
-                                value(provider.clone()),
-                            );
-                        }
-                        // Keep legacy field in sync for older readers.
-                        if let Some(provider_for_legacy) = provider.as_ref().or(provider_to_write.as_ref()) {
-                            mutated |= self.write_value(
-                                Scope::Global,
-                                &["model_provider"],
-                                value(provider_for_legacy),
-                            );
-                        }
+                        mutated |= self.write_value(
+                            Scope::Global,
+                            &["model", "provider"],
+                            value(provider_to_write.clone()),
+                        );
                         if let Some(effort_value) = effort {
                             mutated |= self.write_value(
                                 Scope::Global,
@@ -310,8 +296,6 @@ impl ConfigFile {
                         } else {
                             mutated |= self.clear(Scope::Global, &["model", "reasoning_effort"]);
                         }
-                        // Remove legacy global field
-                        mutated |= self.clear(Scope::Global, &["model_reasoning_effort"]);
                     } else {
                         mutated |= self.clear(Scope::Global, &["model"]);
                         mutated |= self.clear(Scope::Global, &["model_reasoning_effort"]);
@@ -742,11 +726,11 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
             if let JsonValue::Object(root) = json {
                 match slug {
                     Some(slug_value) => {
-                        // Read existing model_provider before any mutable borrow
-                        let existing_provider = root.get("model_provider")
-                            .and_then(|v| v.as_str())
-                            .map(ToOwned::to_owned)
-                            .unwrap_or_default();
+                        let Some(provider_to_write) = provider.clone() else {
+                            anyhow::bail!(
+                                "model.provider is required when setting model `{slug_value}`"
+                            );
+                        };
 
                         let model_obj = root
                             .entry("model".to_string())
@@ -754,20 +738,10 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
 
                         if let JsonValue::Object(model_map) = model_obj {
                             model_map.insert("slug".to_string(), JsonValue::String(slug_value.clone()));
-
-                            let provider_to_write = if let Some(provider_value) = &provider {
-                                provider_value.clone()
-                            } else {
-                                // If no provider specified, use existing config value
-                                existing_provider.clone()
-                            };
-
-                            if !provider_to_write.is_empty() {
-                                model_map.insert(
-                                    "provider".to_string(),
-                                    JsonValue::String(provider_to_write.clone()),
-                                );
-                            }
+                            model_map.insert(
+                                "provider".to_string(),
+                                JsonValue::String(provider_to_write.clone()),
+                            );
 
                             if let Some(effort) = effort {
                                 model_map.insert(
@@ -780,18 +754,10 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                         }
 
                         // Add model_provider at root level
-                        let provider_for_root = if let Some(provider_value) = &provider {
-                            provider_value.clone()
-                        } else {
-                            // Try to preserve existing model_provider value
-                            existing_provider.clone()
-                        };
-                        if !provider_for_root.is_empty() {
-                            root.insert(
-                                "model_provider".to_string(),
-                                JsonValue::String(provider_for_root),
-                            );
-                        }
+                        root.insert(
+                            "model_provider".to_string(),
+                            JsonValue::String(provider_to_write),
+                        );
 
                         Ok(true)
                     }
@@ -1108,7 +1074,7 @@ mod tests {
             savfox_home,
             &[ConfigEdit::SetModel {
                 slug: Some("gpt-5.1-savfox".to_string()),
-                provider: None,
+                provider: Some("openai".to_string()),
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -1128,6 +1094,14 @@ mod tests {
         assert_eq!(
             model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
+        );
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("openai")
+        );
+        assert_eq!(
+            value.get("model_provider").and_then(|v| v.as_str()),
+            Some("openai")
         );
     }
 
@@ -1358,13 +1332,21 @@ network_access = true
             Some("glm-5")
         );
         assert_eq!(
+            value
+                .get("model")
+                .and_then(|v| v.as_table())
+                .and_then(|tbl| tbl.get("provider"))
+                .and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
+        assert_eq!(
             value.get("model_provider").and_then(|v| v.as_str()),
             Some("zhipuai-coding-plan")
         );
     }
 
     #[test]
-    fn blocking_set_model_bare_preserves_existing_model_provider() {
+    fn blocking_set_model_bare_without_provider_errors() {
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
         std::fs::write(
@@ -1374,7 +1356,7 @@ network_access = true
         )
         .expect("seed");
 
-        apply_blocking(
+        let err = apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
                 slug: Some("glm-5".to_string()),
@@ -1382,22 +1364,8 @@ network_access = true
                 effort: None,
             }],
         )
-        .expect("persist");
-
-        let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let value: TomlValue = toml::from_str(&raw).expect("parse config");
-        assert_eq!(
-            value
-                .get("model")
-                .and_then(|v| v.as_table())
-                .and_then(|tbl| tbl.get("slug"))
-                .and_then(|v| v.as_str()),
-            Some("glm-5")
-        );
-        assert_eq!(
-            value.get("model_provider").and_then(|v| v.as_str()),
-            Some("zhipuai-coding-plan")
-        );
+        .expect_err("missing provider should error");
+        assert!(err.to_string().contains("model.provider is required"));
     }
 
     #[test]
@@ -1866,7 +1834,7 @@ foo = { command = "cmd" , enabled = false }
         let savfox_home = tmp.path().to_path_buf();
 
         ConfigEditsBuilder::new(&savfox_home)
-            .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::High))
+            .set_model(Some("openai/gpt-5.1-savfox"), Some(ReasoningEffort::High))
             .apply()
             .await
             .expect("persist");
@@ -1907,7 +1875,7 @@ foo = { command = "cmd" , enabled = false }
         };
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
+            .set_model(Some("openai/o4-mini"), Some(ReasoningEffort::Low))
             .apply_blocking()
             .expect("persist initial");
         let mut contents =
@@ -1915,7 +1883,7 @@ foo = { command = "cmd" , enabled = false }
         assert_model(&contents, "o4-mini", "low");
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::High))
+            .set_model(Some("openai/gpt-5.1-savfox"), Some(ReasoningEffort::High))
             .apply_blocking()
             .expect("persist update");
         contents =
@@ -1923,7 +1891,7 @@ foo = { command = "cmd" , enabled = false }
         assert_model(&contents, "gpt-5.1-savfox", "high");
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
+            .set_model(Some("openai/o4-mini"), Some(ReasoningEffort::Low))
             .apply_blocking()
             .expect("persist revert");
         contents =

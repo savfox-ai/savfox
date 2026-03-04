@@ -22,6 +22,7 @@ use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::models_manager::model_presets::{
     HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
 };
+use savfox_core::parse_provider_prefixed_model;
 use savfox_core::protocol::{
     AskForApproval, DeprecationNoticeEvent, Event, EventMsg, FinalOutput, ListSkillsResponseEvent,
     Op, SandboxPolicy, SessionSource, SkillErrorInfo, TokenUsage,
@@ -1953,9 +1954,17 @@ impl App {
                         value: toml_edit_value(result.base_url.clone()),
                     });
                 }
+                let model_to_persist = if parse_provider_prefixed_model(normalized_model.as_str())
+                    .is_some()
+                {
+                    normalized_model.clone()
+                } else {
+                    format!("{provider_id}/{}", normalized_model.trim())
+                };
+
                 let persist_result = ConfigEditsBuilder::new(&self.config.savfox_home)
                     .with_edits(edits)
-                    .set_model(Some(normalized_model.as_str()), None)
+                    .set_model(Some(model_to_persist.as_str()), None)
                     .apply()
                     .await;
                 if let Err(err) = persist_result {
@@ -2245,8 +2254,13 @@ impl App {
                 }
             }
             AppEvent::PersistModelSelection { model, effort } => {
+                let model_to_persist = if parse_provider_prefixed_model(model.as_str()).is_some() {
+                    model.clone()
+                } else {
+                    format!("{}/{}", self.config.model_provider_id, model.trim())
+                };
                 match ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .set_model(Some(model.as_str()), effort)
+                    .set_model(Some(model_to_persist.as_str()), effort)
                     .apply()
                     .await
                 {
