@@ -6,23 +6,24 @@ use savfox_protocol::openai_models::{
 };
 use tracing::warn;
 
-pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
+pub const BASE_INSTRUCTIONS: &str = include_str!("../openai/prompt.md");
 pub const BASE_INSTRUCTIONS_WITH_APPLY_PATCH: &str =
-    include_str!("../prompt_with_apply_patch_instructions.md");
+    include_str!("../openai/prompt_with_apply_patch_instructions.md");
 
-const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../gpt-5-codex_prompt.md");
-const GPT_5_1_INSTRUCTIONS: &str = include_str!("../gpt-5.1_prompt.md");
-const GPT_5_2_INSTRUCTIONS: &str = include_str!("../gpt-5.2_prompt.md");
-const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str = include_str!("../gpt-5.1-codex-max_prompt.md");
+const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5-codex_prompt.md");
+const GPT_5_1_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.1_prompt.md");
+const GPT_5_2_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.2_prompt.md");
+const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str =
+    include_str!("../openai/gpt-5.1-codex-max_prompt.md");
 
-const GPT_5_2_CODEX_INSTRUCTIONS: &str = include_str!("../gpt-5.2-codex_prompt.md");
+const GPT_5_2_CODEX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.2-codex_prompt.md");
 const GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE: &str =
-    include_str!("../templates/model_instructions/gpt-5.2-codex_instructions_template.md");
+    include_str!("../openai/templates/model_instructions/gpt-5.2-codex_instructions_template.md");
 
 const GPT_5_2_CODEX_PERSONALITY_FRIENDLY: &str =
-    include_str!("../templates/personalities/gpt-5.2-codex_friendly.md");
+    include_str!("../openai/templates/personalities/gpt-5.2-codex_friendly.md");
 const GPT_5_2_CODEX_PERSONALITY_PRAGMATIC: &str =
-    include_str!("../templates/personalities/gpt-5.2-codex_pragmatic.md");
+    include_str!("../openai/templates/personalities/gpt-5.2-codex_pragmatic.md");
 
 const CONTEXT_WINDOW_272K: i64 = 272_000;
 
