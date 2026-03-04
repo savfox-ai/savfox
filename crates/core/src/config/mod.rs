@@ -1947,6 +1947,21 @@ mod tests {
         }
     }
 
+    fn selected_model_from_id(model_id: &str) -> SelectedModel {
+        let (provider, slug) = model_id
+            .rsplit_once('/')
+            .unwrap_or(("openai", model_id));
+        SelectedModel {
+            slug: slug.to_string(),
+            provider: provider.to_string(),
+            reasoning_effort: None,
+        }
+    }
+
+    fn selected_model_id(model: Option<&SelectedModel>) -> Option<String> {
+        model.and_then(SelectedModel::to_model_id)
+    }
+
     #[test]
     fn test_toml_parsing() {
         let history_with_persistence = r#"
@@ -1987,7 +2002,10 @@ model = { provider = "zhipuai-coding-plan", code = "glm-5" }
 "#,
         )
         .expect("TOML deserialization should succeed");
-        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+        assert_eq!(
+            selected_model_id(cfg.model.as_ref()).as_deref(),
+            Some("zhipuai-coding-plan/glm-5")
+        );
     }
 
     #[test]
@@ -2002,7 +2020,8 @@ model = { provider = "zhipuai-coding-plan", code = "glm-5" }
         assert_eq!(
             cfg.profiles
                 .get("dev")
-                .and_then(|profile| profile.model.as_deref()),
+                .and_then(|profile| selected_model_id(profile.model.as_ref()))
+                .as_deref(),
             Some("zhipuai-coding-plan/glm-5")
         );
     }
@@ -2015,7 +2034,10 @@ model = { id = "zhipuai-coding-plan/glm-5", code = "glm-5", name = "Glm 5", prov
 "#,
         )
         .expect("TOML deserialization should succeed");
-        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+        assert_eq!(
+            selected_model_id(cfg.model.as_ref()).as_deref(),
+            Some("zhipuai-coding-plan/glm-5")
+        );
     }
 
     #[test]
@@ -2026,7 +2048,10 @@ model = { id = "zhipuai-coding-plan/glm-5", provider = { id = "zhipuai-coding-pl
 "#,
         )
         .expect("TOML deserialization should succeed");
-        assert_eq!(cfg.model.as_deref(), Some("zhipuai-coding-plan/glm-5"));
+        assert_eq!(
+            selected_model_id(cfg.model.as_ref()).as_deref(),
+            Some("zhipuai-coding-plan/glm-5")
+        );
     }
 
     #[test]
@@ -2944,7 +2969,10 @@ profile = "project"
             e
         })?;
 
-        assert_eq!(cfg.model.as_deref(), Some("managed_config"));
+        assert_eq!(
+            selected_model_id(cfg.model.as_ref()).as_deref(),
+            Some("managed_config")
+        );
         Ok(())
     }
 
@@ -3609,7 +3637,10 @@ url = "https://example.com/mcp"
             tokio::fs::read_to_string(savfox_home.path().join(CONFIG_TOML_FILE)).await?;
         let parsed: ConfigToml = toml::from_str(&serialized)?;
 
-        assert_eq!(parsed.model.as_deref(), Some("gpt-5.1-savfox"));
+        assert_eq!(
+            selected_model_id(parsed.model.as_ref()).as_deref(),
+            Some("gpt-5.1-savfox")
+        );
         assert_eq!(parsed.model_reasoning_effort, Some(ReasoningEffort::High));
 
         Ok(())
@@ -3640,13 +3671,17 @@ model = "gpt-4.1"
         let serialized = tokio::fs::read_to_string(config_path).await?;
         let parsed: ConfigToml = toml::from_str(&serialized)?;
 
-        assert_eq!(parsed.model.as_deref(), Some("o4-mini"));
+        assert_eq!(
+            selected_model_id(parsed.model.as_ref()).as_deref(),
+            Some("o4-mini")
+        );
         assert_eq!(parsed.model_reasoning_effort, Some(ReasoningEffort::High));
         assert_eq!(
             parsed
                 .profiles
                 .get("dev")
-                .and_then(|profile| profile.model.as_deref()),
+                .and_then(|profile| selected_model_id(profile.model.as_ref()))
+                .as_deref(),
             Some("gpt-4.1"),
         );
 
@@ -3671,7 +3706,10 @@ model = "gpt-4.1"
             .get("dev")
             .expect("profile should be created");
 
-        assert_eq!(profile.model.as_deref(), Some("gpt-5.1-savfox"));
+        assert_eq!(
+            selected_model_id(profile.model.as_ref()).as_deref(),
+            Some("gpt-5.1-savfox")
+        );
         assert_eq!(
             profile.model_reasoning_effort,
             Some(ReasoningEffort::Medium)
@@ -3711,7 +3749,10 @@ model = "gpt-5.1-savfox"
             .profiles
             .get("dev")
             .expect("dev profile should survive updates");
-        assert_eq!(dev_profile.model.as_deref(), Some("o4-high"));
+        assert_eq!(
+            selected_model_id(dev_profile.model.as_ref()).as_deref(),
+            Some("o4-high")
+        );
         assert_eq!(
             dev_profile.model_reasoning_effort,
             Some(ReasoningEffort::Medium)
@@ -3721,7 +3762,8 @@ model = "gpt-5.1-savfox"
             parsed
                 .profiles
                 .get("prod")
-                .and_then(|profile| profile.model.as_deref()),
+                .and_then(|profile| selected_model_id(profile.model.as_ref()))
+                .as_deref(),
             Some("gpt-5.1-savfox"),
         );
 
@@ -3866,7 +3908,8 @@ model_verbosity = "high"
         let savfox_home_temp_dir = TempDir::new().unwrap();
 
         let openai_chat_completions_provider = ModelProviderInfo {
-            name: "OpenAI using Chat Completions".to_string(),
+            slug: "openai-chat-completions".to_string(),
+            display_name: "OpenAI using Chat Completions".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             env_key: Some("OPENAI_API_KEY".to_string()),
             wire_api: crate::WireApi::Chat,
@@ -3908,11 +3951,12 @@ model_verbosity = "high"
     #[test]
     fn infers_model_provider_from_prefixed_model_when_unset() -> std::io::Result<()> {
         let mut cfg = ConfigToml {
-            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            model: Some(selected_model_from_id("zhipuai-coding-plan/glm-5")),
             ..Default::default()
         };
         let zhipu_provider = ModelProviderInfo {
-            name: "Zhipu AI Coding Plan".to_string(),
+            slug: "zhipuai-coding-plan".to_string(),
+            display_name: "Zhipu AI Coding Plan".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
             env_key: Some("ZHIPUAI_API_KEY".to_string()),
             env_key_instructions: None,
@@ -3950,7 +3994,7 @@ model_verbosity = "high"
     #[test]
     fn infers_model_provider_from_prefixed_model_using_provider_store() -> std::io::Result<()> {
         let cfg = ConfigToml {
-            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            model: Some(selected_model_from_id("zhipuai-coding-plan/glm-5")),
             ..Default::default()
         };
 
@@ -3987,7 +4031,7 @@ model_verbosity = "high"
         )?;
 
         assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
-        assert_eq!(config.model_provider.name, "Zhipu AI Coding Plan");
+        assert_eq!(config.model_provider.display_name, "Zhipu AI Coding Plan");
         assert_eq!(
             config.model_provider.base_url.as_deref(),
             Some("https://open.bigmodel.cn/api/coding/paas/v4")
@@ -4003,11 +4047,12 @@ model_verbosity = "high"
     #[test]
     fn infers_model_provider_from_string_using_last_separator() -> std::io::Result<()> {
         let mut cfg = ConfigToml {
-            model: Some("acme/team/glm-5".to_string()),
+            model: Some(selected_model_from_id("acme/team/glm-5")),
             ..Default::default()
         };
         let provider = ModelProviderInfo {
-            name: "Acme Team".to_string(),
+            slug: "acme/team".to_string(),
+            display_name: "Acme Team".to_string(),
             base_url: Some("https://example.invalid/v1".to_string()),
             env_key: Some("ACME_API_KEY".to_string()),
             env_key_instructions: None,
@@ -4045,14 +4090,15 @@ model_verbosity = "high"
     #[test]
     fn explicit_model_provider_takes_precedence_over_prefixed_model() -> std::io::Result<()> {
         let mut cfg = ConfigToml {
-            model: Some("zhipuai-coding-plan/glm-5".to_string()),
+            model: Some(selected_model_from_id("zhipuai-coding-plan/glm-5")),
             model_provider: Some("openai".to_string()),
             ..Default::default()
         };
         cfg.model_providers.insert(
             "zhipuai-coding-plan".to_string(),
             ModelProviderInfo {
-                name: "Zhipu AI Coding Plan".to_string(),
+                slug: "zhipuai-coding-plan".to_string(),
+                display_name: "Zhipu AI Coding Plan".to_string(),
                 base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
                 env_key: Some("ZHIPUAI_API_KEY".to_string()),
                 env_key_instructions: None,

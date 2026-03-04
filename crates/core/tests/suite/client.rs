@@ -1,4 +1,4 @@
-﻿use std::io::Write;
+use std::io::Write;
 use std::sync::Arc;
 
 use core_test_support::responses::{
@@ -139,7 +139,7 @@ fn write_chatgpt_provider_store_auth(
     fake_jwt
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_includes_initial_messages_and_sends_prior_items() {
     skip_if_no_network!();
 
@@ -356,7 +356,7 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     assert!(pos_environment < pos_new_user);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_conversation_id_and_model_headers_in_request() {
     skip_if_no_network!();
 
@@ -399,7 +399,7 @@ async fn includes_conversation_id_and_model_headers_in_request() {
     assert_eq!(request_authorization, "Bearer Test API Key");
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_base_instructions_override_in_request() {
     skip_if_no_network!();
     // Mock server
@@ -441,7 +441,7 @@ async fn includes_base_instructions_override_in_request() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chatgpt_auth_sends_correct_request() {
     skip_if_no_network!();
 
@@ -488,8 +488,8 @@ async fn chatgpt_auth_sends_correct_request() {
         .expect("chatgpt-account-id header");
     let request_body = request.body_json();
 
-    let session_id = request.header("session_id").expect("session_id header");
-    assert_eq!(session_id, session_id.to_string());
+    let request_session_id = request.header("session_id").expect("session_id header");
+    assert_eq!(request_session_id, session_id.to_string());
 
     assert_eq!(request_originator, originator().value);
     assert_eq!(request_authorization, "Bearer Access Token");
@@ -501,7 +501,7 @@ async fn chatgpt_auth_sends_correct_request() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
     skip_if_no_network!();
 
@@ -573,7 +573,7 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
     wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_user_instructions_message_in_request() {
     skip_if_no_network!();
     let server = MockServer::start().await;
@@ -635,7 +635,7 @@ async fn includes_user_instructions_message_in_request() {
     assert_message_ends_with(&request_body["input"][2], "</environment_context>");
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skills_append_to_instructions() {
     skip_if_no_network!();
     let server = MockServer::start().await;
@@ -703,7 +703,7 @@ async fn skills_append_to_instructions() {
     let _savfox_home_guard = savfox_home;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_configured_effort_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -744,7 +744,7 @@ async fn includes_configured_effort_in_request() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_no_effort_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -782,7 +782,7 @@ async fn includes_no_effort_in_request() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_default_reasoning_effort_in_request_when_defined_by_model_info()
 -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
@@ -818,7 +818,7 @@ async fn includes_default_reasoning_effort_in_request_when_defined_by_model_info
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_collaboration_mode_overrides_model_and_effort() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -876,7 +876,7 @@ async fn user_turn_collaboration_mode_overrides_model_and_effort() -> anyhow::Re
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_reasoning_summary_is_sent() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -916,7 +916,7 @@ async fn configured_reasoning_summary_is_sent() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reasoning_summary_is_omitted_when_disabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -955,7 +955,7 @@ async fn reasoning_summary_is_omitted_when_disabled() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_default_verbosity_in_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -990,7 +990,7 @@ async fn includes_default_verbosity_in_request() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_verbosity_not_sent_for_models_without_support() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -1030,7 +1030,7 @@ async fn configured_verbosity_not_sent_for_models_without_support() -> anyhow::R
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_verbosity_is_sent() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -1071,7 +1071,7 @@ async fn configured_verbosity_is_sent() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn includes_developer_instructions_message_in_request() {
     skip_if_no_network!();
     let server = MockServer::start().await;
@@ -1136,7 +1136,7 @@ async fn includes_developer_instructions_message_in_request() {
     assert_message_ends_with(&request_body["input"][3], "</environment_context>");
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn azure_responses_request_includes_store_and_reasoning_ids() {
     skip_if_no_network!();
 
@@ -1149,7 +1149,8 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
     let resp_mock = mount_sse_once(&server, sse_body.to_string()).await;
 
     let provider = ModelProviderInfo {
-        name: "azure".into(),
+        slug: "azure".into(),
+        display_name: "azure".into(),
         base_url: Some(format!("{}/openai", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -1167,7 +1168,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
 
     let savfox_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.name.clone();
+    config.model_provider_id = provider.slug.clone();
     config.model_provider = provider.clone();
     let effort = config.model_reasoning_effort;
     let summary = config.model_reasoning_summary;
@@ -1302,7 +1303,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn token_count_includes_rate_limits_snapshot() {
     skip_if_no_network!();
     let server = MockServer::start().await;
@@ -1453,7 +1454,7 @@ async fn token_count_includes_rate_limits_snapshot() {
     wait_for_event(&savfox, |msg| matches!(msg, EventMsg::TurnComplete(_))).await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn usage_limit_error_emits_rate_limit_event() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -1537,7 +1538,7 @@ async fn usage_limit_error_emits_rate_limit_event() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = MockServer::start().await;
@@ -1633,7 +1634,7 @@ async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Res
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn azure_overrides_assign_properties_used_for_responses_url() {
     skip_if_no_network!();
     let existing_env_var_with_random_value = if cfg!(windows) { "USERNAME" } else { "USER" };
@@ -1665,7 +1666,8 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         .await;
 
     let provider = ModelProviderInfo {
-        name: "custom".to_string(),
+        slug: "custom".to_string(),
+        display_name: "custom".to_string(),
         base_url: Some(format!("{}/openai", server.uri())),
         // Reuse the existing environment variable to avoid using unsafe code
         env_key: Some(existing_env_var_with_random_value.to_string()),
@@ -1714,7 +1716,7 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
     wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn env_var_overrides_loaded_auth() {
     skip_if_no_network!();
     let existing_env_var_with_random_value = if cfg!(windows) { "USERNAME" } else { "USER" };
@@ -1746,7 +1748,8 @@ async fn env_var_overrides_loaded_auth() {
         .await;
 
     let provider = ModelProviderInfo {
-        name: "custom".to_string(),
+        slug: "custom".to_string(),
+        display_name: "custom".to_string(),
         base_url: Some(format!("{}/openai", server.uri())),
         // Reuse the existing environment variable to avoid using unsafe code
         env_key: Some(existing_env_var_with_random_value.to_string()),
@@ -1805,7 +1808,7 @@ fn create_dummy_savfox_auth() -> SavfoxAuth {
 /// - Turn 3: user sends U3; model responds (same SSE again, not important).
 ///
 /// We assert that the `input` sent on each turn contains the expected conversation history
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn history_dedupes_streamed_and_final_messages_across_turns() {
     // Skip under Savfox sandbox network restrictions (mirrors other tests).
     skip_if_no_network!();

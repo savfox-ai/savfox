@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use core_test_support::responses::{
     ev_completed, ev_response_created, mount_sse_once, sse, start_mock_server,
 };
@@ -61,7 +61,7 @@ fn count_exact(texts: &[String], target: &str) -> usize {
     texts.iter().filter(|text| text.as_str() == target).count()
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn no_collaboration_instructions_by_default() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -89,7 +89,7 @@ async fn no_collaboration_instructions_by_default() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_input_includes_collaboration_instructions_after_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -133,7 +133,7 @@ async fn user_input_includes_collaboration_instructions_after_override() -> Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collaboration_instructions_added_on_user_turn() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -171,7 +171,7 @@ async fn collaboration_instructions_added_on_user_turn() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_then_next_turn_uses_updated_collaboration_instructions() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -215,7 +215,7 @@ async fn override_then_next_turn_uses_updated_collaboration_instructions() -> Re
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_overrides_collaboration_instructions_after_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -271,7 +271,7 @@ async fn user_turn_overrides_collaboration_instructions_after_override() -> Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collaboration_mode_update_emits_new_instruction_message() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -343,7 +343,7 @@ async fn collaboration_mode_update_emits_new_instruction_message() -> Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collaboration_mode_update_noop_does_not_append() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -412,7 +412,7 @@ async fn collaboration_mode_update_noop_does_not_append() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collaboration_mode_update_emits_new_instruction_message_when_mode_changes() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -490,7 +490,7 @@ async fn collaboration_mode_update_emits_new_instruction_message_when_mode_chang
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn collaboration_mode_update_noop_does_not_append_when_mode_is_unchanged() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -565,7 +565,7 @@ async fn collaboration_mode_update_noop_does_not_append_when_mode_is_unchanged()
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_replays_collaboration_instructions() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -637,7 +637,7 @@ async fn resume_replays_collaboration_instructions() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn empty_collaboration_instructions_are_ignored() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

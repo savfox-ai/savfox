@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -36,7 +36,7 @@ fn find_image_message(body: &Value) -> Option<&Value> {
         })
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_with_local_image_attaches_image() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -128,7 +128,7 @@ async fn user_turn_with_local_image_attaches_image() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn view_image_tool_attaches_local_image() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -267,7 +267,7 @@ async fn view_image_tool_attaches_local_image() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn view_image_tool_errors_when_path_is_directory() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -339,7 +339,7 @@ async fn view_image_tool_errors_when_path_is_directory() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn view_image_tool_placeholder_for_non_image_files() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -437,7 +437,7 @@ async fn view_image_tool_placeholder_for_non_image_files() -> anyhow::Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn view_image_tool_errors_when_file_missing() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -512,7 +512,7 @@ async fn view_image_tool_errors_when_file_missing() -> anyhow::Result<()> {
 }
 
 #[cfg(not(debug_assertions))]
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn replaces_invalid_local_image_after_bad_request() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

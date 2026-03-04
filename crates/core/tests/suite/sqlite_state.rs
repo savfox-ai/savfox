@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 
 use anyhow::Result;
 use core_test_support::responses::{
@@ -24,7 +24,7 @@ fn sse_completed(id: &str) -> String {
     load_sse_fixture_with_id("../fixtures/completed_template.json", id)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn new_session_is_recorded_in_state_db() -> Result<()> {
     let server = start_mock_server().await;
     let mut builder = test_savfox().with_config(|config| {
@@ -61,7 +61,7 @@ async fn new_session_is_recorded_in_state_db() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn backfill_scans_existing_rollouts() -> Result<()> {
     let server = start_mock_server().await;
 
@@ -187,7 +187,7 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_messages_persist_in_state_db() -> Result<()> {
     let server = start_mock_server().await;
     mount_sse_sequence(
@@ -234,7 +234,7 @@ async fn user_messages_persist_in_state_db() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn tool_call_logs_include_session_id() -> Result<()> {
     let server = start_mock_server().await;
     let call_id = "call-1";

@@ -68,7 +68,7 @@ fn run_live(prompt: &str) -> (assert_cmd::assert::Assert, TempDir) {
     fn tee<R: Read + Send + 'static>(
         mut reader: R,
         mut writer: impl Write + Send + 'static,
-    ) -> session::JoinHandle<Vec<u8>> {
+    ) -> thread::JoinHandle<Vec<u8>> {
         thread::spawn(move || {
             let mut buf = Vec::new();
             let mut chunk = [0u8; 4096];

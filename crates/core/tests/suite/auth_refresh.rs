@@ -554,6 +554,7 @@ struct EnvGuard {
     original: Option<OsString>,
 }
 
+#[allow(unsafe_code)]
 impl EnvGuard {
     fn set(key: &'static str, value: String) -> Self {
         let original = std::env::var_os(key);
@@ -565,6 +566,7 @@ impl EnvGuard {
     }
 }
 
+#[allow(unsafe_code)]
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         // SAFETY: the guard restores the original environment value before other tests run.

@@ -1,4 +1,4 @@
-﻿#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(clippy::expect_used, clippy::unwrap_used)]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ struct WebsocketTestHarness {
     otel_manager: OtelManager,
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_websocket_streams_request() {
     skip_if_no_network!();
 
@@ -60,7 +60,7 @@ async fn responses_websocket_streams_request() {
     server.shutdown().await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[traced_test]
 async fn responses_websocket_emits_websocket_telemetry_events() {
     skip_if_no_network!();
@@ -92,7 +92,7 @@ async fn responses_websocket_emits_websocket_telemetry_events() {
     server.shutdown().await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_websocket_emits_reasoning_included_event() {
     skip_if_no_network!();
 
@@ -126,7 +126,7 @@ async fn responses_websocket_emits_reasoning_included_event() {
     server.shutdown().await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_websocket_appends_on_prefix() {
     skip_if_no_network!();
 
@@ -162,7 +162,7 @@ async fn responses_websocket_appends_on_prefix() {
     server.shutdown().await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_websocket_creates_on_non_prefix() {
     skip_if_no_network!();
 
@@ -213,7 +213,8 @@ fn prompt_with_input(input: Vec<ResponseItem>) -> Prompt {
 
 fn websocket_provider(server: &WebSocketTestServer) -> ModelProviderInfo {
     ModelProviderInfo {
-        name: "mock-ws".into(),
+        slug: "mock-ws".into(),
+        display_name: "mock-ws".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,

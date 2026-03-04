@@ -37,7 +37,8 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
         .await;
 
     let provider = ModelProviderInfo {
-        name: "mock".into(),
+        slug: "mock".into(),
+        display_name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -58,7 +59,7 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
         Err(e) => panic!("failed to create TempDir: {e}"),
     };
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.name.clone();
+    config.model_provider_id = provider.slug.clone();
     config.model_provider = provider.clone();
     config.show_raw_agent_reasoning = true;
     let effort = config.model_reasoning_effort;
@@ -194,7 +195,7 @@ fn first_assistant(messages: &[Value]) -> &Value {
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn omits_reasoning_when_none_present() {
     skip_if_no_network!();
 
@@ -206,7 +207,7 @@ async fn omits_reasoning_when_none_present() {
     assert!(assistant.get("reasoning").is_none());
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attaches_reasoning_to_previous_assistant() {
     skip_if_no_network!();
 
@@ -223,7 +224,7 @@ async fn attaches_reasoning_to_previous_assistant() {
     assert_eq!(assistant["reasoning"], Value::String("rA".into()));
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attaches_reasoning_to_function_call_anchor() {
     skip_if_no_network!();
 
@@ -245,7 +246,7 @@ async fn attaches_reasoning_to_function_call_anchor() {
     assert_eq!(tool_calls[0]["type"], Value::String("function".into()));
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attaches_reasoning_to_local_shell_call() {
     skip_if_no_network!();
 
@@ -265,7 +266,7 @@ async fn attaches_reasoning_to_local_shell_call() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn drops_reasoning_when_last_role_is_user() {
     skip_if_no_network!();
 
@@ -279,7 +280,7 @@ async fn drops_reasoning_when_last_role_is_user() {
     assert!(messages.iter().all(|msg| msg.get("reasoning").is_none()));
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ignores_reasoning_before_last_user() {
     skip_if_no_network!();
 
@@ -294,7 +295,7 @@ async fn ignores_reasoning_before_last_user() {
     assert!(messages.iter().all(|msg| msg.get("reasoning").is_none()));
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn skips_empty_reasoning_segments() {
     skip_if_no_network!();
 
@@ -310,7 +311,7 @@ async fn skips_empty_reasoning_segments() {
     assert!(assistant.get("reasoning").is_none());
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn suppresses_duplicate_assistant_messages() {
     skip_if_no_network!();
 

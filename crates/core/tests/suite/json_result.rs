@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{responses, skip_if_no_network, wait_for_event};
@@ -20,12 +20,12 @@ const SCHEMA: &str = r#"
 }
 "#;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn savfox_returns_json_result_for_gpt5() -> anyhow::Result<()> {
     savfox_returns_json_result("gpt-5.1".to_string()).await
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn savfox_returns_json_result_for_gpt5_savfox() -> anyhow::Result<()> {
     savfox_returns_json_result("gpt-5.1-savfox".to_string()).await
 }

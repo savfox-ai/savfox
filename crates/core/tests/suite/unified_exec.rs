@@ -1,4 +1,4 @@
-﻿use std::collections::HashMap;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::sync::OnceLock;
@@ -140,7 +140,7 @@ fn collect_tool_outputs(bodies: &[Value]) -> Result<HashMap<String, ParsedUnifie
     Ok(outputs)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_intercepts_apply_patch_exec_command() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -268,7 +268,7 @@ async fn unified_exec_intercepts_apply_patch_exec_command() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -343,7 +343,7 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_resolves_relative_workdir() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -423,7 +423,7 @@ async fn unified_exec_resolves_relative_workdir() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "flaky"]
 async fn unified_exec_respects_workdir_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -506,7 +506,7 @@ async fn unified_exec_respects_workdir_override() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -596,7 +596,7 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -671,7 +671,7 @@ async fn unified_exec_emits_output_delta_for_exec_command() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_full_lifecycle_with_background_end_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -781,7 +781,7 @@ async fn unified_exec_full_lifecycle_with_background_end_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_terminal_interaction_for_write_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -884,7 +884,7 @@ async fn unified_exec_emits_terminal_interaction_for_write_stdin() -> Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_terminal_interaction_captures_delayed_output() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1078,7 +1078,7 @@ async fn unified_exec_terminal_interaction_captures_delayed_output() -> Result<(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_one_begin_and_one_end_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1198,7 +1198,7 @@ async fn unified_exec_emits_one_begin_and_one_end_event() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1308,7 +1308,7 @@ async fn exec_command_reports_chunk_and_exit_metadata() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_defaults_to_pipe() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1397,7 +1397,7 @@ async fn unified_exec_defaults_to_pipe() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_can_enable_tty() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1488,7 +1488,7 @@ async fn unified_exec_can_enable_tty() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_respects_early_exit_notifications() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1583,7 +1583,7 @@ async fn unified_exec_respects_early_exit_notifications() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1748,7 +1748,7 @@ async fn write_stdin_returns_exit_metadata_and_clears_session() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1857,7 +1857,7 @@ async fn unified_exec_emits_end_event_when_session_dies_via_stdin() -> Result<()
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_closes_long_running_session_at_turn_end() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1965,7 +1965,7 @@ async fn unified_exec_closes_long_running_session_at_turn_end() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -2080,7 +2080,7 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_streams_after_lagged_output() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -2215,7 +2215,7 @@ PY
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -2322,7 +2322,7 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 // Skipped on arm because the ctor logic to handle arg0 doesn't work on ARM
 #[cfg(not(target_arch = "arm"))]
 async fn unified_exec_formats_large_output_summary() -> Result<()> {
@@ -2412,7 +2412,7 @@ PY
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_runs_under_sandbox() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -2488,7 +2488,7 @@ async fn unified_exec_runs_under_sandbox() -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_python_prompt_under_seatbelt() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -2614,7 +2614,7 @@ async fn unified_exec_python_prompt_under_seatbelt() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unified_exec_runs_on_all_platforms() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -2687,7 +2687,7 @@ async fn unified_exec_runs_on_all_platforms() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn unified_exec_prunes_exited_sessions_first() -> Result<()> {
     skip_if_no_network!(Ok(()));

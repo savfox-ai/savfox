@@ -1,4 +1,4 @@
-﻿use std::time::Duration;
+use std::time::Duration;
 
 use assert_cmd::Command as AssertCommand;
 use core_test_support::{fs_wait, skip_if_no_network};
@@ -27,7 +27,7 @@ fn cli_responses_fixture() -> std::path::PathBuf {
 /// 2. Configures savfox to use this mock server via a custom provider
 /// 3. Sends a simple "hello?" prompt and verifies the streamed response
 /// 4. Ensures the response is received exactly once and contains "hi"
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chat_mode_stream_cli() {
     skip_if_no_network!();
 
@@ -109,7 +109,7 @@ async fn chat_mode_stream_cli() {
 /// Verify that passing `-c model_instructions_file=...` to the CLI
 /// overrides the built-in base instructions by inspecting the request body
 /// received by a mock OpenAI Responses endpoint.
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_cli_applies_model_instructions_file() {
     skip_if_no_network!();
 
@@ -183,7 +183,7 @@ async fn exec_cli_applies_model_instructions_file() {
 /// 2. Configures savfox to read from this fixture via SAVFOX_RS_SSE_FIXTURE env var
 /// 3. Sends a "hello?" prompt and verifies the response
 /// 4. Ensures the fixture content is correctly streamed through the CLI
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn responses_api_stream_cli() {
     skip_if_no_network!();
 
@@ -210,7 +210,7 @@ async fn responses_api_stream_cli() {
 }
 
 /// End-to-end: create a session (writes rollout), verify the file, then resume and confirm append.
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
     // Honor sandbox network restrictions for CI parity with the other tests.
     skip_if_no_network!(Ok(()));
@@ -396,7 +396,7 @@ async fn integration_creates_and_checks_session_file() -> anyhow::Result<()> {
 }
 
 /// Integration test to verify git info is collected and recorded in session files.
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn integration_git_info_unit_test() {
     // This test verifies git info collection works independently
     // without depending on the full CLI integration

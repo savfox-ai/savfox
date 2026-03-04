@@ -1,4 +1,4 @@
-﻿#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used)]
 use std::collections::VecDeque;
 
 use core_test_support::responses::{
@@ -87,12 +87,12 @@ fn json_fragment(text: &str) -> String {
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
     let mut provider = built_in_model_providers()["openai"].clone();
-    provider.name = "OpenAI (test)".into();
+    provider.display_name = "OpenAI (test)".into();
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn summarize_context_three_requests_and_instructions() {
     skip_if_no_network!();
 
@@ -301,7 +301,7 @@ async fn summarize_context_three_requests_and_instructions() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_uses_custom_prompt() {
     skip_if_no_network!();
 
@@ -367,7 +367,7 @@ async fn manual_compact_uses_custom_prompt() {
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_emits_api_and_local_token_usage_events() {
     skip_if_no_network!();
 
@@ -425,7 +425,7 @@ async fn manual_compact_emits_api_and_local_token_usage_events() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_emits_context_compaction_items() {
     skip_if_no_network!();
 
@@ -499,16 +499,16 @@ async fn manual_compact_emits_context_compaction_items() {
     assert!(legacy_event);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
     skip_if_no_network!();
 
     let server = start_mock_server().await;
 
-    let non_openai_provider_name = non_openai_model_provider(&server).name;
+    let non_openai_provider_name = non_openai_model_provider(&server).display_name;
     let savfox = test_savfox()
         .with_config(move |config| {
-            config.model_provider.name = non_openai_provider_name;
+            config.model_provider.display_name = non_openai_provider_name;
         })
         .build(&server)
         .await
@@ -1047,8 +1047,8 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
 }
 
 // Windows CI only: bump to 4 workers to prevent SSE/event starvation and test timeouts.
-#[cfg_attr(windows, tokio::test(flavor = "multi_session", worker_sessions = 4))]
-#[cfg_attr(not(windows), tokio::test(flavor = "multi_session", worker_sessions = 2))]
+#[cfg_attr(windows, tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[cfg_attr(not(windows), tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn auto_compact_runs_after_token_limit_hit() {
     skip_if_no_network!();
 
@@ -1240,8 +1240,8 @@ async fn auto_compact_runs_after_token_limit_hit() {
 }
 
 // Windows CI only: bump to 4 workers to prevent SSE/event starvation and test timeouts.
-#[cfg_attr(windows, tokio::test(flavor = "multi_session", worker_sessions = 4))]
-#[cfg_attr(not(windows), tokio::test(flavor = "multi_session", worker_sessions = 2))]
+#[cfg_attr(windows, tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[cfg_attr(not(windows), tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn auto_compact_emits_context_compaction_items() {
     skip_if_no_network!();
 
@@ -1323,8 +1323,8 @@ async fn auto_compact_emits_context_compaction_items() {
 }
 
 // Windows CI only: bump to 4 workers to prevent SSE/event starvation and test timeouts.
-#[cfg_attr(windows, tokio::test(flavor = "multi_session", worker_sessions = 4))]
-#[cfg_attr(not(windows), tokio::test(flavor = "multi_session", worker_sessions = 2))]
+#[cfg_attr(windows, tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[cfg_attr(not(windows), tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn auto_compact_starts_after_turn_started() {
     skip_if_no_network!();
 
@@ -1417,7 +1417,7 @@ async fn auto_compact_starts_after_turn_started() {
     wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_runs_after_resume_when_token_usage_is_over_limit() {
     skip_if_no_network!();
 
@@ -1537,7 +1537,7 @@ async fn auto_compact_runs_after_resume_when_token_usage_is_over_limit() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_persists_rollout_entries() {
     skip_if_no_network!();
 
@@ -1673,7 +1673,7 @@ async fn auto_compact_persists_rollout_entries() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_retries_after_context_window_error() {
     skip_if_no_network!();
 
@@ -1783,7 +1783,7 @@ async fn manual_compact_retries_after_context_window_error() {
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn manual_compact_twice_preserves_latest_user_messages() {
     skip_if_no_network!();
 
@@ -1997,7 +1997,7 @@ async fn manual_compact_twice_preserves_latest_user_messages() {
     assert_eq!(final_output, expected);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_allows_multiple_attempts_when_interleaved_with_other_turn_events() {
     skip_if_no_network!();
 
@@ -2108,7 +2108,7 @@ async fn auto_compact_allows_multiple_attempts_when_interleaved_with_other_turn_
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_triggers_after_function_call_over_95_percent_usage() {
     skip_if_no_network!();
 
@@ -2212,7 +2212,7 @@ async fn auto_compact_triggers_after_function_call_over_95_percent_usage() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_counts_encrypted_reasoning_before_last_user() {
     skip_if_no_network!();
 
@@ -2339,7 +2339,7 @@ async fn auto_compact_counts_encrypted_reasoning_before_last_user() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compact_runs_when_reasoning_header_clears_between_turns() {
     skip_if_no_network!();
 

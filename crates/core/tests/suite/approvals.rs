@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
 use std::{env, fs};
@@ -1432,7 +1432,7 @@ fn scenarios() -> Vec<ScenarioSpec> {
     ]
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn approval_matrix_covers_all_modes() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -1551,7 +1551,7 @@ async fn run_scenario(scenario: &ScenarioSpec) -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 #[cfg(unix)]
 async fn approving_apply_patch_for_session_skips_future_prompts_for_same_file() -> Result<()> {
     skip_if_no_network!(Ok(()));
@@ -1668,7 +1668,7 @@ async fn approving_apply_patch_for_session_skips_future_prompts_for_same_file() 
     Ok(())
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 #[cfg(unix)]
 async fn approving_execpolicy_amendment_persists_policy_and_skips_future_prompts() -> Result<()> {
     let server = start_mock_server().await;

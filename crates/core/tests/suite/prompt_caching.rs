@@ -1,11 +1,11 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use core_test_support::responses::{mount_sse_once, start_mock_server};
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{load_sse_fixture_with_id, skip_if_no_network, wait_for_event};
 use savfox_apply_patch::APPLY_PATCH_TOOL_INSTRUCTIONS;
 use savfox_core::features::Feature;
-use savfox_core::models_manager::model_info::BASE_INSTRUCTIONS;
+use savfox_model::BASE_INSTRUCTIONS;
 use savfox_core::protocol::{
     AskForApproval, ENVIRONMENT_CONTEXT_OPEN_TAG, EventMsg, Op, SandboxPolicy,
 };
@@ -63,7 +63,7 @@ fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;
@@ -156,7 +156,7 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;
@@ -221,7 +221,7 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prefixes_context_and_instructions_once_and_consistently_across_requests()
 -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
@@ -299,7 +299,7 @@ async fn prefixes_context_and_instructions_once_and_consistently_across_requests
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;
@@ -392,7 +392,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_before_first_turn_emits_environment_context() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -526,7 +526,7 @@ async fn override_before_first_turn_emits_environment_context() -> anyhow::Resul
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;
@@ -630,7 +630,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;
@@ -730,7 +730,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     use pretty_assertions::assert_eq;

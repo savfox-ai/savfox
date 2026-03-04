@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -73,7 +73,7 @@ fn write_test_png(path: &Path, color: [u8; 4]) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn copy_paste_local_image_persists_rollout_request_shape() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -157,7 +157,7 @@ async fn copy_paste_local_image_persists_rollout_request_shape() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn drag_drop_image_persists_rollout_request_shape() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

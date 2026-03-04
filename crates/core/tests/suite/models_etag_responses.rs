@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ use savfox_protocol::user_input::UserInput;
 use pretty_assertions::assert_eq;
 use wiremock::MockServer;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refresh_models_on_models_etag_mismatch_and_avoid_duplicate_models_fetch() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

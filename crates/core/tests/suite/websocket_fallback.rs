@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use core_test_support::responses::{
     ev_completed, ev_response_created, mount_sse_once, mount_sse_sequence, sse,
 };
@@ -8,7 +8,7 @@ use savfox_core::features::Feature;
 use pretty_assertions::assert_eq;
 use wiremock::http::Method;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_fallback_switches_to_http_after_retries_exhausted() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -50,7 +50,7 @@ async fn websocket_fallback_switches_to_http_after_retries_exhausted() -> Result
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_fallback_is_sticky_across_turns() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

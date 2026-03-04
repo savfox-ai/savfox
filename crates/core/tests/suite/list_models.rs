@@ -11,7 +11,7 @@ use savfox_protocol::openai_models::{
 use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn list_models_returns_api_key_models() -> Result<()> {
     let savfox_home = tempdir()?;
     let config = load_default_config_for_test(&savfox_home).await;
@@ -29,7 +29,7 @@ async fn list_models_returns_api_key_models() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn list_models_returns_chatgpt_models() -> Result<()> {
     let savfox_home = tempdir()?;
     let config = load_default_config_for_test(&savfox_home).await;

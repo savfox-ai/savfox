@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use core_test_support::responses::{
     ev_completed, ev_response_created, mount_sse_once, sse, start_mock_server,
@@ -11,7 +11,7 @@ use savfox_core::protocol::{EventMsg, Op};
 use savfox_protocol::user_input::UserInput;
 use pretty_assertions::assert_eq;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_body_is_zstd_compressed_for_savfox_backend_when_enabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -57,7 +57,7 @@ async fn request_body_is_zstd_compressed_for_savfox_backend_when_enabled() -> an
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_body_is_not_compressed_for_api_key_auth_even_when_enabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

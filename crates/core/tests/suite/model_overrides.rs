@@ -1,4 +1,4 @@
-﻿use core_test_support::responses::start_mock_server;
+use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::wait_for_event;
 use savfox_core::protocol::{EventMsg, Op};
@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 
 const CONFIG_TOML: &str = "config.toml";
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_turn_context_does_not_persist_when_config_exists() {
     let server = start_mock_server().await;
     let initial_contents = "model = \"gpt-4o\"\n";
@@ -47,7 +47,7 @@ async fn override_turn_context_does_not_persist_when_config_exists() {
     assert_eq!(contents, initial_contents);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_turn_context_does_not_create_config_file() {
     let server = start_mock_server().await;
     let mut builder = test_savfox();

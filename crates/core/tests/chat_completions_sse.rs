@@ -36,7 +36,8 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         .await;
 
     let provider = ModelProviderInfo {
-        name: "mock".into(),
+        slug: "mock".into(),
+        display_name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -57,7 +58,7 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         Err(e) => panic!("failed to create TempDir: {e}"),
     };
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.name.clone();
+    config.model_provider_id = provider.slug.clone();
     config.model_provider = provider.clone();
     config.show_raw_agent_reasoning = true;
     let effort = config.model_reasoning_effort;
@@ -155,7 +156,7 @@ fn assert_reasoning(item: &ResponseItem, expected: &str) {
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_text_without_reasoning() {
     skip_if_no_network!();
 
@@ -186,7 +187,7 @@ async fn streams_text_without_reasoning() {
     assert_matches!(events[3], ResponseEvent::Completed { .. });
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_reasoning_from_string_delta() {
     skip_if_no_network!();
 
@@ -238,7 +239,7 @@ async fn streams_reasoning_from_string_delta() {
     assert_matches!(events[6], ResponseEvent::Completed { .. });
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_reasoning_from_object_delta() {
     skip_if_no_network!();
 
@@ -302,7 +303,7 @@ async fn streams_reasoning_from_object_delta() {
     assert_matches!(events[7], ResponseEvent::Completed { .. });
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_reasoning_from_final_message() {
     skip_if_no_network!();
 
@@ -335,7 +336,7 @@ async fn streams_reasoning_from_final_message() {
     assert_matches!(events[3], ResponseEvent::Completed { .. });
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_reasoning_before_tool_call() {
     skip_if_no_network!();
 

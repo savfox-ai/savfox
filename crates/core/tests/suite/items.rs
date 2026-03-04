@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use anyhow::Ok;
 use core_test_support::responses::{
@@ -16,7 +16,7 @@ use savfox_protocol::models::WebSearchAction;
 use savfox_protocol::user_input::{ByteRange, TextElement, UserInput};
 use pretty_assertions::assert_eq;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_message_item_is_emitted() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -74,7 +74,7 @@ async fn user_message_item_is_emitted() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn assistant_message_item_is_emitted() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -127,7 +127,7 @@ async fn assistant_message_item_is_emitted() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reasoning_item_is_emitted() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -188,7 +188,7 @@ async fn reasoning_item_is_emitted() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_item_is_emitted() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -244,7 +244,7 @@ async fn web_search_item_is_emitted() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn agent_message_content_delta_has_item_metadata() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -315,7 +315,7 @@ async fn agent_message_content_delta_has_item_metadata() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plan_mode_emits_plan_item_from_proposed_plan_block() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -390,7 +390,7 @@ async fn plan_mode_emits_plan_item_from_proposed_plan_block() -> anyhow::Result<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plan_mode_strips_plan_from_agent_messages() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -487,7 +487,7 @@ async fn plan_mode_strips_plan_from_agent_messages() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn plan_mode_handles_missing_plan_close_tag() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -577,7 +577,7 @@ async fn plan_mode_handles_missing_plan_close_tag() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reasoning_content_delta_has_item_metadata() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -631,7 +631,7 @@ async fn reasoning_content_delta_has_item_metadata() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reasoning_raw_content_delta_respects_flag() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

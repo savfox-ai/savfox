@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::test_savfox;
@@ -33,7 +33,7 @@ fn has_web_search_tool(body: &Value) -> bool {
         .any(|tool| tool.get("type").and_then(Value::as_str) == Some("web_search"))
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_mode_cached_sets_external_web_access_false() {
     skip_if_no_network!();
 
@@ -64,7 +64,7 @@ async fn web_search_mode_cached_sets_external_web_access_false() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_mode_takes_precedence_over_legacy_flags() {
     skip_if_no_network!();
 
@@ -96,7 +96,7 @@ async fn web_search_mode_takes_precedence_over_legacy_flags() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_mode_defaults_to_cached_when_unset() {
     skip_if_no_network!();
 
@@ -129,7 +129,7 @@ async fn web_search_mode_defaults_to_cached_when_unset() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_mode_updates_between_turns_with_sandbox_policy() {
     skip_if_no_network!();
 
@@ -183,7 +183,7 @@ async fn web_search_mode_updates_between_turns_with_sandbox_policy() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn web_search_mode_defaults_to_disabled_for_azure_responses() {
     skip_if_no_network!();
 
@@ -196,10 +196,10 @@ async fn web_search_mode_defaults_to_disabled_for_azure_responses() {
         .with_config(|config| {
             let base_url = config.model_provider.base_url.clone();
             let mut provider = built_in_model_providers()["openai"].clone();
-            provider.name = "Azure".to_string();
+            provider.display_name = "Azure".to_string();
             provider.base_url = base_url;
             provider.wire_api = WireApi::Responses;
-            config.model_provider_id = provider.name.clone();
+            config.model_provider_id = provider.slug.clone();
             config.model_provider = provider;
             config.web_search_mode = None;
             config.features.disable(Feature::WebSearchCached);

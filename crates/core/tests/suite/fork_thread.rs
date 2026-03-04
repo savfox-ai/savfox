@@ -1,4 +1,4 @@
-﻿use core_test_support::test_savfox::test_savfox;
+use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event};
 use savfox_core::protocol::{EventMsg, Op, RolloutItem, RolloutLine};
 use savfox_core::{NewSession, parse_turn_item};
@@ -12,7 +12,7 @@ fn sse_completed(id: &str) -> String {
     core_test_support::load_sse_fixture_with_id("../fixtures/completed_template.json", id)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_session_twice_drops_to_first_message() {
     skip_if_no_network!();
 

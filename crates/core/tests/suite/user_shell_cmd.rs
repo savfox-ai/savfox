@@ -1,4 +1,4 @@
-﻿use std::path::PathBuf;
+use std::path::PathBuf;
 
 use anyhow::Context;
 use core_test_support::responses::{
@@ -112,7 +112,7 @@ async fn user_shell_cmd_can_be_interrupted() {
     assert_eq!(ev.reason, TurnAbortReason::Interrupted);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyhow::Result<()> {
     let server = responses::start_mock_server().await;
     // Disable it to ease command matching.
@@ -192,7 +192,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(not(target_os = "windows"))] // TODO: unignore on windows
 async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<()> {
     let server = responses::start_mock_server().await;
@@ -255,7 +255,7 @@ async fn user_shell_command_output_is_truncated_in_history() -> anyhow::Result<(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_shell_command_is_truncated_only_once() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

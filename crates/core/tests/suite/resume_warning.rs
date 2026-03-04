@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use core::time::Duration;
 
@@ -37,7 +37,7 @@ fn resume_history(
     })
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn emits_warning_when_resumed_model_differs() {
     // Arrange a config with a current model and a prior rollout recorded under a different model.
     let home = TempDir::new().expect("tempdir");

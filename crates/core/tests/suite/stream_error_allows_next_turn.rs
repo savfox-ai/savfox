@@ -1,4 +1,4 @@
-﻿use core_test_support::test_savfox::{TestSavfox, test_savfox};
+use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{load_sse_fixture_with_id, skip_if_no_network, wait_for_event};
 use savfox_core::protocol::{EventMsg, Op};
 use savfox_core::{ModelProviderInfo, WireApi};
@@ -10,7 +10,7 @@ fn sse_completed(id: &str) -> String {
     load_sse_fixture_with_id("../fixtures/completed_template.json", id)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn continue_after_stream_error() {
     skip_if_no_network!();
 
@@ -51,7 +51,8 @@ async fn continue_after_stream_error() {
     // server. Use an existing env var (PATH) to satisfy the auth plumbing
     // without requiring a real secret.
     let provider = ModelProviderInfo {
-        name: "mock-openai".into(),
+        slug: "mock-openai".into(),
+        display_name: "mock-openai".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: Some("PATH".into()),
         env_key_instructions: None,

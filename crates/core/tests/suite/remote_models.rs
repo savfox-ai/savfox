@@ -32,7 +32,7 @@ use wiremock::{BodyPrintLimit, MockServer};
 
 const REMOTE_MODEL_SLUG: &str = "savfox-test";
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -176,7 +176,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_truncation_policy_without_override_preserves_remote() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -221,7 +221,7 @@ async fn remote_models_truncation_policy_without_override_preserves_remote() -> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_truncation_policy_with_tool_output_override() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -267,7 +267,7 @@ async fn remote_models_truncation_policy_with_tool_output_override() -> Result<(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_apply_remote_base_instructions() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -385,7 +385,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_preserve_builtin_presets() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -450,7 +450,7 @@ async fn remote_models_preserve_builtin_presets() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -496,7 +496,7 @@ async fn remote_models_merge_adds_new_high_priority_first() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -552,7 +552,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -592,7 +592,7 @@ async fn remote_models_merge_preserves_bundled_models_on_empty_response() -> Res
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_request_times_out_after_5s() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -660,7 +660,7 @@ async fn remote_models_request_times_out_after_5s() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_models_hide_picker_only_models() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));

@@ -1,4 +1,4 @@
-﻿use std::collections::HashSet;
+use std::collections::HashSet;
 
 use anyhow::Result;
 use core_test_support::responses::{
@@ -42,7 +42,7 @@ fn sse_completed(id: &str) -> String {
     sse(vec![ev_response_created(id), ev_completed(id)])
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn permissions_message_sent_once_on_start() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -74,7 +74,7 @@ async fn permissions_message_sent_once_on_start() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn permissions_message_added_on_override_change() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -138,7 +138,7 @@ async fn permissions_message_added_on_override_change() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn permissions_message_not_added_when_no_change() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -187,7 +187,7 @@ async fn permissions_message_not_added_when_no_change() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_replays_permissions_messages() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -278,7 +278,7 @@ async fn resume_replays_permissions_messages() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_and_fork_append_permissions_messages() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -412,7 +412,7 @@ async fn resume_and_fork_append_permissions_messages() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn permissions_message_includes_writable_roots() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

@@ -1,4 +1,4 @@
-﻿#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used)]
 
 //! Integration tests that cover compacting, resuming, and forking conversations.
 //!
@@ -123,7 +123,7 @@ fn normalize_compact_prompts(requests: &mut [Value]) {
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 /// Scenario: compact an initial conversation, resume it, fork one turn back, and
 /// ensure the model-visible history matches expectations at each request.
 async fn compact_resume_and_fork_preserve_model_history_view() {
@@ -649,7 +649,7 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
     assert_eq!(json!(requests), expected);
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 /// Scenario: after the forked branch is compacted, resuming again should reuse
 /// the compacted history and only append the new user message.
 async fn compact_resume_after_second_compaction_preserves_history() {
@@ -948,7 +948,7 @@ async fn start_test_conversation(
     let base_url = format!("{}/v1", server.uri());
     let model = model.map(str::to_string);
     let mut builder = test_savfox().with_config(move |config| {
-        config.model_provider.name = "Non-OpenAI Model provider".to_string();
+        config.model_provider.display_name = "Non-OpenAI Model provider".to_string();
         config.model_provider.base_url = Some(base_url);
         config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_string());
         if let Some(model) = model {

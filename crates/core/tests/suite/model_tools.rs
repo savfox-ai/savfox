@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::test_savfox;
@@ -50,7 +50,7 @@ async fn collect_tool_identifiers_for_model(model: &str) -> Vec<String> {
     tool_identifiers(&body)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_selects_expected_tools() {
     skip_if_no_network!();
     use pretty_assertions::assert_eq;

@@ -1,4 +1,4 @@
-﻿#![allow(clippy::expect_used)]
+#![allow(clippy::expect_used)]
 
 use std::fs;
 
@@ -16,7 +16,7 @@ use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::user_input::UserInput;
 use pretty_assertions::assert_eq;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_compact_replaces_history_for_followups() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -137,7 +137,7 @@ async fn remote_compact_replaces_history_for_followups() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_compact_runs_automatically() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -213,7 +213,7 @@ async fn remote_compact_runs_automatically() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_compact_trims_function_call_history_to_fit_context_window() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -341,7 +341,7 @@ async fn remote_compact_trims_function_call_history_to_fit_context_window() -> R
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_manual_compact_emits_context_compaction_items() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -437,7 +437,7 @@ async fn remote_manual_compact_emits_context_compaction_items() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_compact_persists_replacement_history_in_rollout() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

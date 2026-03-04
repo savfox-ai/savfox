@@ -1,4 +1,4 @@
-﻿#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use std::collections::HashMap;
 
@@ -54,7 +54,7 @@ fn call_output_content_and_success(
     (content, success)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_round_trip_resolves_pending() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -257,7 +257,7 @@ where
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_rejected_in_execute_mode() -> anyhow::Result<()> {
     assert_request_user_input_rejected("Execute", |model| CollaborationMode {
         mode: ModeKind::Execute,
@@ -270,7 +270,7 @@ async fn request_user_input_rejected_in_execute_mode() -> anyhow::Result<()> {
     .await
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_rejected_in_code_mode() -> anyhow::Result<()> {
     assert_request_user_input_rejected("Code", |model| CollaborationMode {
         mode: ModeKind::Code,
@@ -283,7 +283,7 @@ async fn request_user_input_rejected_in_code_mode() -> anyhow::Result<()> {
     .await
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn request_user_input_rejected_in_custom_mode() -> anyhow::Result<()> {
     assert_request_user_input_rejected("Custom", |model| CollaborationMode {
         mode: ModeKind::Custom,

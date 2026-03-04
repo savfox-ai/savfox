@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use savfox_core::config::Constrained;
 use savfox_core::protocol::AskForApproval;
 use savfox_core::protocol::COLLABORATION_MODE_CLOSE_TAG;
@@ -102,7 +102,7 @@ fn rollout_environment_texts(text: &str) -> Vec<String> {
     texts
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_turn_context_without_user_turn_does_not_record_permissions_update() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -144,7 +144,7 @@ async fn override_turn_context_without_user_turn_does_not_record_permissions_upd
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_turn_context_without_user_turn_does_not_record_environment_update() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -180,7 +180,7 @@ async fn override_turn_context_without_user_turn_does_not_record_environment_upd
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn override_turn_context_without_user_turn_does_not_record_collaboration_update() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use core_test_support::responses::{
     ev_assistant_message, ev_completed, ev_done, ev_response_created, ev_shell_command_call,
     start_websocket_server,
@@ -8,7 +8,7 @@ use core_test_support::test_savfox::test_savfox;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn websocket_test_savfox_shell_chain() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

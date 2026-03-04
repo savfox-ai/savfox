@@ -1,4 +1,4 @@
-﻿use core_test_support::load_sse_fixture_with_id;
+use core_test_support::load_sse_fixture_with_id;
 use core_test_support::responses::{mount_sse_once, start_mock_server};
 use core_test_support::test_savfox::test_savfox;
 use savfox_core::features::Feature;
@@ -10,7 +10,7 @@ fn sse_completed(id: &str) -> String {
     load_sse_fixture_with_id("../fixtures/completed_template.json", id)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hierarchical_agents_appends_to_project_doc_in_user_instructions() {
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;
@@ -45,7 +45,7 @@ async fn hierarchical_agents_appends_to_project_doc_in_user_instructions() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn hierarchical_agents_emits_when_no_project_doc() {
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp1")).await;

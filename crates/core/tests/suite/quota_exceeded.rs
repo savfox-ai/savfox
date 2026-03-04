@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use core_test_support::responses::{ev_response_created, mount_sse_once, sse, start_mock_server};
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event};
@@ -7,7 +7,7 @@ use savfox_protocol::user_input::UserInput;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quota_exceeded_emits_single_error_event() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

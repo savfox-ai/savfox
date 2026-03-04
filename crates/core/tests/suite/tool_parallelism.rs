@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 #![allow(clippy::unwrap_used)]
 
 use std::fs;
@@ -71,7 +71,7 @@ fn assert_serial_duration(actual: Duration) {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn read_file_tools_run_in_parallel() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -133,7 +133,7 @@ async fn read_file_tools_run_in_parallel() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn non_parallel_tools_run_serially() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -166,7 +166,7 @@ async fn non_parallel_tools_run_serially() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn mixed_tools_fall_back_to_serial() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -200,7 +200,7 @@ async fn mixed_tools_fall_back_to_serial() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tool_results_grouped() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -278,7 +278,7 @@ async fn tool_results_grouped() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_tools_start_before_response_completed_when_stream_delayed() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

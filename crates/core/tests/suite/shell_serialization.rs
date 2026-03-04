@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 #![allow(clippy::expect_used)]
 
 use std::fs;
@@ -109,7 +109,7 @@ fn configure_shell_model(
     })
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::LocalShell)]
 async fn shell_output_stays_json_without_freeform_apply_patch(
@@ -160,7 +160,7 @@ async fn shell_output_stays_json_without_freeform_apply_patch(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::ShellCommand)]
 #[test_case(ShellModelOutput::LocalShell)]
@@ -206,7 +206,7 @@ freeform shell
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::LocalShell)]
 async fn shell_output_preserves_fixture_json_without_serialization(
@@ -269,7 +269,7 @@ async fn shell_output_preserves_fixture_json_without_serialization(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::ShellCommand)]
 #[test_case(ShellModelOutput::LocalShell)]
@@ -328,7 +328,7 @@ async fn shell_output_structures_fixture_with_serialization(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::ShellCommand)]
 #[test_case(ShellModelOutput::LocalShell)]
@@ -381,7 +381,7 @@ $"#;
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::LocalShell)]
 async fn shell_output_reserializes_truncated_content(output_type: ShellModelOutput) -> Result<()> {
@@ -439,7 +439,7 @@ $"#;
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ApplyPatchModelOutput::Freeform)]
 #[test_case(ApplyPatchModelOutput::Function)]
 #[test_case(ApplyPatchModelOutput::Shell)]
@@ -485,7 +485,7 @@ A {file_name}
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ApplyPatchModelOutput::Freeform)]
 #[test_case(ApplyPatchModelOutput::Function)]
 #[test_case(ApplyPatchModelOutput::Shell)]
@@ -534,7 +534,7 @@ A {file_name}
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ApplyPatchModelOutput::Freeform)]
 #[test_case(ApplyPatchModelOutput::Function)]
 #[test_case(ApplyPatchModelOutput::Shell)]
@@ -588,7 +588,7 @@ M {file_name}
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ApplyPatchModelOutput::Freeform)]
 #[test_case(ApplyPatchModelOutput::Function)]
 #[test_case(ApplyPatchModelOutput::Shell)]
@@ -633,7 +633,7 @@ async fn apply_patch_custom_tool_call_reports_failure_output(
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ApplyPatchModelOutput::Freeform)]
 #[test_case(ApplyPatchModelOutput::Function)]
 #[test_case(ApplyPatchModelOutput::Shell)]
@@ -679,7 +679,7 @@ A {file_name}
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[test_case(ShellModelOutput::Shell)]
 #[test_case(ShellModelOutput::ShellCommand)]
 #[test_case(ShellModelOutput::LocalShell)]
@@ -720,7 +720,7 @@ Output:
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_command_output_is_freeform() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -773,7 +773,7 @@ shell command
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_command_output_is_not_truncated_under_10k_bytes() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -823,7 +823,7 @@ Output:
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shell_command_output_is_not_truncated_over_10k_bytes() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -873,7 +873,7 @@ Output:
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_shell_call_output_is_structured() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

@@ -1,4 +1,4 @@
-﻿use core_test_support::responses::{
+use core_test_support::responses::{
     ev_completed, ev_message_item_added, ev_output_text_delta, ev_response_created,
 };
 use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
@@ -40,7 +40,7 @@ fn message_input_texts(body: &Value, role: &str) -> Vec<String> {
         .collect()
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn injected_user_input_triggers_follow_up_request_with_deltas() {
     let (gate_completed_tx, gate_completed_rx) = oneshot::channel();
 

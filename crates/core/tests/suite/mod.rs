@@ -30,7 +30,7 @@ mod compact_resume_fork;
 mod deprecation_notice;
 mod exec;
 mod exec_policy;
-mod fork_session;
+mod fork_thread;
 mod grep_files;
 mod hierarchical_agents;
 mod image_rollout;

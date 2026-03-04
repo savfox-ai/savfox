@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use core_test_support::responses::{
     ev_completed, ev_response_created, mount_models_once, mount_sse_once, mount_sse_sequence, sse,
@@ -30,7 +30,7 @@ fn sse_completed(id: &str) -> String {
     sse(vec![ev_response_created(id), ev_completed(id)])
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn personality_does_not_mutate_base_instructions_without_template() {
     let savfox_home = TempDir::new().expect("create temp dir");
     let mut config = load_default_config_for_test(&savfox_home).await;
@@ -44,7 +44,7 @@ async fn personality_does_not_mutate_base_instructions_without_template() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn base_instructions_override_disables_personality_template() {
     let savfox_home = TempDir::new().expect("create temp dir");
     let mut config = load_default_config_for_test(&savfox_home).await;
@@ -61,7 +61,7 @@ async fn base_instructions_override_disables_personality_template() {
     );
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -107,7 +107,7 @@ async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Res
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn config_personality_some_sets_instructions_template() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -161,7 +161,7 @@ async fn config_personality_some_sets_instructions_template() -> anyhow::Result<
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_some_adds_update_message() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -257,7 +257,7 @@ async fn user_turn_personality_some_adds_update_message() -> anyhow::Result<()> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_same_value_does_not_add_update_message() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -348,7 +348,7 @@ async fn user_turn_personality_same_value_does_not_add_update_message() -> anyho
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn instructions_uses_base_if_feature_disabled() -> anyhow::Result<()> {
     let savfox_home = TempDir::new().expect("create temp dir");
     let mut config = load_default_config_for_test(&savfox_home).await;
@@ -364,7 +364,7 @@ async fn instructions_uses_base_if_feature_disabled() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -453,7 +453,7 @@ async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -568,7 +568,7 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -678,7 +678,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_turn_personality_remote_model_template_includes_update_message() -> anyhow::Result<()>
 {
     skip_if_no_network!(Ok(()));

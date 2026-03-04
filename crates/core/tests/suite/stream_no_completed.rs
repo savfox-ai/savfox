@@ -1,4 +1,4 @@
-﻿//! Verifies that the agent retries when the SSE stream terminates before
+//! Verifies that the agent retries when the SSE stream terminates before
 //! delivering a `response.completed` event.
 
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
@@ -19,7 +19,7 @@ fn sse_completed(id: &str) -> String {
     load_sse_fixture_with_id("../fixtures/completed_template.json", id)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retries_on_early_close() {
     skip_if_no_network!();
 
@@ -54,7 +54,8 @@ async fn retries_on_early_close() {
     // environment variables.
 
     let model_provider = ModelProviderInfo {
-        name: "openai".into(),
+        slug: "openai".into(),
+        display_name: "openai".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         // Environment variable that should exist in the test environment.
         // ModelClientSession will return an error if the environment variable for the

@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use core_test_support::responses::{mount_function_call_agent_response, start_mock_server};
 use core_test_support::skip_if_no_network;
@@ -6,7 +6,7 @@ use core_test_support::test_savfox::test_savfox;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "disabled until we enable read_file tool"]
 async fn read_file_tool_returns_requested_lines() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));

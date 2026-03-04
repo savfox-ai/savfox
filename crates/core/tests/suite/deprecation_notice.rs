@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use std::collections::BTreeMap;
 
@@ -15,7 +15,7 @@ use savfox_core::protocol::{DeprecationNoticeEvent, EventMsg};
 use pretty_assertions::assert_eq;
 use toml::Value as TomlValue;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn emits_deprecation_notice_for_legacy_feature_flag() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -53,7 +53,7 @@ async fn emits_deprecation_notice_for_legacy_feature_flag() -> anyhow::Result<()
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn emits_deprecation_notice_for_experimental_instructions_file() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -108,7 +108,7 @@ async fn emits_deprecation_notice_for_experimental_instructions_file() -> anyhow
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn emits_deprecation_notice_for_web_search_feature_flags() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -145,7 +145,7 @@ async fn emits_deprecation_notice_for_web_search_feature_flags() -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn emits_deprecation_notice_for_disabled_web_search_feature_flag() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 

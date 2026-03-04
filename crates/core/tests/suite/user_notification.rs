@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use responses::{ev_assistant_message, ev_completed, sse, start_mock_server};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "flaky on ubuntu-24.04-arm - aarch64-unknown-linux-gnu"]
 // The notify script gets far enough to create (and therefore surface) the file,
 // but hasn’t flushed the JSON yet. Reading an empty file produces EOF while parsing

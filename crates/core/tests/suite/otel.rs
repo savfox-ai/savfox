@@ -519,7 +519,7 @@ async fn handle_responses_span_records_response_kind_and_tool_name() {
     );
 }
 
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn record_responses_sets_span_fields_for_response_events() {
     let buffer: &'static Mutex<Vec<u8>> = Box::leak(Box::new(Mutex::new(Vec::new())));
     let subscriber = tracing_subscriber::fmt()

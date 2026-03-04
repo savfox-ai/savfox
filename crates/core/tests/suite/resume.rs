@@ -1,4 +1,4 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use anyhow::Result;
 use core_test_support::responses::{
@@ -11,7 +11,7 @@ use savfox_core::protocol::{EventMsg, Op};
 use savfox_protocol::user_input::{ByteRange, TextElement, UserInput};
 use pretty_assertions::assert_eq;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -72,7 +72,7 @@ async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_includes_initial_messages_from_reasoning_events() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -134,7 +134,7 @@ async fn resume_includes_initial_messages_from_reasoning_events() -> Result<()> 
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

@@ -1,4 +1,4 @@
-﻿#![cfg(not(target_os = "windows"))]
+#![cfg(not(target_os = "windows"))]
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -28,7 +28,7 @@ macro_rules! skip_if_ripgrep_missing {
     }};
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_files_tool_collects_matches() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_ripgrep_missing!(Ok(()));
@@ -86,7 +86,7 @@ async fn grep_files_tool_collects_matches() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn grep_files_tool_reports_empty_results() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_ripgrep_missing!(Ok(()));
