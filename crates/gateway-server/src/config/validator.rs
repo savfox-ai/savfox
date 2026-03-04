@@ -311,14 +311,14 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
                     });
                 }
 
-                // model_code is required
+                // model_slug is required
                 if model_map
-                    .get("model_code")
+                    .get("model_slug")
                     .and_then(|v| v.as_str())
                     .map_or(true, |s| s.is_empty())
                 {
                     errors.push(ValidationError {
-                        field: format!("models.{id}.model_code"),
+                        field: format!("models.{id}.model_slug"),
                         message: "Model code is required".to_string(),
                         severity: Severity::Error,
                     });

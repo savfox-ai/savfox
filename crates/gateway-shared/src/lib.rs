@@ -243,7 +243,7 @@ pub struct ModelInfo {
     pub id: String,
     pub name: Option<String>,
     pub provider: Option<String>,
-    pub model_code: Option<String>,
+    pub model_slug: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub max_tokens: Option<i64>,

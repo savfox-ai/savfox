@@ -3557,7 +3557,7 @@ fn provider_store_loader_parses_legacy_array_files() {
     std::fs::write(
         models_dir.join("legacy-provider.json"),
         r#"[
-  { "model_code": "legacy-one", "name": "Legacy One", "is_default": true }
+  { "model_slug": "legacy-one", "name": "Legacy One", "is_default": true }
 ]"#,
     )
     .expect("write legacy file");

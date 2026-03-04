@@ -1680,7 +1680,7 @@ impl fmt::Display for SubAgentSource {
 pub struct SessionModel {
     pub provider: String,
     #[serde(default)]
-    pub model_code: String,
+    pub model_slug: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, TS)]
@@ -1735,12 +1735,12 @@ impl SessionMeta {
     }
 
     /// Model code from the new `model` object when present.
-    pub fn model_code(&self) -> Option<&str> {
+    pub fn model_slug(&self) -> Option<&str> {
         self.model.as_ref().and_then(|model| {
-            if model.model_code.is_empty() {
+            if model.model_slug.is_empty() {
                 None
             } else {
-                Some(model.model_code.as_str())
+                Some(model.model_slug.as_str())
             }
         })
     }

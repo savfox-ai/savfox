@@ -77,7 +77,7 @@ pub fn create_fake_rollout_with_source(
             source,
             model: model_provider.map(|provider| SessionModel {
                 provider: provider.to_string(),
-                model_code: String::new(),
+                model_slug: String::new(),
             }),
             model_provider: None,
             base_instructions: None,
@@ -127,7 +127,7 @@ pub fn create_fake_rollout_with_text_elements(
             source: SessionSource::Cli,
             model: model_provider.map(|provider| SessionModel {
                 provider: provider.to_string(),
-                model_code: String::new(),
+                model_slug: String::new(),
             }),
             model_provider: None,
             base_instructions: None,

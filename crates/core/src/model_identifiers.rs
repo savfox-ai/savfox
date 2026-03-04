@@ -10,33 +10,33 @@
 
 /// Parse a provider-prefixed model identifier.
 ///
-/// Returns `(provider_id, model_code)` when `identifier` contains at least one
+/// Returns `(provider_id, model_slug)` when `identifier` contains at least one
 /// `/` and both parts are non-empty after trimming.
 ///
 /// Parsing uses the **last** `/` so provider ids may themselves contain `/`.
 pub fn parse_provider_prefixed_model(identifier: &str) -> Option<(&str, &str)> {
     let trimmed = identifier.trim();
-    let (provider_id, model_code) = trimmed.rsplit_once('/')?;
+    let (provider_id, model_slug) = trimmed.rsplit_once('/')?;
     let provider_id = provider_id.trim();
-    let model_code = model_code.trim();
-    if provider_id.is_empty() || model_code.is_empty() {
+    let model_slug = model_slug.trim();
+    if provider_id.is_empty() || model_slug.is_empty() {
         return None;
     }
-    Some((provider_id, model_code))
+    Some((provider_id, model_slug))
 }
 
 /// Normalize a model identifier for a provider request payload.
 ///
-/// If `model` is in `provider/model_code` form and `provider` matches
-/// `provider_id` (case-insensitive), returns `model_code`.
+/// If `model` is in `provider/model_slug` form and `provider` matches
+/// `provider_id` (case-insensitive), returns `model_slug`.
 /// Otherwise returns the original trimmed `model`.
 pub fn request_model_for_provider(model: &str, provider_id: &str) -> String {
     let provider_id = provider_id.trim();
     let model = model.trim();
-    if let Some((provider, model_code)) = parse_provider_prefixed_model(model)
+    if let Some((provider, model_slug)) = parse_provider_prefixed_model(model)
         && provider.eq_ignore_ascii_case(provider_id)
     {
-        return model_code.to_string();
+        return model_slug.to_string();
     }
     model.to_string()
 }

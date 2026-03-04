@@ -7012,7 +7012,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         .map(str::to_string)
         .or_else(|| {
             value_string(model, &["id", "model"])
-                .or_else(|| value_string(model, &["model_code"]))
+                .or_else(|| value_string(model, &["model_slug"]))
                 .map(|value| value.trim().to_string())
         })?;
     if raw_id.is_empty() {
@@ -7026,7 +7026,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
     };
     let model_tail = model_id.rsplit('/').next().unwrap_or(model_id.as_str());
     let display_name = value_string(model, &["name", "display_name", "title"])
-        .or_else(|| value_string(model, &["model_code"]))
+        .or_else(|| value_string(model, &["model_slug"]))
         .unwrap_or_else(|| model_tail.to_string());
     let description = value_string(model, &["description", "remark"]).unwrap_or_default();
     let is_default = value_bool(model, "is_default").unwrap_or(false);

@@ -389,7 +389,7 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
 
     for item in models {
         let (raw_id, display_name, provider_from_item, is_default) = if let Some(id) =
-            model_item_field(item, &["id", "model", "model_id", "model_code", "slug"])
+            model_item_field(item, &["id", "model", "model_id", "model_slug", "slug"])
         {
             (
                 id,
@@ -406,25 +406,25 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
         };
 
         let mut provider = provider_from_item.unwrap_or_default();
-        let mut model_code = raw_id.clone();
+        let mut model_slug = raw_id.clone();
         if let Some((provider_prefix, suffix)) = savfox_core::parse_provider_prefixed_model(&raw_id)
         {
             if provider.is_empty() {
                 provider = provider_prefix.to_string();
             }
-            model_code = suffix.to_string();
+            model_slug = suffix.to_string();
         } else if provider.is_empty() {
             provider = hint.clone();
         }
 
-        if model_code.is_empty() {
+        if model_slug.is_empty() {
             continue;
         }
 
         let model_id = if raw_id.contains('/') || provider.is_empty() {
             raw_id
         } else {
-            format!("{provider}/{model_code}")
+            format!("{provider}/{model_slug}")
         };
 
         if !seen.insert(model_id.clone()) {
@@ -435,9 +435,9 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
         entry.insert("id".to_string(), json!(model_id));
         entry.insert(
             "name".to_string(),
-            json!(display_name.unwrap_or_else(|| model_code.clone())),
+            json!(display_name.unwrap_or_else(|| model_slug.clone())),
         );
-        entry.insert("model_code".to_string(), json!(model_code));
+        entry.insert("model_slug".to_string(), json!(model_slug));
         entry.insert("is_default".to_string(), json!(is_default));
         entry.insert("builtin".to_string(), json!(true));
         if !provider.is_empty() {
@@ -558,7 +558,7 @@ pub(crate) async fn connect_provider(
 fn model_id_from_entry(item: &Value, provider_id: &str) -> Option<String> {
     let raw = nonempty_string(item.get("id"))
         .or_else(|| nonempty_string(item.get("model")))
-        .or_else(|| nonempty_string(item.get("model_code")))?;
+        .or_else(|| nonempty_string(item.get("model_slug")))?;
     if raw.contains('/') || provider_id.trim().is_empty() {
         Some(raw)
     } else {

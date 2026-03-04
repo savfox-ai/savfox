@@ -94,14 +94,14 @@ fn trim_nonempty(value: &str) -> Option<String> {
 
 fn normalize_model_slug(raw: &str) -> Option<String> {
     let raw = trim_nonempty(raw)?;
-    if let Some((_provider_id, model_code)) = crate::parse_provider_prefixed_model(&raw) {
-        return Some(model_code.to_string());
+    if let Some((_provider_id, model_slug)) = crate::parse_provider_prefixed_model(&raw) {
+        return Some(model_slug.to_string());
     }
     Some(raw)
 }
 
 fn model_slug_from_entry(item: &Value) -> Option<String> {
-    item.get("model_code")
+    item.get("model_slug")
         .and_then(Value::as_str)
         .and_then(trim_nonempty)
         .or_else(|| {

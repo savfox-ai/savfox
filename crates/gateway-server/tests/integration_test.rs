@@ -86,13 +86,13 @@ fn config_validate_invalid_port() {
 fn models_add_auto_id() {
     let params = json!({
         "provider": "openai",
-        "model_code": "gpt-4o",
+        "model_slug": "gpt-4o",
         "temperature": 0.7
     });
 
     let provider = params["provider"].as_str().unwrap();
-    let model_code = params["model_code"].as_str().unwrap();
-    let auto_id = format!("{provider}/{model_code}");
+    let model_slug = params["model_slug"].as_str().unwrap();
+    let auto_id = format!("{provider}/{model_slug}");
     assert_eq!(auto_id, "openai/gpt-4o");
 }
 
@@ -101,7 +101,7 @@ fn models_cost_fields() {
     let model = json!({
         "id": "openai/gpt-4o",
         "provider": "openai",
-        "model_code": "gpt-4o",
+        "model_slug": "gpt-4o",
         "cost_input_per_m": 2.50,
         "cost_output_per_m": 10.0,
         "context_window": 128000,

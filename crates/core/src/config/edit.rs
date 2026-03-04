@@ -270,10 +270,10 @@ impl ConfigDocument {
                     Ok({
                         let mut mutated = false;
                         if let Some(model_value) = model {
-                            let (provider_id, slug) = if let Some((provider, model_code)) =
+                            let (provider_id, slug) = if let Some((provider, model_slug)) =
                                 parse_provider_prefixed_model(model_value.as_str())
                             {
-                                (Some(provider.to_string()), model_code.to_string())
+                                (Some(provider.to_string()), model_slug.to_string())
                             } else {
                                 (None, model_value)
                             };
@@ -789,10 +789,10 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
             if let JsonValue::Object(root) = json {
                 match model {
                     Some(model_value) => {
-                        let (provider_id, slug) = if let Some((provider, model_code)) =
+                        let (provider_id, slug) = if let Some((provider, model_slug)) =
                             parse_provider_prefixed_model(model_value.as_str())
                         {
-                            (Some(provider.to_string()), model_code.to_string())
+                            (Some(provider.to_string()), model_slug.to_string())
                         } else {
                             (None, model_value)
                         };

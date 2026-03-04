@@ -571,7 +571,7 @@ impl SessionStore {
                         updated_at: created_at,
                         created_at,
                         session_file: Some(uuid_str.to_string()),
-                        model: meta_line.meta.model_code().map(str::to_string),
+                        model: meta_line.meta.model_slug().map(str::to_string),
                         provider: meta_line.meta.model_provider_id().map(str::to_string),
                         from: Some(format!("{:?}", meta_line.meta.source)),
                         // Add other fields as needed from SessionMeta

@@ -36,7 +36,7 @@ fn model_info_display_name(model: &ModelInfo) -> String {
         .map(ToString::to_string)
         .or_else(|| {
             model
-                .model_code
+                .model_slug
                 .as_deref()
                 .map(str::trim)
                 .filter(|code| !code.is_empty())

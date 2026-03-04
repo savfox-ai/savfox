@@ -155,7 +155,7 @@ fn model_id_from_store_item(item: &Value, provider_id: &str) -> Option<String> {
                 .and_then(trim_nonempty)
         })
         .or_else(|| {
-            item.get("model_code")
+            item.get("model_slug")
                 .and_then(Value::as_str)
                 .and_then(trim_nonempty)
         })

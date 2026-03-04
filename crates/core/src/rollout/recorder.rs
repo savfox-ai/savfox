@@ -428,7 +428,7 @@ impl RolloutRecorder {
                         source,
                         model: Some(SessionModel {
                             provider: config.model_provider_id.clone(),
-                            model_code: config.model.clone().unwrap_or_default(),
+                            model_slug: config.model.clone().unwrap_or_default(),
                         }),
                         model_provider: None,
                         base_instructions: Some(base_instructions),

@@ -325,7 +325,7 @@ mod tests {
             source: SessionSource::default(),
             model: Some(SessionModel {
                 provider: "openai".to_string(),
-                model_code: String::new(),
+                model_slug: String::new(),
             }),
             model_provider: None,
             base_instructions: None,

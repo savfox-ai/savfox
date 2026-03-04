@@ -481,7 +481,7 @@ mod tests {
                     "id": "openai/gpt-5.2-codex",
                     "name": "gpt-5.2-codex",
                     "provider": "openai",
-                    "model_code": "gpt-5.2-codex",
+                    "model_slug": "gpt-5.2-codex",
                     "is_default": true,
                     "builtin": true
                 }
