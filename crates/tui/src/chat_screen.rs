@@ -60,7 +60,10 @@ use savfox_core::protocol::{
 use savfox_core::skills::model::SkillMetadata;
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
-use savfox_core::{ModelProviderInfo, built_in_model_providers, parse_provider_prefixed_model};
+use savfox_core::{
+    ModelProviderInfo, built_in_model_providers, canonical_provider_id,
+    parse_provider_prefixed_model,
+};
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::account::PlanType;
@@ -4826,6 +4829,10 @@ impl ChatScreen {
     pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
         let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
         let supported = preset.supported_reasoning_efforts;
+        let selected_provider_id = parse_provider_prefixed_model(&preset.slug)
+            .map(|(provider_id, _)| provider_id.to_string())
+            .unwrap_or_else(|| self.config.model_provider_id.clone());
+        let is_openai_provider = canonical_provider_id(selected_provider_id.as_str()) == "openai";
 
         let warn_effort = if supported
             .iter()
@@ -4868,7 +4875,7 @@ impl ChatScreen {
             });
         }
 
-        if choices.len() == 1 {
+        if choices.len() == 1 && !is_openai_provider {
             if let Some(effort) = choices.first().and_then(|c| c.stored) {
                 self.apply_model_and_effort(preset.slug, Some(effort));
             } else {
@@ -7025,16 +7032,23 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         format!("{provider_id}/{raw_id}")
     };
     let model_tail = model_id.rsplit('/').next().unwrap_or(model_id.as_str());
-    let name = value_string(model, &["name", "name", "title"])
+    let name = value_string(model, &["name", "display_name", "displayName", "title"])
         .or_else(|| value_string(model, &["model_slug"]))
         .unwrap_or_else(|| model_tail.to_string());
     let description = value_string(model, &["description", "remark"]).unwrap_or_default();
-    let is_default = value_bool(model, "is_default").unwrap_or(false);
-    let is_disabled = value_bool(model, "is_disabled").unwrap_or(false)
-        || value_bool(model, "disabled").unwrap_or(false);
+    let is_default = value_bool_any(model, &["is_default", "isDefault"]).unwrap_or(false);
+    let is_disabled = value_bool_any(model, &["is_disabled", "disabled", "hidden"])
+        .unwrap_or(false)
+        || value_string(model, &["visibility"])
+            .is_some_and(|value| value.eq_ignore_ascii_case("hide"));
     let default_reasoning_effort = value_reasoning_effort(
         model,
-        &["default_reasoning_effort", "default_reasoning_level"],
+        &[
+            "default_reasoning_effort",
+            "default_reasoning_level",
+            "defaultReasoningEffort",
+            "defaultReasoningLevel",
+        ],
     )
     .unwrap_or(ReasoningEffortConfig::None);
     let supported_reasoning_efforts = value_reasoning_presets(model)
@@ -7045,8 +7059,10 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
                 description: "Use provider default reasoning level".to_string(),
             }]
         });
-    let supports_personality = value_bool(model, "supports_personality").unwrap_or(false);
-    let supported_in_api = value_bool(model, "supported_in_api").unwrap_or(true);
+    let supports_personality =
+        value_bool_any(model, &["supports_personality", "supportsPersonality"]).unwrap_or(false);
+    let supported_in_api =
+        value_bool_any(model, &["supported_in_api", "supportedInApi"]).unwrap_or(true);
     let input_modalities = value_input_modalities(model).unwrap_or_else(default_input_modalities);
 
     Some(ModelPreset {
@@ -7077,8 +7093,55 @@ fn value_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn value_bool(value: &serde_json::Value, key: &str) -> Option<bool> {
-    value.get(key).and_then(serde_json::Value::as_bool)
+fn value_bool_any(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    for key in keys {
+        if let Some(flag) = value.get(*key).and_then(serde_json::Value::as_bool) {
+            return Some(flag);
+        }
+    }
+    None
+}
+
+fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningEffortPreset>> {
+    let options = raw.as_array()?;
+    let mut presets: Vec<ReasoningEffortPreset> = Vec::with_capacity(options.len());
+    for option in options {
+        if let Ok(parsed) = serde_json::from_value::<ReasoningEffortPreset>(option.clone()) {
+            presets.push(parsed);
+            continue;
+        }
+
+        let Some(obj) = option.as_object() else {
+            continue;
+        };
+
+        let effort = obj
+            .get("effort")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| obj.get("reasoning_effort").and_then(serde_json::Value::as_str))
+            .or_else(|| obj.get("reasoningEffort").and_then(serde_json::Value::as_str))
+            .and_then(|text| {
+                serde_json::from_value::<ReasoningEffortConfig>(serde_json::Value::String(
+                    text.to_string(),
+                ))
+                .ok()
+            });
+        let Some(effort) = effort else {
+            continue;
+        };
+
+        let description = obj
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        presets.push(ReasoningEffortPreset {
+            effort,
+            description,
+        });
+    }
+
+    Some(presets)
 }
 
 fn value_reasoning_effort(
@@ -7096,9 +7159,15 @@ fn value_reasoning_effort(
 }
 
 fn value_reasoning_presets(value: &serde_json::Value) -> Option<Vec<ReasoningEffortPreset>> {
-    for key in ["supported_reasoning_efforts", "supported_reasoning_levels"] {
+    for key in [
+        "supported_reasoning_efforts",
+        "supported_reasoning_levels",
+        "supportedReasoningEfforts",
+        "supportedReasoningLevels",
+    ] {
         if let Some(raw) = value.get(key)
-            && let Ok(presets) = serde_json::from_value::<Vec<ReasoningEffortPreset>>(raw.clone())
+            && let Some(presets) = normalize_reasoning_presets(raw)
+            && !presets.is_empty()
         {
             return Some(presets);
         }
@@ -7107,9 +7176,13 @@ fn value_reasoning_presets(value: &serde_json::Value) -> Option<Vec<ReasoningEff
 }
 
 fn value_input_modalities(value: &serde_json::Value) -> Option<Vec<InputModality>> {
-    value
-        .get("input_modalities")
-        .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+    value.get("input_modalities").and_then(|raw| {
+        serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok()
+    }).or_else(|| {
+        value
+            .get("inputModalities")
+            .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+    })
 }
 
 // Extract the first bold (Markdown) element in the form **...** from `s`.

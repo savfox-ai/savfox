@@ -287,14 +287,20 @@ impl ConfigFile {
                             &["model", "provider"],
                             value(provider_to_write.clone()),
                         );
-                        if let Some(effort_value) = effort {
-                            mutated |= self.write_value(
-                                Scope::Global,
-                                &["model", "reasoning_effort"],
-                                value(effort_value.to_string()),
-                            );
-                        } else {
-                            mutated |= self.clear(Scope::Global, &["model", "reasoning_effort"]);
+                        match effort {
+                            Some(effort_value) if !matches!(effort_value, &ReasoningEffort::None) => {
+                                mutated |= self.write_value(
+                                    Scope::Global,
+                                    &["model", "reasoning_effort"],
+                                    value(effort_value.to_string()),
+                                );
+                            }
+                            _ => {
+                                mutated |= self.clear(
+                                    Scope::Global,
+                                    &["model", "reasoning_effort"],
+                                );
+                            }
                         }
                     } else {
                         mutated |= self.clear(Scope::Global, &["model"]);
@@ -743,13 +749,16 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                                 JsonValue::String(provider_to_write.clone()),
                             );
 
-                            if let Some(effort) = effort {
-                                model_map.insert(
-                                    "reasoning_effort".to_string(),
-                                    JsonValue::String(effort.to_string()),
-                                );
-                            } else {
-                                model_map.remove("reasoning_effort");
+                            match effort {
+                                Some(effort) if !matches!(effort, &ReasoningEffort::None) => {
+                                    model_map.insert(
+                                        "reasoning_effort".to_string(),
+                                        JsonValue::String(effort.to_string()),
+                                    );
+                                }
+                                _ => {
+                                    model_map.remove("reasoning_effort");
+                                }
                             }
                         }
 
@@ -1853,6 +1862,40 @@ foo = { command = "cmd" , enabled = false }
         assert_eq!(
             model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
+        );
+    }
+
+    #[test]
+    fn blocking_set_model_none_effort_does_not_persist_reasoning_effort() {
+        let tmp = tempdir().expect("tmpdir");
+        let savfox_home = tmp.path();
+
+        apply_blocking(
+            savfox_home,
+            &[ConfigEdit::SetModel {
+                slug: Some("glm-5".to_string()),
+                provider: Some("zhipuai-coding-plan".to_string()),
+                effort: Some(ReasoningEffort::None),
+            }],
+        )
+        .expect("persist");
+
+        let contents =
+            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&contents).expect("parse config");
+        let model = value
+            .get("model")
+            .and_then(|v| v.as_table())
+            .expect("model table");
+
+        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("glm-5"));
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
+        assert!(
+            model.get("reasoning_effort").is_none(),
+            "reasoning_effort should be omitted when effort is None"
         );
     }
 

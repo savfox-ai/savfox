@@ -890,9 +890,18 @@ impl AuthModeWidget {
                                         value: toml_edit_value(result.base_url.clone()),
                                     });
                                 }
+                                let model_to_persist = if savfox_core::parse_provider_prefixed_model(
+                                    normalized_model.as_str(),
+                                )
+                                .is_some()
+                                {
+                                    normalized_model.clone()
+                                } else {
+                                    format!("{}/{}", result.provider_id, normalized_model.trim())
+                                };
                                 let persist_result = ConfigEditsBuilder::new(&savfox_home)
                                     .with_edits(edits)
-                                    .set_model(Some(normalized_model.as_str()), None)
+                                    .set_model(Some(model_to_persist.as_str()), None)
                                     .apply()
                                     .await;
 
