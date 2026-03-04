@@ -38,10 +38,6 @@ pub struct Cli {
     #[arg(long = "sandbox", short = 's', value_enum)]
     pub sandbox_mode: Option<savfox_common::SandboxModeCliArg>,
 
-    /// Configuration profile from config.toml to specify default options.
-    #[arg(long = "profile", short = 'p')]
-    pub config_profile: Option<String>,
-
     /// Convenience alias for low-friction sandboxed automatic execution (-a on-request, --sandbox
     /// workspace-write).
     #[arg(long = "full-auto", default_value_t = false, global = true)]

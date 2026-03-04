@@ -168,7 +168,6 @@ impl SavfoxToolCallParam {
         // Build the `ConfigOverrides` recognized by savfox-core.
         let overrides = ConfigOverrides {
             model,
-            config_profile: profile,
             cwd: cwd.map(PathBuf::from),
             approval_policy: approval_policy.map(Into::into),
             sandbox_mode: sandbox.map(Into::into),

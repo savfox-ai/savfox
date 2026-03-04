@@ -521,7 +521,6 @@ pub async fn run_main(
         match maybe_repair_model_from_provider_store(
             &savfox_home,
             &config_toml,
-            cli.config_profile.clone(),
         )
         .await
         {
@@ -562,7 +561,6 @@ pub async fn run_main(
         let resolved = resolve_oss_provider(
             cli.oss_provider.as_deref(),
             &config_toml,
-            cli.config_profile.clone(),
         );
 
         if let Some(provider) = resolved {
@@ -602,7 +600,6 @@ pub async fn run_main(
         sandbox_mode,
         cwd,
         model_provider: model_provider_override.clone(),
-        config_profile: cli.config_profile.clone(),
         savfox_linux_sandbox_exe,
         show_raw_agent_reasoning: cli.oss.then_some(true),
         additional_writable_roots: additional_dirs,

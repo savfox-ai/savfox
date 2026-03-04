@@ -87,7 +87,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         model: model_cli_arg,
         oss,
         oss_provider,
-        config_profile,
         full_auto,
         dangerously_bypass_approvals_and_sandbox,
         cwd,
@@ -200,7 +199,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         let resolved = resolve_oss_provider(
             oss_provider.as_deref(),
             &config_toml,
-            config_profile.clone(),
         );
 
         if let Some(provider) = resolved {
@@ -230,7 +228,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let overrides = ConfigOverrides {
         model,
         review_model: None,
-        config_profile,
         // Default to never ask for approvals in headless mode. Feature flags can override.
         approval_policy: Some(AskForApproval::Never),
         sandbox_mode,

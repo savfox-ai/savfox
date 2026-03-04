@@ -74,10 +74,6 @@ pub struct Cli {
     #[arg(long = "local-provider")]
     pub oss_provider: Option<String>,
 
-    /// Configuration profile from config.toml to specify default options.
-    #[arg(long = "profile", short = 'p')]
-    pub config_profile: Option<String>,
-
     /// Select the sandbox policy to use when executing model-generated shell
     /// commands.
     #[arg(long = "sandbox", short = 's')]

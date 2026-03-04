@@ -1041,7 +1041,6 @@ async fn disable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyho
     FeatureToggles::validate_feature(feature)?;
     let savfox_home = find_savfox_home()?;
     ConfigEditsBuilder::new(&savfox_home)
-        .with_profile(interactive.config_profile.as_deref())
         .set_feature_enabled(feature, false)
         .apply()
         .await?;
@@ -1054,10 +1053,6 @@ fn maybe_print_under_development_feature_warning(
     interactive: &TuiCli,
     feature: &str,
 ) {
-    if interactive.config_profile.is_some() {
-        return;
-    }
-
     let Some(spec) = savfox_core::features::FEATURES
         .iter()
         .find(|spec| spec.key == feature)
@@ -1186,9 +1181,6 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
     }
     if subcommand_cli.oss {
         interactive.oss = true;
-    }
-    if let Some(profile) = subcommand_cli.config_profile {
-        interactive.config_profile = Some(profile);
     }
     if let Some(sandbox) = subcommand_cli.sandbox_mode {
         interactive.sandbox_mode = Some(sandbox);
