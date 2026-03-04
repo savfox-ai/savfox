@@ -21,7 +21,7 @@ use toml_edit::DocumentMut;
 use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::{ConfigEdit, ConfigEditsBuilder};
 use crate::config::profile::ConfigProfile;
-use crate::config::provider_store::ProviderStoreFile;
+use crate::config::provider_store::{ProviderStoreFile, provider_models_store_dir};
 use crate::config::types::{
     DEFAULT_OTEL_ENVIRONMENT, History, McpServerConfig, McpServerDisabledReason,
     McpServerTransportConfig, Notice, NotificationMethod, Notifications, OtelConfig,
@@ -65,7 +65,6 @@ pub const CONFIG_TOML_FILE: &str = "config.toml";
 pub const CONFIG_JSON_FILE: &str = "config.json";
 pub const CONFIG_YAML_FILE: &str = "config.yaml";
 pub const CONFIG_YML_FILE: &str = "config.yml";
-const PROVIDER_MODELS_DIR: &str = "models";
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
@@ -76,7 +75,7 @@ fn merge_provider_store_model_providers(
     model_providers: &mut HashMap<String, ModelProviderInfo>,
     savfox_home: &Path,
 ) {
-    let models_dir = savfox_home.join(PROVIDER_MODELS_DIR);
+    let models_dir = provider_models_store_dir(savfox_home);
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };

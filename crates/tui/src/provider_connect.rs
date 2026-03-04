@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use savfox_core::ModelProviderInfo;
 use savfox_core::config::provider_store::{
-    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, ProviderStoreFile,
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, load_provider_store_file,
+    provider_models_store_dir, save_provider_store_file,
 };
+use savfox_core::ModelProviderInfo;
 use serde_json::{Value, json};
 
-const MODELS_DIR_NAME: &str = "models";
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_CHATGPT_OPENAI_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
@@ -57,71 +57,11 @@ pub(crate) struct ProviderConnectRuntimeAuth {
     pub(crate) use_chatgpt_openai_base_url: bool,
 }
 
-pub(crate) fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
-    savfox_home.join(MODELS_DIR_NAME)
-}
-
-fn provider_store_path(savfox_home: &Path, provider_id: &str) -> PathBuf {
-    provider_models_store_dir(savfox_home).join(format!("{provider_id}.json"))
-}
-
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderStoreFile {
-    let path = provider_store_path(savfox_home, provider_id);
-    let data = std::fs::read_to_string(&path);
-    let Ok(data) = data else {
-        return ProviderStoreFile::empty(provider_id);
-    };
-
-    if let Ok(mut file) = serde_json::from_str::<ProviderStoreFile>(&data) {
-        if file.provider_id.trim().is_empty() {
-            file.provider_id = provider_id.to_string();
-        }
-        if file.enabled_models.is_empty() {
-            file.enabled_models = file
-                .legacy_models
-                .iter()
-                .filter_map(model_slug_from_entry)
-                .collect();
-        } else {
-            file.enabled_models = file
-                .enabled_models
-                .iter()
-                .filter_map(|slug| normalize_model_slug(slug))
-                .collect();
-        }
-        return file;
-    }
-
-    if let Ok(legacy_models) = serde_json::from_str::<Vec<Value>>(&data) {
-        let mut file = ProviderStoreFile::empty(provider_id);
-        file.enabled_models = legacy_models
-            .iter()
-            .filter_map(model_slug_from_entry)
-            .collect();
-        file.legacy_models = legacy_models;
-        return file;
-    }
-
-    ProviderStoreFile::empty(provider_id)
-}
-
-fn save_provider_store_file(
-    savfox_home: &Path,
-    provider_id: &str,
-    file: &ProviderStoreFile,
-) -> Result<(), String> {
-    let dir = provider_models_store_dir(savfox_home);
-    std::fs::create_dir_all(&dir).map_err(|err| format!("create models dir: {err}"))?;
-    let path = provider_store_path(savfox_home, provider_id);
-    let data =
-        serde_json::to_string_pretty(file).map_err(|err| format!("serialize error: {err}"))?;
-    std::fs::write(path, data).map_err(|err| format!("write provider file failed: {err}"))
-}
 
 pub(crate) fn connect_provider_candidates(
     model_providers: &HashMap<String, ModelProviderInfo>,
@@ -723,6 +663,7 @@ pub(crate) fn persist_provider_connection(
     }
 
     save_provider_store_file(savfox_home, &result.provider_id, &file)
+        .map_err(|err| format!("write provider file failed: {err}"))
 }
 
 fn model_id_from_entry(item: &Value, provider_id: &str) -> Option<String> {

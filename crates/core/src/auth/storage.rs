@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use tracing::warn;
 
 use crate::config::provider_store::{
-    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, ProviderStoreFile,
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, ProviderStoreFile, provider_store_path,
 };
 use crate::token_data::TokenData;
 
@@ -53,7 +53,6 @@ pub struct AuthDotJson {
     pub last_refresh: Option<DateTime<Utc>>,
 }
 
-const MODELS_DIR_NAME: &str = "models";
 const CHATGPT_PROVIDER_ID: &str = "chatgpt";
 const CHATGPT_DISPLAY_NAME: &str = "ChatGPT";
 
@@ -106,9 +105,7 @@ impl ProviderStoreFile {
 }
 
 pub(super) fn get_auth_file(savfox_home: &Path) -> PathBuf {
-    savfox_home
-        .join(MODELS_DIR_NAME)
-        .join(format!("{CHATGPT_PROVIDER_ID}.json"))
+    provider_store_path(savfox_home, CHATGPT_PROVIDER_ID)
 }
 
 fn get_legacy_auth_file(savfox_home: &Path) -> PathBuf {

@@ -25,7 +25,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthMode;
-use crate::config::provider_store::ProviderStoreFile;
+use crate::config::provider_store::{ProviderStoreFile, provider_models_store_dir};
 use crate::error::EnvVarError;
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 300_000;
@@ -54,8 +54,6 @@ static ENV_OVERRIDES: LazyLock<RwLock<HashMap<String, String>>> =
 /// / login auth all fail to yield a token.
 static BEARER_TOKEN_OVERRIDES: LazyLock<RwLock<HashMap<String, String>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
-
-const PROVIDER_MODELS_DIR: &str = "models";
 
 /// Store an env-variable override that `api_key()` / `build_header_map()`
 /// will consult before falling back to `std::env::var()`.
@@ -112,7 +110,7 @@ pub fn get_bearer_token_override(provider_id: &str) -> Option<String> {
 /// provider file format without requiring environment variables to be exported
 /// in the parent shell.
 pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
-    let models_dir = savfox_home.join(PROVIDER_MODELS_DIR);
+    let models_dir = provider_models_store_dir(savfox_home);
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };

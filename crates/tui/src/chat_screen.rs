@@ -34,7 +34,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};
 use savfox_backend_client::Client as BackendClient;
 use savfox_chatgpt::connectors;
-use savfox_core::config::provider_store::ProviderStoreFile;
+use savfox_core::config::provider_store::{ProviderStoreFile, provider_models_store_dir};
 use savfox_core::config::types::Notifications;
 use savfox_core::config::{Config, ConstraintResult};
 use savfox_core::features::{FEATURES, Feature};
@@ -110,8 +110,8 @@ use crate::history_cell::{
 use crate::key_hint::KeyBinding;
 use crate::markdown::append_markdown;
 use crate::provider_connect::{
-    connect_provider_candidates, provider_has_auth_in_env, provider_models_store_dir,
-    provider_requires_api_key, read_provider_store_api_key,
+    connect_provider_candidates, provider_has_auth_in_env, provider_requires_api_key,
+    read_provider_store_api_key,
 };
 use crate::render::Insets;
 use crate::render::renderable::{
