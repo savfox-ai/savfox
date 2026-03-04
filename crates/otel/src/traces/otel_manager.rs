@@ -98,7 +98,6 @@ impl OtelManager {
         approval_policy: AskForApproval,
         sandbox_policy: SandboxPolicy,
         mcp_servers: Vec<&str>,
-        active_profile: Option<String>,
     ) {
         tracing::event!(
             tracing::Level::INFO,
@@ -120,7 +119,6 @@ impl OtelManager {
             approval_policy = %approval_policy,
             sandbox_policy = %sandbox_policy,
             mcp_servers = mcp_servers.join(", "),
-            active_profile = active_profile,
         )
     }
 

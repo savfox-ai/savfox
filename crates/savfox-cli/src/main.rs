@@ -902,9 +902,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
                     ));
                 }
 
-                // Session through relevant top-level flags (at minimum, `--profile`).
+                // Session through relevant top-level flags.
                 let overrides = ConfigOverrides {
-                    config_profile: None,
                     ..Default::default()
                 };
 
@@ -1363,7 +1362,6 @@ mod tests {
 
         assert_eq!(interactive.model.as_deref(), Some("gpt-5.1-test"));
         assert!(interactive.oss);
-        assert_eq!(interactive.config_profile.as_deref(), Some("my-profile"));
         assert_matches!(
             interactive.sandbox_mode,
             Some(savfox_common::SandboxModeCliArg::WorkspaceWrite)

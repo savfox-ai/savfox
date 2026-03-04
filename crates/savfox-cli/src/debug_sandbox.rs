@@ -96,7 +96,6 @@ async fn run_command_under_sandbox(
         ConfigOverrides {
             sandbox_mode: Some(sandbox_mode),
             savfox_linux_sandbox_exe,
-            config_profile: None,
             ..Default::default()
         },
     )

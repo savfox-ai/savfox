@@ -375,9 +375,6 @@ pub struct Config {
     /// When `true`, suppress warnings about unstable (under development) features.
     pub suppress_unstable_features_warning: bool,
 
-    /// The active profile name used to derive this `Config` (if any).
-    pub active_profile: Option<String>,
-
     /// The currently active project config, resolved by checking if cwd:
     /// is (1) part of a git repo, (2) a git worktree, or (3) just using the cwd
     pub active_project: ProjectConfig,
@@ -1649,7 +1646,6 @@ impl Config {
             suppress_unstable_features_warning: cfg
                 .suppress_unstable_features_warning
                 .unwrap_or(false),
-            active_profile: None, // Profiles have been removed
             active_project,
             windows_wsl_setup_acknowledged: cfg.windows_wsl_setup_acknowledged.unwrap_or(false),
             notices: cfg.notice.unwrap_or_default(),
@@ -2610,7 +2606,6 @@ trust_level = "trusted"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -2640,7 +2635,6 @@ trust_level = "trusted"
         let empty = BTreeMap::new();
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(empty.clone())],
         )?;
         let loaded = load_global_mcp_servers(savfox_home.path()).await?;
@@ -2779,7 +2773,6 @@ bearer_token = "secret"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -2849,7 +2842,6 @@ ZIG_VAR = "3"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -2899,7 +2891,6 @@ ZIG_VAR = "3"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -2947,7 +2938,6 @@ ZIG_VAR = "3"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3010,7 +3000,6 @@ startup_timeout_sec = 2.0
         )]);
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3087,7 +3076,6 @@ X-Auth = "DOCS_AUTH"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
         let serialized_with_optional = std::fs::read_to_string(&config_path)?;
@@ -3115,7 +3103,6 @@ X-Auth = "DOCS_AUTH"
         );
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3203,7 +3190,6 @@ url = "https://example.com/mcp"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3284,7 +3270,6 @@ url = "https://example.com/mcp"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3328,7 +3313,6 @@ url = "https://example.com/mcp"
 
         apply_blocking(
             savfox_home.path(),
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )?;
 
@@ -3934,7 +3918,6 @@ model_verbosity = "high"
             &AskForApproval::UnlessTrusted
         );
         assert_eq!(o3_config.model_reasoning_effort, None);
-        assert_eq!(o3_config.active_profile, None);
         assert_eq!(o3_config.analytics_enabled, Some(true));
         Ok(())
     }
@@ -3958,7 +3941,6 @@ model_verbosity = "high"
             gpt3_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(gpt3_config.active_profile, None);
         assert_eq!(gpt3_config.analytics_enabled, Some(true));
 
         // Verify that loading without specifying overrides uses the base config
@@ -3996,7 +3978,6 @@ model_verbosity = "high"
             zdr_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(zdr_config.active_profile, None);
         assert_eq!(zdr_config.analytics_enabled, Some(true));
 
         Ok(())
@@ -4021,7 +4002,6 @@ model_verbosity = "high"
             gpt5_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(gpt5_config.active_profile, None);
         assert_eq!(gpt5_config.analytics_enabled, Some(true));
 
         Ok(())

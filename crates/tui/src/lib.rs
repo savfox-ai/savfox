@@ -128,7 +128,6 @@ struct ProviderModelCatalog {
 
 #[derive(Debug, Clone)]
 struct EffectiveModelSelection {
-    write_profile: Option<String>,
     configured_model: String,
     configured_provider: Option<String>,
     effective_effort: Option<ReasoningEffort>,
@@ -259,24 +258,11 @@ fn model_exists_in_catalog(model: &str, catalog: &ProviderModelCatalog) -> bool 
 
 fn effective_model_selection(
     config_toml: &ConfigToml,
-    override_profile: Option<String>,
 ) -> std::io::Result<Option<EffectiveModelSelection>> {
-    let active_profile = override_profile
-        .clone()
-        .or_else(|| config_toml.profile.clone());
-    let profile = config_toml.get_config_profile(override_profile)?;
-
-    let profile_model = profile.model.as_ref().and_then(|model| model.to_model_id());
-    let profile_provider = profile
-        .model_provider
-        .and_then(|provider| trim_nonempty(&provider));
-
-    let configured_model = profile_model.clone().or_else(|| {
-        config_toml
-            .model
-            .as_ref()
-            .and_then(|model| model.to_model_id())
-    });
+    let configured_model = config_toml
+        .model
+        .as_ref()
+        .and_then(|model| model.to_model_id());
     let Some(configured_model) = configured_model else {
         return Ok(None);
     };
@@ -284,38 +270,25 @@ fn effective_model_selection(
     let provider_from_model = parse_provider_prefixed_model(&configured_model)
         .map(|(provider_id, _)| provider_id.to_string());
     let configured_provider = provider_from_model.or_else(|| {
-        profile_provider.clone().or_else(|| {
-            config_toml
-                .model
-                .as_ref()
-                .and_then(|model| model.normalized_provider())
-                .or_else(|| {
-                    config_toml
-                        .model_provider
-                        .as_deref()
-                        .and_then(trim_nonempty)
-                })
-        })
+        config_toml
+            .model
+            .as_ref()
+            .and_then(|model| model.normalized_provider())
+            .or_else(|| {
+                config_toml
+                    .model_provider
+                    .as_deref()
+                    .and_then(trim_nonempty)
+            })
     });
 
-    let write_profile =
-        if active_profile.is_some() && (profile_model.is_some() || profile_provider.is_some()) {
-            active_profile
-        } else {
-            None
-        };
-    let effective_effort = profile
-        .model_reasoning_effort
-        .or_else(|| {
-            config_toml
-                .model
-                .as_ref()
-                .and_then(|model| model.reasoning_effort)
-        })
+    let effective_effort = config_toml
+        .model
+        .as_ref()
+        .and_then(|model| model.reasoning_effort)
         .or(config_toml.model_reasoning_effort);
 
     Ok(Some(EffectiveModelSelection {
-        write_profile,
         configured_model,
         configured_provider,
         effective_effort,
@@ -343,14 +316,13 @@ fn configured_model_for_provider(model: &str, provider_id: Option<&str>) -> Opti
 async fn maybe_repair_model_from_provider_store(
     savfox_home: &Path,
     config_toml: &ConfigToml,
-    override_profile: Option<String>,
 ) -> std::io::Result<Option<String>> {
     let catalogs = load_provider_model_catalog(savfox_home);
     if catalogs.is_empty() {
         return Ok(None);
     }
 
-    let Some(selection) = effective_model_selection(config_toml, override_profile.clone())? else {
+    let Some(selection) = effective_model_selection(config_toml)? else {
         return Ok(None);
     };
 
@@ -405,7 +377,6 @@ async fn maybe_repair_model_from_provider_store(
     }
 
     ConfigEditsBuilder::new(savfox_home)
-        .with_profile(selection.write_profile.as_deref())
         .set_model(
             Some(target.first_model.as_str()),
             selection.effective_effort,
@@ -492,7 +463,7 @@ pub async fn run_main(
 
     let has_model_cli_override = false;
     if !cli.oss && cli.model.is_none() && !has_model_cli_override {
-        match maybe_repair_model_from_provider_store(&savfox_home, &config_toml, None).await {
+        match maybe_repair_model_from_provider_store(&savfox_home, &config_toml).await {
             Ok(Some(warning)) => {
                 #[allow(clippy::print_stderr)]
                 {
@@ -965,7 +936,6 @@ async fn run_ratatui_app(
         }
         _ => config,
     };
-    let active_profile = config.active_profile.clone();
     let should_show_trust_screen = should_show_trust_screen(&config);
 
     let Cli {
@@ -983,7 +953,6 @@ async fn run_ratatui_app(
         auth_manager,
         config,
         overrides.clone(),
-        active_profile,
         prompt,
         images,
         session_selection,
@@ -1524,7 +1493,7 @@ trust_level = "untrusted"
         };
 
         let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
         let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
@@ -1565,7 +1534,7 @@ trust_level = "untrusted"
         };
 
         let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
         let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(

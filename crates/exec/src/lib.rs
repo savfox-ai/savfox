@@ -224,7 +224,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         tools_web_search_request: None,
         ephemeral: None,
         additional_writable_roots: add_dir,
-        config_profile: None,
     };
 
     let config = ConfigBuilder::default()

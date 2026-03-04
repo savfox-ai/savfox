@@ -841,7 +841,6 @@ impl Session {
             config.approval_policy.value(),
             config.sandbox_policy.get().clone(),
             mcp_servers.keys().map(String::as_str).collect(),
-            config.active_profile.clone(),
         );
 
         let mut default_shell = shell::default_user_shell();

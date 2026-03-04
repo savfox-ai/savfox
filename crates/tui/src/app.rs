@@ -561,7 +561,6 @@ pub(crate) struct App {
     pub(crate) auth_manager: Arc<AuthManager>,
     /// Config is stored here so we can recreate ChatScreens as needed.
     pub(crate) config: Config,
-    pub(crate) active_profile: Option<String>,
     harness_overrides: ConfigOverrides,
     runtime_approval_policy_override: Option<AskForApproval>,
     runtime_sandbox_policy_override: Option<SandboxPolicy>,
@@ -1025,7 +1024,6 @@ impl App {
         auth_manager: Arc<AuthManager>,
         mut config: Config,
         harness_overrides: ConfigOverrides,
-        active_profile: Option<String>,
         initial_prompt: Option<String>,
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
@@ -1199,7 +1197,6 @@ impl App {
             chat_screen,
             auth_manager: auth_manager.clone(),
             config,
-            active_profile,
             harness_overrides,
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
@@ -1942,7 +1939,6 @@ impl App {
                 self.app_event_tx
                     .send(AppEvent::UpdateReasoningEffort(None));
 
-                let profile = self.active_profile.as_deref();
                 let mut edits: Vec<ConfigEdit> = vec![ConfigEdit::SetPath {
                     segments: vec!["model_provider".to_string()],
                     value: toml_edit_value(provider_id.clone()),
@@ -1958,7 +1954,6 @@ impl App {
                     });
                 }
                 let persist_result = ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
                     .with_edits(edits)
                     .set_model(Some(normalized_model.as_str()), None)
                     .apply()
@@ -1976,11 +1971,6 @@ impl App {
                     result.provider_name,
                     result.models.len()
                 );
-                if let Some(profile) = profile {
-                    message.push_str(" Updated ");
-                    message.push_str(profile);
-                    message.push_str(" profile.");
-                }
                 self.chat_screen.add_info_message(message, None);
                 self.chat_screen
                     .open_connected_provider_models_popup(provider_id.as_str());
@@ -2154,12 +2144,11 @@ impl App {
                             &[("result", "success")],
                         );
                     }
-                    let profile = self.active_profile.as_deref();
                     let feature_key = Feature::WindowsSandbox.key();
                     let elevated_key = Feature::WindowsSandboxElevated.key();
                     let elevated_enabled = matches!(mode, WindowsSandboxEnableMode::Elevated);
                     let mut builder =
-                        ConfigEditsBuilder::new(&self.config.savfox_home).with_profile(profile);
+                        ConfigEditsBuilder::new(&self.config.savfox_home);
                     if elevated_enabled {
                         builder = builder.set_feature_enabled(elevated_key, true);
                     } else {
@@ -2256,9 +2245,7 @@ impl App {
                 }
             }
             AppEvent::PersistModelSelection { model, effort } => {
-                let profile = self.active_profile.as_deref();
                 match ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
                     .set_model(Some(model.as_str()), effort)
                     .apply()
                     .await
@@ -2269,11 +2256,6 @@ impl App {
                             message.push(' ');
                             message.push_str(label);
                         }
-                        if let Some(profile) = profile {
-                            message.push_str(" for ");
-                            message.push_str(profile);
-                            message.push_str(" profile");
-                        }
                         self.chat_screen.add_info_message(message, None);
                     }
                     Err(err) => {
@@ -2281,33 +2263,20 @@ impl App {
                             error = %err,
                             "failed to persist model selection"
                         );
-                        if let Some(profile) = profile {
-                            self.chat_screen.add_error_message(format!(
-                                "Failed to save model for profile `{profile}`: {err}"
-                            ));
-                        } else {
-                            self.chat_screen
-                                .add_error_message(format!("Failed to save default model: {err}"));
-                        }
+                        self.chat_screen
+                            .add_error_message(format!("Failed to save default model: {err}"));
                     }
                 }
             }
             AppEvent::PersistPersonalitySelection { personality } => {
-                let profile = self.active_profile.as_deref();
                 match ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
                     .set_personality(Some(personality))
                     .apply()
                     .await
                 {
                     Ok(()) => {
                         let label = Self::personality_label(personality);
-                        let mut message = format!("Personality set to {label}");
-                        if let Some(profile) = profile {
-                            message.push_str(" for ");
-                            message.push_str(profile);
-                            message.push_str(" profile");
-                        }
+                        let message = format!("Personality set to {label}");
                         self.chat_screen.add_info_message(message, None);
                     }
                     Err(err) => {
@@ -2315,15 +2284,9 @@ impl App {
                             error = %err,
                             "failed to persist personality selection"
                         );
-                        if let Some(profile) = profile {
-                            self.chat_screen.add_error_message(format!(
-                                "Failed to save personality for profile `{profile}`: {err}"
-                            ));
-                        } else {
-                            self.chat_screen.add_error_message(format!(
+                        self.chat_screen.add_error_message(format!(
                                 "Failed to save default personality: {err}"
                             ));
-                        }
                     }
                 }
             }
@@ -2408,8 +2371,7 @@ impl App {
                         Feature::WindowsSandbox | Feature::WindowsSandboxElevated
                     )
                 });
-                let mut builder = ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(self.active_profile.as_deref());
+                let mut builder = ConfigEditsBuilder::new(&self.config.savfox_home);
                 for (feature, enabled) in &updates {
                     let feature_key = feature.key();
                     if *enabled {
@@ -3059,7 +3021,6 @@ mod tests {
             chat_screen,
             auth_manager,
             config,
-            active_profile: None,
             harness_overrides: ConfigOverrides::default(),
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
