@@ -8014,6 +8014,8 @@ fn default_auth_type() -> String {
 }
 
 /// On-disk representation of `models/{provider_id}.json` (v2).
+/// Persisted shape is `enabled_models` plus auth/provider metadata.
+/// `models` is kept runtime-only for legacy compatibility and RPC responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderFile {
     #[serde(default = "default_version")]
@@ -8024,9 +8026,9 @@ struct ProviderFile {
     display_name: String,
     #[serde(default)]
     auth: Option<ProviderAuth>,
-    #[serde(default)]
+    #[serde(default, rename = "models", skip_serializing)]
     models: Vec<Value>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     enabled_models: Vec<String>,
 }
 
@@ -8043,8 +8045,22 @@ struct ProviderAuth {
 fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[String]) -> Vec<Value> {
     let canonical_provider = savfox_core::canonical_provider_id(provider_id);
     let default_slug = savfox_core::provider_default_model_slug(provider_id);
+    let normalized_enabled: Vec<String> = enabled_models
+        .iter()
+        .filter_map(|slug| {
+            let trimmed = slug.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            Some(
+                savfox_core::parse_provider_prefixed_model(trimmed)
+                    .map(|(_, model_code)| model_code.to_string())
+                    .unwrap_or_else(|| trimmed.to_string()),
+            )
+        })
+        .collect();
 
-    savfox_core::provider_models_from_enabled_slugs(provider_id, enabled_models)
+    savfox_core::provider_models_from_enabled_slugs(provider_id, &normalized_enabled)
         .into_iter()
         .map(|model| {
             let model_slug = model.slug;
@@ -8058,6 +8074,60 @@ fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[Stri
             })
         })
         .collect()
+}
+
+fn provider_enabled_models_from_models(models: &[Value]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut enabled_models = Vec::new();
+    for model in models {
+        let slug = model
+            .get("model_code")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                model
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|id| {
+                        savfox_core::parse_provider_prefixed_model(id)
+                            .map(|(_, model_code)| model_code)
+                            .unwrap_or(id)
+                    })
+            });
+        let Some(slug) = slug else {
+            continue;
+        };
+        let slug = slug.to_string();
+        if seen.insert(slug.clone()) {
+            enabled_models.push(slug);
+        }
+    }
+    enabled_models
+}
+
+fn hydrate_provider_file_enabled_models(file: &mut ProviderFile) {
+    if file.enabled_models.is_empty() && !file.models.is_empty() {
+        file.enabled_models = provider_enabled_models_from_models(&file.models);
+    } else if !file.enabled_models.is_empty() {
+        file.enabled_models = file
+            .enabled_models
+            .iter()
+            .filter_map(|slug| {
+                let trimmed = slug.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                Some(
+                    savfox_core::parse_provider_prefixed_model(trimmed)
+                        .map(|(_, model_code)| model_code.to_string())
+                        .unwrap_or_else(|| trimmed.to_string()),
+                )
+            })
+            .collect();
+    }
 }
 
 fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str) {
@@ -8096,6 +8166,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
 
     // Try v2 (object with "models" key) first, then fall back to v1 (bare array).
     if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
+        hydrate_provider_file_enabled_models(&mut file);
         hydrate_provider_file_models(&mut file, provider_id);
         return file;
     }
@@ -8126,16 +8197,22 @@ async fn save_provider_file(
     provider_id: &str,
     file: &ProviderFile,
 ) -> Result<(), String> {
+    let mut file_to_write = file.clone();
+    hydrate_provider_file_enabled_models(&mut file_to_write);
     let dir = models_dir(bridge);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("create models dir: {e}"))?;
     let path = dir.join(format!("{provider_id}.json"));
-    if file.models.is_empty() && file.enabled_models.is_empty() && file.auth.is_none() {
+    if file_to_write.models.is_empty()
+        && file_to_write.enabled_models.is_empty()
+        && file_to_write.auth.is_none()
+    {
         let _ = tokio::fs::remove_file(&path).await;
         return Ok(());
     }
-    let data = serde_json::to_string_pretty(file).map_err(|e| format!("serialize error: {e}"))?;
+    let data = serde_json::to_string_pretty(&file_to_write)
+        .map_err(|e| format!("serialize error: {e}"))?;
     tokio::fs::write(&path, data)
         .await
         .map_err(|e| format!("write error: {e}"))

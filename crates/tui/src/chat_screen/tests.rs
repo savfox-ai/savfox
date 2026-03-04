@@ -3381,9 +3381,8 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-a",
   "display_name": "Provider A",
-  "models": [
-    { "id": "provider-a/model-one", "name": "Model One", "is_default": true },
-    { "id": "provider-a/model-hidden", "name": "Hidden Model", "is_disabled": true }
+  "enabled_models": [
+    "provider-a/model-one"
   ]
 }"#,
     )
@@ -3394,8 +3393,8 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-b",
   "display_name": "Provider B",
-  "models": [
-    { "id": "provider-b/model-two", "name": "Model Two" }
+  "enabled_models": [
+    "provider-b/model-two"
   ]
 }"#,
     )
@@ -3415,11 +3414,11 @@ async fn model_popup_prefers_provider_store_models() {
         "expected provider-b group in popup:\n{popup}"
     );
     assert!(
-        popup.contains("Model One"),
+        popup.contains("model-one"),
         "expected model from provider-a:\n{popup}"
     );
     assert!(
-        popup.contains("Model Two"),
+        popup.contains("model-two"),
         "expected model from provider-b:\n{popup}"
     );
     assert!(
@@ -3430,6 +3429,32 @@ async fn model_popup_prefers_provider_store_models() {
         !popup.contains("gpt-5.1"),
         "picker should read provider store models, not bundled presets:\n{popup}"
     );
+}
+
+#[test]
+fn provider_store_loader_parses_enabled_models_field() {
+    let savfox_home = tempdir().expect("tempdir");
+    let models_dir = savfox_home.path().join("models");
+    std::fs::create_dir_all(&models_dir).expect("create models dir");
+    std::fs::write(
+        models_dir.join("provider-enabled.json"),
+        r#"{
+  "version": 2,
+  "provider_id": "provider-enabled",
+  "display_name": "Provider Enabled",
+  "enabled_models": [
+    "provider-enabled/model-a",
+    "provider-enabled/model-b"
+  ]
+}"#,
+    )
+    .expect("write enabled models file");
+
+    let presets = load_provider_store_model_presets(savfox_home.path())
+        .expect("models dir exists and should be read");
+    assert_eq!(presets.len(), 2, "expected two parsed presets");
+    assert_eq!(presets[0].slug, "provider-enabled/model-a");
+    assert_eq!(presets[1].slug, "provider-enabled/model-b");
 }
 
 #[tokio::test]

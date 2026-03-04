@@ -65,8 +65,6 @@ fn default_auth_type() -> String {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct ProviderStoreFile {
-    #[serde(default = "default_provider_file_version")]
-    pub(crate) version: u32,
     #[serde(default)]
     pub(crate) provider_id: String,
     #[serde(default)]
@@ -74,7 +72,9 @@ pub(crate) struct ProviderStoreFile {
     #[serde(default)]
     pub(crate) auth: Option<ProviderStoreAuth>,
     #[serde(default)]
-    pub(crate) models: Vec<Value>,
+    pub(crate) enabled_models: Vec<String>,
+    #[serde(default, rename = "models", skip_serializing)]
+    pub(crate) legacy_models: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,21 +109,42 @@ fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderSt
             provider_id: provider_id.to_string(),
             display_name: String::new(),
             auth: None,
-            models: Vec::new(),
+            enabled_models: Vec::new(),
+            legacy_models: Vec::new(),
         };
     };
 
-    if let Ok(file) = serde_json::from_str::<ProviderStoreFile>(&data) {
+    if let Ok(mut file) = serde_json::from_str::<ProviderStoreFile>(&data) {
+        if file.provider_id.trim().is_empty() {
+            file.provider_id = provider_id.to_string();
+        }
+        if file.enabled_models.is_empty() {
+            file.enabled_models = file
+                .legacy_models
+                .iter()
+                .filter_map(model_slug_from_entry)
+                .collect();
+        } else {
+            file.enabled_models = file
+                .enabled_models
+                .iter()
+                .filter_map(|slug| normalize_model_slug(slug))
+                .collect();
+        }
         return file;
     }
 
-    if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
+    if let Ok(legacy_models) = serde_json::from_str::<Vec<Value>>(&data) {
         return ProviderStoreFile {
             version: 2,
             provider_id: provider_id.to_string(),
             display_name: String::new(),
             auth: None,
-            models,
+            enabled_models: legacy_models
+                .iter()
+                .filter_map(model_slug_from_entry)
+                .collect(),
+            legacy_models,
         };
     }
 
@@ -132,7 +153,8 @@ fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderSt
         provider_id: provider_id.to_string(),
         display_name: String::new(),
         auth: None,
-        models: Vec::new(),
+        enabled_models: Vec::new(),
+        legacy_models: Vec::new(),
     }
 }
 
@@ -359,7 +381,7 @@ pub(crate) fn has_provider_store_configuration(savfox_home: &Path) -> bool {
         }
 
         let file = load_provider_store_file(savfox_home, provider_id);
-        let has_models = !file.models.is_empty();
+        let has_models = !file.enabled_models.is_empty() || !file.legacy_models.is_empty();
         let has_api_key = file
             .auth
             .as_ref()
@@ -732,7 +754,12 @@ pub(crate) fn persist_provider_connection(
     } else {
         result.provider_name.clone()
     };
-    file.models = result.models.clone();
+    file.enabled_models = result
+        .models
+        .iter()
+        .filter_map(model_slug_from_entry)
+        .collect();
+    file.legacy_models.clear();
 
     if let Some(api_key) = result.api_key.as_deref().and_then(trim_nonempty) {
         file.auth = Some(ProviderStoreAuth {
@@ -754,6 +781,22 @@ fn model_id_from_entry(item: &Value, provider_id: &str) -> Option<String> {
     } else {
         Some(format!("{provider_id}/{raw}"))
     }
+}
+
+fn normalize_model_slug(raw: &str) -> Option<String> {
+    let raw = trim_nonempty(raw)?;
+    if let Some((_provider_id, model_code)) = savfox_core::parse_provider_prefixed_model(&raw) {
+        return Some(model_code.to_string());
+    }
+    Some(raw)
+}
+
+fn model_slug_from_entry(item: &Value) -> Option<String> {
+    nonempty_string(item.get("model_code"))
+        .or_else(|| nonempty_string(item.get("id")))
+        .or_else(|| nonempty_string(item.get("model")))
+        .or_else(|| item.as_str().and_then(trim_nonempty))
+        .and_then(|raw| normalize_model_slug(&raw))
 }
 
 pub(crate) fn select_default_model(models: &[Value], provider_id: &str) -> Option<String> {
@@ -812,7 +855,8 @@ mod tests {
     #[test]
     fn provider_env_key_for_store_prefers_secret_like_env_headers() {
         let provider = ModelProviderInfo {
-            name: "Anthropic".to_string(),
+            slug: "anthropic".to_string(),
+            display_name: "Anthropic".to_string(),
             base_url: Some("https://api.anthropic.com".to_string()),
             env_key: None,
             env_key_instructions: None,
@@ -902,6 +946,21 @@ mod tests {
             savfox_file.exists(),
             "expected provider file in ~/.savfox/models"
         );
+        let raw: Value = serde_json::from_str(
+            &std::fs::read_to_string(&savfox_file).expect("read persisted provider file"),
+        )
+        .expect("parse persisted provider file");
+        assert_eq!(
+            raw.get("enabled_models")
+                .and_then(Value::as_array)
+                .and_then(|arr| arr.first())
+                .and_then(Value::as_str),
+            Some("claude-sonnet")
+        );
+        assert!(
+            raw.get("models").is_none(),
+            "persisted provider file should not include legacy `models` field"
+        );
         assert_eq!(
             read_provider_store_api_key(&savfox_home, "anthropic").as_deref(),
             Some("sk-anthropic")
@@ -926,8 +985,8 @@ mod tests {
     "env_key": "ZHIPUAI_API_KEY",
     "api_key": "sk-test-zhipu"
   },
-  "models": [
-    { "id": "zhipuai-coding-plan/glm-5", "is_default": true }
+  "enabled_models": [
+    "zhipuai-coding-plan/glm-5"
   ]
 }"#,
         )
@@ -963,10 +1022,32 @@ mod tests {
       "access_token": "access-token"
     }
   },
-  "models": []
+  "enabled_models": []
 }"#,
         )
         .expect("write chatgpt provider file");
+
+        assert!(has_provider_store_configuration(&savfox_home));
+    }
+
+    #[test]
+    fn has_provider_store_configuration_supports_legacy_models_field() {
+        let tmp = TempDir::new().expect("temp root");
+        let savfox_home = tmp.path().join(".savfox");
+        let models_dir = savfox_home.join("models");
+        std::fs::create_dir_all(&models_dir).expect("create models dir");
+        std::fs::write(
+            models_dir.join("legacy-provider.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "legacy-provider",
+  "display_name": "Legacy Provider",
+  "models": [
+    { "id": "legacy-provider/model-a" }
+  ]
+}"#,
+        )
+        .expect("write legacy provider file");
 
         assert!(has_provider_store_configuration(&savfox_home));
     }

@@ -120,14 +120,6 @@ use crate::tui::Tui;
 
 const PROVIDER_MODELS_DIR: &str = "models";
 
-#[derive(Debug, Deserialize)]
-struct ProviderStoreModelFile {
-    #[serde(default)]
-    provider_id: String,
-    #[serde(default)]
-    models: Vec<Value>,
-}
-
 #[derive(Debug, Clone)]
 struct ProviderModelCatalog {
     provider_id: String,
@@ -203,10 +195,18 @@ fn load_provider_model_catalog(savfox_home: &Path) -> Vec<ProviderModelCatalog> 
         };
 
         let (provider_id, models) = if let Ok(file) =
-            serde_json::from_str::<ProviderStoreModelFile>(&data)
+            serde_json::from_str::<ProviderStoreFile>(&data)
         {
             let provider_id = trim_nonempty(&file.provider_id).unwrap_or(provider_from_filename);
-            (provider_id, file.models)
+            let models: Vec<Value> = if !file.enabled_models.is_empty() {
+                file.enabled_models.into_iter().map(Value::String).collect()
+            } else {
+                serde_json::from_str::<Value>(&data)
+                    .ok()
+                    .and_then(|raw| raw.get("models").and_then(Value::as_array).cloned())
+                    .unwrap_or_default()
+            };
+            (provider_id, models)
         } else if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
             (provider_from_filename, models)
         } else {
@@ -1551,8 +1551,8 @@ trust_level = "untrusted"
     "env_key": "ZHIPUAI_API_KEY",
     "api_key": "sk-test-zhipu"
   },
-  "models": [
-    { "id": "zhipuai-coding-plan/glm-5", "is_default": true }
+  "enabled_models": [
+    "glm-5"
   ]
 }"#,
         )?;
@@ -1573,9 +1573,9 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "models": [
-    { "id": "zhipuai-coding-plan/glm-5" },
-    { "id": "zhipuai-coding-plan/glm-4.7" }
+  "enabled_models": [
+    "glm-5",
+    "glm-4.7"
   ]
 }"#,
         )?;
@@ -1606,9 +1606,9 @@ model = "missing-provider/missing-model"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "models": [
-    { "id": "zhipuai-coding-plan/glm-4.5" },
-    { "id": "zhipuai-coding-plan/glm-5" }
+  "enabled_models": [
+    "zhipuai-coding-plan/glm-4.5",
+    "zhipuai-coding-plan/glm-5"
   ]
 }"#,
         )?;

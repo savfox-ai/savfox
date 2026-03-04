@@ -4734,7 +4734,7 @@ impl ChatScreen {
             header,
             is_searchable: true,
             search_placeholder: Some("Search model".to_string()),
-            max_visible_rows: 15,
+            max_visible_rows: 20,
             initial_selected_idx,
             ..Default::default()
         });
@@ -6927,7 +6927,9 @@ struct ModelProviderBucket {
 #[derive(Debug, Deserialize)]
 struct ProviderStoreFile {
     #[serde(default)]
-    models: Vec<serde_json::Value>,
+    enabled_models: Vec<String>,
+    #[serde(default, rename = "models")]
+    legacy_models: Vec<serde_json::Value>,
 }
 
 fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPreset>> {
@@ -6992,16 +6994,29 @@ fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPres
 
 fn parse_provider_store_models(data: &str) -> Vec<serde_json::Value> {
     if let Ok(file) = serde_json::from_str::<ProviderStoreFile>(data) {
-        return file.models;
+        if !file.enabled_models.is_empty() {
+            return file
+                .enabled_models
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect();
+        }
+        return file.legacy_models;
     }
     serde_json::from_str::<Vec<serde_json::Value>>(data).unwrap_or_default()
 }
 
 fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Option<ModelPreset> {
-    let raw_id = value_string(model, &["id", "model"])
-        .or_else(|| value_string(model, &["model_code"]))?
-        .trim()
-        .to_string();
+    let raw_id = model
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            value_string(model, &["id", "model"])
+                .or_else(|| value_string(model, &["model_code"]))
+                .map(|value| value.trim().to_string())
+        })?;
     if raw_id.is_empty() {
         return None;
     }
