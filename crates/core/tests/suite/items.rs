@@ -9,12 +9,12 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{skip_if_no_network, wait_for_event, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::protocol::{EventMsg, ItemCompletedEvent, ItemStartedEvent, Op};
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use savfox_protocol::items::{AgentMessageContent, TurnItem};
 use savfox_protocol::models::WebSearchAction;
 use savfox_protocol::user_input::{ByteRange, TextElement, UserInput};
-use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_message_item_is_emitted() -> anyhow::Result<()> {

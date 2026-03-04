@@ -1,4 +1,4 @@
-﻿use std::sync::Mutex;
+use std::sync::Mutex;
 
 use core_test_support::responses::{
     ev_assistant_message, ev_completed, ev_custom_tool_call, ev_function_call, ev_local_shell_call,

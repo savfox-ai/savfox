@@ -1,7 +1,8 @@
-﻿#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use pretty_assertions::assert_eq;
 use savfox_core::config::ConfigBuilder;
 use savfox_core::protocol::SessionSource;
 use savfox_core::{
@@ -10,7 +11,6 @@ use savfox_core::{
 };
 use savfox_protocol::SessionId;
 use savfox_protocol::models::BaseInstructions;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use uuid::Uuid;
 

@@ -50,10 +50,7 @@ pub async fn run_command_under_landlock(
     command: LandlockCommand,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let LandlockCommand {
-        full_auto,
-        command,
-    } = command;
+    let LandlockCommand { full_auto, command } = command;
     run_command_under_sandbox(
         full_auto,
         command,
@@ -68,10 +65,7 @@ pub async fn run_command_under_windows(
     command: WindowsCommand,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let WindowsCommand {
-        full_auto,
-        command,
-    } = command;
+    let WindowsCommand { full_auto, command } = command;
     run_command_under_sandbox(
         full_auto,
         command,

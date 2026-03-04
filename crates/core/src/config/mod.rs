@@ -20,7 +20,6 @@ use toml_edit::DocumentMut;
 
 use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::{ConfigEdit, ConfigEditsBuilder};
-use crate::config::profile::ConfigProfile;
 use crate::config::provider_store::{ProviderStoreFile, provider_models_store_dir};
 use crate::config::types::{
     DEFAULT_OTEL_ENVIRONMENT, History, McpServerConfig, McpServerDisabledReason,
@@ -46,7 +45,6 @@ use crate::windows_sandbox::WindowsSandboxLevelExt;
 
 mod constraint;
 pub mod edit;
-pub mod profile;
 pub mod provider_store;
 pub mod schema;
 pub mod service;
@@ -965,13 +963,6 @@ pub struct ConfigToml {
     /// Token budget applied when storing tool/function outputs in the context manager.
     pub tool_output_token_limit: Option<usize>,
 
-    /// Profile to use from the `profiles` map.
-    pub profile: Option<String>,
-
-    /// Named profiles to facilitate switching between different configurations.
-    #[serde(default)]
-    pub profiles: HashMap<String, ConfigProfile>,
-
     /// Settings that govern if and what will be written to `~/.savfox/history.jsonl`.
     #[serde(default)]
     pub history: Option<History>,
@@ -1088,11 +1079,6 @@ impl From<ConfigToml> for UserSavedConfig {
                 .as_ref()
                 .and_then(|selected| selected.reasoning_effort)
         });
-        let profiles = config_toml
-            .profiles
-            .into_iter()
-            .map(|(k, v)| (k, v.into()))
-            .collect();
 
         Self {
             approval_policy: config_toml.approval_policy,
@@ -1105,8 +1091,6 @@ impl From<ConfigToml> for UserSavedConfig {
             model_reasoning_summary: config_toml.model_reasoning_summary,
             model_verbosity: config_toml.model_verbosity,
             tools: config_toml.tools.map(From::from),
-            profile: config_toml.profile,
-            profiles,
         }
     }
 }
@@ -1254,27 +1238,6 @@ impl ConfigToml {
 
         None
     }
-
-    pub fn get_config_profile(
-        &self,
-        override_profile: Option<String>,
-    ) -> Result<ConfigProfile, std::io::Error> {
-        let profile = override_profile.or_else(|| self.profile.clone());
-
-        match profile {
-            Some(key) => {
-                if let Some(profile) = self.profiles.get(key.as_str()) {
-                    return Ok(profile.clone());
-                }
-
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("config profile `{key}` not found"),
-                ))
-            }
-            None => Ok(ConfigProfile::default()),
-        }
-    }
 }
 
 /// Optional overrides for user configuration (e.g., from CLI flags).
@@ -1286,7 +1249,6 @@ pub struct ConfigOverrides {
     pub approval_policy: Option<AskForApproval>,
     pub sandbox_mode: Option<SandboxMode>,
     pub model_provider: Option<String>,
-    pub config_profile: Option<String>,
     pub savfox_linux_sandbox_exe: Option<PathBuf>,
     pub base_instructions: Option<String>,
     pub developer_instructions: Option<String>,
@@ -1305,7 +1267,6 @@ pub struct ConfigOverrides {
 pub fn resolve_oss_provider(
     explicit_provider: Option<&str>,
     config_toml: &ConfigToml,
-    _config_profile: Option<String>,
 ) -> Option<String> {
     if let Some(provider) = explicit_provider {
         // Explicit provider specified (e.g., via --local-provider)
@@ -1316,12 +1277,8 @@ pub fn resolve_oss_provider(
 }
 
 /// Resolve the web search mode from explicit config and feature flags.
-fn resolve_web_search_mode(
-    config_toml: &ConfigToml,
-    config_profile: &ConfigProfile,
-    features: &Features,
-) -> Option<WebSearchMode> {
-    if let Some(mode) = config_profile.web_search.or(config_toml.web_search) {
+fn resolve_web_search_mode(config_toml: &ConfigToml, features: &Features) -> Option<WebSearchMode> {
+    if let Some(mode) = config_toml.web_search {
         return Some(mode);
     }
     if features.enabled(Feature::WebSearchCached) {
@@ -1380,7 +1337,6 @@ impl Config {
             approval_policy: approval_policy_override,
             sandbox_mode,
             model_provider,
-            config_profile: _config_profile_key,
             savfox_linux_sandbox_exe,
             base_instructions,
             developer_instructions,
@@ -1393,15 +1349,12 @@ impl Config {
             additional_writable_roots,
         } = overrides;
 
-        let active_profile_name = None;
-        let config_profile = ConfigProfile::default();
-
         let feature_overrides = FeatureOverrides {
             include_apply_patch_tool: include_apply_patch_tool_override,
             web_search_request: override_tools_web_search_request,
         };
 
-        let features = Features::from_config(&cfg, &config_profile, feature_overrides);
+        let features = Features::from_config(&cfg, feature_overrides);
         let resolved_cwd = {
             use std::env;
 
@@ -1434,7 +1387,7 @@ impl Config {
             forced_auto_mode_downgraded_on_windows,
         } = cfg.derive_sandbox_policy(
             sandbox_mode,
-            config_profile.sandbox_mode,
+            None, // profile_sandbox_mode - no longer supported
             windows_sandbox_level,
             &resolved_cwd,
         );
@@ -1446,7 +1399,6 @@ impl Config {
             }
         }
         let approval_policy = approval_policy_override
-            .or(config_profile.approval_policy)
             .or(cfg.approval_policy)
             .unwrap_or_else(|| {
                 if active_project.is_trusted() {
@@ -1457,15 +1409,13 @@ impl Config {
                     AskForApproval::default()
                 }
             });
-        let web_search_mode = resolve_web_search_mode(&cfg, &config_profile, &features);
+        let web_search_mode = resolve_web_search_mode(&cfg, &features);
         // TODO(dylan): We should be able to leverage ConfigLayerStack so that
         // we can reliably check this at every config level.
         let did_user_set_custom_approval_policy_or_sandbox_mode = approval_policy_override
             .is_some()
-            || config_profile.approval_policy.is_some()
             || cfg.approval_policy.is_some()
             || sandbox_mode.is_some()
-            || config_profile.sandbox_mode.is_some()
             || cfg.sandbox_mode.is_some();
 
         let mut model_providers = built_in_model_providers();
@@ -1476,15 +1426,7 @@ impl Config {
         merge_provider_store_model_providers(&mut model_providers, &savfox_home);
 
         let model_from_selected = cfg.model.as_ref().and_then(SelectedModel::to_model_id);
-        let model_from_profile_selected = config_profile
-            .model
-            .as_ref()
-            .and_then(SelectedModel::to_model_id);
         let model_provider_from_selected = cfg
-            .model
-            .as_ref()
-            .and_then(SelectedModel::normalized_provider);
-        let model_provider_from_profile_selected = config_profile
             .model
             .as_ref()
             .and_then(SelectedModel::normalized_provider);
@@ -1492,17 +1434,9 @@ impl Config {
             .model
             .as_ref()
             .and_then(|selected| selected.reasoning_effort);
-        let model_reasoning_from_profile_selected = config_profile
-            .model
-            .as_ref()
-            .and_then(|selected| selected.reasoning_effort);
-        let model = model
-            .or(model_from_profile_selected)
-            .or(model_from_selected);
+        let model = model.or(model_from_selected);
 
         let explicit_model_provider = model_provider
-            .or(config_profile.model_provider)
-            .or(model_provider_from_profile_selected)
             .or(model_provider_from_selected)
             .or(cfg.model_provider);
         let inferred_model_provider = if explicit_model_provider.is_none() {
@@ -1599,27 +1533,18 @@ impl Config {
         // Load base instructions override from a file if specified. If the
         // path is relative, resolve it against the effective cwd so the
         // behaviour matches other path-like config values.
-        let model_instructions_path = config_profile
-            .model_instructions_file
-            .as_ref()
-            .or(cfg.model_instructions_file.as_ref());
+        let model_instructions_path = cfg.model_instructions_file.as_ref();
         let file_base_instructions =
             Self::try_read_non_empty_file(model_instructions_path, "model instructions file")?;
         let base_instructions = base_instructions.or(file_base_instructions);
         let developer_instructions = developer_instructions.or(cfg.developer_instructions);
-        let personality = personality
-            .or(config_profile.personality)
-            .or(cfg.personality)
-            .or_else(|| {
-                features
-                    .enabled(Feature::Personality)
-                    .then_some(Personality::Friendly)
-            });
+        let personality = personality.or(cfg.personality).or_else(|| {
+            features
+                .enabled(Feature::Personality)
+                .then_some(Personality::Friendly)
+        });
 
-        let experimental_compact_prompt_path = config_profile
-            .experimental_compact_prompt_file
-            .as_ref()
-            .or(cfg.experimental_compact_prompt_file.as_ref());
+        let experimental_compact_prompt_path = cfg.experimental_compact_prompt_file.as_ref();
         let file_compact_prompt = Self::try_read_non_empty_file(
             experimental_compact_prompt_path,
             "experimental compact prompt file",
@@ -1707,20 +1632,12 @@ impl Config {
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
                 .unwrap_or(false),
-            model_reasoning_effort: config_profile
-                .model_reasoning_effort
-                .or(model_reasoning_from_profile_selected)
-                .or(model_reasoning_from_selected)
-                .or(cfg.model_reasoning_effort),
-            model_reasoning_summary: config_profile
-                .model_reasoning_summary
-                .or(cfg.model_reasoning_summary)
-                .unwrap_or_default(),
+            model_reasoning_effort: model_reasoning_from_selected.or(cfg.model_reasoning_effort),
+            model_reasoning_summary: cfg.model_reasoning_summary.unwrap_or_default(),
             model_supports_reasoning_summaries: cfg.model_supports_reasoning_summaries,
-            model_verbosity: config_profile.model_verbosity.or(cfg.model_verbosity),
-            chatgpt_base_url: config_profile
+            model_verbosity: cfg.model_verbosity,
+            chatgpt_base_url: cfg
                 .chatgpt_base_url
-                .or(cfg.chatgpt_base_url)
                 .unwrap_or("https://chatgpt.com/backend-api/".to_string()),
             forced_chatgpt_workspace_id,
             forced_login_method,
@@ -1732,17 +1649,13 @@ impl Config {
             suppress_unstable_features_warning: cfg
                 .suppress_unstable_features_warning
                 .unwrap_or(false),
-            active_profile: active_profile_name,
+            active_profile: None, // Profiles have been removed
             active_project,
             windows_wsl_setup_acknowledged: cfg.windows_wsl_setup_acknowledged.unwrap_or(false),
             notices: cfg.notice.unwrap_or_default(),
             check_for_update_on_startup,
             disable_paste_burst: cfg.disable_paste_burst.unwrap_or(false),
-            analytics_enabled: config_profile
-                .analytics
-                .as_ref()
-                .and_then(|a| a.enabled)
-                .or(cfg.analytics.as_ref().and_then(|a| a.enabled)),
+            analytics_enabled: cfg.analytics.as_ref().and_then(|a| a.enabled),
             feedback_enabled: cfg
                 .feedback
                 .as_ref()
@@ -1948,9 +1861,7 @@ mod tests {
     }
 
     fn selected_model_from_id(model_id: &str) -> SelectedModel {
-        let (provider, slug) = model_id
-            .rsplit_once('/')
-            .unwrap_or(("openai", model_id));
+        let (provider, slug) = model_id.rsplit_once('/').unwrap_or(("openai", model_id));
         SelectedModel {
             slug: slug.to_string(),
             provider: provider.to_string(),
@@ -2011,24 +1922,6 @@ model = { provider = "zhipuai-coding-plan", slug = "glm-5" }
     }
 
     #[test]
-    fn profile_model_field_deserializes_struct_form() {
-        let cfg: ConfigToml = toml::from_str(
-            r#"
-[profiles.dev]
-model = { provider = "zhipuai-coding-plan", slug = "glm-5" }
-"#,
-        )
-        .expect("TOML deserialization should succeed");
-        assert_eq!(
-            cfg.profiles
-                .get("dev")
-                .and_then(|profile| selected_model_id(profile.model.as_ref()))
-                .as_deref(),
-            Some("zhipuai-coding-plan/glm-5")
-        );
-    }
-
-    #[test]
     fn model_field_deserializes_full_object_form_with_provider_string() {
         let cfg: ConfigToml = toml::from_str(
             r#"
@@ -2049,7 +1942,10 @@ model = { id = "zhipuai-coding-plan/glm-5", slug = "glm-5", code = "glm-5", name
 model = { id = "zhipuai-coding-plan/glm-5", provider = { id = "zhipuai-coding-plan", name = "Zhipuai Coding Plan" } }
 "#,
         );
-        assert!(result.is_err(), "provider object form is no longer supported");
+        assert!(
+            result.is_err(),
+            "provider object form is no longer supported"
+        );
     }
 
     #[test]
@@ -2488,16 +2384,14 @@ trust_level = "trusted"
     #[test]
     fn web_search_mode_defaults_to_none_if_unset() {
         let cfg = ConfigToml::default();
-        let profile = ConfigProfile::default();
         let features = Features::with_defaults();
 
-        assert_eq!(resolve_web_search_mode(&cfg, &profile, &features), None);
+        assert_eq!(resolve_web_search_mode(&cfg, &features), None);
     }
 
     #[test]
-    fn web_search_mode_prefers_profile_over_legacy_flags() {
-        let cfg = ConfigToml::default();
-        let profile = ConfigProfile {
+    fn web_search_mode_prefers_config_over_legacy_flags() {
+        let cfg = ConfigToml {
             web_search: Some(WebSearchMode::Live),
             ..Default::default()
         };
@@ -2505,7 +2399,7 @@ trust_level = "trusted"
         features.enable(Feature::WebSearchCached);
 
         assert_eq!(
-            resolve_web_search_mode(&cfg, &profile, &features),
+            resolve_web_search_mode(&cfg, &features),
             Some(WebSearchMode::Live)
         );
     }
@@ -2516,12 +2410,11 @@ trust_level = "trusted"
             web_search: Some(WebSearchMode::Disabled),
             ..Default::default()
         };
-        let profile = ConfigProfile::default();
         let mut features = Features::with_defaults();
         features.enable(Feature::WebSearchRequest);
 
         assert_eq!(
-            resolve_web_search_mode(&cfg, &profile, &features),
+            resolve_web_search_mode(&cfg, &features),
             Some(WebSearchMode::Disabled)
         );
     }
@@ -2556,177 +2449,6 @@ trust_level = "trusted"
         let mode = resolve_web_search_mode_for_turn(None, true, &SandboxPolicy::DangerFullAccess);
 
         assert_eq!(mode, WebSearchMode::Disabled);
-    }
-
-    #[test]
-    fn profile_legacy_toggles_override_base() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let mut profiles = HashMap::new();
-        profiles.insert(
-            "work".to_string(),
-            ConfigProfile {
-                tools_web_search: Some(false),
-                ..Default::default()
-            },
-        );
-        let cfg = ConfigToml {
-            profiles,
-            profile: Some("work".to_string()),
-            ..Default::default()
-        };
-
-        let config = Config::load_from_base_config_with_overrides(
-            cfg,
-            ConfigOverrides::default(),
-            savfox_home.path().to_path_buf(),
-        )?;
-
-        assert!(!config.features.enabled(Feature::WebSearchRequest));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn project_profile_overrides_user_profile() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let workspace = TempDir::new()?;
-        let workspace_key = workspace.path().to_string_lossy().replace('\\', "\\\\");
-        std::fs::write(
-            savfox_home.path().join(CONFIG_TOML_FILE),
-            format!(
-                r#"
-profile = "global"
-
-[profiles.global]
-model = {{ provider = "openai", slug = "gpt-global" }}
-
-[profiles.project]
-model = {{ provider = "openai", slug = "gpt-project" }}
-
-[projects."{workspace_key}"]
-trust_level = "trusted"
-"#,
-            ),
-        )?;
-        let project_config_dir = workspace.path().join(".savfox");
-        std::fs::create_dir_all(&project_config_dir)?;
-        std::fs::write(
-            project_config_dir.join(CONFIG_TOML_FILE),
-            r#"
-profile = "project"
-"#,
-        )?;
-
-        let config = ConfigBuilder::default()
-            .savfox_home(savfox_home.path().to_path_buf())
-            .harness_overrides(ConfigOverrides {
-                cwd: Some(workspace.path().to_path_buf()),
-                ..Default::default()
-            })
-            .build()
-            .await?;
-
-        assert_eq!(config.active_profile, None);
-        assert_ne!(config.model.as_deref(), Some("gpt-project"));
-
-        Ok(())
-    }
-
-    #[test]
-    fn profile_sandbox_mode_overrides_base() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let mut profiles = HashMap::new();
-        profiles.insert(
-            "work".to_string(),
-            ConfigProfile {
-                sandbox_mode: Some(SandboxMode::DangerFullAccess),
-                ..Default::default()
-            },
-        );
-        let cfg = ConfigToml {
-            profiles,
-            profile: Some("work".to_string()),
-            sandbox_mode: Some(SandboxMode::ReadOnly),
-            ..Default::default()
-        };
-
-        let config = Config::load_from_base_config_with_overrides(
-            cfg,
-            ConfigOverrides::default(),
-            savfox_home.path().to_path_buf(),
-        )?;
-
-        assert!(matches!(config.sandbox_policy.get(), SandboxPolicy::ReadOnly));
-        assert!(config.did_user_set_custom_approval_policy_or_sandbox_mode);
-
-        Ok(())
-    }
-
-    #[test]
-    fn cli_override_takes_precedence_over_profile_sandbox_mode() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let mut profiles = HashMap::new();
-        profiles.insert(
-            "work".to_string(),
-            ConfigProfile {
-                sandbox_mode: Some(SandboxMode::DangerFullAccess),
-                ..Default::default()
-            },
-        );
-        let cfg = ConfigToml {
-            profiles,
-            profile: Some("work".to_string()),
-            ..Default::default()
-        };
-
-        let overrides = ConfigOverrides {
-            sandbox_mode: Some(SandboxMode::WorkspaceWrite),
-            ..Default::default()
-        };
-
-        let config = Config::load_from_base_config_with_overrides(
-            cfg,
-            overrides,
-            savfox_home.path().to_path_buf(),
-        )?;
-
-        if cfg!(target_os = "windows") {
-            assert!(matches!(
-                config.sandbox_policy.get(),
-                SandboxPolicy::ReadOnly
-            ));
-            assert!(config.forced_auto_mode_downgraded_on_windows);
-        } else {
-            assert!(matches!(
-                config.sandbox_policy.get(),
-                SandboxPolicy::WorkspaceWrite { .. }
-            ));
-            assert!(!config.forced_auto_mode_downgraded_on_windows);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn feature_table_overrides_legacy_flags() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let mut entries = BTreeMap::new();
-        entries.insert("apply_patch_freeform".to_string(), false);
-        let cfg = ConfigToml {
-            features: Some(crate::features::FeaturesToml { entries }),
-            ..Default::default()
-        };
-
-        let config = Config::load_from_base_config_with_overrides(
-            cfg,
-            ConfigOverrides::default(),
-            savfox_home.path().to_path_buf(),
-        )?;
-
-        assert!(!config.features.enabled(Feature::ApplyPatchFreeform));
-        assert!(!config.include_apply_patch_tool);
-
-        Ok(())
     }
 
     #[test]
@@ -2942,7 +2664,10 @@ profile = "project"
         )?;
 
         let mut cli_model = toml::map::Map::new();
-        cli_model.insert("provider".to_string(), TomlValue::String("openai".to_string()));
+        cli_model.insert(
+            "provider".to_string(),
+            TomlValue::String("openai".to_string()),
+        );
         cli_model.insert("slug".to_string(), TomlValue::String("cli".to_string()));
 
         let overrides = LoaderOverrides {
@@ -3648,13 +3373,7 @@ url = "https://example.com/mcp"
             Some("gpt-5.1-savfox")
         );
         assert_eq!(
-            model.get("reasoning_level").and_then(TomlValue::as_str),
-            Some("high")
-        );
-        assert_eq!(
-            parsed
-                .get("model_reasoning_effort")
-                .and_then(TomlValue::as_str),
+            model.get("reasoning_effort").and_then(TomlValue::as_str),
             Some("high")
         );
 
@@ -3672,7 +3391,7 @@ url = "https://example.com/mcp"
 [model]
 provider = "openai"
 slug = "gpt-5.1-savfox"
-reasoning_level = "medium"
+reasoning_effort = "medium"
 
 [profiles.dev.model]
 provider = "openai"
@@ -3693,15 +3412,12 @@ slug = "gpt-4.1"
             .and_then(TomlValue::as_table)
             .expect("model table should be written");
 
-        assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("o4-mini"));
         assert_eq!(
-            model.get("reasoning_level").and_then(TomlValue::as_str),
-            Some("high")
+            model.get("slug").and_then(TomlValue::as_str),
+            Some("o4-mini")
         );
         assert_eq!(
-            parsed
-                .get("model_reasoning_effort")
-                .and_then(TomlValue::as_str),
+            model.get("reasoning_effort").and_then(TomlValue::as_str),
             Some("high")
         );
 
@@ -3717,7 +3433,10 @@ slug = "gpt-4.1"
             dev_model.get("provider").and_then(TomlValue::as_str),
             Some("openai")
         );
-        assert_eq!(dev_model.get("slug").and_then(TomlValue::as_str), Some("gpt-4.1"));
+        assert_eq!(
+            dev_model.get("slug").and_then(TomlValue::as_str),
+            Some("gpt-4.1")
+        );
 
         Ok(())
     }
@@ -3727,7 +3446,6 @@ slug = "gpt-4.1"
         let savfox_home = TempDir::new()?;
 
         ConfigEditsBuilder::new(savfox_home.path())
-            .with_profile(Some("dev"))
             .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::Medium))
             .apply()
             .await?;
@@ -3735,19 +3453,17 @@ slug = "gpt-4.1"
         let serialized =
             tokio::fs::read_to_string(savfox_home.path().join(CONFIG_TOML_FILE)).await?;
         let parsed: TomlValue = toml::from_str(&serialized)?;
-        let profile = parsed
-            .get("profiles")
+        let model = parsed
+            .get("model")
             .and_then(TomlValue::as_table)
-            .and_then(|profiles| profiles.get("dev"))
-            .and_then(TomlValue::as_table)
-            .expect("profile should be created");
+            .expect("model table should be created");
 
         assert_eq!(
-            profile.get("model").and_then(TomlValue::as_str),
+            model.get("slug").and_then(TomlValue::as_str),
             Some("gpt-5.1-savfox")
         );
         assert_eq!(
-            profile.get("model_reasoning_effort").and_then(TomlValue::as_str),
+            model.get("reasoning_effort").and_then(TomlValue::as_str),
             Some("medium")
         );
 
@@ -3762,9 +3478,12 @@ slug = "gpt-4.1"
         tokio::fs::write(
             &config_path,
             r#"
+[model]
+slug = "gpt-4"
+reasoning_effort = "medium"
+
 [profiles.dev]
-model = { provider = "openai", slug = "gpt-4" }
-model_reasoning_effort = "medium"
+model = "gpt-3.5"
 
 [profiles.prod]
 model = { provider = "openai", slug = "gpt-5.1-savfox" }
@@ -3773,7 +3492,6 @@ model = { provider = "openai", slug = "gpt-5.1-savfox" }
         .await?;
 
         ConfigEditsBuilder::new(savfox_home.path())
-            .with_profile(Some("dev"))
             .set_model(Some("o4-high"), Some(ReasoningEffort::Medium))
             .apply()
             .await?;
@@ -3781,6 +3499,21 @@ model = { provider = "openai", slug = "gpt-5.1-savfox" }
         let serialized = tokio::fs::read_to_string(config_path).await?;
         let parsed: TomlValue = toml::from_str(&serialized)?;
 
+        // Check that the top-level model was updated
+        let model = parsed
+            .get("model")
+            .and_then(TomlValue::as_table)
+            .expect("model table should exist");
+        assert_eq!(
+            model.get("slug").and_then(TomlValue::as_str),
+            Some("o4-high")
+        );
+        assert_eq!(
+            model.get("reasoning_effort").and_then(TomlValue::as_str),
+            Some("medium")
+        );
+
+        // Check that profiles were preserved
         let dev_profile = parsed
             .get("profiles")
             .and_then(TomlValue::as_table)
@@ -3789,13 +3522,7 @@ model = { provider = "openai", slug = "gpt-5.1-savfox" }
             .expect("dev profile should survive updates");
         assert_eq!(
             dev_profile.get("model").and_then(TomlValue::as_str),
-            Some("o4-high")
-        );
-        assert_eq!(
-            dev_profile
-                .get("model_reasoning_effort")
-                .and_then(TomlValue::as_str),
-            Some("medium")
+            Some("gpt-3.5")
         );
 
         let prod_model = parsed
@@ -4184,37 +3911,31 @@ model_verbosity = "high"
     /// following precedence:
     ///
     /// 1. custom command-line argument, e.g. `--model o3`
-    /// 2. as part of a profile, where the `--profile` is specified via a CLI (or in the config file
-    ///    itself)
-    /// 3. as an entry in `config.toml`, e.g. `model = "o3"`
-    /// 4. the default value for a required field defined in code, e.g.,
+    /// 2. as an entry in `config.toml`, e.g. `model = "o3"`
+    /// 3. the default value for a required field defined in code, e.g.,
     ///    `crate::flags::OPENAI_DEFAULT_MODEL`
-    ///
-    /// Note that profiles are the recommended way to specify a group of
-    /// configuration options together.
     #[test]
     fn test_precedence_fixture_with_o3_profile() -> std::io::Result<()> {
         let fixture = create_test_fixture()?;
 
-        let o3_profile_overrides = ConfigOverrides {
-            config_profile: Some("o3".to_string()),
+        let o3_overrides = ConfigOverrides {
             cwd: Some(fixture.cwd()),
             ..Default::default()
         };
-        let o3_profile_config: Config = Config::load_from_base_config_with_overrides(
+        let o3_config: Config = Config::load_from_base_config_with_overrides(
             fixture.cfg.clone(),
-            o3_profile_overrides,
+            o3_overrides,
             fixture.savfox_home(),
         )?;
-        assert_eq!(o3_profile_config.model.as_deref(), Some("openai/o3"));
-        assert_eq!(o3_profile_config.model_provider_id, "openai");
+        assert_eq!(o3_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(o3_config.model_provider_id, "openai");
         assert_eq!(
-            o3_profile_config.approval_policy.get(),
+            o3_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(o3_profile_config.model_reasoning_effort, None);
-        assert_eq!(o3_profile_config.active_profile, None);
-        assert_eq!(o3_profile_config.analytics_enabled, Some(true));
+        assert_eq!(o3_config.model_reasoning_effort, None);
+        assert_eq!(o3_config.active_profile, None);
+        assert_eq!(o3_config.analytics_enabled, Some(true));
         Ok(())
     }
 
@@ -4222,39 +3943,37 @@ model_verbosity = "high"
     fn test_precedence_fixture_with_gpt3_profile() -> std::io::Result<()> {
         let fixture = create_test_fixture()?;
 
-        let gpt3_profile_overrides = ConfigOverrides {
-            config_profile: Some("gpt3".to_string()),
+        let gpt3_overrides = ConfigOverrides {
             cwd: Some(fixture.cwd()),
             ..Default::default()
         };
-        let gpt3_profile_config = Config::load_from_base_config_with_overrides(
+        let gpt3_config = Config::load_from_base_config_with_overrides(
             fixture.cfg.clone(),
-            gpt3_profile_overrides,
+            gpt3_overrides,
             fixture.savfox_home(),
         )?;
-        assert_eq!(gpt3_profile_config.model.as_deref(), Some("openai/o3"));
-        assert_eq!(gpt3_profile_config.model_provider_id, "openai");
+        assert_eq!(gpt3_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(gpt3_config.model_provider_id, "openai");
         assert_eq!(
-            gpt3_profile_config.approval_policy.get(),
+            gpt3_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(gpt3_profile_config.active_profile, None);
-        assert_eq!(gpt3_profile_config.analytics_enabled, Some(true));
+        assert_eq!(gpt3_config.active_profile, None);
+        assert_eq!(gpt3_config.analytics_enabled, Some(true));
 
-        // Verify that loading without specifying a profile in ConfigOverrides
-        // uses the default profile from the config file (which is "gpt3").
-        let default_profile_overrides = ConfigOverrides {
+        // Verify that loading without specifying overrides uses the base config
+        let default_overrides = ConfigOverrides {
             cwd: Some(fixture.cwd()),
             ..Default::default()
         };
 
-        let default_profile_config = Config::load_from_base_config_with_overrides(
+        let default_config = Config::load_from_base_config_with_overrides(
             fixture.cfg.clone(),
-            default_profile_overrides,
+            default_overrides,
             fixture.savfox_home(),
         )?;
 
-        assert_eq!(default_profile_config, gpt3_profile_config);
+        assert_eq!(default_config, gpt3_config);
         Ok(())
     }
 
@@ -4262,24 +3981,23 @@ model_verbosity = "high"
     fn test_precedence_fixture_with_zdr_profile() -> std::io::Result<()> {
         let fixture = create_test_fixture()?;
 
-        let zdr_profile_overrides = ConfigOverrides {
-            config_profile: Some("zdr".to_string()),
+        let zdr_overrides = ConfigOverrides {
             cwd: Some(fixture.cwd()),
             ..Default::default()
         };
-        let zdr_profile_config = Config::load_from_base_config_with_overrides(
+        let zdr_config = Config::load_from_base_config_with_overrides(
             fixture.cfg.clone(),
-            zdr_profile_overrides,
+            zdr_overrides,
             fixture.savfox_home(),
         )?;
-        assert_eq!(zdr_profile_config.model.as_deref(), Some("openai/o3"));
-        assert_eq!(zdr_profile_config.model_provider_id, "openai");
+        assert_eq!(zdr_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(zdr_config.model_provider_id, "openai");
         assert_eq!(
-            zdr_profile_config.approval_policy.get(),
+            zdr_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(zdr_profile_config.active_profile, None);
-        assert_eq!(zdr_profile_config.analytics_enabled, Some(true));
+        assert_eq!(zdr_config.active_profile, None);
+        assert_eq!(zdr_config.analytics_enabled, Some(true));
 
         Ok(())
     }
@@ -4288,24 +4006,23 @@ model_verbosity = "high"
     fn test_precedence_fixture_with_gpt5_profile() -> std::io::Result<()> {
         let fixture = create_test_fixture()?;
 
-        let gpt5_profile_overrides = ConfigOverrides {
-            config_profile: Some("gpt5".to_string()),
+        let gpt5_overrides = ConfigOverrides {
             cwd: Some(fixture.cwd()),
             ..Default::default()
         };
-        let gpt5_profile_config = Config::load_from_base_config_with_overrides(
+        let gpt5_config = Config::load_from_base_config_with_overrides(
             fixture.cfg.clone(),
-            gpt5_profile_overrides,
+            gpt5_overrides,
             fixture.savfox_home(),
         )?;
-        assert_eq!(gpt5_profile_config.model.as_deref(), Some("openai/o3"));
-        assert_eq!(gpt5_profile_config.model_provider_id, "openai");
+        assert_eq!(gpt5_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(gpt5_config.model_provider_id, "openai");
         assert_eq!(
-            gpt5_profile_config.approval_policy.get(),
+            gpt5_config.approval_policy.get(),
             &AskForApproval::UnlessTrusted
         );
-        assert_eq!(gpt5_profile_config.active_profile, None);
-        assert_eq!(gpt5_profile_config.analytics_enabled, Some(true));
+        assert_eq!(gpt5_config.active_profile, None);
+        assert_eq!(gpt5_config.analytics_enabled, Some(true));
 
         Ok(())
     }
@@ -4498,25 +4215,8 @@ trust_level = "untrusted"
     #[test]
     fn test_resolve_oss_provider_explicit_override() {
         let config_toml = ConfigToml::default();
-        let result = resolve_oss_provider(Some("custom-provider"), &config_toml, None);
+        let result = resolve_oss_provider(Some("custom-provider"), &config_toml);
         assert_eq!(result, Some("custom-provider".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_oss_provider_from_profile() {
-        let mut profiles = std::collections::HashMap::new();
-        let profile = ConfigProfile {
-            oss_provider: Some("profile-provider".to_string()),
-            ..Default::default()
-        };
-        profiles.insert("test-profile".to_string(), profile);
-        let config_toml = ConfigToml {
-            profiles,
-            ..Default::default()
-        };
-
-        let result = resolve_oss_provider(None, &config_toml, Some("test-profile".to_string()));
-        assert_eq!(result, None);
     }
 
     #[test]
@@ -4526,51 +4226,26 @@ trust_level = "untrusted"
             ..Default::default()
         };
 
-        let result = resolve_oss_provider(None, &config_toml, None);
-        assert_eq!(result, Some("global-provider".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_oss_provider_profile_fallback_to_global() {
-        let mut profiles = std::collections::HashMap::new();
-        let profile = ConfigProfile::default(); // No oss_provider set
-        profiles.insert("test-profile".to_string(), profile);
-        let config_toml = ConfigToml {
-            oss_provider: Some("global-provider".to_string()),
-            profiles,
-            ..Default::default()
-        };
-
-        let result = resolve_oss_provider(None, &config_toml, Some("test-profile".to_string()));
+        let result = resolve_oss_provider(None, &config_toml);
         assert_eq!(result, Some("global-provider".to_string()));
     }
 
     #[test]
     fn test_resolve_oss_provider_none_when_not_configured() {
         let config_toml = ConfigToml::default();
-        let result = resolve_oss_provider(None, &config_toml, None);
+        let result = resolve_oss_provider(None, &config_toml);
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_resolve_oss_provider_explicit_overrides_all() {
-        let mut profiles = std::collections::HashMap::new();
-        let profile = ConfigProfile {
-            oss_provider: Some("profile-provider".to_string()),
-            ..Default::default()
-        };
-        profiles.insert("test-profile".to_string(), profile);
+        // This test no longer uses profiles since they have been removed
         let config_toml = ConfigToml {
             oss_provider: Some("global-provider".to_string()),
-            profiles,
             ..Default::default()
         };
 
-        let result = resolve_oss_provider(
-            Some("explicit-provider"),
-            &config_toml,
-            Some("test-profile".to_string()),
-        );
+        let result = resolve_oss_provider(Some("explicit-provider"), &config_toml);
         assert_eq!(result, Some("explicit-provider".to_string()));
     }
 

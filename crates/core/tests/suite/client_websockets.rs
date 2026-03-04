@@ -9,18 +9,18 @@ use core_test_support::responses::{
 use core_test_support::{load_default_config_for_test, skip_if_no_network};
 use futures::StreamExt;
 use opentelemetry_sdk::metrics::InMemoryMetricExporter;
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::ModelsManager;
 use savfox_core::protocol::SessionSource;
 use savfox_core::{
-    AuthManager, ContentItem, ModelClient, ModelClientSession, ModelProviderInfo, SavfoxAuth,
-    Prompt, ResponseEvent, ResponseItem, TransportManager, WireApi,
+    AuthManager, ContentItem, ModelClient, ModelClientSession, ModelProviderInfo, Prompt,
+    ResponseEvent, ResponseItem, SavfoxAuth, TransportManager, WireApi,
 };
 use savfox_otel::OtelManager;
 use savfox_otel::metrics::{MetricsClient, MetricsConfig};
 use savfox_protocol::SessionId;
 use savfox_protocol::config_types::ReasoningSummary;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tracing_test::traced_test;
 

@@ -13,6 +13,7 @@ use core_test_support::{
     load_default_config_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
     wait_for_event_match,
 };
+use pretty_assertions::assert_eq;
 use savfox_core::config::Config;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::{ModelsManager, RefreshStrategy};
@@ -24,7 +25,6 @@ use savfox_protocol::openai_models::{
     ReasoningEffortPreset, TruncationPolicyConfig, default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::{Duration, Instant, sleep, timeout};
@@ -730,8 +730,7 @@ async fn wait_for_model_available(
 }
 
 fn bundled_model_slug() -> String {
-    let response: ModelsResponse =
-        serde_json::from_str(savfox_model::bundled_models_json())
+    let response: ModelsResponse = serde_json::from_str(savfox_model::bundled_models_json())
         .expect("bundled models.json should deserialize");
     response
         .models

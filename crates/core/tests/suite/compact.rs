@@ -9,6 +9,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::compact::{SUMMARIZATION_PROMPT, SUMMARY_PREFIX};
 use savfox_core::config::Config;
 use savfox_core::features::Feature;
@@ -20,7 +21,6 @@ use savfox_core::{ModelProviderInfo, SavfoxAuth, built_in_model_providers};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use wiremock::MockServer;
 // --- Test helpers -----------------------------------------------------------

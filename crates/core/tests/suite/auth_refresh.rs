@@ -1,10 +1,11 @@
-﻿use std::ffi::OsString;
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use base64::Engine;
 use chrono::{Duration, Utc};
 use core_test_support::skip_if_no_network;
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::AuthMode;
 use savfox_core::AuthManager;
 use savfox_core::auth::{
@@ -13,7 +14,6 @@ use savfox_core::auth::{
 };
 use savfox_core::error::RefreshTokenFailedReason;
 use savfox_core::token_data::{IdTokenInfo, TokenData};
-use pretty_assertions::assert_eq;
 use serde::Serialize;
 use serde_json::{Value, json};
 use tempfile::TempDir;

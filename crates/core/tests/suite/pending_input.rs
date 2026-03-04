@@ -4,9 +4,9 @@ use core_test_support::responses::{
 use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{responses, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::protocol::{EventMsg, Op};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::Value;
 use tokio::sync::oneshot;
 

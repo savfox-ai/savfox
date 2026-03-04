@@ -147,30 +147,25 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     };
 
     #[allow(clippy::print_stderr)]
-    let config_toml = match load_config_as_toml_with_cli_overrides(
-        &savfox_home,
-        &config_cwd,
-        Vec::new(),
-    )
-    .await
-    {
-        Ok(config_toml) => config_toml,
-        Err(err) => {
-            let config_error = err
-                .get_ref()
-                .and_then(|err| err.downcast_ref::<ConfigLoadError>())
-                .map(ConfigLoadError::config_error);
-            if let Some(config_error) = config_error {
-                eprintln!(
-                    "Error loading config.toml:\n{}",
-                    format_config_error_with_source(config_error)
-                );
-            } else {
-                eprintln!("Error loading config.toml: {err}");
+    let config_toml =
+        match load_config_as_toml_with_cli_overrides(&savfox_home, &config_cwd, Vec::new()).await {
+            Ok(config_toml) => config_toml,
+            Err(err) => {
+                let config_error = err
+                    .get_ref()
+                    .and_then(|err| err.downcast_ref::<ConfigLoadError>())
+                    .map(ConfigLoadError::config_error);
+                if let Some(config_error) = config_error {
+                    eprintln!(
+                        "Error loading config.toml:\n{}",
+                        format_config_error_with_source(config_error)
+                    );
+                } else {
+                    eprintln!("Error loading config.toml: {err}");
+                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
-    };
+        };
 
     let cloud_auth_manager = AuthManager::shared(
         savfox_home.clone(),
@@ -185,11 +180,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let cloud_requirements = cloud_requirements_loader(cloud_auth_manager, chatgpt_base_url);
 
     let model_provider = if oss {
-        let resolved = resolve_oss_provider(
-            oss_provider.as_deref(),
-            &config_toml,
-            None,
-        );
+        let resolved = resolve_oss_provider(oss_provider.as_deref(), &config_toml);
 
         if let Some(provider) = resolved {
             Some(provider)

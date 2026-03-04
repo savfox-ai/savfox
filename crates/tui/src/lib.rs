@@ -463,30 +463,25 @@ pub async fn run_main(
     };
 
     #[allow(clippy::print_stderr)]
-    let mut config_toml = match load_config_as_toml_with_cli_overrides(
-        &savfox_home,
-        &config_cwd,
-        Vec::new(),
-    )
-    .await
-    {
-        Ok(config_toml) => config_toml,
-        Err(err) => {
-            let config_error = err
-                .get_ref()
-                .and_then(|err| err.downcast_ref::<ConfigLoadError>())
-                .map(ConfigLoadError::config_error);
-            if let Some(config_error) = config_error {
-                eprintln!(
-                    "Error loading config.toml:\n{}",
-                    format_config_error_with_source(config_error)
-                );
-            } else {
-                eprintln!("Error loading config.toml: {err}");
+    let mut config_toml =
+        match load_config_as_toml_with_cli_overrides(&savfox_home, &config_cwd, Vec::new()).await {
+            Ok(config_toml) => config_toml,
+            Err(err) => {
+                let config_error = err
+                    .get_ref()
+                    .and_then(|err| err.downcast_ref::<ConfigLoadError>())
+                    .map(ConfigLoadError::config_error);
+                if let Some(config_error) = config_error {
+                    eprintln!(
+                        "Error loading config.toml:\n{}",
+                        format_config_error_with_source(config_error)
+                    );
+                } else {
+                    eprintln!("Error loading config.toml: {err}");
+                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
-    };
+        };
 
     if let Err(err) =
         savfox_core::personality_migration::maybe_migrate_personality(&savfox_home, &config_toml)
@@ -497,24 +492,15 @@ pub async fn run_main(
 
     let has_model_cli_override = false;
     if !cli.oss && cli.model.is_none() && !has_model_cli_override {
-        match maybe_repair_model_from_provider_store(
-            &savfox_home,
-            &config_toml,
-            None,
-        )
-        .await
-        {
+        match maybe_repair_model_from_provider_store(&savfox_home, &config_toml, None).await {
             Ok(Some(warning)) => {
                 #[allow(clippy::print_stderr)]
                 {
                     eprintln!("Warning: {warning}");
                 }
-                config_toml = load_config_as_toml_with_cli_overrides(
-                    &savfox_home,
-                    &config_cwd,
-                    Vec::new(),
-                )
-                .await?;
+                config_toml =
+                    load_config_as_toml_with_cli_overrides(&savfox_home, &config_cwd, Vec::new())
+                        .await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -538,11 +524,7 @@ pub async fn run_main(
     let cloud_requirements = cloud_requirements_loader(cloud_auth_manager, chatgpt_base_url);
 
     let model_provider_override = if cli.oss {
-        let resolved = resolve_oss_provider(
-            cli.oss_provider.as_deref(),
-            &config_toml,
-            None,
-        );
+        let resolved = resolve_oss_provider(cli.oss_provider.as_deref(), &config_toml);
 
         if let Some(provider) = resolved {
             Some(provider)
@@ -587,11 +569,7 @@ pub async fn run_main(
         ..Default::default()
     };
 
-    let config = load_config_or_exit(
-        overrides.clone(),
-        cloud_requirements.clone(),
-    )
-    .await;
+    let config = load_config_or_exit(overrides.clone(), cloud_requirements.clone()).await;
     set_default_client_residency_requirement(config.enforce_residency.value());
 
     if let Some(warning) = add_dir_warning_message(&cli.add_dir, config.sandbox_policy.get()) {
@@ -705,15 +683,9 @@ pub async fn run_main(
         .with(otel_tracing_layer)
         .try_init();
 
-    run_ratatui_app(
-        cli,
-        config,
-        overrides,
-        cloud_requirements,
-        feedback,
-    )
-    .await
-    .map_err(|err| std::io::Error::other(err.to_string()))
+    run_ratatui_app(cli, config, overrides, cloud_requirements, feedback)
+        .await
+        .map_err(|err| std::io::Error::other(err.to_string()))
 }
 
 async fn run_ratatui_app(
@@ -813,11 +785,7 @@ async fn run_ratatui_app(
         // If the user made an explicit trust decision, reload config so current
         // process state reflects what was persisted to config.toml.
         if onboarding_result.directory_trust_decision.is_some() {
-            load_config_or_exit(
-                overrides.clone(),
-                cloud_requirements.clone(),
-            )
-            .await
+            load_config_or_exit(overrides.clone(), cloud_requirements.clone()).await
         } else {
             initial_config
         }
@@ -1150,8 +1118,7 @@ async fn load_config_or_exit(
     overrides: ConfigOverrides,
     cloud_requirements: CloudRequirementsLoader,
 ) -> Config {
-    load_config_or_exit_with_fallback_cwd(overrides, cloud_requirements, None)
-        .await
+    load_config_or_exit_with_fallback_cwd(overrides, cloud_requirements, None).await
 }
 
 async fn load_config_or_exit_with_fallback_cwd(
@@ -1560,9 +1527,10 @@ trust_level = "untrusted"
             maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
         assert!(warning.is_some());
 
-        let updated: ConfigToml =
-            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
-                .expect("parse updated config");
+        let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
+            temp_dir.path().join("config.toml"),
+        )?)
+        .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
             Some("zhipuai-coding-plan/glm-5".to_string())
@@ -1600,9 +1568,10 @@ trust_level = "untrusted"
             maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
         assert!(warning.is_some());
 
-        let updated: ConfigToml =
-            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
-                .expect("parse updated config");
+        let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
+            temp_dir.path().join("config.toml"),
+        )?)
+        .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
             Some("zhipuai-coding-plan/glm-4.5".to_string())

@@ -8,13 +8,13 @@ use core_test_support::responses::{
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{responses, skip_if_no_network, wait_for_event};
 use image::{ImageBuffer, Rgba};
+use pretty_assertions::assert_eq;
 use savfox_core::protocol::{
     AskForApproval, EventMsg, Op, RolloutItem, RolloutLine, SandboxPolicy,
 };
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 
 fn find_user_message_with_image(text: &str) -> Option<ResponseItem> {
     for line in text.lines() {

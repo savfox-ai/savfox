@@ -11,6 +11,7 @@ use core_test_support::{
 };
 use dunce::canonicalize as normalize_path;
 use futures::StreamExt;
+use pretty_assertions::assert_eq;
 use savfox_core::auth::{AuthCredentialsStoreMode, AuthDotJson, save_auth};
 use savfox_core::default_client::originator;
 use savfox_core::error::SavfoxError;
@@ -18,7 +19,7 @@ use savfox_core::models_manager::manager::ModelsManager;
 use savfox_core::protocol::{EventMsg, Op, SessionSource};
 use savfox_core::{
     AuthManager, ContentItem, LocalShellAction, LocalShellExecAction, LocalShellStatus,
-    ModelClient, ModelProviderInfo, NewSession, SavfoxAuth, Prompt, ResponseEvent, ResponseItem,
+    ModelClient, ModelProviderInfo, NewSession, Prompt, ResponseEvent, ResponseItem, SavfoxAuth,
     SessionManager, TransportManager, WireApi, built_in_model_providers,
 };
 use savfox_otel::OtelManager;
@@ -32,7 +33,6 @@ use savfox_protocol::models::{
 };
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -253,8 +253,8 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     let savfox = test.savfox.clone();
     let session_configured = test.session_configured;
 
-    // 1) Assert initial_messages can synthesize user/assistant replay entries from
-    //    rollout response items when explicit EventMsg entries are absent.
+    // 1) Assert initial_messages can synthesize user/assistant replay entries from rollout response
+    //    items when explicit EventMsg entries are absent.
     let initial_msgs = session_configured
         .initial_messages
         .clone()
@@ -528,8 +528,8 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
 
     // Init session
     let savfox_home = TempDir::new().unwrap();
-    // Write models/openai.json that contains both API key and ChatGPT tokens for a plan that should prefer
-    // ChatGPT, but config will force API key preference.
+    // Write models/openai.json that contains both API key and ChatGPT tokens for a plan that should
+    // prefer ChatGPT, but config will force API key preference.
     let _jwt = write_chatgpt_provider_store_auth(
         &savfox_home,
         Some("sk-test-key"),

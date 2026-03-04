@@ -1,4 +1,4 @@
-﻿#![cfg(target_os = "macos")]
+#![cfg(target_os = "macos")]
 
 //! Tests for the macOS sandboxing that are specific to Seatbelt.
 //! Tests that apply to both Mac and Linux sandboxing should go in sandbox.rs.

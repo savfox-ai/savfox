@@ -6,6 +6,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_default_config_for_test, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::config::types::Personality;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::{ModelsManager, RefreshStrategy};
@@ -17,7 +18,6 @@ use savfox_protocol::openai_models::{
     default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::{Duration, Instant, sleep};
 use wiremock::{BodyPrintLimit, MockServer};

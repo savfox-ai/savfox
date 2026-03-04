@@ -6,6 +6,7 @@ use anyhow::Result;
 use core_test_support::responses::{mount_sse_once, sse};
 use core_test_support::test_savfox::{TestSavfoxHarness, test_savfox};
 use core_test_support::{responses, skip_if_no_network, wait_for_event, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::SavfoxAuth;
 use savfox_core::features::Feature;
 use savfox_core::protocol::{
@@ -14,7 +15,6 @@ use savfox_core::protocol::{
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn remote_compact_replaces_history_for_followups() -> Result<()> {

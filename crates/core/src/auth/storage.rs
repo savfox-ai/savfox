@@ -487,10 +487,7 @@ mod tests {
                 }
             ]
         });
-        std::fs::write(
-            &auth_file,
-            serde_json::to_string_pretty(&provider_file)?,
-        )?;
+        std::fs::write(&auth_file, serde_json::to_string_pretty(&provider_file)?)?;
 
         let loaded = storage.load().context("failed to load provider file")?;
         assert_eq!(
@@ -556,7 +553,10 @@ mod tests {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&legacy_file, r#"{"provider_id":"chatgpt"}"#)?;
-        assert!(legacy_file.exists(), "legacy chatgpt provider file should exist");
+        assert!(
+            legacy_file.exists(),
+            "legacy chatgpt provider file should exist"
+        );
 
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),

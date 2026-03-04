@@ -16,12 +16,7 @@ fn main() -> anyhow::Result<()> {
             ..Default::default()
         };
 
-        run_main(
-            savfox_linux_sandbox_exe,
-            loader_overrides,
-            false,
-        )
-        .await?;
+        run_main(savfox_linux_sandbox_exe, loader_overrides, false).await?;
         Ok(())
     })
 }

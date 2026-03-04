@@ -6,13 +6,13 @@ use anyhow::Ok;
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{skip_if_no_network, test_absolute_path, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::ConfigLayerSource;
 use savfox_core::config_loader::{
     ConfigLayerEntry, ConfigLayerStack, ConfigRequirements, ConfigRequirementsToml,
 };
 use savfox_core::features::Feature;
 use savfox_core::protocol::{DeprecationNoticeEvent, EventMsg};
-use pretty_assertions::assert_eq;
 use toml::Value as TomlValue;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

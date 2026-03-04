@@ -107,10 +107,7 @@ pub async fn run_main(
     let _ = tracing_subscriber::registry().with(stderr_fmt).try_init();
 
     // Load configuration.
-    let cloud_requirements = match ConfigBuilder::default()
-        .build()
-        .await
-    {
+    let cloud_requirements = match ConfigBuilder::default().build().await {
         Ok(config) => {
             let auth_manager = AuthManager::shared(
                 config.savfox_home.clone(),

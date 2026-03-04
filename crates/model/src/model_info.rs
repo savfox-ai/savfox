@@ -13,8 +13,7 @@ pub const BASE_INSTRUCTIONS_WITH_APPLY_PATCH: &str =
 const GPT_5_CODEX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5-codex_prompt.md");
 const GPT_5_1_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.1_prompt.md");
 const GPT_5_2_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.2_prompt.md");
-const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str =
-    include_str!("../openai/gpt-5.1-codex-max_prompt.md");
+const GPT_5_1_CODEX_MAX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.1-codex-max_prompt.md");
 
 const GPT_5_2_CODEX_INSTRUCTIONS: &str = include_str!("../openai/gpt-5.2-codex_prompt.md");
 const GPT_5_2_CODEX_INSTRUCTIONS_TEMPLATE: &str =

@@ -2,11 +2,11 @@
 
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{responses, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
+use responses::{ev_assistant_message, ev_completed, sse, start_mock_server};
 use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
-use responses::{ev_assistant_message, ev_completed, sse, start_mock_server};
 
 const SCHEMA: &str = r#"
 {

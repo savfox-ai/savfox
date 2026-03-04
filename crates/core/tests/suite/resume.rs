@@ -7,9 +7,9 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::protocol::{EventMsg, Op};
 use savfox_protocol::user_input::{ByteRange, TextElement, UserInput};
-use pretty_assertions::assert_eq;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resume_includes_initial_messages_from_rollout_events() -> Result<()> {

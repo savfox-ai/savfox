@@ -8,12 +8,12 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{responses, skip_if_no_network, wait_for_event, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy};
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, ReasoningSummary, Settings};
 use savfox_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 fn call_output(req: &ResponsesRequest, call_id: &str) -> String {

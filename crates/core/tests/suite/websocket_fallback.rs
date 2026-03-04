@@ -4,8 +4,8 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{responses, skip_if_no_network};
-use savfox_core::features::Feature;
 use pretty_assertions::assert_eq;
+use savfox_core::features::Feature;
 use wiremock::http::Method;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

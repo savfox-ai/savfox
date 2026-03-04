@@ -6,6 +6,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_sse_fixture_with_id, responses};
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_protocol::SessionId;
 use savfox_protocol::dynamic_tools::DynamicToolSpec;
@@ -14,7 +15,6 @@ use savfox_protocol::protocol::{
     UserMessageEvent,
 };
 use savfox_state::STATE_DB_FILENAME;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use tokio::time::Duration;
 use tracing_subscriber::prelude::*;

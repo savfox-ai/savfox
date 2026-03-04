@@ -15,11 +15,9 @@ pub async fn run_apply_command(
     apply_cli: ApplyCommand,
     cwd: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await?;
 
     init_chatgpt_token_from_auth(&config.savfox_home, config.cli_auth_credentials_store_mode)
         .await?;

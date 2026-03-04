@@ -13,11 +13,11 @@ use core_test_support::test_savfox::{
     ApplyPatchModelOutput, TestSavfoxBuilder, TestSavfoxHarness, test_savfox,
 };
 use core_test_support::{assert_regex_match, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_case::test_case;
 use wiremock::matchers::{method, path_regex};

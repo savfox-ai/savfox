@@ -8,6 +8,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{responses, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::SavfoxAuth;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::RefreshStrategy;
@@ -18,7 +19,6 @@ use savfox_protocol::openai_models::{
     ReasoningEffortPreset, TruncationPolicyConfig, default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde::{Deserialize, Serialize};
 use wiremock::MockServer;
 

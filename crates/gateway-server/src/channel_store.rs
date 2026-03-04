@@ -212,8 +212,9 @@ pub fn channel_configs_to_json(configs: &[ChannelConfig]) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     async fn list_json_files(dir: &PathBuf) -> Vec<PathBuf> {
         let mut out = Vec::new();

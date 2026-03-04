@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{fs_wait, responses, skip_if_no_network, wait_for_event};
-use savfox_core::protocol::{EventMsg, Op};
-use savfox_protocol::user_input::UserInput;
 use pretty_assertions::assert_eq;
 use responses::{ev_assistant_message, ev_completed, sse, start_mock_server};
+use savfox_core::protocol::{EventMsg, Op};
+use savfox_protocol::user_input::UserInput;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

@@ -6,10 +6,12 @@ use savfox_protocol::config_types::{Personality, TrustLevel};
 use savfox_protocol::openai_models::ReasoningEffort;
 use serde_json::Value as JsonValue;
 use tokio::task;
-use toml_edit::{ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, value, Value as TomlValue};
+use toml_edit::{
+    ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, Value as TomlValue, value,
+};
 
-use crate::config::{CONFIG_JSON_FILE, CONFIG_TOML_FILE};
 use crate::config::types::{McpServerConfig, Notice};
+use crate::config::{CONFIG_JSON_FILE, CONFIG_TOML_FILE};
 use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
 
@@ -691,7 +693,7 @@ pub fn apply_blocking(
     if json_path.exists() {
         apply_blocking_json(&json_path, profile, edits)
     } else {
-    let toml_path = savfox_home.join(CONFIG_TOML_FILE);
+        let toml_path = savfox_home.join(CONFIG_TOML_FILE);
         apply_blocking_toml(&toml_path, profile, edits)
     }
 }
@@ -735,7 +737,7 @@ fn apply_blocking_json(
     }
 
     let json_string = serde_json::to_string_pretty(&json_value)?;
-    
+
     write_atomically(&write_paths.write_path, &json_string).with_context(|| {
         format!(
             "failed to persist config.json at {}",
@@ -754,14 +756,14 @@ fn apply_edit_to_json(
     let result = if profile.is_some() {
         // For profile-specific edits, we need to update the profile section
         if let JsonValue::Object(root) = json {
-            let profiles = root.entry("profiles".to_string()).or_insert_with(|| {
-                JsonValue::Object(serde_json::Map::new())
-            });
+            let profiles = root
+                .entry("profiles".to_string())
+                .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
             if let JsonValue::Object(profiles_map) = profiles {
                 let profile_name = profile.as_ref().unwrap();
-                let profile_obj = profiles_map.entry(profile_name.clone()).or_insert_with(|| {
-                    JsonValue::Object(serde_json::Map::new())
-                });
+                let profile_obj = profiles_map
+                    .entry(profile_name.clone())
+                    .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
                 apply_edit_to_json_value(profile_obj, edit)
             } else {
                 Ok(false)
@@ -795,29 +797,38 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                             (None, model_value)
                         };
 
-                        let model_obj = root.entry("model".to_string()).or_insert_with(|| {
-                            JsonValue::Object(serde_json::Map::new())
-                        });
-                        
+                        let model_obj = root
+                            .entry("model".to_string())
+                            .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+
                         if let JsonValue::Object(model_map) = model_obj {
                             model_map.insert("slug".to_string(), JsonValue::String(slug));
-                            
+
                             if let Some(ref provider_id) = provider_id {
-                                model_map.insert("provider".to_string(), JsonValue::String(provider_id.clone()));
+                                model_map.insert(
+                                    "provider".to_string(),
+                                    JsonValue::String(provider_id.clone()),
+                                );
                             }
-                            
+
                             if let Some(effort) = effort {
-                                model_map.insert("reasoning_effort".to_string(), JsonValue::String(effort.to_string()));
+                                model_map.insert(
+                                    "reasoning_effort".to_string(),
+                                    JsonValue::String(effort.to_string()),
+                                );
                             } else {
                                 model_map.remove("reasoning_effort");
                             }
                         }
-                        
+
                         // Add model_provider at root level
                         if let Some(provider_id) = provider_id {
-                            root.insert("model_provider".to_string(), JsonValue::String(provider_id));
+                            root.insert(
+                                "model_provider".to_string(),
+                                JsonValue::String(provider_id),
+                            );
                         }
-                        
+
                         Ok(true)
                     }
                     None => {
@@ -870,9 +881,9 @@ fn set_json_value_at_path(json: &mut JsonValue, segments: &[String], value: Toml
             let json_value = toml_item_to_json(value);
             map.insert(segments[0].clone(), json_value);
         } else {
-            let child = map.entry(segments[0].clone()).or_insert_with(|| {
-                JsonValue::Object(serde_json::Map::new())
-            });
+            let child = map
+                .entry(segments[0].clone())
+                .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
             set_json_value_at_path(child, &segments[1..], value);
         }
     }
@@ -1145,13 +1156,16 @@ mod tests {
         .expect("persist");
 
         let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_JSON_FILE)).expect("read config");
-        let value: JsonValue = serde_json::from_str(&contents).expect("parse config");
+            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&contents).expect("parse config");
         let model = value
             .get("model")
-            .and_then(|v| v.as_object())
+            .and_then(|v| v.as_table())
             .expect("model table");
-        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
+        assert_eq!(
+            model.get("slug").and_then(|v| v.as_str()),
+            Some("gpt-5.1-savfox")
+        );
         assert_eq!(
             model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
@@ -1172,9 +1186,9 @@ mod tests {
             .expect("persist");
 
         let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_JSON_FILE)).expect("read config");
-        let json: JsonValue = serde_json::from_str(&contents).expect("parse json");
-        assert_eq!(json.get("enabled").and_then(|v| v.as_bool()), Some(true));
+            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&contents).expect("parse toml");
+        assert_eq!(value.get("enabled").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
@@ -1434,43 +1448,6 @@ sandbox_mode = "strict"
 
 [profiles.fast.model]
 reasoning_effort = "high"
-"#;
-        assert_eq!(contents, expected);
-    }
-
-    #[test]
-    fn blocking_set_model_scopes_to_active_profile() {
-        let tmp = tempdir().expect("tmpdir");
-        let savfox_home = tmp.path();
-        std::fs::write(
-            savfox_home.join(CONFIG_TOML_FILE),
-            r#"profile = "team"
-
-[profiles.team]
-model_reasoning_effort = "low"
-"#,
-        )
-        .expect("seed");
-
-        apply_blocking(
-            savfox_home,
-            None,
-            &[ConfigEdit::SetModel {
-                model: Some("o5-preview".to_string()),
-                effort: Some(ReasoningEffort::Minimal),
-            }],
-        )
-        .expect("persist");
-
-        let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"profile = "team"
-
-[profiles.team]
-model = "o5-preview"
-
-[profiles.team.model]
-reasoning_effort = "minimal"
 "#;
         assert_eq!(contents, expected);
     }
@@ -2065,9 +2042,12 @@ foo = { command = "cmd" , enabled = false }
             .get("model")
             .and_then(|v| v.as_table())
             .expect("model table");
-        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
         assert_eq!(
-            model.get("reasoning_level").and_then(|v| v.as_str()),
+            model.get("slug").and_then(|v| v.as_str()),
+            Some("gpt-5.1-savfox")
+        );
+        assert_eq!(
+            model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
         );
     }
@@ -2084,7 +2064,10 @@ foo = { command = "cmd" , enabled = false }
                 .and_then(|v| v.as_table())
                 .expect("model table");
             assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some(slug));
-            assert_eq!(model.get("reasoning_level").and_then(|v| v.as_str()), Some(level));
+            assert_eq!(
+                model.get("reasoning_effort").and_then(|v| v.as_str()),
+                Some(level)
+            );
         };
 
         ConfigEditsBuilder::new(savfox_home)

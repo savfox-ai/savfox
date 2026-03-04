@@ -137,9 +137,7 @@ pub struct LogoutArgs {
 
 impl McpCli {
     pub async fn run(self) -> Result<()> {
-        let McpCli {
-            subcommand,
-        } = self;
+        let McpCli { subcommand } = self;
 
         match subcommand {
             McpSubcommand::List(args) => {
@@ -167,12 +165,10 @@ impl McpCli {
 }
 
 async fn run_add(add_args: AddArgs) -> Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .context("failed to load configuration")?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .context("failed to load configuration")?;
 
     let AddArgs {
         name,
@@ -300,12 +296,10 @@ async fn run_remove(remove_args: RemoveArgs) -> Result<()> {
 }
 
 async fn run_login(login_args: LoginArgs) -> Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .context("failed to load configuration")?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .context("failed to load configuration")?;
 
     let LoginArgs { name, scopes } = login_args;
 
@@ -343,12 +337,10 @@ async fn run_login(login_args: LoginArgs) -> Result<()> {
 }
 
 async fn run_logout(logout_args: LogoutArgs) -> Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .context("failed to load configuration")?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .context("failed to load configuration")?;
 
     let LogoutArgs { name } = logout_args;
 
@@ -373,12 +365,10 @@ async fn run_logout(logout_args: LogoutArgs) -> Result<()> {
 }
 
 async fn run_list(list_args: ListArgs) -> Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .context("failed to load configuration")?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .context("failed to load configuration")?;
 
     let mut entries: Vec<_> = config.mcp_servers.iter().collect();
     entries.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -623,12 +613,10 @@ async fn run_list(list_args: ListArgs) -> Result<()> {
 }
 
 async fn run_get(get_args: GetArgs) -> Result<()> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .context("failed to load configuration")?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .context("failed to load configuration")?;
 
     let Some(server) = config.mcp_servers.get().get(&get_args.name) else {
         bail!("No MCP server named '{name}' found.", name = get_args.name);

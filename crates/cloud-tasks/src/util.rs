@@ -57,12 +57,10 @@ pub fn extract_chatgpt_account_id(token: &str) -> Option<String> {
 }
 
 pub async fn load_auth_manager() -> Option<AuthManager> {
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .ok()?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .ok()?;
     Some(AuthManager::new(
         config.savfox_home,
         false,

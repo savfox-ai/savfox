@@ -37,9 +37,7 @@ const CHANNEL_CAPACITY: usize = 128;
 
 type IncomingMessage = JsonRpcMessage<ClientRequest, Value, ClientNotification>;
 
-pub async fn run_main(
-    savfox_linux_sandbox_exe: Option<PathBuf>,
-) -> IoResult<()> {
+pub async fn run_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()> {
     // Install a simple subscriber so `tracing` output is visible.  Users can
     // control the log level with `RUST_LOG`.
     tracing_subscriber::fmt()
@@ -75,14 +73,12 @@ pub async fn run_main(
     });
 
     // Load configuration.
-    let config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
-    .map_err(|e| {
-        std::io::Error::new(ErrorKind::InvalidData, format!("error loading config: {e}"))
-    })?;
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .map_err(|e| {
+                std::io::Error::new(ErrorKind::InvalidData, format!("error loading config: {e}"))
+            })?;
 
     // Task: process incoming messages.
     let processor_handle = tokio::spawn({

@@ -3,19 +3,19 @@
 use core_test_support::responses::{mount_sse_once, start_mock_server};
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{load_sse_fixture_with_id, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_apply_patch::APPLY_PATCH_TOOL_INSTRUCTIONS;
 use savfox_core::features::Feature;
-use savfox_model::BASE_INSTRUCTIONS;
 use savfox_core::protocol::{
     AskForApproval, ENVIRONMENT_CONTEXT_OPEN_TAG, EventMsg, Op, SandboxPolicy,
 };
 use savfox_core::protocol_config_types::ReasoningSummary;
 use savfox_core::shell::{Shell, default_user_shell};
+use savfox_model::BASE_INSTRUCTIONS;
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Settings, WebSearchMode};
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::user_input::UserInput;
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 fn text_user_input(text: String) -> serde_json::Value {

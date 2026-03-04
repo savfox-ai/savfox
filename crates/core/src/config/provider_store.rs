@@ -1,8 +1,9 @@
+use std::path::{Path, PathBuf};
+
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
 
 use crate::model_provider_info::ModelProviderInfo;
 use crate::token_data::TokenData;
@@ -147,7 +148,11 @@ pub fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> Provid
             .filter_map(|slug| normalize_model_slug(slug))
             .collect();
         if file.enabled_models.is_empty() {
-            file.enabled_models = file.models.iter().filter_map(model_slug_from_entry).collect();
+            file.enabled_models = file
+                .models
+                .iter()
+                .filter_map(model_slug_from_entry)
+                .collect();
         }
         return file;
     }

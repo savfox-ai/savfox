@@ -2712,8 +2712,7 @@ async fn collab_mode_is_not_sent_until_selected() {
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
-            collaboration_mode,
-            ..
+            collaboration_mode, ..
         } => {
             assert_eq!(collaboration_mode, None);
         }

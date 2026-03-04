@@ -3,11 +3,11 @@
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_sse_fixture_with_id, responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_core::protocol::SandboxPolicy;
 use savfox_core::{WireApi, built_in_model_providers};
 use savfox_protocol::config_types::WebSearchMode;
-use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 fn sse_completed(id: &str) -> String {

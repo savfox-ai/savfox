@@ -14,13 +14,13 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::wait_for_event;
+use pretty_assertions::assert_eq;
 use savfox_core::compact::SUMMARIZATION_PROMPT;
 use savfox_core::config::Config;
 use savfox_core::protocol::{EventMsg, Op, WarningEvent};
 use savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR;
 use savfox_core::{SavfoxSession, SessionManager};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use wiremock::MockServer;
@@ -944,7 +944,12 @@ async fn mount_second_compact_flow(server: &MockServer) -> Vec<ResponseMock> {
 async fn start_test_conversation(
     server: &MockServer,
     model: Option<&str>,
-) -> (Arc<TempDir>, Config, Arc<SessionManager>, Arc<SavfoxSession>) {
+) -> (
+    Arc<TempDir>,
+    Config,
+    Arc<SessionManager>,
+    Arc<SavfoxSession>,
+) {
     let base_url = format!("{}/v1", server.uri());
     let model = model.map(str::to_string);
     let mut builder = test_savfox().with_config(move |config| {

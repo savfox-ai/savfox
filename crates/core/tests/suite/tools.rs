@@ -11,10 +11,10 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{assert_regex_match, skip_if_no_network};
+use regex_lite::Regex;
 use savfox_core::features::Feature;
 use savfox_core::protocol::{AskForApproval, SandboxPolicy};
 use savfox_core::sandboxing::SandboxPermissions;
-use regex_lite::Regex;
 use serde_json::{Value, json};
 
 fn tool_names(body: &Value) -> Vec<String> {

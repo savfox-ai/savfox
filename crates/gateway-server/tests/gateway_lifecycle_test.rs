@@ -21,9 +21,7 @@ async fn gateway_startup_shutdown_lifecycle() {
     cfg.port = port;
     cfg.token = Some(token);
 
-    let handle = tokio::spawn(async move {
-        savfox_gateway_server::run_main(cfg, None).await
-    });
+    let handle = tokio::spawn(async move { savfox_gateway_server::run_main(cfg, None).await });
 
     assert!(
         wait_for_port(port, Duration::from_secs(20)).await,

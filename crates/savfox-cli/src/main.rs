@@ -348,8 +348,7 @@ enum LoginSubcommand {
 }
 
 #[derive(Debug, Parser)]
-struct LogoutCommand {
-}
+struct LogoutCommand {}
 
 #[derive(Debug, Parser)]
 struct AppServerCommand {
@@ -687,11 +686,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             } else {
                 // Start the gateway server.
                 let gateway_config = gateway_cli.into_config();
-                savfox_gateway_server::run_main(
-                    gateway_config,
-                    savfox_linux_sandbox_exe,
-                )
-                .await?;
+                savfox_gateway_server::run_main(gateway_config, savfox_linux_sandbox_exe).await?;
             }
         }
         Some(Subcommand::Acp(cmd)) => {
@@ -707,13 +702,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             all,
             ..
         })) => {
-            interactive = finalize_resume_interactive(
-                interactive,
-                session_id,
-                last,
-                all,
-                TuiCli::default(),
-            );
+            interactive =
+                finalize_resume_interactive(interactive, session_id, last, all, TuiCli::default());
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
@@ -723,42 +713,32 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             all,
             ..
         })) => {
-            interactive = finalize_fork_interactive(
-                interactive,
-                session_id,
-                last,
-                all,
-                TuiCli::default(),
-            );
+            interactive =
+                finalize_fork_interactive(interactive, session_id, last, all, TuiCli::default());
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
-        Some(Subcommand::Login(mut login_cli)) => {
-            match login_cli.action {
-                Some(LoginSubcommand::Status) => {
-                    run_login_status().await;
-                }
-                None => {
-                    if login_cli.use_device_code {
-                        run_login_with_device_code(
-                            login_cli.issuer_base_url,
-                            login_cli.client_id,
-                        )
+        Some(Subcommand::Login(mut login_cli)) => match login_cli.action {
+            Some(LoginSubcommand::Status) => {
+                run_login_status().await;
+            }
+            None => {
+                if login_cli.use_device_code {
+                    run_login_with_device_code(login_cli.issuer_base_url, login_cli.client_id)
                         .await;
-                    } else if login_cli.api_key.is_some() {
-                        eprintln!(
-                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | savfox login --with-api-key`."
-                        );
-                        std::process::exit(1);
-                    } else if login_cli.with_api_key {
-                        let api_key = read_api_key_from_stdin();
-                        run_login_with_api_key(api_key).await;
-                    } else {
-                        run_login_with_chatgpt().await;
-                    }
+                } else if login_cli.api_key.is_some() {
+                    eprintln!(
+                        "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | savfox login --with-api-key`."
+                    );
+                    std::process::exit(1);
+                } else if login_cli.with_api_key {
+                    let api_key = read_api_key_from_stdin();
+                    run_login_with_api_key(api_key).await;
+                } else {
+                    run_login_with_chatgpt().await;
                 }
             }
-        }
+        },
         Some(Subcommand::Logout(mut _logout_cli)) => {
             run_logout().await;
         }
@@ -1156,13 +1136,7 @@ mod tests {
             unreachable!()
         };
 
-        finalize_resume_interactive(
-            interactive,
-            session_id,
-            last,
-            all,
-            TuiCli::default(),
-        )
+        finalize_resume_interactive(interactive, session_id, last, all, TuiCli::default())
     }
 
     fn finalize_fork_from_args(args: &[&str]) -> TuiCli {

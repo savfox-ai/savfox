@@ -66,9 +66,7 @@ pub async fn run_login_with_chatgpt() -> ! {
     }
 }
 
-pub async fn run_login_with_api_key(
-    api_key: String,
-) -> ! {
+pub async fn run_login_with_api_key(api_key: String) -> ! {
     let config = load_config_or_exit().await;
 
     if matches!(config.forced_login_method, Some(ForcedLoginMethod::Chatgpt)) {
@@ -268,11 +266,8 @@ pub async fn run_logout() -> ! {
 }
 
 async fn load_config_or_exit() -> Config {
-    match Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        Default::default(),
-    )
-    .await
+    match Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+        .await
     {
         Ok(config) => config,
         Err(e) => {
