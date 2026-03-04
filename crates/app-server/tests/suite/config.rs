@@ -57,7 +57,7 @@ chatgpt_base_url = "https://api.taidge.com"
     )
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn get_config_toml_parses_all_fields() -> Result<()> {
     let savfox_home = TempDir::new()?;
     create_config_toml(savfox_home.path())?;
@@ -86,7 +86,7 @@ async fn get_config_toml_parses_all_fields() -> Result<()> {
             }),
             forced_chatgpt_workspace_id: Some("12345678-0000-0000-0000-000000000000".into()),
             forced_login_method: Some(ForcedLoginMethod::Chatgpt),
-            model: Some("gpt-5.1-savfox-max".into()),
+            model: Some("openai/gpt-5.1-savfox-max".into()),
             model_reasoning_effort: Some(ReasoningEffort::High),
             model_reasoning_summary: Some(ReasoningSummary::Detailed),
             model_verbosity: Some(Verbosity::Medium),
@@ -98,7 +98,7 @@ async fn get_config_toml_parses_all_fields() -> Result<()> {
             profiles: HashMap::from([(
                 "test".into(),
                 Profile {
-                    model: Some("gpt-4o".into()),
+                    model: Some("openai/gpt-4o".into()),
                     approval_policy: Some(AskForApproval::OnRequest),
                     model_reasoning_effort: Some(ReasoningEffort::High),
                     model_reasoning_summary: Some(ReasoningSummary::Detailed),
@@ -114,7 +114,7 @@ async fn get_config_toml_parses_all_fields() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_config_toml_empty() -> Result<()> {
     let savfox_home = TempDir::new()?;
 

@@ -13,7 +13,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_list_and_resume_conversations() -> Result<()> {
     // Prepare a temporary SAVFOX_HOME with a few fake rollout files.
     let savfox_home = TempDir::new()?;
@@ -353,7 +353,7 @@ async fn test_list_and_resume_conversations() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn list_conversations_fetches_through_filtered_pages() -> Result<()> {
     let savfox_home = TempDir::new()?;
 

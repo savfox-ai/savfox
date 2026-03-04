@@ -1,12 +1,12 @@
-﻿---
+---
 source: crates/tui/src/chat_screen/tests.rs
 expression: terminal.backend()
 ---
-"               ██████  ██    ██ ████████ ██████  ██████  ██    ██               "
-"              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██                "
-"              ██    ██ ██    ██    ██    ██████ ██    ██   ████                 "
-"              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██                "
-"               ██████   ██████     ██    ██      ██████  ██    ██               "
+"               ██████    ████   ██    ██ ██████  ██████  ██    ██               "
+"              ██        ██  ██  ██    ██ ██     ██    ██  ██  ██                "
+"               ██████  ████████ ██    ██ █████  ██    ██   ████                 "
+"                    ██ ██    ██  ██  ██  ██     ██    ██  ██  ██                "
+"              ██████   ██    ██   ████   ██      ██████  ██    ██               "
 "                                                                                "
 "                                Welcome to Savfox                               "
 "                            Your AI coding assistant                            "
@@ -15,7 +15,7 @@ expression: terminal.backend()
 "                                                                                "
 "• Analyzing (0s • esc to interrupt)                                             "
 "                                                                                "
-"D:\Works\savfox-ai\savfox\crates\tui                     gpt-5.2-savfox OpenAI  "
+"D:\Works\savfox-ai\savfox\crates\tui                      gpt-5.2-codex OpenAI  "
 "────────────────────────────────────────────────────────────────────────────────"
 "❯ Type @ to mention files, / for commands, or ? for shortcuts                   "
 "────────────────────────────────────────────────────────────────────────────────"

@@ -10,7 +10,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn user_info_returns_email_from_chatgpt_provider_store() -> Result<()> {
     let savfox_home = TempDir::new()?;
 

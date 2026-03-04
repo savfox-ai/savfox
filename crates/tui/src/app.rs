@@ -3253,9 +3253,10 @@ mod tests {
         let mut available = all_model_presets();
         let mut current = available
             .iter()
-            .find(|preset| preset.slug == "gpt-5-savfox")
+            .find(|preset| preset.upgrade.is_some())
             .cloned()
-            .expect("preset present");
+            .expect("preset with upgrade present");
+        let current_slug = current.slug.clone();
         current.upgrade = Some(ModelUpgrade {
             id: "missing-target".to_string(),
             reasoning_effort_mapping: None,
@@ -3264,7 +3265,7 @@ mod tests {
             upgrade_copy: None,
             migration_markdown: None,
         });
-        available.retain(|preset| preset.slug != "gpt-5-savfox");
+        available.retain(|preset| preset.slug != current_slug);
         available.push(current.clone());
 
         assert!(should_show_model_migration_prompt(
@@ -3289,12 +3290,12 @@ mod tests {
         let available_models = all_model_presets();
         let current = available_models
             .iter()
-            .find(|preset| preset.slug == "gpt-5.1-savfox")
+            .find(|preset| !preset.show_in_picker && preset.upgrade.is_some())
             .cloned()
-            .expect("gpt-5.1-savfox preset present");
+            .expect("hidden preset with upgrade present");
         assert!(
             !current.show_in_picker,
-            "expected gpt-5.1-savfox to be hidden from picker for this test"
+            "expected selected preset to be hidden from picker for this test"
         );
 
         let upgrade = current.upgrade.as_ref().expect("upgrade configured");

@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "sessionId": {
+      "type": "string"
+    },
+    "sessionName": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "sessionId"
+  ],
+  "title": "SessionNameUpdatedNotification",
+  "type": "object"
+}

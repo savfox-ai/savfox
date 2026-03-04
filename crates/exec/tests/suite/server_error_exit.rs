@@ -6,7 +6,7 @@ use core_test_support::test_savfox_exec::test_savfox_exec;
 
 /// Verify that when the server reports an error, `savfox-exec` exits with a
 /// non-zero status code so automation can detect failures.
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exits_non_zero_when_server_reports_error() -> anyhow::Result<()> {
     let test = test_savfox_exec();
 

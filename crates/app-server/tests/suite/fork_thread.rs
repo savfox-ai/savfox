@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::{McpProcess, create_fake_rollout, rollout_path, to_response};
 use savfox_app_server_protocol::NewConversationParams; // reused for overrides shape
 use savfox_app_server_protocol::{
@@ -12,7 +12,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fork_conversation_creates_new_rollout() -> Result<()> {
     let savfox_home = TempDir::new()?;
 

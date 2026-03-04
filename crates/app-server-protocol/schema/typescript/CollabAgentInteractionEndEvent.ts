@@ -10,13 +10,13 @@ export type CollabAgentInteractionEndEvent = {
  */
 call_id: string, 
 /**
- * Thread ID of the sender.
+ * Session ID of the sender.
  */
-sender_thread_id: SessionId, 
+sender_session_id: SessionId, 
 /**
- * Thread ID of the receiver.
+ * Session ID of the receiver.
  */
-receiver_thread_id: SessionId, 
+receiver_session_id: SessionId, 
 /**
  * Prompt sent from the sender to the receiver. Can be empty to prevent CoT
  * leaking at the beginning.

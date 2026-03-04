@@ -1,4 +1,4 @@
-﻿---
+---
 source: crates/tui/src/status/tests.rs
 expression: sanitized
 ---
@@ -10,7 +10,7 @@ expression: sanitized
 │ Visit https://taidge.com/savfox/settings/usage for up-to-date       │
 │ information on rate limits and credits                              │
 │                                                                     │
-│  Model:            gpt-5.1-max (reasoning none, summaries auto)     │
+│  Model:            gpt-5.1-max (summaries auto)                     │
 │  Directory: [[workspace]]                                           │
 │  Approval:         on-request                                       │
 │  Sandbox:          read-only                                        │

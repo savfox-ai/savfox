@@ -9,9 +9,9 @@ export type CollabAgentSpawnBeginEvent = {
  */
 call_id: string, 
 /**
- * Thread ID of the sender.
+ * Session ID of the sender.
  */
-sender_thread_id: SessionId, 
+sender_session_id: SessionId, 
 /**
  * Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the
  * beginning.

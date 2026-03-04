@@ -9,9 +9,9 @@ import type { SessionId } from "./SessionId";
 
 export type SessionConfiguredEvent = { session_id: SessionId, forked_from_id: SessionId | null, 
 /**
- * Optional user-facing thread name (may be unset).
+ * Optional user-facing session name (may be unset).
  */
-thread_name?: string, 
+session_name?: string, 
 /**
  * Tell the client what model is being queried.
  */
@@ -47,6 +47,6 @@ history_entry_count: number,
  */
 initial_messages: Array<EventMsg> | null, 
 /**
- * Path in which the rollout is stored. Can be `None` for ephemeral threads
+ * Path in which the rollout is stored. Can be `None` for ephemeral sessions
  */
 rollout_path: string | null, };

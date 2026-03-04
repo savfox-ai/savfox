@@ -6,4 +6,12 @@ export type LoginAccountResponse = { "type": "apiKey", } | { "type": "chatgpt", 
 /**
  * URL the client should open in a browser to initiate the OAuth flow.
  */
-authUrl: string, } | { "type": "chatgptAuthTokens", };
+authUrl: string, } | { "type": "deviceCode", loginId: string, 
+/**
+ * URL the client should open to enter the device code.
+ */
+verificationUrl: string, 
+/**
+ * The one-time code the user must enter.
+ */
+userCode: string, } | { "type": "chatgptAuthTokens", };

@@ -1,12 +1,12 @@
-﻿---
+---
 source: crates/tui/src/chat_screen/tests.rs
 expression: popup
 ---
-               ██████  ██    ██ ████████ ██████  ██████  ██    ██
-              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
-              ██    ██ ██    ██    ██    ██████ ██    ██   ████
-              ██    ██ ██    ██    ██    ██     ██    ██  ██  ██
-               ██████   ██████     ██    ██      ██████  ██    ██
+               ██████    ████   ██    ██ ██████  ██████  ██    ██
+              ██        ██  ██  ██    ██ ██     ██    ██  ██  ██
+               ██████  ████████ ██    ██ █████  ██    ██   ████
+                    ██ ██    ██  ██  ██  ██     ██    ██  ██  ██
+              ██████   ██    ██   ████   ██      ██████  ██    ██
 
                                 Welcome to Savfox
                             Your AI coding assistant
@@ -14,7 +14,7 @@ expression: popup
 
 
 
-  Select Reasoning Level for gpt-5.1-savfox-max
+  Select Reasoning Level for gpt-5.2-codex
 
   1. Low               Fast responses with lighter reasoning
   2. Medium (default)  Balances speed and reasoning depth for everyday tasks

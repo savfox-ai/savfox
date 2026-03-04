@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "itemId": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "summaryIndex": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "turnId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "itemId",
+    "sessionId",
+    "summaryIndex",
+    "turnId"
+  ],
+  "title": "ReasoningSummaryPartAddedNotification",
+  "type": "object"
+}

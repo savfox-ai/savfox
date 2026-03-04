@@ -31,7 +31,7 @@ const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 const AUTO_COMPACT_LIMIT: i64 = 1_000;
 const COMPACT_PROMPT: &str = "Summarize the conversation.";
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compaction_local_emits_started_and_completed_items() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
@@ -90,7 +90,7 @@ async fn auto_compaction_local_emits_started_and_completed_items() -> Result<()>
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

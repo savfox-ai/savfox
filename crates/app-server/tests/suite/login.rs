@@ -36,7 +36,7 @@ stream_max_retries = 0
     )
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn logout_chatgpt_removes_auth() -> Result<()> {
     let savfox_home = TempDir::new()?;
     create_config_toml(savfox_home.path())?;
@@ -111,7 +111,7 @@ forced_chatgpt_workspace_id = "{workspace_id}"
     std::fs::write(config_toml, contents)
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_chatgpt_rejected_when_forced_api() -> Result<()> {
     let savfox_home = TempDir::new()?;
     create_config_toml_forced_login(savfox_home.path(), "api")?;
@@ -133,7 +133,7 @@ async fn login_chatgpt_rejected_when_forced_api() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 // Serialize tests that launch the login server since it binds to a fixed port.
 #[serial(login_port)]
 async fn login_chatgpt_includes_forced_workspace_query_param() -> Result<()> {

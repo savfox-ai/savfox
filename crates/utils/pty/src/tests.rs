@@ -92,7 +92,7 @@ async fn collect_output_until_exit(
     }
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pty_python_repl_emits_output_and_exits() -> anyhow::Result<()> {
     let Some(python) = find_python() else {
         eprintln!("python not found; skipping pty_python_repl_emits_output_and_exits");
@@ -122,7 +122,7 @@ async fn pty_python_repl_emits_output_and_exits() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipe_process_round_trips_stdin() -> anyhow::Result<()> {
     let Some(python) = find_python() else {
         eprintln!("python not found; skipping pipe_process_round_trips_stdin");
@@ -152,7 +152,7 @@ async fn pipe_process_round_trips_stdin() -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipe_process_detaches_from_parent_session() -> anyhow::Result<()> {
     let parent_sid = unsafe { libc::getsid(0) };
     if parent_sid == -1 {
@@ -194,7 +194,7 @@ async fn pipe_process_detaches_from_parent_session() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipe_and_pty_share_interface() -> anyhow::Result<()> {
     let env_map: HashMap<String, String> = std::env::vars().collect();
 
@@ -225,7 +225,7 @@ async fn pipe_and_pty_share_interface() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipe_drains_stderr_without_stdout_activity() -> anyhow::Result<()> {
     let Some(python) = find_python() else {
         eprintln!("python not found; skipping pipe_drains_stderr_without_stdout_activity");
@@ -246,7 +246,7 @@ async fn pipe_drains_stderr_without_stdout_activity() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pipe_terminate_aborts_detached_readers() -> anyhow::Result<()> {
     if !setsid_available() {
         eprintln!("setsid not available; skipping pipe_terminate_aborts_detached_readers");

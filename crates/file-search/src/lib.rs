@@ -606,7 +606,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
-    use std::{fs, session};
+    use std::{fs, thread};
 
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
@@ -874,7 +874,7 @@ mod tests {
         let options = FileSearchOptions {
             limit: NonZero::new(20).unwrap(),
             exclude: Vec::new(),
-            sessions: NonZero::new(2).unwrap(),
+            threads: NonZero::new(2).unwrap(),
             compute_indices: false,
             respect_gitignore: true,
         };

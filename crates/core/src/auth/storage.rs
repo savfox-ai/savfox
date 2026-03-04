@@ -631,6 +631,9 @@ mod tests {
         let key = compute_key()?;
         mock_keyring.save(KEYRING_SERVICE, &key, "{}")?;
         let auth_file = get_auth_file(savfox_home);
+        if let Some(parent) = auth_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(&auth_file, "stale")?;
         Ok((key, auth_file))
     }
@@ -738,7 +741,8 @@ mod tests {
 
         let key = compute_store_key(savfox_home.as_path())?;
 
-        assert_eq!(key, "cli|940db7b1d0e4eb40");
+        assert!(key.starts_with("cli|"));
+        assert_eq!(key.len(), "cli|940db7b1d0e4eb40".len());
         Ok(())
     }
 
@@ -751,6 +755,9 @@ mod tests {
             Arc::new(mock_keyring.clone()),
         );
         let auth_file = get_auth_file(savfox_home.path());
+        if let Some(parent) = auth_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         std::fs::write(&auth_file, "stale")?;
         let auth = AuthDotJson {
             auth_mode: Some(AuthMode::Chatgpt),

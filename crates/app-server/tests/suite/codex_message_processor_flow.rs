@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use app_test_support::McpProcess;
 use app_test_support::create_final_assistant_message_sse_response;
 use app_test_support::create_mock_responses_server_sequence;
@@ -38,7 +38,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_savfox_jsonrpc_conversation_flow() -> Result<()> {
     if env::var(SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
         println!(
@@ -187,7 +187,7 @@ async fn test_savfox_jsonrpc_conversation_flow() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_send_user_turn_changes_approval_policy_behavior() -> Result<()> {
     if env::var(SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
         println!(
@@ -360,7 +360,7 @@ async fn test_send_user_turn_changes_approval_policy_behavior() -> Result<()> {
 
 // Helper: minimal config.toml pointing at mock provider.
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_send_user_turn_updates_sandbox_and_cwd_between_turns() -> Result<()> {
     if env::var(SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
         println!(

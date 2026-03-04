@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "SessionId": {
+      "type": "string"
+    }
+  },
+  "properties": {
+    "conversationId": {
+      "$ref": "#/definitions/SessionId"
+    },
+    "experimentalRawEvents": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "conversationId"
+  ],
+  "title": "AddConversationListenerParams",
+  "type": "object"
+}

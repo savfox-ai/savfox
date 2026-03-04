@@ -169,7 +169,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test(flavor = "multi_session")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn returns_original_image_when_within_bounds() {
         let temp_file = NamedTempFile::new().expect("temp file");
         let image = ImageBuffer::from_pixel(64, 32, Rgba([10u8, 20, 30, 255]));
@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(encoded.bytes, original_bytes);
     }
 
-    #[tokio::test(flavor = "multi_session")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn downscales_large_image() {
         let temp_file = NamedTempFile::new().expect("temp file");
         let image = ImageBuffer::from_pixel(4096, 2048, Rgba([200u8, 10, 10, 255]));
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(loaded.dimensions(), (processed.width, processed.height));
     }
 
-    #[tokio::test(flavor = "multi_session")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn fails_cleanly_for_invalid_images() {
         let temp_file = NamedTempFile::new().expect("temp file");
         std::fs::write(temp_file.path(), b"not an image").expect("write bytes");
@@ -217,7 +217,7 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_session")]
+    #[tokio::test(flavor = "multi_thread")]
     async fn reprocesses_updated_file_contents() {
         {
             IMAGE_CACHE.clear();

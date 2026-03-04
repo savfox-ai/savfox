@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AskForApproval": {
+      "enum": [
+        "untrusted",
+        "on-failure",
+        "on-request",
+        "never"
+      ],
+      "type": "string"
+    },
+    "SandboxMode": {
+      "enum": [
+        "read-only",
+        "workspace-write",
+        "danger-full-access"
+      ],
+      "type": "string"
+    }
+  },
+  "description": "There are two ways to fork a session: 1. By session_id: load the session from disk by session_id and fork it into a new session. 2. By path: load the session from disk by path and fork it into a new session.\n\nIf using path, the session_id param will be ignored.\n\nPrefer using session_id whenever possible.",
+  "properties": {
+    "approvalPolicy": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AskForApproval"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "baseInstructions": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "config": {
+      "additionalProperties": true,
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "cwd": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "developerInstructions": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "description": "Configuration overrides for the forked session, if any.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "modelProvider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "path": {
+      "description": "[UNSTABLE] Specify the rollout path to fork from. If specified, the session_id param will be ignored.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxMode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sessionId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId"
+  ],
+  "title": "SessionForkParams",
+  "type": "object"
+}

@@ -318,10 +318,11 @@ async fn start_apps_server(
         .push(
             Router::with_path("connectors/directory/list_workspace").get(list_directory_connectors),
         )
-        .push(Router::with_path("api/savfox/apps/<**rest>").goal(mcp_handler));
+        .push(Router::with_path("api/savfox/apps{**rest}").goal(mcp_handler));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
+    drop(listener);
 
     let acceptor = TcpListener::new(addr.to_string()).bind().await;
     let handle = tokio::spawn(async move {

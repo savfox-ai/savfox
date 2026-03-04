@@ -51,6 +51,8 @@ impl McpProcess {
         savfox_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
+        normalize_legacy_model_config(savfox_home)?;
+
         let program = savfox_utils_cargo_bin::cargo_bin("savfox-app-server")
             .context("should find binary for savfox-app-server")?;
         let mut cmd = Command::new(program);
@@ -781,4 +783,158 @@ impl McpProcess {
             JsonRpcMessage::Notification(_) => None,
         }
     }
+}
+
+fn normalize_legacy_model_config(savfox_home: &Path) -> anyhow::Result<()> {
+    let config_path = savfox_home.join("config.toml");
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let contents = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("read {}", config_path.display()))?;
+
+    let provider = extract_toml_string_value(&contents, "model_provider")
+        .unwrap_or_else(|| "openai".to_string());
+
+    let mut changed = false;
+    let mut rewritten = String::with_capacity(contents.len() + 128);
+    let mut current_provider_table: Option<(String, bool, bool)> = None;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if let Some((provider_id, has_slug, has_display_name)) = current_provider_table.take() {
+                changed |= append_missing_provider_fields(
+                    &mut rewritten,
+                    &provider_id,
+                    has_slug,
+                    has_display_name,
+                );
+            }
+            current_provider_table = parse_model_provider_table_header(trimmed)
+                .map(|provider_id| (provider_id, false, false));
+        } else if let Some((_, has_slug, has_display_name)) = current_provider_table.as_mut() {
+            if extract_assignment_string(line, "slug").is_some() {
+                *has_slug = true;
+            }
+            if extract_assignment_string(line, "display_name").is_some() {
+                *has_display_name = true;
+            }
+            if let Some(legacy_name) = extract_assignment_string(line, "name") {
+                let indent_len = line.len() - line.trim_start().len();
+                let indent = &line[..indent_len];
+                if !*has_display_name {
+                    rewritten.push_str(indent);
+                    rewritten.push_str("display_name = \"");
+                    rewritten.push_str(&legacy_name);
+                    rewritten.push_str("\"\n");
+                    *has_display_name = true;
+                }
+                changed = true;
+                continue;
+            }
+        }
+
+        if let Some(model_slug) = extract_assignment_string(line, "model") {
+            // Test fixtures still commonly use the legacy string form:
+            //   model = "foo"
+            // Normalize to the current schema's object form so tests exercise
+            // server behavior instead of failing during config parse.
+            let indent_len = line.len() - line.trim_start().len();
+            let indent = &line[..indent_len];
+            rewritten.push_str(indent);
+            rewritten.push_str("model = { slug = \"");
+            rewritten.push_str(&model_slug);
+            rewritten.push_str("\", provider = \"");
+            rewritten.push_str(&provider);
+            rewritten.push_str("\" }\n");
+            changed = true;
+            continue;
+        }
+        rewritten.push_str(line);
+        rewritten.push('\n');
+    }
+
+    if let Some((provider_id, has_slug, has_display_name)) = current_provider_table.take() {
+        changed |= append_missing_provider_fields(
+            &mut rewritten,
+            &provider_id,
+            has_slug,
+            has_display_name,
+        );
+    }
+
+    if changed {
+        std::fs::write(&config_path, rewritten)
+            .with_context(|| format!("write {}", config_path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn append_missing_provider_fields(
+    rewritten: &mut String,
+    provider_id: &str,
+    has_slug: bool,
+    has_display_name: bool,
+) -> bool {
+    let mut changed = false;
+
+    if !has_slug {
+        rewritten.push_str("slug = \"");
+        rewritten.push_str(provider_id);
+        rewritten.push_str("\"\n");
+        changed = true;
+    }
+
+    if !has_display_name {
+        rewritten.push_str("display_name = \"");
+        rewritten.push_str(provider_id);
+        rewritten.push_str("\"\n");
+        changed = true;
+    }
+
+    changed
+}
+
+fn extract_toml_string_value(contents: &str, key: &str) -> Option<String> {
+    contents
+        .lines()
+        .find_map(|line| extract_assignment_string(line, key))
+}
+
+fn extract_assignment_string(line: &str, key: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('#') {
+        return None;
+    }
+    if !trimmed.starts_with(key) {
+        return None;
+    }
+
+    let (lhs, rhs) = trimmed.split_once('=')?;
+    if lhs.trim() != key {
+        return None;
+    }
+
+    let rhs = rhs.trim_start();
+    let inner = rhs.strip_prefix('"')?;
+    let end = inner.find('"')?;
+    Some(inner[..end].to_string())
+}
+
+fn parse_model_provider_table_header(header_line: &str) -> Option<String> {
+    let prefix = "[model_providers.";
+    if !header_line.starts_with(prefix) || !header_line.ends_with(']') {
+        return None;
+    }
+    let inner = &header_line[prefix.len()..header_line.len() - 1];
+    if inner.is_empty() {
+        return None;
+    }
+    if inner.starts_with('"') && inner.ends_with('"') && inner.len() >= 2 {
+        return Some(inner[1..inner.len() - 1].to_string());
+    }
+    Some(inner.to_string())
 }

@@ -6,9 +6,9 @@ import type { SessionId } from "./SessionId";
 
 export type CollabWaitingEndEvent = { 
 /**
- * Thread ID of the sender.
+ * Session ID of the sender.
  */
-sender_thread_id: SessionId, 
+sender_session_id: SessionId, 
 /**
  * ID of the waiting call.
  */

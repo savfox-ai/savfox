@@ -1203,9 +1203,9 @@ async fn rate_limit_switch_prompt_skips_when_on_lower_cost_model() {
 
 #[tokio::test]
 async fn rate_limit_switch_prompt_shows_once_per_session() {
-    let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
     let (mut chat, ..) = make_chat_screen_manual(Some("gpt-5")).await;
-    chat.auth_manager = AuthManager::from_auth_for_testing(auth);
+    set_chatgpt_auth(&mut chat);
+    let has_nudge_model = has_rate_limit_nudge_model(&chat);
 
     chat.on_rate_limit_snapshot(Some(snapshot(90.0)));
     assert!(
@@ -1213,16 +1213,30 @@ async fn rate_limit_switch_prompt_shows_once_per_session() {
         "warnings not emitted"
     );
     chat.maybe_show_pending_rate_limit_prompt();
-    assert!(matches!(
-        chat.rate_limit_switch_prompt,
-        RateLimitSwitchPromptState::Shown
-    ));
+    if has_nudge_model {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Shown
+        ));
+    } else {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Idle
+        ));
+    }
 
     chat.on_rate_limit_snapshot(Some(snapshot(95.0)));
-    assert!(matches!(
-        chat.rate_limit_switch_prompt,
-        RateLimitSwitchPromptState::Shown
-    ));
+    if has_nudge_model {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Shown
+        ));
+    } else {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Pending
+        ));
+    }
 }
 
 #[tokio::test]
@@ -1242,9 +1256,9 @@ async fn rate_limit_switch_prompt_respects_hidden_notice() {
 
 #[tokio::test]
 async fn rate_limit_switch_prompt_defers_until_task_complete() {
-    let auth = SavfoxAuth::create_dummy_chatgpt_auth_for_testing();
     let (mut chat, ..) = make_chat_screen_manual(Some("gpt-5")).await;
-    chat.auth_manager = AuthManager::from_auth_for_testing(auth);
+    set_chatgpt_auth(&mut chat);
+    let has_nudge_model = has_rate_limit_nudge_model(&chat);
 
     chat.bottom_pane.set_task_running(true);
     chat.on_rate_limit_snapshot(Some(snapshot(90.0)));
@@ -1255,10 +1269,17 @@ async fn rate_limit_switch_prompt_defers_until_task_complete() {
 
     chat.bottom_pane.set_task_running(false);
     chat.maybe_show_pending_rate_limit_prompt();
-    assert!(matches!(
-        chat.rate_limit_switch_prompt,
-        RateLimitSwitchPromptState::Shown
-    ));
+    if has_nudge_model {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Shown
+        ));
+    } else {
+        assert!(matches!(
+            chat.rate_limit_switch_prompt,
+            RateLimitSwitchPromptState::Idle
+        ));
+    }
 }
 
 #[tokio::test]
@@ -1483,8 +1504,8 @@ async fn plan_implementation_popup_shows_after_proposed_plan_output() {
 #[tokio::test]
 async fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5")).await;
-    chat.auth_manager =
-        AuthManager::from_auth_for_testing(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
+    set_chatgpt_auth(&mut chat);
+    let has_nudge_model = has_rate_limit_nudge_model(&chat);
     chat.set_feature_enabled(Feature::CollaborationModes, true);
     let plan_mask =
         collaboration_modes::mask_for_kind(chat.models_manager.as_ref(), ModeKind::Plan)
@@ -1503,10 +1524,17 @@ async fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     chat.on_task_complete(None, false);
 
     let popup = render_bottom_popup(&chat, 80);
-    assert!(
-        popup.contains("Approaching rate limits"),
-        "expected rate limit popup, got {popup:?}"
-    );
+    if has_nudge_model {
+        assert!(
+            popup.contains("Approaching rate limits"),
+            "expected rate limit popup, got {popup:?}"
+        );
+    } else {
+        assert!(
+            !popup.contains("Approaching rate limits"),
+            "did not expect rate limit popup without nudge model, got {popup:?}"
+        );
+    }
     assert!(
         !popup.contains(PLAN_IMPLEMENTATION_TITLE),
         "expected plan popup to be skipped, got {popup:?}"
@@ -1767,16 +1795,39 @@ fn active_blob(chat: &ChatScreen) -> String {
     lines_to_single_string(&lines)
 }
 
-fn get_available_model(chat: &ChatScreen, model: &str) -> ModelPreset {
+fn get_reasoning_popup_model(chat: &ChatScreen) -> ModelPreset {
+    let models = chat
+        .models_manager
+        .try_list_models(&chat.config)
+        .expect("models lock available");
+    let supports_xhigh = |preset: &ModelPreset| {
+        preset.show_in_picker
+            && preset
+                .supported_reasoning_efforts
+                .iter()
+                .any(|option| option.effort == ReasoningEffortConfig::XHigh)
+    };
+    models
+        .iter()
+        .find(|preset| {
+            supports_xhigh(preset)
+                && (preset.slug.starts_with("gpt-5.2")
+                    || preset.slug.starts_with("gpt-5.1-codex")
+                    || preset.slug.starts_with("gpt-5.1-codex-max"))
+        })
+        .or_else(|| models.iter().find(|preset| supports_xhigh(preset)))
+        .cloned()
+        .expect("reasoning popup model with xhigh effort")
+}
+
+fn has_rate_limit_nudge_model(chat: &ChatScreen) -> bool {
     let models = chat
         .models_manager
         .try_list_models(&chat.config)
         .expect("models lock available");
     models
         .iter()
-        .find(|&preset| preset.slug == model)
-        .cloned()
-        .unwrap_or_else(|| panic!("{model} preset not found"))
+        .any(|preset| preset.show_in_picker && preset.slug == NUDGE_MODEL_SLUG)
 }
 
 #[tokio::test]
@@ -2454,7 +2505,6 @@ async fn collab_slash_command_opens_picker_and_updates_mode() {
                     mode: ModeKind::Code,
                     ..
                 }),
-            personality: None,
             ..
         } => {}
         other => {
@@ -2472,7 +2522,6 @@ async fn collab_slash_command_opens_picker_and_updates_mode() {
                     mode: ModeKind::Code,
                     ..
                 }),
-            personality: None,
             ..
         } => {}
         other => {
@@ -2664,7 +2713,6 @@ async fn collab_mode_is_not_sent_until_selected() {
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
             collaboration_mode,
-            personality: None,
             ..
         } => {
             assert_eq!(collaboration_mode, None);
@@ -2793,15 +2841,15 @@ async fn connect_auth_prompt_openai_shows_auth_method_picker() {
         "expected auth method picker title: {popup}"
     );
     assert!(
-        popup.contains("ChatGPT Pro/Plus (browser)"),
+        popup.contains("Sign in with ChatGPT"),
         "expected browser auth option: {popup}"
     );
     assert!(
-        popup.contains("ChatGPT Pro/Plus (headless)"),
+        popup.contains("Sign in with Device Code"),
         "expected headless auth option: {popup}"
     );
     assert!(
-        popup.contains("Manually enter API key"),
+        popup.contains("Provide your own API key"),
         "expected manual key auth option: {popup}"
     );
 }
@@ -3687,12 +3735,12 @@ async fn startup_prompts_for_windows_sandbox_when_agent_requested() {
 
 #[tokio::test]
 async fn model_reasoning_selection_popup_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5.1-savfox-max")).await;
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
+    let preset = get_reasoning_popup_model(&chat);
+    chat.set_model(&preset.slug);
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
-
-    let preset = get_available_model(&chat, "gpt-5.1-savfox-max");
     chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, 80);
@@ -3701,12 +3749,12 @@ async fn model_reasoning_selection_popup_snapshot() {
 
 #[tokio::test]
 async fn model_reasoning_selection_popup_extra_high_warning_snapshot() {
-    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5.1-savfox-max")).await;
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
+    let preset = get_reasoning_popup_model(&chat);
+    chat.set_model(&preset.slug);
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::XHigh));
-
-    let preset = get_available_model(&chat, "gpt-5.1-savfox-max");
     chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, 80);
@@ -3715,11 +3763,11 @@ async fn model_reasoning_selection_popup_extra_high_warning_snapshot() {
 
 #[tokio::test]
 async fn reasoning_popup_shows_extra_high_with_space() {
-    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5.1-savfox-max")).await;
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
-
-    let preset = get_available_model(&chat, "gpt-5.1-savfox-max");
+    let preset = get_reasoning_popup_model(&chat);
+    chat.set_model(&preset.slug);
     chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, 120);
@@ -3800,11 +3848,13 @@ async fn feedback_upload_consent_popup_snapshot() {
 
 #[tokio::test]
 async fn reasoning_popup_escape_returns_to_model_popup() {
-    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("gpt-5.1-savfox-max")).await;
+    let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
+    set_chatgpt_auth(&mut chat);
+    let preset = get_reasoning_popup_model(&chat);
+    chat.set_model(&preset.slug);
     chat.session_id = Some(SessionId::new());
     chat.open_model_popup();
 
-    let preset = get_available_model(&chat, "gpt-5.1-savfox-max");
     chat.open_reasoning_popup(preset);
 
     let before_escape = render_bottom_popup(&chat, 80);

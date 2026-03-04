@@ -156,44 +156,9 @@ pub(crate) const DEFAULT_ENV_VARS: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
     use pretty_assertions::assert_eq;
-    use serial_test::serial;
 
     use super::*;
-
-    struct EnvVarGuard {
-        key: String,
-        original: Option<OsString>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &str, value: &str) -> Self {
-            let original = std::env::var_os(key);
-            unsafe {
-                std::env::set_var(key, value);
-            }
-            Self {
-                key: key.to_string(),
-                original,
-            }
-        }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            if let Some(value) = &self.original {
-                unsafe {
-                    std::env::set_var(&self.key, value);
-                }
-            } else {
-                unsafe {
-                    std::env::remove_var(&self.key);
-                }
-            }
-        }
-    }
 
     #[tokio::test]
     async fn create_env_honors_overrides() {
@@ -204,12 +169,11 @@ mod tests {
     }
 
     #[test]
-    #[serial(extra_rmcp_env)]
     fn create_env_includes_additional_whitelisted_variables() {
-        let custom_var = "EXTRA_RMCP_ENV";
-        let value = "from-env";
-        let _guard = EnvVarGuard::set(custom_var, value);
-        let env = create_env_for_mcp_server(None, &[custom_var.to_string()]);
-        assert_eq!(env.get(custom_var), Some(&value.to_string()));
+        let (custom_var, value) = std::env::vars()
+            .find(|(key, _)| !DEFAULT_ENV_VARS.contains(&key.as_str()))
+            .expect("expected at least one non-default env var");
+        let env = create_env_for_mcp_server(None, std::slice::from_ref(&custom_var));
+        assert_eq!(env.get(&custom_var), Some(&value));
     }
 }

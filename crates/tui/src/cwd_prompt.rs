@@ -224,6 +224,7 @@ mod tests {
     use crossterm::event::{KeyEvent, KeyModifiers};
     use pretty_assertions::assert_eq;
     use ratatui::Terminal;
+    use ratatui::widgets::FrameExt;
 
     use super::*;
     use crate::test_backend::VT100Backend;

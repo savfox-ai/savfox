@@ -28,7 +28,8 @@ fn retry_config() -> RetryConfig {
 
 fn openai_provider() -> Provider {
     Provider {
-        name: "openai".to_string(),
+        slug: "openai".to_string(),
+        display_name: "openai".to_string(),
         base_url: "https://api.openai.com/v1".to_string(),
         query_params: None,
         wire: WireApi::Responses,
@@ -40,7 +41,8 @@ fn openai_provider() -> Provider {
 
 fn chat_provider() -> Provider {
     Provider {
-        name: "openai".to_string(),
+        slug: "openai".to_string(),
+        display_name: "openai".to_string(),
         base_url: "https://api.openai.com/v1".to_string(),
         query_params: None,
         wire: WireApi::Chat,
@@ -52,7 +54,8 @@ fn chat_provider() -> Provider {
 
 fn anthropic_provider() -> Provider {
     Provider {
-        name: "anthropic".to_string(),
+        slug: "anthropic".to_string(),
+        display_name: "anthropic".to_string(),
         base_url: "https://api.anthropic.com".to_string(),
         query_params: None,
         wire: WireApi::Anthropic,
@@ -252,7 +255,8 @@ mod request_format {
     #[test]
     fn responses_request_azure_defaults_store_true() {
         let azure = Provider {
-            name: "azure".to_string(),
+            slug: "azure".to_string(),
+            display_name: "azure".to_string(),
             base_url: "https://example.openai.azure.com/v1".to_string(),
             query_params: None,
             wire: WireApi::Responses,
@@ -999,7 +1003,8 @@ mod provider_config {
     #[test]
     fn azure_detection_by_name() {
         let p = Provider {
-            name: "azure".to_string(),
+            slug: "azure".to_string(),
+            display_name: "azure".to_string(),
             base_url: "https://example.com".to_string(),
             query_params: None,
             wire: WireApi::Responses,
@@ -1013,7 +1018,8 @@ mod provider_config {
     #[test]
     fn azure_detection_by_url() {
         let p = Provider {
-            name: "custom".to_string(),
+            slug: "custom".to_string(),
+            display_name: "custom".to_string(),
             base_url: "https://foo.openai.azure.com/openai".to_string(),
             query_params: None,
             wire: WireApi::Responses,
@@ -1042,7 +1048,8 @@ mod provider_config {
     #[test]
     fn websocket_url_http_becomes_ws() {
         let p = Provider {
-            name: "local".to_string(),
+            slug: "local".to_string(),
+            display_name: "local".to_string(),
             base_url: "http://localhost:8080/v1".to_string(),
             query_params: None,
             wire: WireApi::Responses,

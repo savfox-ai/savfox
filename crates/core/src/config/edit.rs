@@ -900,10 +900,16 @@ mod tests {
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"model = "gpt-5.1-savfox"
-model_reasoning_effort = "high"
-"#;
-        assert_eq!(contents, expected);
+        let value: TomlValue = toml::from_str(&contents).expect("parse config");
+        let model = value
+            .get("model")
+            .and_then(|v| v.as_table())
+            .expect("model table");
+        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
+        assert_eq!(
+            model.get("reasoning_level").and_then(|v| v.as_str()),
+            Some("high")
+        );
     }
 
     #[test]
@@ -1240,8 +1246,12 @@ model = "o5-preview"
         let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
         let value: TomlValue = toml::from_str(&raw).expect("parse config");
         assert_eq!(
-            value.get("model").and_then(|v| v.as_str()),
-            Some("zhipuai-coding-plan/glm-5")
+            value
+                .get("model")
+                .and_then(|v| v.as_table())
+                .and_then(|tbl| tbl.get("slug"))
+                .and_then(|v| v.as_str()),
+            Some("glm-5")
         );
         assert_eq!(
             value.get("model_provider").and_then(|v| v.as_str()),
@@ -1272,7 +1282,14 @@ model = "o5-preview"
 
         let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
         let value: TomlValue = toml::from_str(&raw).expect("parse config");
-        assert_eq!(value.get("model").and_then(|v| v.as_str()), Some("glm-5"));
+        assert_eq!(
+            value
+                .get("model")
+                .and_then(|v| v.as_table())
+                .and_then(|tbl| tbl.get("slug"))
+                .and_then(|v| v.as_str()),
+            Some("glm-5")
+        );
         assert_eq!(
             value.get("model_provider").and_then(|v| v.as_str()),
             Some("zhipuai-coding-plan")
@@ -1790,10 +1807,16 @@ foo = { command = "cmd" , enabled = false }
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"model = "gpt-5.1-savfox"
-model_reasoning_effort = "high"
-"#;
-        assert_eq!(contents, expected);
+        let value: TomlValue = toml::from_str(&contents).expect("parse config");
+        let model = value
+            .get("model")
+            .and_then(|v| v.as_table())
+            .expect("model table");
+        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
+        assert_eq!(
+            model.get("reasoning_level").and_then(|v| v.as_str()),
+            Some("high")
+        );
     }
 
     #[test]
@@ -1801,27 +1824,31 @@ model_reasoning_effort = "high"
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
 
-        let initial_expected = r#"model = "o4-mini"
-model_reasoning_effort = "low"
-"#;
+        let assert_model = |raw: &str, slug: &str, level: &str| {
+            let value: TomlValue = toml::from_str(raw).expect("parse config");
+            let model = value
+                .get("model")
+                .and_then(|v| v.as_table())
+                .expect("model table");
+            assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some(slug));
+            assert_eq!(model.get("reasoning_level").and_then(|v| v.as_str()), Some(level));
+        };
+
         ConfigEditsBuilder::new(savfox_home)
             .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
             .apply_blocking()
             .expect("persist initial");
         let mut contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        assert_eq!(contents, initial_expected);
+        assert_model(&contents, "o4-mini", "low");
 
-        let updated_expected = r#"model = "gpt-5.1-savfox"
-model_reasoning_effort = "high"
-"#;
         ConfigEditsBuilder::new(savfox_home)
             .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::High))
             .apply_blocking()
             .expect("persist update");
         contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        assert_eq!(contents, updated_expected);
+        assert_model(&contents, "gpt-5.1-savfox", "high");
 
         ConfigEditsBuilder::new(savfox_home)
             .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
@@ -1829,7 +1856,7 @@ model_reasoning_effort = "high"
             .expect("persist revert");
         contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        assert_eq!(contents, initial_expected);
+        assert_model(&contents, "o4-mini", "low");
     }
 
     #[tokio::test]

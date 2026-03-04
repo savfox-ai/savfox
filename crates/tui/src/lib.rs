@@ -1255,7 +1255,9 @@ fn should_show_provider_setup_screen(config: &Config, has_connected_provider: bo
 
 #[cfg(test)]
 mod tests {
-    use savfox_core::config::{ConfigBuilder, ConfigOverrides, ConfigToml, ProjectConfig};
+    use savfox_core::config::{
+        ConfigBuilder, ConfigOverrides, ConfigToml, ProjectConfig, SelectedModel,
+    };
     use savfox_core::protocol::AskForApproval;
     use savfox_protocol::protocol::{
         RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, TurnContextItem,
@@ -1576,19 +1578,26 @@ trust_level = "untrusted"
 }"#,
         )?;
 
-        let config_toml: ConfigToml = toml::from_str(
-            r#"
-model = "missing-provider/missing-model"
-"#,
-        )
-        .expect("parse config toml");
+        let config_toml = ConfigToml {
+            model: Some(SelectedModel {
+                slug: "missing-model".to_string(),
+                provider: "missing-provider".to_string(),
+                reasoning_effort: None,
+            }),
+            ..ConfigToml::default()
+        };
 
         let warning =
             maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
         assert!(warning.is_some());
 
-        let updated = std::fs::read_to_string(temp_dir.path().join("config.toml"))?;
-        assert!(updated.contains(r#"model = "zhipuai-coding-plan/glm-5""#));
+        let updated: ConfigToml =
+            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
+                .expect("parse updated config");
+        assert_eq!(
+            updated.model.as_ref().and_then(SelectedModel::to_model_id),
+            Some("zhipuai-coding-plan/glm-5".to_string())
+        );
         Ok(())
     }
 
@@ -1609,19 +1618,26 @@ model = "missing-provider/missing-model"
 }"#,
         )?;
 
-        let config_toml: ConfigToml = toml::from_str(
-            r#"
-model = "zhipuai-coding-plan/does-not-exist"
-"#,
-        )
-        .expect("parse config toml");
+        let config_toml = ConfigToml {
+            model: Some(SelectedModel {
+                slug: "does-not-exist".to_string(),
+                provider: "zhipuai-coding-plan".to_string(),
+                reasoning_effort: None,
+            }),
+            ..ConfigToml::default()
+        };
 
         let warning =
             maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
         assert!(warning.is_some());
 
-        let updated = std::fs::read_to_string(temp_dir.path().join("config.toml"))?;
-        assert!(updated.contains(r#"model = "zhipuai-coding-plan/glm-4.5""#));
+        let updated: ConfigToml =
+            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
+                .expect("parse updated config");
+        assert_eq!(
+            updated.model.as_ref().and_then(SelectedModel::to_model_id),
+            Some("zhipuai-coding-plan/glm-4.5".to_string())
+        );
         Ok(())
     }
 }

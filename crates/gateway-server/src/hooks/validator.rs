@@ -468,11 +468,10 @@ mod tests {
         let result = v.validate("hi");
         match result {
             ValidationResult::Fail(reasons) => {
-                // All three rules should fail.
-                assert_eq!(reasons.len(), 3, "expected 3 failures, got: {reasons:?}");
+                // MinLength + BlockKeywords should fail; MaxLength should pass.
+                assert_eq!(reasons.len(), 2, "expected 2 failures, got: {reasons:?}");
                 assert!(reasons[0].contains("too short"));
-                assert!(reasons[1].contains("too long"));
-                assert!(reasons[2].contains("blocked keywords"));
+                assert!(reasons[1].contains("blocked keywords"));
             }
             _ => panic!("expected failure"),
         }

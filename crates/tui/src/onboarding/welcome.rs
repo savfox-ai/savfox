@@ -74,6 +74,7 @@ impl StepStateProvider for WelcomeWidget {
 mod tests {
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
+    use ratatui::widgets::WidgetRef;
 
     use super::*;
 
@@ -92,7 +93,7 @@ mod tests {
         let widget = WelcomeWidget::new(false, FrameRequester::test_dummy(), true);
         let area = Rect::new(0, 0, 60, 10);
         let mut buf = Buffer::empty(area);
-        (&widget).render(area, &mut buf);
+        (&widget).render_ref(area, &mut buf);
 
         let welcome_row = row_containing(&buf, "Welcome");
         assert_eq!(welcome_row, Some(0));

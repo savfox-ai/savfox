@@ -157,7 +157,7 @@
         "null"
       ]
     },
-    "threadId": {
+    "sessionId": {
       "type": "string"
     },
     "turnId": {
@@ -166,7 +166,7 @@
   },
   "required": [
     "itemId",
-    "threadId",
+    "sessionId",
     "turnId"
   ],
   "title": "CommandExecutionRequestApprovalParams",

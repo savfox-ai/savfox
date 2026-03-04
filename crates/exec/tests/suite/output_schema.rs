@@ -5,7 +5,7 @@ use core_test_support::responses;
 use core_test_support::test_savfox_exec::test_savfox_exec;
 use serde_json::Value;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_includes_output_schema_in_request() -> anyhow::Result<()> {
     let test = test_savfox_exec();
 

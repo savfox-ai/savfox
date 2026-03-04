@@ -1331,6 +1331,9 @@ mod tests {
             },
             "models": []
         });
+        if let Some(parent) = auth_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
         std::fs::write(
             &auth_path,
             serde_json::to_string_pretty(&stale_auth).unwrap(),

@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, to_response};
@@ -12,7 +12,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_conversation_moves_rollout_into_archived_directory() -> Result<()> {
     let savfox_home = TempDir::new()?;
     create_config_toml(savfox_home.path())?;

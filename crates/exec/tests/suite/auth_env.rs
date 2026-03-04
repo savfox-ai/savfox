@@ -3,7 +3,7 @@ use core_test_support::responses::{ev_completed, mount_sse_once_match, sse, star
 use core_test_support::test_savfox_exec::test_savfox_exec;
 use wiremock::matchers::header;
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exec_uses_savfox_api_key_env_var() -> anyhow::Result<()> {
     let test = test_savfox_exec();
     let server = start_mock_server().await;

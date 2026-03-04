@@ -1,4 +1,4 @@
-﻿// GENERATED CODE! DO NOT MODIFY BY HAND!
+// GENERATED CODE! DO NOT MODIFY BY HAND!
 
 export type { AbsolutePathBuf } from "./AbsolutePathBuf";
 export type { AddConversationListenerParams } from "./AddConversationListenerParams";
@@ -30,7 +30,6 @@ export type { CancelLoginChatGptResponse } from "./CancelLoginChatGptResponse";
 export type { ClientInfo } from "./ClientInfo";
 export type { ClientNotification } from "./ClientNotification";
 export type { ClientRequest } from "./ClientRequest";
-export type { SavfoxErrorInfo } from "./SavfoxErrorInfo";
 export type { CollabAgentInteractionBeginEvent } from "./CollabAgentInteractionBeginEvent";
 export type { CollabAgentInteractionEndEvent } from "./CollabAgentInteractionEndEvent";
 export type { CollabAgentSpawnBeginEvent } from "./CollabAgentSpawnBeginEvent";
@@ -161,6 +160,7 @@ export type { ReviewTarget } from "./ReviewTarget";
 export type { SandboxMode } from "./SandboxMode";
 export type { SandboxPolicy } from "./SandboxPolicy";
 export type { SandboxSettings } from "./SandboxSettings";
+export type { SavfoxErrorInfo } from "./SavfoxErrorInfo";
 export type { SendUserMessageParams } from "./SendUserMessageParams";
 export type { SendUserMessageResponse } from "./SendUserMessageResponse";
 export type { SendUserTurnParams } from "./SendUserTurnParams";
@@ -169,6 +169,9 @@ export type { ServerNotification } from "./ServerNotification";
 export type { ServerRequest } from "./ServerRequest";
 export type { SessionConfiguredEvent } from "./SessionConfiguredEvent";
 export type { SessionConfiguredNotification } from "./SessionConfiguredNotification";
+export type { SessionId } from "./SessionId";
+export type { SessionNameUpdatedEvent } from "./SessionNameUpdatedEvent";
+export type { SessionRolledBackEvent } from "./SessionRolledBackEvent";
 export type { SessionSource } from "./SessionSource";
 export type { SetDefaultModelParams } from "./SetDefaultModelParams";
 export type { SetDefaultModelResponse } from "./SetDefaultModelResponse";
@@ -185,9 +188,6 @@ export type { StreamErrorEvent } from "./StreamErrorEvent";
 export type { SubAgentSource } from "./SubAgentSource";
 export type { TerminalInteractionEvent } from "./TerminalInteractionEvent";
 export type { TextElement } from "./TextElement";
-export type { SessionId } from "./SessionId";
-export type { ThreadNameUpdatedEvent } from "./ThreadNameUpdatedEvent";
-export type { ThreadRolledBackEvent } from "./ThreadRolledBackEvent";
 export type { TokenCountEvent } from "./TokenCountEvent";
 export type { TokenUsage } from "./TokenUsage";
 export type { TokenUsageInfo } from "./TokenUsageInfo";

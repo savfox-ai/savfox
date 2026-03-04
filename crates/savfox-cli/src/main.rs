@@ -1356,7 +1356,7 @@ mod tests {
         expected.extend(boxed_summary_lines(&[
             format!(">_ Savfox  (v{})", env!("CARGO_PKG_VERSION")),
             String::new(),
-            "model:     gpt-5.3-codex xhigh   /model to change".to_string(),
+            "model:     gpt-5.3-codex xhigh".to_string(),
             "directory: workspace".to_string(),
             "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string(),
         ]));
@@ -1385,7 +1385,7 @@ mod tests {
         expected.extend(boxed_summary_lines(&[
             format!(">_ Savfox  (v{})", env!("CARGO_PKG_VERSION")),
             String::new(),
-            "model:     gpt-5.3-codex xhigh   /model to change".to_string(),
+            "model:     gpt-5.3-codex xhigh".to_string(),
             "directory: workspace".to_string(),
             "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string(),
         ]));

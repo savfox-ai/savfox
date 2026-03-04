@@ -109,7 +109,8 @@ impl AuthProvider for StaticAuth {
 
 fn provider(name: &str, wire: WireApi) -> Provider {
     Provider {
-        name: name.to_string(),
+        slug: name.to_string(),
+        display_name: name.to_string(),
         base_url: "https://example.com/v1".to_string(),
         query_params: None,
         wire,

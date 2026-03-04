@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
     "ApplyPatchApprovalParams": {
@@ -223,7 +223,7 @@
             "null"
           ]
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -232,7 +232,7 @@
       },
       "required": [
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -243,7 +243,7 @@
         "callId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "tool": {
@@ -256,7 +256,7 @@
       "required": [
         "arguments",
         "callId",
-        "threadId",
+        "sessionId",
         "tool",
         "turnId"
       ],
@@ -391,7 +391,7 @@
             "null"
           ]
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -400,7 +400,7 @@
       },
       "required": [
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -558,7 +558,7 @@
           },
           "type": "array"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -568,7 +568,7 @@
       "required": [
         "itemId",
         "questions",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"

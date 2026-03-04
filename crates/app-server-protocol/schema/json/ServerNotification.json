@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
     "AbsolutePathBuf": {
@@ -86,7 +86,7 @@
         "itemId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -96,7 +96,7 @@
       "required": [
         "delta",
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -301,290 +301,6 @@
       ],
       "type": "object"
     },
-    "SavfoxErrorInfo": {
-      "description": "This translation layer make sure that we expose savfox error code in camel case.\n\nWhen an upstream HTTP status is available (for example, from the Responses API or a provider), it is forwarded in `httpStatusCode` on the relevant `savfoxErrorInfo` variant.",
-      "oneOf": [
-        {
-          "enum": [
-            "contextWindowExceeded",
-            "usageLimitExceeded",
-            "internalServerError",
-            "unauthorized",
-            "badRequest",
-            "threadRollbackFailed",
-            "sandboxError",
-            "other"
-          ],
-          "type": "string"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "modelCap": {
-              "properties": {
-                "model": {
-                  "type": "string"
-                },
-                "reset_after_seconds": {
-                  "format": "uint64",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "model"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "modelCap"
-          ],
-          "title": "ModelCapSavfoxErrorInfo",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "httpConnectionFailed": {
-              "properties": {
-                "httpStatusCode": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "httpConnectionFailed"
-          ],
-          "title": "HttpConnectionFailedSavfoxErrorInfo",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "Failed to connect to the response SSE stream.",
-          "properties": {
-            "responseStreamConnectionFailed": {
-              "properties": {
-                "httpStatusCode": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "responseStreamConnectionFailed"
-          ],
-          "title": "ResponseStreamConnectionFailedSavfoxErrorInfo",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "The response SSE stream disconnected in the middle of a turn before completion.",
-          "properties": {
-            "responseStreamDisconnected": {
-              "properties": {
-                "httpStatusCode": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "responseStreamDisconnected"
-          ],
-          "title": "ResponseStreamDisconnectedSavfoxErrorInfo",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "Reached the retry limit for responses.",
-          "properties": {
-            "responseTooManyFailedAttempts": {
-              "properties": {
-                "httpStatusCode": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "responseTooManyFailedAttempts"
-          ],
-          "title": "ResponseTooManyFailedAttemptsSavfoxErrorInfo",
-          "type": "object"
-        }
-      ]
-    },
-    "SavfoxErrorInfo2": {
-      "description": "Savfox errors that we expose to clients.",
-      "oneOf": [
-        {
-          "enum": [
-            "context_window_exceeded",
-            "usage_limit_exceeded",
-            "internal_server_error",
-            "unauthorized",
-            "bad_request",
-            "sandbox_error",
-            "thread_rollback_failed",
-            "other"
-          ],
-          "type": "string"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "model_cap": {
-              "properties": {
-                "model": {
-                  "type": "string"
-                },
-                "reset_after_seconds": {
-                  "format": "uint64",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "model"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "model_cap"
-          ],
-          "title": "ModelCapSavfoxErrorInfo2",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "http_connection_failed": {
-              "properties": {
-                "http_status_code": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "http_connection_failed"
-          ],
-          "title": "HttpConnectionFailedSavfoxErrorInfo2",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "Failed to connect to the response SSE stream.",
-          "properties": {
-            "response_stream_connection_failed": {
-              "properties": {
-                "http_status_code": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "response_stream_connection_failed"
-          ],
-          "title": "ResponseStreamConnectionFailedSavfoxErrorInfo2",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "The response SSE stream disconnected in the middle of a turnbefore completion.",
-          "properties": {
-            "response_stream_disconnected": {
-              "properties": {
-                "http_status_code": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "response_stream_disconnected"
-          ],
-          "title": "ResponseStreamDisconnectedSavfoxErrorInfo2",
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "Reached the retry limit for responses.",
-          "properties": {
-            "response_too_many_failed_attempts": {
-              "properties": {
-                "http_status_code": {
-                  "format": "uint16",
-                  "minimum": 0.0,
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "type": "object"
-            }
-          },
-          "required": [
-            "response_too_many_failed_attempts"
-          ],
-          "title": "ResponseTooManyFailedAttemptsSavfoxErrorInfo2",
-          "type": "object"
-        }
-      ]
-    },
     "CollabAgentState": {
       "properties": {
         "message": {
@@ -748,7 +464,7 @@
         "itemId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -758,7 +474,7 @@
       "required": [
         "delta",
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -876,7 +592,7 @@
     "ContextCompactedNotification": {
       "description": "Deprecated: Use `ContextCompaction` item type instead.",
       "properties": {
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -884,7 +600,7 @@
         }
       },
       "required": [
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -1005,7 +721,7 @@
         "error": {
           "$ref": "#/definitions/TurnError"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -1017,7 +733,7 @@
       },
       "required": [
         "error",
-        "threadId",
+        "sessionId",
         "turnId",
         "willRetry"
       ],
@@ -1029,6 +745,9 @@
         {
           "description": "Error while executing a submission",
           "properties": {
+            "message": {
+              "type": "string"
+            },
             "savfox_error_info": {
               "anyOf": [
                 {
@@ -1039,9 +758,6 @@
                 }
               ],
               "default": null
-            },
-            "message": {
-              "type": "string"
             },
             "type": {
               "enum": [
@@ -1107,9 +823,9 @@
             },
             "type": {
               "enum": [
-                "thread_rolled_back"
+                "session_rolled_back"
               ],
-              "title": "ThreadRolledBackEventMsgType",
+              "title": "SessionRolledBackEventMsgType",
               "type": "string"
             }
           },
@@ -1117,7 +833,7 @@
             "num_turns",
             "type"
           ],
-          "title": "ThreadRolledBackEventMsg",
+          "title": "SessionRolledBackEventMsg",
           "type": "object"
         },
         {
@@ -1477,7 +1193,7 @@
               "description": "The effort the model is putting into reasoning about the user's request."
             },
             "rollout_path": {
-              "description": "Path in which the rollout is stored. Can be `None` for ephemeral threads",
+              "description": "Path in which the rollout is stored. Can be `None` for ephemeral sessions",
               "type": [
                 "string",
                 "null"
@@ -1494,8 +1210,8 @@
             "session_id": {
               "$ref": "#/definitions/SessionId"
             },
-            "thread_name": {
-              "description": "Optional user-facing thread name (may be unset).",
+            "session_name": {
+              "description": "Optional user-facing session name (may be unset).",
               "type": [
                 "string",
                 "null"
@@ -1524,12 +1240,12 @@
           "type": "object"
         },
         {
-          "description": "Updated session metadata (e.g., thread name changes).",
+          "description": "Updated session metadata (e.g., session name changes).",
           "properties": {
-            "thread_id": {
+            "session_id": {
               "$ref": "#/definitions/SessionId"
             },
-            "thread_name": {
+            "session_name": {
               "type": [
                 "string",
                 "null"
@@ -1537,17 +1253,17 @@
             },
             "type": {
               "enum": [
-                "thread_name_updated"
+                "session_name_updated"
               ],
-              "title": "ThreadNameUpdatedEventMsgType",
+              "title": "SessionNameUpdatedEventMsgType",
               "type": "string"
             }
           },
           "required": [
-            "thread_id",
+            "session_id",
             "type"
           ],
-          "title": "ThreadNameUpdatedEventMsg",
+          "title": "SessionNameUpdatedEventMsg",
           "type": "object"
         },
         {
@@ -2308,6 +2024,9 @@
                 "null"
               ]
             },
+            "message": {
+              "type": "string"
+            },
             "savfox_error_info": {
               "anyOf": [
                 {
@@ -2318,9 +2037,6 @@
                 }
               ],
               "default": null
-            },
-            "message": {
-              "type": "string"
             },
             "type": {
               "enum": [
@@ -2754,7 +2470,7 @@
             "item": {
               "$ref": "#/definitions/TurnItem"
             },
-            "thread_id": {
+            "session_id": {
               "$ref": "#/definitions/SessionId"
             },
             "turn_id": {
@@ -2770,7 +2486,7 @@
           },
           "required": [
             "item",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2782,7 +2498,7 @@
             "item": {
               "$ref": "#/definitions/TurnItem"
             },
-            "thread_id": {
+            "session_id": {
               "$ref": "#/definitions/SessionId"
             },
             "turn_id": {
@@ -2798,7 +2514,7 @@
           },
           "required": [
             "item",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2813,7 +2529,7 @@
             "item_id": {
               "type": "string"
             },
-            "thread_id": {
+            "session_id": {
               "type": "string"
             },
             "turn_id": {
@@ -2830,7 +2546,7 @@
           "required": [
             "delta",
             "item_id",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2845,7 +2561,7 @@
             "item_id": {
               "type": "string"
             },
-            "thread_id": {
+            "session_id": {
               "type": "string"
             },
             "turn_id": {
@@ -2862,7 +2578,7 @@
           "required": [
             "delta",
             "item_id",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2877,13 +2593,13 @@
             "item_id": {
               "type": "string"
             },
+            "session_id": {
+              "type": "string"
+            },
             "summary_index": {
               "default": 0,
               "format": "int64",
               "type": "integer"
-            },
-            "thread_id": {
-              "type": "string"
             },
             "turn_id": {
               "type": "string"
@@ -2899,7 +2615,7 @@
           "required": [
             "delta",
             "item_id",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2919,7 +2635,7 @@
             "item_id": {
               "type": "string"
             },
-            "thread_id": {
+            "session_id": {
               "type": "string"
             },
             "turn_id": {
@@ -2936,7 +2652,7 @@
           "required": [
             "delta",
             "item_id",
-            "thread_id",
+            "session_id",
             "turn_id",
             "type"
           ],
@@ -2954,13 +2670,13 @@
               "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
               "type": "string"
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "type": {
               "enum": [
@@ -2973,7 +2689,7 @@
           "required": [
             "call_id",
             "prompt",
-            "sender_thread_id",
+            "sender_session_id",
             "type"
           ],
           "title": "CollabAgentSpawnBeginEventMsg",
@@ -2986,7 +2702,7 @@
               "description": "Identifier for the collab tool call.",
               "type": "string"
             },
-            "new_thread_id": {
+            "new_session_id": {
               "anyOf": [
                 {
                   "$ref": "#/definitions/SessionId"
@@ -2995,19 +2711,19 @@
                   "type": "null"
                 }
               ],
-              "description": "Thread ID of the newly spawned agent, if it was created."
+              "description": "Session ID of the newly spawned agent, if it was created."
             },
             "prompt": {
               "description": "Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the beginning.",
               "type": "string"
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "status": {
               "allOf": [
@@ -3028,7 +2744,7 @@
           "required": [
             "call_id",
             "prompt",
-            "sender_thread_id",
+            "sender_session_id",
             "status",
             "type"
           ],
@@ -3046,21 +2762,21 @@
               "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
               "type": "string"
             },
-            "receiver_thread_id": {
+            "receiver_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the receiver."
+              "description": "Session ID of the receiver."
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "type": {
               "enum": [
@@ -3073,8 +2789,8 @@
           "required": [
             "call_id",
             "prompt",
-            "receiver_thread_id",
-            "sender_thread_id",
+            "receiver_session_id",
+            "sender_session_id",
             "type"
           ],
           "title": "CollabAgentInteractionBeginEventMsg",
@@ -3091,21 +2807,21 @@
               "description": "Prompt sent from the sender to the receiver. Can be empty to prevent CoT leaking at the beginning.",
               "type": "string"
             },
-            "receiver_thread_id": {
+            "receiver_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the receiver."
+              "description": "Session ID of the receiver."
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "status": {
               "allOf": [
@@ -3126,8 +2842,8 @@
           "required": [
             "call_id",
             "prompt",
-            "receiver_thread_id",
-            "sender_thread_id",
+            "receiver_session_id",
+            "sender_session_id",
             "status",
             "type"
           ],
@@ -3141,20 +2857,20 @@
               "description": "ID of the waiting call.",
               "type": "string"
             },
-            "receiver_thread_ids": {
-              "description": "Thread ID of the receivers.",
+            "receiver_session_ids": {
+              "description": "Session ID of the receivers.",
               "items": {
                 "$ref": "#/definitions/SessionId"
               },
               "type": "array"
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "type": {
               "enum": [
@@ -3166,8 +2882,8 @@
           },
           "required": [
             "call_id",
-            "receiver_thread_ids",
-            "sender_thread_id",
+            "receiver_session_ids",
+            "sender_session_id",
             "type"
           ],
           "title": "CollabWaitingBeginEventMsg",
@@ -3180,13 +2896,13 @@
               "description": "ID of the waiting call.",
               "type": "string"
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "statuses": {
               "additionalProperties": {
@@ -3205,7 +2921,7 @@
           },
           "required": [
             "call_id",
-            "sender_thread_id",
+            "sender_session_id",
             "statuses",
             "type"
           ],
@@ -3219,21 +2935,21 @@
               "description": "Identifier for the collab tool call.",
               "type": "string"
             },
-            "receiver_thread_id": {
+            "receiver_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the receiver."
+              "description": "Session ID of the receiver."
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "type": {
               "enum": [
@@ -3245,8 +2961,8 @@
           },
           "required": [
             "call_id",
-            "receiver_thread_id",
-            "sender_thread_id",
+            "receiver_session_id",
+            "sender_session_id",
             "type"
           ],
           "title": "CollabCloseBeginEventMsg",
@@ -3259,21 +2975,21 @@
               "description": "Identifier for the collab tool call.",
               "type": "string"
             },
-            "receiver_thread_id": {
+            "receiver_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the receiver."
+              "description": "Session ID of the receiver."
             },
-            "sender_thread_id": {
+            "sender_session_id": {
               "allOf": [
                 {
                   "$ref": "#/definitions/SessionId"
                 }
               ],
-              "description": "Thread ID of the sender."
+              "description": "Session ID of the sender."
             },
             "status": {
               "allOf": [
@@ -3293,8 +3009,8 @@
           },
           "required": [
             "call_id",
-            "receiver_thread_id",
-            "sender_thread_id",
+            "receiver_session_id",
+            "sender_session_id",
             "status",
             "type"
           ],
@@ -3397,7 +3113,7 @@
         "itemId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -3407,7 +3123,7 @@
       "required": [
         "delta",
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -3582,9 +3298,9 @@
     "ItemCompletedNotification": {
       "properties": {
         "item": {
-          "$ref": "#/definitions/ThreadItem"
+          "$ref": "#/definitions/SessionItem"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -3593,7 +3309,7 @@
       },
       "required": [
         "item",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -3601,9 +3317,9 @@
     "ItemStartedNotification": {
       "properties": {
         "item": {
-          "$ref": "#/definitions/ThreadItem"
+          "$ref": "#/definitions/SessionItem"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -3612,7 +3328,7 @@
       },
       "required": [
         "item",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -3854,7 +3570,7 @@
         "message": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -3864,7 +3580,7 @@
       "required": [
         "itemId",
         "message",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -4103,7 +3819,7 @@
         "itemId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -4113,7 +3829,7 @@
       "required": [
         "delta",
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -4298,7 +4014,7 @@
         "item": {
           "$ref": "#/definitions/ResponseItem"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -4307,7 +4023,7 @@
       },
       "required": [
         "item",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -4397,12 +4113,12 @@
         "itemId": {
           "type": "string"
         },
+        "sessionId": {
+          "type": "string"
+        },
         "summaryIndex": {
           "format": "int64",
           "type": "integer"
-        },
-        "threadId": {
-          "type": "string"
         },
         "turnId": {
           "type": "string"
@@ -4410,8 +4126,8 @@
       },
       "required": [
         "itemId",
+        "sessionId",
         "summaryIndex",
-        "threadId",
         "turnId"
       ],
       "type": "object"
@@ -4424,12 +4140,12 @@
         "itemId": {
           "type": "string"
         },
+        "sessionId": {
+          "type": "string"
+        },
         "summaryIndex": {
           "format": "int64",
           "type": "integer"
-        },
-        "threadId": {
-          "type": "string"
         },
         "turnId": {
           "type": "string"
@@ -4438,8 +4154,8 @@
       "required": [
         "delta",
         "itemId",
+        "sessionId",
         "summaryIndex",
-        "threadId",
         "turnId"
       ],
       "type": "object"
@@ -4456,7 +4172,7 @@
         "itemId": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -4467,7 +4183,7 @@
         "contentIndex",
         "delta",
         "itemId",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -5293,6 +5009,368 @@
         }
       ]
     },
+    "SavfoxErrorInfo": {
+      "description": "This translation layer make sure that we expose savfox error code in camel case.\n\nWhen an upstream HTTP status is available (for example, from the Responses API or a provider), it is forwarded in `httpStatusCode` on the relevant `savfoxErrorInfo` variant.",
+      "oneOf": [
+        {
+          "enum": [
+            "contextWindowExceeded",
+            "usageLimitExceeded",
+            "internalServerError",
+            "unauthorized",
+            "badRequest",
+            "sessionRollbackFailed",
+            "sandboxError",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "modelCap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "modelCap"
+          ],
+          "title": "ModelCapSavfoxErrorInfo",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "httpConnectionFailed": {
+              "properties": {
+                "httpStatusCode": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "httpConnectionFailed"
+          ],
+          "title": "HttpConnectionFailedSavfoxErrorInfo",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Failed to connect to the response SSE stream.",
+          "properties": {
+            "responseStreamConnectionFailed": {
+              "properties": {
+                "httpStatusCode": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "responseStreamConnectionFailed"
+          ],
+          "title": "ResponseStreamConnectionFailedSavfoxErrorInfo",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The response SSE stream disconnected in the middle of a turn before completion.",
+          "properties": {
+            "responseStreamDisconnected": {
+              "properties": {
+                "httpStatusCode": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "responseStreamDisconnected"
+          ],
+          "title": "ResponseStreamDisconnectedSavfoxErrorInfo",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Reached the retry limit for responses.",
+          "properties": {
+            "responseTooManyFailedAttempts": {
+              "properties": {
+                "httpStatusCode": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "responseTooManyFailedAttempts"
+          ],
+          "title": "ResponseTooManyFailedAttemptsSavfoxErrorInfo",
+          "type": "object"
+        }
+      ]
+    },
+    "SavfoxErrorInfo2": {
+      "description": "Savfox errors that we expose to clients.",
+      "oneOf": [
+        {
+          "enum": [
+            "context_window_exceeded",
+            "usage_limit_exceeded",
+            "internal_server_error",
+            "unauthorized",
+            "bad_request",
+            "sandbox_error",
+            "session_rollback_failed",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "model_cap": {
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "reset_after_seconds": {
+                  "format": "uint64",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "model_cap"
+          ],
+          "title": "ModelCapSavfoxErrorInfo2",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "http_connection_failed": {
+              "properties": {
+                "http_status_code": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "http_connection_failed"
+          ],
+          "title": "HttpConnectionFailedSavfoxErrorInfo2",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Failed to connect to the response SSE stream.",
+          "properties": {
+            "response_stream_connection_failed": {
+              "properties": {
+                "http_status_code": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "response_stream_connection_failed"
+          ],
+          "title": "ResponseStreamConnectionFailedSavfoxErrorInfo2",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The response SSE stream disconnected in the middle of a turnbefore completion.",
+          "properties": {
+            "response_stream_disconnected": {
+              "properties": {
+                "http_status_code": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "response_stream_disconnected"
+          ],
+          "title": "ResponseStreamDisconnectedSavfoxErrorInfo2",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Reached the retry limit for responses.",
+          "properties": {
+            "response_too_many_failed_attempts": {
+              "properties": {
+                "http_status_code": {
+                  "format": "uint16",
+                  "minimum": 0.0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "response_too_many_failed_attempts"
+          ],
+          "title": "ResponseTooManyFailedAttemptsSavfoxErrorInfo2",
+          "type": "object"
+        }
+      ]
+    },
+    "Session": {
+      "properties": {
+        "cliVersion": {
+          "description": "Version of the CLI that created the session.",
+          "type": "string"
+        },
+        "createdAt": {
+          "description": "Unix timestamp (in seconds) when the session was created.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "cwd": {
+          "description": "Working directory captured for the session.",
+          "type": "string"
+        },
+        "gitInfo": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GitInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional Git metadata captured when the session was created."
+        },
+        "id": {
+          "type": "string"
+        },
+        "modelProvider": {
+          "description": "Model provider used for this session (for example, 'openai').",
+          "type": "string"
+        },
+        "path": {
+          "description": "[UNSTABLE] Path to the session on disk.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preview": {
+          "description": "Usually the first user message in the session, if available.",
+          "type": "string"
+        },
+        "source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SessionSource"
+            }
+          ],
+          "description": "Origin of the session (CLI, VSCode, savfox exec, savfox app-server, etc.)."
+        },
+        "turns": {
+          "description": "Only populated on `session/resume`, `session/rollback`, `session/fork`, and `session/read` (when `includeTurns` is true) responses. For all other responses and notifications returning a Session, the turns field will be an empty list.",
+          "items": {
+            "$ref": "#/definitions/Turn"
+          },
+          "type": "array"
+        },
+        "updatedAt": {
+          "description": "Unix timestamp (in seconds) when the session was last updated.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cliVersion",
+        "createdAt",
+        "cwd",
+        "id",
+        "modelProvider",
+        "preview",
+        "source",
+        "turns",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
     "SessionConfiguredNotification": {
       "properties": {
         "historyEntryCount": {
@@ -5343,6 +5421,498 @@
       ],
       "type": "object"
     },
+    "SessionId": {
+      "type": "string"
+    },
+    "SessionItem": {
+      "oneOf": [
+        {
+          "properties": {
+            "content": {
+              "items": {
+                "$ref": "#/definitions/UserInput"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "userMessage"
+              ],
+              "title": "UserMessageSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "id",
+            "type"
+          ],
+          "title": "UserMessageSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "agentMessage"
+              ],
+              "title": "AgentMessageSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "title": "AgentMessageSessionItem",
+          "type": "object"
+        },
+        {
+          "description": "EXPERIMENTAL - proposed plan item content. The completed plan item is authoritative and may not match the concatenation of `PlanDelta` text.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "plan"
+              ],
+              "title": "PlanSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "title": "PlanSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "summary": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "reasoning"
+              ],
+              "title": "ReasoningSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ReasoningSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "aggregatedOutput": {
+              "description": "The command's output, aggregated from stdout and stderr.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "command": {
+              "description": "The command to be executed.",
+              "type": "string"
+            },
+            "commandActions": {
+              "description": "A best-effort parsing of the command to understand the action(s) it will perform. This returns a list of CommandAction objects because a single shell command may be composed of many commands piped together.",
+              "items": {
+                "$ref": "#/definitions/CommandAction"
+              },
+              "type": "array"
+            },
+            "cwd": {
+              "description": "The command's working directory.",
+              "type": "string"
+            },
+            "durationMs": {
+              "description": "The duration of the command execution in milliseconds.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "exitCode": {
+              "description": "The command's exit code.",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "processId": {
+              "description": "Identifier for the underlying PTY process (when available).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/definitions/CommandExecutionStatus"
+            },
+            "type": {
+              "enum": [
+                "commandExecution"
+              ],
+              "title": "CommandExecutionSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "commandActions",
+            "cwd",
+            "id",
+            "status",
+            "type"
+          ],
+          "title": "CommandExecutionSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "changes": {
+              "items": {
+                "$ref": "#/definitions/FileUpdateChange"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/PatchApplyStatus"
+            },
+            "type": {
+              "enum": [
+                "fileChange"
+              ],
+              "title": "FileChangeSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "changes",
+            "id",
+            "status",
+            "type"
+          ],
+          "title": "FileChangeSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "arguments": true,
+            "durationMs": {
+              "description": "The duration of the MCP tool call in milliseconds.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/McpToolCallError"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/McpToolCallResult"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "server": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/definitions/McpToolCallStatus"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "mcpToolCall"
+              ],
+              "title": "McpToolCallSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "arguments",
+            "id",
+            "server",
+            "status",
+            "tool",
+            "type"
+          ],
+          "title": "McpToolCallSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "agentsStates": {
+              "additionalProperties": {
+                "$ref": "#/definitions/CollabAgentState"
+              },
+              "description": "Last known status of the target agents, when available.",
+              "type": "object"
+            },
+            "id": {
+              "description": "Unique identifier for this collab tool call.",
+              "type": "string"
+            },
+            "prompt": {
+              "description": "Prompt text sent as part of the collab tool call, when available.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "receiverSessionIds": {
+              "description": "Session ID of the receiving agent, when applicable. In case of spawn operation, this corresponds to the newly spawned agent.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "senderSessionId": {
+              "description": "Session ID of the agent issuing the collab request.",
+              "type": "string"
+            },
+            "status": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentToolCallStatus"
+                }
+              ],
+              "description": "Current status of the collab tool call."
+            },
+            "tool": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/CollabAgentTool"
+                }
+              ],
+              "description": "Name of the collab tool that was invoked."
+            },
+            "type": {
+              "enum": [
+                "collabAgentToolCall"
+              ],
+              "title": "CollabAgentToolCallSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "agentsStates",
+            "id",
+            "receiverSessionIds",
+            "senderSessionId",
+            "status",
+            "tool",
+            "type"
+          ],
+          "title": "CollabAgentToolCallSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/WebSearchAction"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "webSearch"
+              ],
+              "title": "WebSearchSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "query",
+            "type"
+          ],
+          "title": "WebSearchSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "imageView"
+              ],
+              "title": "ImageViewSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "path",
+            "type"
+          ],
+          "title": "ImageViewSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "review": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "enteredReviewMode"
+              ],
+              "title": "EnteredReviewModeSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "review",
+            "type"
+          ],
+          "title": "EnteredReviewModeSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "review": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "exitedReviewMode"
+              ],
+              "title": "ExitedReviewModeSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "review",
+            "type"
+          ],
+          "title": "ExitedReviewModeSessionItem",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "contextCompaction"
+              ],
+              "title": "ContextCompactionSessionItemType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "title": "ContextCompactionSessionItem",
+          "type": "object"
+        }
+      ]
+    },
+    "SessionNameUpdatedNotification": {
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "sessionName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "SessionSource": {
       "oneOf": [
         {
@@ -5369,6 +5939,58 @@
           "type": "object"
         }
       ]
+    },
+    "SessionStartedNotification": {
+      "properties": {
+        "session": {
+          "$ref": "#/definitions/Session"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "type": "object"
+    },
+    "SessionTokenUsage": {
+      "properties": {
+        "last": {
+          "$ref": "#/definitions/TokenUsageBreakdown"
+        },
+        "modelContextWindow": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total": {
+          "$ref": "#/definitions/TokenUsageBreakdown"
+        }
+      },
+      "required": [
+        "last",
+        "total"
+      ],
+      "type": "object"
+    },
+    "SessionTokenUsageUpdatedNotification": {
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "tokenUsage": {
+          "$ref": "#/definitions/SessionTokenUsage"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "tokenUsage",
+        "turnId"
+      ],
+      "type": "object"
     },
     "SkillDependencies": {
       "properties": {
@@ -5587,27 +6209,27 @@
         {
           "additionalProperties": false,
           "properties": {
-            "thread_spawn": {
+            "session_spawn": {
               "properties": {
                 "depth": {
                   "format": "int32",
                   "type": "integer"
                 },
-                "parent_thread_id": {
+                "parent_session_id": {
                   "$ref": "#/definitions/SessionId"
                 }
               },
               "required": [
                 "depth",
-                "parent_thread_id"
+                "parent_session_id"
               ],
               "type": "object"
             }
           },
           "required": [
-            "thread_spawn"
+            "session_spawn"
           ],
-          "title": "ThreadSpawnSubAgentSource",
+          "title": "SessionSpawnSubAgentSource",
           "type": "object"
         },
         {
@@ -5633,10 +6255,10 @@
         "processId": {
           "type": "string"
         },
-        "stdin": {
+        "sessionId": {
           "type": "string"
         },
-        "threadId": {
+        "stdin": {
           "type": "string"
         },
         "turnId": {
@@ -5646,8 +6268,8 @@
       "required": [
         "itemId",
         "processId",
+        "sessionId",
         "stdin",
-        "threadId",
         "turnId"
       ],
       "type": "object"
@@ -5731,628 +6353,6 @@
       "required": [
         "end",
         "start"
-      ],
-      "type": "object"
-    },
-    "Thread": {
-      "properties": {
-        "cliVersion": {
-          "description": "Version of the CLI that created the thread.",
-          "type": "string"
-        },
-        "createdAt": {
-          "description": "Unix timestamp (in seconds) when the thread was created.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "cwd": {
-          "description": "Working directory captured for the thread.",
-          "type": "string"
-        },
-        "gitInfo": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/GitInfo"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Optional Git metadata captured when the thread was created."
-        },
-        "id": {
-          "type": "string"
-        },
-        "modelProvider": {
-          "description": "Model provider used for this thread (for example, 'openai').",
-          "type": "string"
-        },
-        "path": {
-          "description": "[UNSTABLE] Path to the thread on disk.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "preview": {
-          "description": "Usually the first user message in the thread, if available.",
-          "type": "string"
-        },
-        "source": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/SessionSource"
-            }
-          ],
-          "description": "Origin of the thread (CLI, VSCode, savfox exec, savfox app-server, etc.)."
-        },
-        "turns": {
-          "description": "Only populated on `thread/resume`, `thread/rollback`, `thread/fork`, and `thread/read` (when `includeTurns` is true) responses. For all other responses and notifications returning a Thread, the turns field will be an empty list.",
-          "items": {
-            "$ref": "#/definitions/Turn"
-          },
-          "type": "array"
-        },
-        "updatedAt": {
-          "description": "Unix timestamp (in seconds) when the thread was last updated.",
-          "format": "int64",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "cliVersion",
-        "createdAt",
-        "cwd",
-        "id",
-        "modelProvider",
-        "preview",
-        "source",
-        "turns",
-        "updatedAt"
-      ],
-      "type": "object"
-    },
-    "SessionId": {
-      "type": "string"
-    },
-    "ThreadItem": {
-      "oneOf": [
-        {
-          "properties": {
-            "content": {
-              "items": {
-                "$ref": "#/definitions/UserInput"
-              },
-              "type": "array"
-            },
-            "id": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "userMessage"
-              ],
-              "title": "UserMessageThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "content",
-            "id",
-            "type"
-          ],
-          "title": "UserMessageThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "agentMessage"
-              ],
-              "title": "AgentMessageThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "text",
-            "type"
-          ],
-          "title": "AgentMessageThreadItem",
-          "type": "object"
-        },
-        {
-          "description": "EXPERIMENTAL - proposed plan item content. The completed plan item is authoritative and may not match the concatenation of `PlanDelta` text.",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "text": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "plan"
-              ],
-              "title": "PlanThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "text",
-            "type"
-          ],
-          "title": "PlanThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "content": {
-              "default": [],
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "id": {
-              "type": "string"
-            },
-            "summary": {
-              "default": [],
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "type": {
-              "enum": [
-                "reasoning"
-              ],
-              "title": "ReasoningThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "type"
-          ],
-          "title": "ReasoningThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "aggregatedOutput": {
-              "description": "The command's output, aggregated from stdout and stderr.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "command": {
-              "description": "The command to be executed.",
-              "type": "string"
-            },
-            "commandActions": {
-              "description": "A best-effort parsing of the command to understand the action(s) it will perform. This returns a list of CommandAction objects because a single shell command may be composed of many commands piped together.",
-              "items": {
-                "$ref": "#/definitions/CommandAction"
-              },
-              "type": "array"
-            },
-            "cwd": {
-              "description": "The command's working directory.",
-              "type": "string"
-            },
-            "durationMs": {
-              "description": "The duration of the command execution in milliseconds.",
-              "format": "int64",
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "exitCode": {
-              "description": "The command's exit code.",
-              "format": "int32",
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "processId": {
-              "description": "Identifier for the underlying PTY process (when available).",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "status": {
-              "$ref": "#/definitions/CommandExecutionStatus"
-            },
-            "type": {
-              "enum": [
-                "commandExecution"
-              ],
-              "title": "CommandExecutionThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "command",
-            "commandActions",
-            "cwd",
-            "id",
-            "status",
-            "type"
-          ],
-          "title": "CommandExecutionThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "changes": {
-              "items": {
-                "$ref": "#/definitions/FileUpdateChange"
-              },
-              "type": "array"
-            },
-            "id": {
-              "type": "string"
-            },
-            "status": {
-              "$ref": "#/definitions/PatchApplyStatus"
-            },
-            "type": {
-              "enum": [
-                "fileChange"
-              ],
-              "title": "FileChangeThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "changes",
-            "id",
-            "status",
-            "type"
-          ],
-          "title": "FileChangeThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "arguments": true,
-            "durationMs": {
-              "description": "The duration of the MCP tool call in milliseconds.",
-              "format": "int64",
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "error": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/McpToolCallError"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "result": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/McpToolCallResult"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "server": {
-              "type": "string"
-            },
-            "status": {
-              "$ref": "#/definitions/McpToolCallStatus"
-            },
-            "tool": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "mcpToolCall"
-              ],
-              "title": "McpToolCallThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "arguments",
-            "id",
-            "server",
-            "status",
-            "tool",
-            "type"
-          ],
-          "title": "McpToolCallThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "agentsStates": {
-              "additionalProperties": {
-                "$ref": "#/definitions/CollabAgentState"
-              },
-              "description": "Last known status of the target agents, when available.",
-              "type": "object"
-            },
-            "id": {
-              "description": "Unique identifier for this collab tool call.",
-              "type": "string"
-            },
-            "prompt": {
-              "description": "Prompt text sent as part of the collab tool call, when available.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "receiverThreadIds": {
-              "description": "Thread ID of the receiving agent, when applicable. In case of spawn operation, this corresponds to the newly spawned agent.",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "senderThreadId": {
-              "description": "Thread ID of the agent issuing the collab request.",
-              "type": "string"
-            },
-            "status": {
-              "allOf": [
-                {
-                  "$ref": "#/definitions/CollabAgentToolCallStatus"
-                }
-              ],
-              "description": "Current status of the collab tool call."
-            },
-            "tool": {
-              "allOf": [
-                {
-                  "$ref": "#/definitions/CollabAgentTool"
-                }
-              ],
-              "description": "Name of the collab tool that was invoked."
-            },
-            "type": {
-              "enum": [
-                "collabAgentToolCall"
-              ],
-              "title": "CollabAgentToolCallThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "agentsStates",
-            "id",
-            "receiverThreadIds",
-            "senderThreadId",
-            "status",
-            "tool",
-            "type"
-          ],
-          "title": "CollabAgentToolCallThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "action": {
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/WebSearchAction"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "query": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "webSearch"
-              ],
-              "title": "WebSearchThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "query",
-            "type"
-          ],
-          "title": "WebSearchThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "path": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "imageView"
-              ],
-              "title": "ImageViewThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "path",
-            "type"
-          ],
-          "title": "ImageViewThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "review": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "enteredReviewMode"
-              ],
-              "title": "EnteredReviewModeThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "review",
-            "type"
-          ],
-          "title": "EnteredReviewModeThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "review": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "exitedReviewMode"
-              ],
-              "title": "ExitedReviewModeThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "review",
-            "type"
-          ],
-          "title": "ExitedReviewModeThreadItem",
-          "type": "object"
-        },
-        {
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "type": {
-              "enum": [
-                "contextCompaction"
-              ],
-              "title": "ContextCompactionThreadItemType",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "type"
-          ],
-          "title": "ContextCompactionThreadItem",
-          "type": "object"
-        }
-      ]
-    },
-    "ThreadNameUpdatedNotification": {
-      "properties": {
-        "threadId": {
-          "type": "string"
-        },
-        "threadName": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "threadId"
-      ],
-      "type": "object"
-    },
-    "ThreadStartedNotification": {
-      "properties": {
-        "thread": {
-          "$ref": "#/definitions/Thread"
-        }
-      },
-      "required": [
-        "thread"
-      ],
-      "type": "object"
-    },
-    "ThreadTokenUsage": {
-      "properties": {
-        "last": {
-          "$ref": "#/definitions/TokenUsageBreakdown"
-        },
-        "modelContextWindow": {
-          "format": "int64",
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "total": {
-          "$ref": "#/definitions/TokenUsageBreakdown"
-        }
-      },
-      "required": [
-        "last",
-        "total"
-      ],
-      "type": "object"
-    },
-    "ThreadTokenUsageUpdatedNotification": {
-      "properties": {
-        "threadId": {
-          "type": "string"
-        },
-        "tokenUsage": {
-          "$ref": "#/definitions/ThreadTokenUsage"
-        },
-        "turnId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "threadId",
-        "tokenUsage",
-        "turnId"
       ],
       "type": "object"
     },
@@ -6495,9 +6495,9 @@
           "type": "string"
         },
         "items": {
-          "description": "Only populated on a `thread/resume` or `thread/fork` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
+          "description": "Only populated on a `session/resume` or `session/fork` response. For all other responses and notifications returning a Turn, the items field will be an empty list.",
           "items": {
-            "$ref": "#/definitions/ThreadItem"
+            "$ref": "#/definitions/SessionItem"
           },
           "type": "array"
         },
@@ -6522,7 +6522,7 @@
     },
     "TurnCompletedNotification": {
       "properties": {
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turn": {
@@ -6530,7 +6530,7 @@
         }
       },
       "required": [
-        "threadId",
+        "sessionId",
         "turn"
       ],
       "type": "object"
@@ -6541,7 +6541,7 @@
         "diff": {
           "type": "string"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -6550,7 +6550,7 @@
       },
       "required": [
         "diff",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
@@ -6564,6 +6564,9 @@
             "null"
           ]
         },
+        "message": {
+          "type": "string"
+        },
         "savfoxErrorInfo": {
           "anyOf": [
             {
@@ -6573,9 +6576,6 @@
               "type": "null"
             }
           ]
-        },
-        "message": {
-          "type": "string"
         }
       },
       "required": [
@@ -6784,7 +6784,7 @@
           },
           "type": "array"
         },
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turnId": {
@@ -6793,14 +6793,14 @@
       },
       "required": [
         "plan",
-        "threadId",
+        "sessionId",
         "turnId"
       ],
       "type": "object"
     },
     "TurnStartedNotification": {
       "properties": {
-        "threadId": {
+        "sessionId": {
           "type": "string"
         },
         "turn": {
@@ -6808,7 +6808,7 @@
         }
       },
       "required": [
-        "threadId",
+        "sessionId",
         "turn"
       ],
       "type": "object"
@@ -7321,60 +7321,60 @@
       "properties": {
         "method": {
           "enum": [
-            "thread/started"
+            "session/started"
           ],
-          "title": "Thread/startedNotificationMethod",
+          "title": "Session/startedNotificationMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ThreadStartedNotification"
+          "$ref": "#/definitions/SessionStartedNotification"
         }
       },
       "required": [
         "method",
         "params"
       ],
-      "title": "Thread/startedNotification",
+      "title": "Session/startedNotification",
       "type": "object"
     },
     {
       "properties": {
         "method": {
           "enum": [
-            "thread/name/updated"
+            "session/name/updated"
           ],
-          "title": "Thread/name/updatedNotificationMethod",
+          "title": "Session/name/updatedNotificationMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ThreadNameUpdatedNotification"
+          "$ref": "#/definitions/SessionNameUpdatedNotification"
         }
       },
       "required": [
         "method",
         "params"
       ],
-      "title": "Thread/name/updatedNotification",
+      "title": "Session/name/updatedNotification",
       "type": "object"
     },
     {
       "properties": {
         "method": {
           "enum": [
-            "thread/tokenUsage/updated"
+            "session/tokenUsage/updated"
           ],
-          "title": "Thread/tokenUsage/updatedNotificationMethod",
+          "title": "Session/tokenUsage/updatedNotificationMethod",
           "type": "string"
         },
         "params": {
-          "$ref": "#/definitions/ThreadTokenUsageUpdatedNotification"
+          "$ref": "#/definitions/SessionTokenUsageUpdatedNotification"
         }
       },
       "required": [
         "method",
         "params"
       ],
-      "title": "Thread/tokenUsage/updatedNotification",
+      "title": "Session/tokenUsage/updatedNotification",
       "type": "object"
     },
     {
@@ -7764,9 +7764,9 @@
       "properties": {
         "method": {
           "enum": [
-            "thread/compacted"
+            "session/compacted"
           ],
-          "title": "Thread/compactedNotificationMethod",
+          "title": "Session/compactedNotificationMethod",
           "type": "string"
         },
         "params": {
@@ -7777,7 +7777,7 @@
         "method",
         "params"
       ],
-      "title": "Thread/compactedNotification",
+      "title": "Session/compactedNotification",
       "type": "object"
     },
     {

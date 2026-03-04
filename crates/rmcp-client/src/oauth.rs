@@ -525,7 +525,35 @@ fn compute_store_key(server_name: &str, server_url: &str) -> Result<String> {
     Ok(format!("{server_name}|{truncated}"))
 }
 
+#[cfg(test)]
+fn test_fallback_home_override() -> &'static std::sync::Mutex<Option<PathBuf>> {
+    use std::sync::{Mutex, OnceLock};
+
+    static TEST_FALLBACK_HOME: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+    TEST_FALLBACK_HOME.get_or_init(|| Mutex::new(None))
+}
+
+#[cfg(test)]
+fn set_test_fallback_home(path: Option<PathBuf>) {
+    let mut guard = test_fallback_home_override()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *guard = path;
+}
+
 fn fallback_file_path() -> Result<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(mut path) = test_fallback_home_override()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            path.push(FALLBACK_FILENAME);
+            return Ok(path);
+        }
+    }
+
     let mut path = find_savfox_home()?;
     path.push(FALLBACK_FILENAME);
     Ok(path)
@@ -616,9 +644,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
             let dir = tempdir().expect("create SAVFOX_HOME temp dir");
-            unsafe {
-                std::env::set_var("SAVFOX_HOME", dir.path());
-            }
+            super::set_test_fallback_home(Some(dir.path().to_path_buf()));
             Self {
                 _guard: guard,
                 _dir: dir,
@@ -628,9 +654,7 @@ mod tests {
 
     impl Drop for TempSavfoxHome {
         fn drop(&mut self) {
-            unsafe {
-                std::env::remove_var("SAVFOX_HOME");
-            }
+            super::set_test_fallback_home(None);
         }
     }
 

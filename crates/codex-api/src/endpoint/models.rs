@@ -140,7 +140,8 @@ mod tests {
 
     fn provider(base_url: &str) -> Provider {
         Provider {
-            name: "test".to_string(),
+            slug: "test".to_string(),
+            display_name: "test".to_string(),
             base_url: base_url.to_string(),
             query_params: None,
             wire: WireApi::Responses,

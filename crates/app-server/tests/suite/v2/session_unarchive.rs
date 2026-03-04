@@ -35,9 +35,12 @@ async fn session_unarchive_moves_rollout_back_into_sessions_directory() -> Resul
     .await??;
     let SessionStartResponse { session, .. } = to_response::<SessionStartResponse>(start_resp)?;
 
-    let rollout_path = find_session_path_by_id_str(savfox_home.path(), &session.id)
-        .await?
-        .expect("expected rollout path for session id to exist");
+    assert!(
+        find_session_path_by_id_str(savfox_home.path(), &session.id)
+            .await?
+            .is_some(),
+        "expected rollout path for session id to exist"
+    );
 
     let archive_id = mcp
         .send_session_archive_request(SessionArchiveParams {
@@ -88,10 +91,23 @@ async fn session_unarchive_moves_rollout_back_into_sessions_directory() -> Resul
         "expected updated_at to be bumped on unarchive"
     );
 
-    let rollout_path_display = rollout_path.display();
+    let restored_rollout_path = find_session_path_by_id_str(savfox_home.path(), &session.id)
+        .await?
+        .expect("expected restored rollout path for session id to exist");
+    let rollout_path_display = restored_rollout_path.display();
     assert!(
-        rollout_path.exists(),
+        restored_rollout_path.exists(),
         "expected rollout path {rollout_path_display} to be restored"
+    );
+    let response_path = unarchived_session
+        .path
+        .as_ref()
+        .expect("expected response session path after unarchive");
+    assert!(response_path.exists(), "expected response session path to exist");
+    assert_eq!(
+        response_path.file_name(),
+        restored_rollout_path.file_name(),
+        "expected response path and restored path to point to same rollout file"
     );
     assert!(
         !archived_path.exists(),

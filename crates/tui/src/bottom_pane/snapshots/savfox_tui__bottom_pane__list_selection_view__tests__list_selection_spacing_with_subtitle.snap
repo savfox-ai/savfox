@@ -1,4 +1,4 @@
-﻿---
+---
 source: crates/tui/src/bottom_pane/list_selection_view.rs
 expression: render_lines(&view)
 ---

@@ -5,13 +5,13 @@ import type { SessionId } from "./SessionId";
 
 export type CollabWaitingBeginEvent = { 
 /**
- * Thread ID of the sender.
+ * Session ID of the sender.
  */
-sender_thread_id: SessionId, 
+sender_session_id: SessionId, 
 /**
- * Thread ID of the receivers.
+ * Session ID of the receivers.
  */
-receiver_thread_ids: Array<SessionId>, 
+receiver_session_ids: Array<SessionId>, 
 /**
  * ID of the waiting call.
  */

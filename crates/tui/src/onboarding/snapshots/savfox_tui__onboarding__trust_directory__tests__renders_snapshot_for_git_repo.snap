@@ -1,4 +1,4 @@
-﻿---
+---
 source: crates/tui/src/onboarding/trust_directory.rs
 expression: terminal.backend()
 ---

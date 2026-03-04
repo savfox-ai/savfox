@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 
 use anyhow::Result;
 use app_test_support::{McpProcess, create_final_assistant_message_sse_response, to_response};
@@ -15,7 +15,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_conversation_create_and_send_message_ok() -> Result<()> {
     // Mock server – we won't strictly rely on it, but provide one to satisfy any model wiring.
     let response_body = create_final_assistant_message_sse_response("Done")?;

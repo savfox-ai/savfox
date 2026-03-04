@@ -5,9 +5,9 @@ import type { Turn } from "./Turn";
 
 export type ReviewStartResponse = { turn: Turn, 
 /**
- * Identifies the thread where the review runs.
+ * Identifies the session where the review runs.
  *
- * For inline reviews, this is the original thread id.
- * For detached reviews, this is the id of the new review thread.
+ * For inline reviews, this is the original session id.
+ * For detached reviews, this is the id of the new review session.
  */
-reviewThreadId: string, };
+reviewSessionId: string, };

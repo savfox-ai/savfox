@@ -10,13 +10,13 @@ export type CollabAgentSpawnEndEvent = {
  */
 call_id: string, 
 /**
- * Thread ID of the sender.
+ * Session ID of the sender.
  */
-sender_thread_id: SessionId, 
+sender_session_id: SessionId, 
 /**
- * Thread ID of the newly spawned agent, if it was created.
+ * Session ID of the newly spawned agent, if it was created.
  */
-new_thread_id: SessionId | null, 
+new_session_id: SessionId | null, 
 /**
  * Initial prompt sent to the agent. Can be empty to prevent CoT leaking at the
  * beginning.

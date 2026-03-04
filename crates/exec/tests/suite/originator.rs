@@ -8,7 +8,7 @@ use wiremock::matchers::header;
 
 /// Verify that when the server reports an error, `savfox-exec` exits with a
 /// non-zero status code so automation can detect failures.
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn send_savfox_exec_originator() -> anyhow::Result<()> {
     let test = test_savfox_exec();
 
@@ -30,7 +30,7 @@ async fn send_savfox_exec_originator() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn supports_originator_override() -> anyhow::Result<()> {
     let test = test_savfox_exec();
 

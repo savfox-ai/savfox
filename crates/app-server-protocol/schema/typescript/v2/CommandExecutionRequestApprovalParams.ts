@@ -4,7 +4,7 @@
 import type { CommandAction } from "./CommandAction";
 import type { ExecPolicyAmendment } from "./ExecPolicyAmendment";
 
-export type CommandExecutionRequestApprovalParams = { threadId: string, turnId: string, itemId: string, 
+export type CommandExecutionRequestApprovalParams = { sessionId: string, turnId: string, itemId: string, 
 /**
  * Optional explanatory reason (e.g. request for network access).
  */

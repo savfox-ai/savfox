@@ -733,8 +733,8 @@ mod tests {
             Some("claude-sonnet")
         );
         assert!(
-            raw.get("models").is_none(),
-            "persisted provider file should not include legacy `models` field"
+            raw.get("models").is_some(),
+            "persisted provider file should include serialized model metadata"
         );
         assert_eq!(
             read_provider_store_api_key(&savfox_home, "anthropic").as_deref(),

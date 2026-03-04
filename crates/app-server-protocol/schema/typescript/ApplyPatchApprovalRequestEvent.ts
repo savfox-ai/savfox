@@ -18,6 +18,7 @@ turn_id: string, changes: { [key in string]?: FileChange },
  */
 reason: string | null, 
 /**
- * When set, the agent is asking the user to allow writes under this root for the remainder of the session.
+ * When set, the agent is asking the user to allow writes under this root for the remainder of
+ * the session.
  */
 grant_root: string | null, };

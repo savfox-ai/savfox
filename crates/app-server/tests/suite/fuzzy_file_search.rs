@@ -8,7 +8,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fuzzy_file_search_sorts_and_includes_indices() -> Result<()> {
     // Prepare a temporary Savfox home and a separate root with test files.
     let savfox_home = TempDir::new()?;
@@ -80,7 +80,7 @@ async fn test_fuzzy_file_search_sorts_and_includes_indices() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_session", worker_sessions = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_fuzzy_file_search_accepts_cancellation_token() -> Result<()> {
     let savfox_home = TempDir::new()?;
     let root = TempDir::new()?;

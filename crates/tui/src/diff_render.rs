@@ -428,7 +428,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::text::Text;
-    use ratatui::widgets::{Paragraph, WidgetRef, Wrap};
+    use ratatui::widgets::{Paragraph, Wrap};
 
     use super::*;
     fn diff_summary_for_tests(changes: &HashMap<PathBuf, FileChange>) -> Vec<RtLine<'static>> {
@@ -439,9 +439,8 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
         terminal
             .draw(|f| {
-                Paragraph::new(Text::from(lines))
-                    .wrap(Wrap { trim: false })
-                    .render_ref(f.area(), f.buffer_mut())
+                let paragraph = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false });
+                f.render_widget(paragraph, f.area());
             })
             .expect("draw");
         assert_snapshot!(name, terminal.backend());

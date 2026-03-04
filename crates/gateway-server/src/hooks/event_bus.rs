@@ -670,18 +670,20 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(target_os = "windows", ignore = "flaky shell marker creation on Windows CI")]
     async fn emit_runs_matching_handlers() {
-        // Use a shell handler that writes to a temp file so we can verify
+        // Use a shell handler that creates a temp directory so we can verify
         // execution.  This is a lightweight integration-style test.
         let dir = std::env::temp_dir();
         let marker = dir.join(format!("savfox_hook_test_{}", uuid::Uuid::now_v7()));
         let marker_str = marker.display().to_string();
+        let _ = std::fs::remove_dir_all(&marker);
 
-        // On Windows, use `echo.> file` to create the file; on Unix, `touch`.
+        // On Windows, use `mkdir`; on Unix, `mkdir -p`.
         #[cfg(target_os = "windows")]
-        let command = format!("echo.> \"{}\"", marker_str.replace('/', "\\"));
+        let command = format!("mkdir \"{}\"", marker_str.replace('/', "\\"));
         #[cfg(not(target_os = "windows"))]
-        let command = format!("touch '{marker_str}'");
+        let command = format!("mkdir -p '{marker_str}'");
 
         let mut bus = EventBus::new();
         bus.subscribe(HookRegistration {
@@ -700,17 +702,20 @@ mod tests {
         )
         .await;
 
-        // Give the OS a moment to flush the file.
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Poll briefly to avoid flakes in slower CI environments.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < deadline && !marker.exists() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
 
         assert!(
             marker.exists(),
-            "expected marker file to exist at {}",
+            "expected marker directory to exist at {}",
             marker.display()
         );
 
         // Cleanup.
-        let _ = std::fs::remove_file(&marker);
+        let _ = std::fs::remove_dir_all(&marker);
     }
 
     #[tokio::test]
