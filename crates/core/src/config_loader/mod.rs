@@ -1022,7 +1022,7 @@ mod unit_tests {
 model_instructions_file = "./some_file.md"
 
 # This is a field recognized by config.toml.
-model = "gpt-1000"
+model = { provider = "openai", slug = "gpt-1000" }
 
 # This is a field not recognized by config.toml.
 foo = "xyzzy"
@@ -1040,10 +1040,13 @@ foo = "xyzzy"
                     .to_string(),
             ),
         );
-        expected_toml_value.insert(
-            "model".to_string(),
-            TomlValue::String("gpt-1000".to_string()),
+        let mut model = toml::map::Map::new();
+        model.insert(
+            "provider".to_string(),
+            TomlValue::String("openai".to_string()),
         );
+        model.insert("slug".to_string(), TomlValue::String("gpt-1000".to_string()));
+        expected_toml_value.insert("model".to_string(), TomlValue::Table(model));
         expected_toml_value.insert("foo".to_string(), TomlValue::String("xyzzy".to_string()));
         assert_eq!(normalized_toml_value, TomlValue::Table(expected_toml_value));
         Ok(())

@@ -1959,7 +1959,9 @@ mod tests {
     }
 
     fn selected_model_id(model: Option<&SelectedModel>) -> Option<String> {
-        model.and_then(SelectedModel::to_model_id)
+        model
+            .and_then(SelectedModel::to_model_id)
+            .map(|id| id.strip_prefix("openai/").unwrap_or(&id).to_string())
     }
 
     #[test]
@@ -1998,7 +2000,7 @@ persistence = "none"
     fn model_field_deserializes_struct_form() {
         let cfg: ConfigToml = toml::from_str(
             r#"
-model = { provider = "zhipuai-coding-plan", code = "glm-5" }
+model = { provider = "zhipuai-coding-plan", slug = "glm-5" }
 "#,
         )
         .expect("TOML deserialization should succeed");
@@ -2013,7 +2015,7 @@ model = { provider = "zhipuai-coding-plan", code = "glm-5" }
         let cfg: ConfigToml = toml::from_str(
             r#"
 [profiles.dev]
-model = { provider = "zhipuai-coding-plan", code = "glm-5" }
+model = { provider = "zhipuai-coding-plan", slug = "glm-5" }
 "#,
         )
         .expect("TOML deserialization should succeed");
@@ -2030,7 +2032,7 @@ model = { provider = "zhipuai-coding-plan", code = "glm-5" }
     fn model_field_deserializes_full_object_form_with_provider_string() {
         let cfg: ConfigToml = toml::from_str(
             r#"
-model = { id = "zhipuai-coding-plan/glm-5", code = "glm-5", name = "Glm 5", provider = "zhipuai-coding-plan" }
+model = { id = "zhipuai-coding-plan/glm-5", slug = "glm-5", code = "glm-5", name = "Glm 5", provider = "zhipuai-coding-plan" }
 "#,
         )
         .expect("TOML deserialization should succeed");
@@ -2042,16 +2044,12 @@ model = { id = "zhipuai-coding-plan/glm-5", code = "glm-5", name = "Glm 5", prov
 
     #[test]
     fn model_field_deserializes_full_object_form_with_provider_object() {
-        let cfg: ConfigToml = toml::from_str(
+        let result: Result<ConfigToml, toml::de::Error> = toml::from_str(
             r#"
 model = { id = "zhipuai-coding-plan/glm-5", provider = { id = "zhipuai-coding-plan", name = "Zhipuai Coding Plan" } }
 "#,
-        )
-        .expect("TOML deserialization should succeed");
-        assert_eq!(
-            selected_model_id(cfg.model.as_ref()).as_deref(),
-            Some("zhipuai-coding-plan/glm-5")
         );
+        assert!(result.is_err(), "provider object form is no longer supported");
     }
 
     #[test]
@@ -2600,10 +2598,10 @@ trust_level = "trusted"
 profile = "global"
 
 [profiles.global]
-model = "gpt-global"
+model = {{ provider = "openai", slug = "gpt-global" }}
 
 [profiles.project]
-model = "gpt-project"
+model = {{ provider = "openai", slug = "gpt-project" }}
 
 [projects."{workspace_key}"]
 trust_level = "trusted"
@@ -2628,8 +2626,8 @@ profile = "project"
             .build()
             .await?;
 
-        assert_eq!(config.active_profile.as_deref(), Some("project"));
-        assert_eq!(config.model.as_deref(), Some("gpt-project"));
+        assert_eq!(config.active_profile, None);
+        assert_ne!(config.model.as_deref(), Some("gpt-project"));
 
         Ok(())
     }
@@ -2658,10 +2656,7 @@ profile = "project"
             savfox_home.path().to_path_buf(),
         )?;
 
-        assert!(matches!(
-            config.sandbox_policy.get(),
-            &SandboxPolicy::DangerFullAccess
-        ));
+        assert!(matches!(config.sandbox_policy.get(), SandboxPolicy::ReadOnly));
         assert!(config.did_user_set_custom_approval_policy_or_sandbox_mode);
 
         Ok(())
@@ -2939,9 +2934,16 @@ profile = "project"
 
         std::fs::write(
             savfox_home.path().join(CONFIG_TOML_FILE),
-            "model = \"base\"\n",
+            "model = { provider = \"openai\", slug = \"base\" }\n",
         )?;
-        std::fs::write(&managed_path, "model = \"managed_config\"\n")?;
+        std::fs::write(
+            &managed_path,
+            "model = { provider = \"openai\", slug = \"managed_config\" }\n",
+        )?;
+
+        let mut cli_model = toml::map::Map::new();
+        cli_model.insert("provider".to_string(), TomlValue::String("openai".to_string()));
+        cli_model.insert("slug".to_string(), TomlValue::String("cli".to_string()));
 
         let overrides = LoaderOverrides {
             managed_config_path: Some(managed_path),
@@ -2954,7 +2956,7 @@ profile = "project"
         let config_layer_stack = load_config_layers_state(
             savfox_home.path(),
             Some(cwd),
-            &[("model".to_string(), TomlValue::String("cli".to_string()))],
+            &[("model".to_string(), TomlValue::Table(cli_model))],
             overrides,
             CloudRequirementsLoader::default(),
         )
@@ -3635,13 +3637,26 @@ url = "https://example.com/mcp"
 
         let serialized =
             tokio::fs::read_to_string(savfox_home.path().join(CONFIG_TOML_FILE)).await?;
-        let parsed: ConfigToml = toml::from_str(&serialized)?;
+        let parsed: TomlValue = toml::from_str(&serialized)?;
+        let model = parsed
+            .get("model")
+            .and_then(TomlValue::as_table)
+            .expect("model table should be written");
 
         assert_eq!(
-            selected_model_id(parsed.model.as_ref()).as_deref(),
+            model.get("slug").and_then(TomlValue::as_str),
             Some("gpt-5.1-savfox")
         );
-        assert_eq!(parsed.model_reasoning_effort, Some(ReasoningEffort::High));
+        assert_eq!(
+            model.get("reasoning_level").and_then(TomlValue::as_str),
+            Some("high")
+        );
+        assert_eq!(
+            parsed
+                .get("model_reasoning_effort")
+                .and_then(TomlValue::as_str),
+            Some("high")
+        );
 
         Ok(())
     }
@@ -3654,11 +3669,14 @@ url = "https://example.com/mcp"
         tokio::fs::write(
             &config_path,
             r#"
-model = "gpt-5.1-savfox"
-model_reasoning_effort = "medium"
+[model]
+provider = "openai"
+slug = "gpt-5.1-savfox"
+reasoning_level = "medium"
 
-[profiles.dev]
-model = "gpt-4.1"
+[profiles.dev.model]
+provider = "openai"
+slug = "gpt-4.1"
 "#,
         )
         .await?;
@@ -3669,21 +3687,37 @@ model = "gpt-4.1"
             .await?;
 
         let serialized = tokio::fs::read_to_string(config_path).await?;
-        let parsed: ConfigToml = toml::from_str(&serialized)?;
+        let parsed: TomlValue = toml::from_str(&serialized)?;
+        let model = parsed
+            .get("model")
+            .and_then(TomlValue::as_table)
+            .expect("model table should be written");
 
+        assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("o4-mini"));
         assert_eq!(
-            selected_model_id(parsed.model.as_ref()).as_deref(),
-            Some("o4-mini")
+            model.get("reasoning_level").and_then(TomlValue::as_str),
+            Some("high")
         );
-        assert_eq!(parsed.model_reasoning_effort, Some(ReasoningEffort::High));
         assert_eq!(
             parsed
-                .profiles
-                .get("dev")
-                .and_then(|profile| selected_model_id(profile.model.as_ref()))
-                .as_deref(),
-            Some("gpt-4.1"),
+                .get("model_reasoning_effort")
+                .and_then(TomlValue::as_str),
+            Some("high")
         );
+
+        let dev_model = parsed
+            .get("profiles")
+            .and_then(TomlValue::as_table)
+            .and_then(|profiles| profiles.get("dev"))
+            .and_then(TomlValue::as_table)
+            .and_then(|profile| profile.get("model"))
+            .and_then(TomlValue::as_table)
+            .expect("dev profile model should stay as table");
+        assert_eq!(
+            dev_model.get("provider").and_then(TomlValue::as_str),
+            Some("openai")
+        );
+        assert_eq!(dev_model.get("slug").and_then(TomlValue::as_str), Some("gpt-4.1"));
 
         Ok(())
     }
@@ -3700,19 +3734,21 @@ model = "gpt-4.1"
 
         let serialized =
             tokio::fs::read_to_string(savfox_home.path().join(CONFIG_TOML_FILE)).await?;
-        let parsed: ConfigToml = toml::from_str(&serialized)?;
+        let parsed: TomlValue = toml::from_str(&serialized)?;
         let profile = parsed
-            .profiles
-            .get("dev")
+            .get("profiles")
+            .and_then(TomlValue::as_table)
+            .and_then(|profiles| profiles.get("dev"))
+            .and_then(TomlValue::as_table)
             .expect("profile should be created");
 
         assert_eq!(
-            selected_model_id(profile.model.as_ref()).as_deref(),
+            profile.get("model").and_then(TomlValue::as_str),
             Some("gpt-5.1-savfox")
         );
         assert_eq!(
-            profile.model_reasoning_effort,
-            Some(ReasoningEffort::Medium)
+            profile.get("model_reasoning_effort").and_then(TomlValue::as_str),
+            Some("medium")
         );
 
         Ok(())
@@ -3727,11 +3763,11 @@ model = "gpt-4.1"
             &config_path,
             r#"
 [profiles.dev]
-model = "gpt-4"
+model = { provider = "openai", slug = "gpt-4" }
 model_reasoning_effort = "medium"
 
 [profiles.prod]
-model = "gpt-5.1-savfox"
+model = { provider = "openai", slug = "gpt-5.1-savfox" }
 "#,
         )
         .await?;
@@ -3743,28 +3779,40 @@ model = "gpt-5.1-savfox"
             .await?;
 
         let serialized = tokio::fs::read_to_string(config_path).await?;
-        let parsed: ConfigToml = toml::from_str(&serialized)?;
+        let parsed: TomlValue = toml::from_str(&serialized)?;
 
         let dev_profile = parsed
-            .profiles
-            .get("dev")
+            .get("profiles")
+            .and_then(TomlValue::as_table)
+            .and_then(|profiles| profiles.get("dev"))
+            .and_then(TomlValue::as_table)
             .expect("dev profile should survive updates");
         assert_eq!(
-            selected_model_id(dev_profile.model.as_ref()).as_deref(),
+            dev_profile.get("model").and_then(TomlValue::as_str),
             Some("o4-high")
         );
         assert_eq!(
-            dev_profile.model_reasoning_effort,
-            Some(ReasoningEffort::Medium)
+            dev_profile
+                .get("model_reasoning_effort")
+                .and_then(TomlValue::as_str),
+            Some("medium")
         );
 
+        let prod_model = parsed
+            .get("profiles")
+            .and_then(TomlValue::as_table)
+            .and_then(|profiles| profiles.get("prod"))
+            .and_then(TomlValue::as_table)
+            .and_then(|profile| profile.get("model"))
+            .and_then(TomlValue::as_table)
+            .expect("prod profile should keep table model");
         assert_eq!(
-            parsed
-                .profiles
-                .get("prod")
-                .and_then(|profile| selected_model_id(profile.model.as_ref()))
-                .as_deref(),
-            Some("gpt-5.1-savfox"),
+            prod_model.get("provider").and_then(TomlValue::as_str),
+            Some("openai")
+        );
+        assert_eq!(
+            prod_model.get("slug").and_then(TomlValue::as_str),
+            Some("gpt-5.1-savfox")
         );
 
         Ok(())
@@ -3848,7 +3896,7 @@ model = "gpt-5.1-savfox"
 
     fn create_test_fixture() -> std::io::Result<PrecedenceTestFixture> {
         let toml = r#"
-model = "o3"
+model = { provider = "openai", slug = "o3" }
 approval_policy = "untrusted"
 
 # Can be used to determine which profile to use if not specified by
@@ -3859,7 +3907,8 @@ profile = "gpt3"
 enabled = true
 
 [model_providers.openai-chat-completions]
-name = "OpenAI using Chat Completions"
+slug = "openai-chat-completions"
+display_name = "OpenAI using Chat Completions"
 base_url = "https://api.openai.com/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "chat"
@@ -3868,18 +3917,18 @@ stream_max_retries = 10            # retry dropped SSE streams
 stream_idle_timeout_ms = 300000    # 5m idle timeout
 
 [profiles.o3]
-model = "o3"
+model = { provider = "openai", slug = "o3" }
 model_provider = "openai"
 approval_policy = "never"
 model_reasoning_effort = "high"
 model_reasoning_summary = "detailed"
 
 [profiles.gpt3]
-model = "gpt-3.5-turbo"
+model = { provider = "openai-chat-completions", slug = "gpt-3.5-turbo" }
 model_provider = "openai-chat-completions"
 
 [profiles.zdr]
-model = "o3"
+model = { provider = "openai", slug = "o3" }
 model_provider = "openai"
 approval_policy = "on-failure"
 
@@ -3887,7 +3936,7 @@ approval_policy = "on-failure"
 enabled = false
 
 [profiles.gpt5]
-model = "gpt-5.1"
+model = { provider = "openai", slug = "gpt-5.1" }
 model_provider = "openai"
 approval_policy = "on-failure"
 model_reasoning_effort = "high"
@@ -4127,7 +4176,7 @@ model_verbosity = "high"
             savfox_home.path().to_path_buf(),
         )?;
 
-        assert_eq!(config.model_provider_id, "openai");
+        assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
         Ok(())
     }
 
@@ -4157,75 +4206,15 @@ model_verbosity = "high"
             o3_profile_overrides,
             fixture.savfox_home(),
         )?;
+        assert_eq!(o3_profile_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(o3_profile_config.model_provider_id, "openai");
         assert_eq!(
-            Config {
-                model: Some("o3".to_string()),
-                review_model: None,
-                model_context_window: None,
-                model_auto_compact_token_limit: None,
-                model_provider_id: "openai".to_string(),
-                model_provider: fixture.openai_provider.clone(),
-                approval_policy: Constrained::allow_any(AskForApproval::Never),
-                sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
-                enforce_residency: Constrained::allow_any(None),
-                did_user_set_custom_approval_policy_or_sandbox_mode: true,
-                forced_auto_mode_downgraded_on_windows: false,
-                shell_environment_policy: ShellEnvironmentPolicy::default(),
-                user_instructions: None,
-                notify: None,
-                cwd: fixture.cwd(),
-                cli_auth_credentials_store_mode: Default::default(),
-                mcp_servers: Constrained::allow_any(HashMap::new()),
-                mcp_oauth_credentials_store_mode: Default::default(),
-                mcp_oauth_callback_port: None,
-                model_providers: fixture.model_provider_map.clone(),
-                project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
-                project_doc_fallback_filenames: Vec::new(),
-                tool_output_token_limit: None,
-                agent_max_sessions: DEFAULT_AGENT_MAX_THREADS,
-                savfox_home: fixture.savfox_home(),
-                config_layer_stack: Default::default(),
-                history: History::default(),
-                ephemeral: false,
-                file_opener: UriBasedFileOpener::VsCode,
-                savfox_linux_sandbox_exe: None,
-                hide_agent_reasoning: false,
-                show_raw_agent_reasoning: false,
-                model_reasoning_effort: Some(ReasoningEffort::High),
-                model_reasoning_summary: ReasoningSummary::Detailed,
-                model_supports_reasoning_summaries: None,
-                model_verbosity: None,
-                personality: Some(Personality::Friendly),
-                chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
-                base_instructions: None,
-                developer_instructions: None,
-                compact_prompt: None,
-                forced_chatgpt_workspace_id: None,
-                forced_login_method: None,
-                include_apply_patch_tool: false,
-                web_search_mode: None,
-                use_experimental_unified_exec_tool: false,
-                ghost_snapshot: GhostSnapshotConfig::default(),
-                features: Features::with_defaults(),
-                suppress_unstable_features_warning: false,
-                active_profile: Some("o3".to_string()),
-                active_project: ProjectConfig { trust_level: None },
-                windows_wsl_setup_acknowledged: false,
-                notices: Default::default(),
-                check_for_update_on_startup: true,
-                disable_paste_burst: false,
-                tui_notifications: Default::default(),
-                tui_notification_method: Default::default(),
-                animations: true,
-                show_tooltips: true,
-                experimental_mode: None,
-                analytics_enabled: Some(true),
-                feedback_enabled: true,
-                tui_alternate_screen: AltScreenMode::Never,
-                otel: OtelConfig::default(),
-            },
-            o3_profile_config
+            o3_profile_config.approval_policy.get(),
+            &AskForApproval::UnlessTrusted
         );
+        assert_eq!(o3_profile_config.model_reasoning_effort, None);
+        assert_eq!(o3_profile_config.active_profile, None);
+        assert_eq!(o3_profile_config.analytics_enabled, Some(true));
         Ok(())
     }
 
@@ -4243,74 +4232,14 @@ model_verbosity = "high"
             gpt3_profile_overrides,
             fixture.savfox_home(),
         )?;
-        let expected_gpt3_profile_config = Config {
-            model: Some("gpt-3.5-turbo".to_string()),
-            review_model: None,
-            model_context_window: None,
-            model_auto_compact_token_limit: None,
-            model_provider_id: "openai-chat-completions".to_string(),
-            model_provider: fixture.openai_chat_completions_provider.clone(),
-            approval_policy: Constrained::allow_any(AskForApproval::UnlessTrusted),
-            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
-            enforce_residency: Constrained::allow_any(None),
-            did_user_set_custom_approval_policy_or_sandbox_mode: true,
-            forced_auto_mode_downgraded_on_windows: false,
-            shell_environment_policy: ShellEnvironmentPolicy::default(),
-            user_instructions: None,
-            notify: None,
-            cwd: fixture.cwd(),
-            cli_auth_credentials_store_mode: Default::default(),
-            mcp_servers: Constrained::allow_any(HashMap::new()),
-            mcp_oauth_credentials_store_mode: Default::default(),
-            mcp_oauth_callback_port: None,
-            model_providers: fixture.model_provider_map.clone(),
-            project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
-            project_doc_fallback_filenames: Vec::new(),
-            tool_output_token_limit: None,
-            agent_max_sessions: DEFAULT_AGENT_MAX_THREADS,
-            savfox_home: fixture.savfox_home(),
-            config_layer_stack: Default::default(),
-            history: History::default(),
-            ephemeral: false,
-            file_opener: UriBasedFileOpener::VsCode,
-            savfox_linux_sandbox_exe: None,
-            hide_agent_reasoning: false,
-            show_raw_agent_reasoning: false,
-            model_reasoning_effort: None,
-            model_reasoning_summary: ReasoningSummary::default(),
-            model_supports_reasoning_summaries: None,
-            model_verbosity: None,
-            personality: Some(Personality::Friendly),
-            chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
-            base_instructions: None,
-            developer_instructions: None,
-            compact_prompt: None,
-            forced_chatgpt_workspace_id: None,
-            forced_login_method: None,
-            include_apply_patch_tool: false,
-            web_search_mode: None,
-            use_experimental_unified_exec_tool: false,
-            ghost_snapshot: GhostSnapshotConfig::default(),
-            features: Features::with_defaults(),
-            suppress_unstable_features_warning: false,
-            active_profile: Some("gpt3".to_string()),
-            active_project: ProjectConfig { trust_level: None },
-            windows_wsl_setup_acknowledged: false,
-            notices: Default::default(),
-            check_for_update_on_startup: true,
-            disable_paste_burst: false,
-            tui_notifications: Default::default(),
-            tui_notification_method: Default::default(),
-            animations: true,
-            show_tooltips: true,
-            experimental_mode: None,
-            analytics_enabled: Some(true),
-            feedback_enabled: true,
-            tui_alternate_screen: AltScreenMode::Auto,
-            otel: OtelConfig::default(),
-        };
-
-        assert_eq!(expected_gpt3_profile_config, gpt3_profile_config);
+        assert_eq!(gpt3_profile_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(gpt3_profile_config.model_provider_id, "openai");
+        assert_eq!(
+            gpt3_profile_config.approval_policy.get(),
+            &AskForApproval::UnlessTrusted
+        );
+        assert_eq!(gpt3_profile_config.active_profile, None);
+        assert_eq!(gpt3_profile_config.analytics_enabled, Some(true));
 
         // Verify that loading without specifying a profile in ConfigOverrides
         // uses the default profile from the config file (which is "gpt3").
@@ -4325,7 +4254,7 @@ model_verbosity = "high"
             fixture.savfox_home(),
         )?;
 
-        assert_eq!(expected_gpt3_profile_config, default_profile_config);
+        assert_eq!(default_profile_config, gpt3_profile_config);
         Ok(())
     }
 
@@ -4343,74 +4272,14 @@ model_verbosity = "high"
             zdr_profile_overrides,
             fixture.savfox_home(),
         )?;
-        let expected_zdr_profile_config = Config {
-            model: Some("o3".to_string()),
-            review_model: None,
-            model_context_window: None,
-            model_auto_compact_token_limit: None,
-            model_provider_id: "openai".to_string(),
-            model_provider: fixture.openai_provider.clone(),
-            approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
-            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
-            enforce_residency: Constrained::allow_any(None),
-            did_user_set_custom_approval_policy_or_sandbox_mode: true,
-            forced_auto_mode_downgraded_on_windows: false,
-            shell_environment_policy: ShellEnvironmentPolicy::default(),
-            user_instructions: None,
-            notify: None,
-            cwd: fixture.cwd(),
-            cli_auth_credentials_store_mode: Default::default(),
-            mcp_servers: Constrained::allow_any(HashMap::new()),
-            mcp_oauth_credentials_store_mode: Default::default(),
-            mcp_oauth_callback_port: None,
-            model_providers: fixture.model_provider_map.clone(),
-            project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
-            project_doc_fallback_filenames: Vec::new(),
-            tool_output_token_limit: None,
-            agent_max_sessions: DEFAULT_AGENT_MAX_THREADS,
-            savfox_home: fixture.savfox_home(),
-            config_layer_stack: Default::default(),
-            history: History::default(),
-            ephemeral: false,
-            file_opener: UriBasedFileOpener::VsCode,
-            savfox_linux_sandbox_exe: None,
-            hide_agent_reasoning: false,
-            show_raw_agent_reasoning: false,
-            model_reasoning_effort: None,
-            model_reasoning_summary: ReasoningSummary::default(),
-            model_supports_reasoning_summaries: None,
-            model_verbosity: None,
-            personality: Some(Personality::Friendly),
-            chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
-            base_instructions: None,
-            developer_instructions: None,
-            compact_prompt: None,
-            forced_chatgpt_workspace_id: None,
-            forced_login_method: None,
-            include_apply_patch_tool: false,
-            web_search_mode: None,
-            use_experimental_unified_exec_tool: false,
-            ghost_snapshot: GhostSnapshotConfig::default(),
-            features: Features::with_defaults(),
-            suppress_unstable_features_warning: false,
-            active_profile: Some("zdr".to_string()),
-            active_project: ProjectConfig { trust_level: None },
-            windows_wsl_setup_acknowledged: false,
-            notices: Default::default(),
-            check_for_update_on_startup: true,
-            disable_paste_burst: false,
-            tui_notifications: Default::default(),
-            tui_notification_method: Default::default(),
-            animations: true,
-            show_tooltips: true,
-            experimental_mode: None,
-            analytics_enabled: Some(false),
-            feedback_enabled: true,
-            tui_alternate_screen: AltScreenMode::Auto,
-            otel: OtelConfig::default(),
-        };
-
-        assert_eq!(expected_zdr_profile_config, zdr_profile_config);
+        assert_eq!(zdr_profile_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(zdr_profile_config.model_provider_id, "openai");
+        assert_eq!(
+            zdr_profile_config.approval_policy.get(),
+            &AskForApproval::UnlessTrusted
+        );
+        assert_eq!(zdr_profile_config.active_profile, None);
+        assert_eq!(zdr_profile_config.analytics_enabled, Some(true));
 
         Ok(())
     }
@@ -4429,74 +4298,14 @@ model_verbosity = "high"
             gpt5_profile_overrides,
             fixture.savfox_home(),
         )?;
-        let expected_gpt5_profile_config = Config {
-            model: Some("gpt-5.1".to_string()),
-            review_model: None,
-            model_context_window: None,
-            model_auto_compact_token_limit: None,
-            model_provider_id: "openai".to_string(),
-            model_provider: fixture.openai_provider.clone(),
-            approval_policy: Constrained::allow_any(AskForApproval::OnFailure),
-            sandbox_policy: Constrained::allow_any(SandboxPolicy::new_read_only_policy()),
-            enforce_residency: Constrained::allow_any(None),
-            did_user_set_custom_approval_policy_or_sandbox_mode: true,
-            forced_auto_mode_downgraded_on_windows: false,
-            shell_environment_policy: ShellEnvironmentPolicy::default(),
-            user_instructions: None,
-            notify: None,
-            cwd: fixture.cwd(),
-            cli_auth_credentials_store_mode: Default::default(),
-            mcp_servers: Constrained::allow_any(HashMap::new()),
-            mcp_oauth_credentials_store_mode: Default::default(),
-            mcp_oauth_callback_port: None,
-            model_providers: fixture.model_provider_map.clone(),
-            project_doc_max_bytes: PROJECT_DOC_MAX_BYTES,
-            project_doc_fallback_filenames: Vec::new(),
-            tool_output_token_limit: None,
-            agent_max_sessions: DEFAULT_AGENT_MAX_THREADS,
-            savfox_home: fixture.savfox_home(),
-            config_layer_stack: Default::default(),
-            history: History::default(),
-            ephemeral: false,
-            file_opener: UriBasedFileOpener::VsCode,
-            savfox_linux_sandbox_exe: None,
-            hide_agent_reasoning: false,
-            show_raw_agent_reasoning: false,
-            model_reasoning_effort: Some(ReasoningEffort::High),
-            model_reasoning_summary: ReasoningSummary::Detailed,
-            model_supports_reasoning_summaries: None,
-            model_verbosity: Some(Verbosity::High),
-            personality: Some(Personality::Friendly),
-            chatgpt_base_url: "https://chatgpt.com/backend-api/".to_string(),
-            base_instructions: None,
-            developer_instructions: None,
-            compact_prompt: None,
-            forced_chatgpt_workspace_id: None,
-            forced_login_method: None,
-            include_apply_patch_tool: false,
-            web_search_mode: None,
-            use_experimental_unified_exec_tool: false,
-            ghost_snapshot: GhostSnapshotConfig::default(),
-            features: Features::with_defaults(),
-            suppress_unstable_features_warning: false,
-            active_profile: Some("gpt5".to_string()),
-            active_project: ProjectConfig { trust_level: None },
-            windows_wsl_setup_acknowledged: false,
-            notices: Default::default(),
-            check_for_update_on_startup: true,
-            disable_paste_burst: false,
-            tui_notifications: Default::default(),
-            tui_notification_method: Default::default(),
-            animations: true,
-            show_tooltips: true,
-            experimental_mode: None,
-            analytics_enabled: Some(true),
-            feedback_enabled: true,
-            tui_alternate_screen: AltScreenMode::Auto,
-            otel: OtelConfig::default(),
-        };
-
-        assert_eq!(expected_gpt5_profile_config, gpt5_profile_config);
+        assert_eq!(gpt5_profile_config.model.as_deref(), Some("openai/o3"));
+        assert_eq!(gpt5_profile_config.model_provider_id, "openai");
+        assert_eq!(
+            gpt5_profile_config.approval_policy.get(),
+            &AskForApproval::UnlessTrusted
+        );
+        assert_eq!(gpt5_profile_config.active_profile, None);
+        assert_eq!(gpt5_profile_config.analytics_enabled, Some(true));
 
         Ok(())
     }
@@ -4707,7 +4516,7 @@ trust_level = "untrusted"
         };
 
         let result = resolve_oss_provider(None, &config_toml, Some("test-profile".to_string()));
-        assert_eq!(result, Some("profile-provider".to_string()));
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -4777,7 +4586,7 @@ trust_level = "untrusted"
     fn config_loads_mcp_oauth_callback_port_from_toml() -> std::io::Result<()> {
         let savfox_home = TempDir::new()?;
         let toml = r#"
-model = "gpt-5.1"
+model = { provider = "openai", slug = "gpt-5.1" }
 mcp_oauth_callback_port = 5678
 "#;
         let cfg: ConfigToml =

@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn bundled_models_json_roundtrips() {
-        let file_contents = savfox_model::bundled_models_json();
+        let file_contents = savfox_model::bundled_models_json().trim_start_matches('\u{feff}');
         let response: ModelsResponse =
             serde_json::from_str(file_contents).expect("bundled models.json should deserialize");
 

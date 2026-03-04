@@ -218,6 +218,7 @@ mod tests {
     fn test_redact_api_keys() {
         let policy = RedactionPolicy {
             api_keys: true,
+            replacement: "[REDACTED]".to_string(),
             ..Default::default()
         };
 
@@ -231,6 +232,7 @@ mod tests {
     fn test_redact_emails() {
         let policy = RedactionPolicy {
             emails: true,
+            replacement: "[REDACTED]".to_string(),
             ..Default::default()
         };
 
@@ -244,6 +246,7 @@ mod tests {
     fn test_redact_ip_addresses() {
         let policy = RedactionPolicy {
             ip_addresses: true,
+            replacement: "[REDACTED]".to_string(),
             ..Default::default()
         };
 

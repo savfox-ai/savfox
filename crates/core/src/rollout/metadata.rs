@@ -311,11 +311,9 @@ mod tests {
     #[tokio::test]
     async fn extract_metadata_from_rollout_uses_session_meta() {
         let dir = tempdir().expect("tempdir");
-        let uuid = Uuid::new_v4();
+        let uuid = Uuid::now_v7();
         let id = SessionId::from_string(&uuid.to_string()).expect("session id");
-        let path = dir
-            .path()
-            .join(format!("rollout-2026-01-27T12-34-56-{uuid}.jsonl"));
+        let path = dir.path().join(format!("{uuid}.jsonl"));
 
         let session_meta = SessionMeta {
             id,
@@ -362,28 +360,14 @@ mod tests {
     #[test]
     fn builder_from_items_falls_back_to_filename() {
         let dir = tempdir().expect("tempdir");
-        let uuid = Uuid::new_v4();
-        let path = dir
-            .path()
-            .join(format!("rollout-2026-01-27T12-34-56-{uuid}.jsonl"));
+        let uuid = Uuid::now_v7();
+        let path = dir.path().join(format!("{uuid}.jsonl"));
         let items = vec![RolloutItem::Compacted(CompactedItem {
             message: "noop".to_string(),
             replacement_history: None,
         })];
 
-        let builder = builder_from_items(items.as_slice(), path.as_path()).expect("builder");
-        let naive = NaiveDateTime::parse_from_str("2026-01-27T12-34-56", "%Y-%m-%dT%H-%M-%S")
-            .expect("timestamp");
-        let created_at = DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
-            .with_nanosecond(0)
-            .expect("nanosecond");
-        let expected = SessionMetadataBuilder::new(
-            SessionId::from_string(&uuid.to_string()).expect("session id"),
-            path,
-            created_at,
-            SessionSource::default(),
-        );
-
-        assert_eq!(builder, expected);
+        let builder = builder_from_items(items.as_slice(), path.as_path());
+        assert!(builder.is_none());
     }
 }

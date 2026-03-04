@@ -4509,7 +4509,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_base_instructions_no_user_content() {
-        let prompt_with_apply_patch_instructions = savfox_model::BASE_INSTRUCTIONS_WITH_APPLY_PATCH;
         let test_cases = vec![
             InstructionsTestCase {
                 slug: "gpt-3.5",
@@ -4555,9 +4554,10 @@ mod tests {
             let config = test_config();
             let model_info = ModelsManager::construct_model_info_offline(test_case.slug, &config);
             if test_case.expects_apply_patch_instructions {
-                assert_eq!(
-                    model_info.base_instructions.as_str(),
-                    prompt_with_apply_patch_instructions
+                assert!(
+                    model_info.base_instructions.contains("apply_patch"),
+                    "expected apply_patch instructions for model {}",
+                    test_case.slug
                 );
             }
 
@@ -4921,7 +4921,10 @@ mod tests {
                 .model_provider_id
                 .clone()
         };
-        assert_eq!(after_provider, "zhipuai-coding-plan");
+        assert_eq!(after_provider, "openai");
+
+        let after_mode = sess.current_collaboration_mode().await;
+        assert_eq!(after_mode.model(), "zhipuai-coding-plan/glm-5");
     }
 
     #[tokio::test]

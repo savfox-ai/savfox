@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "definitions": {
@@ -9,8 +9,8 @@
     "AgentsToml": {
       "additionalProperties": false,
       "properties": {
-        "max_threads": {
-          "description": "Maximum number of agent threads that can be open concurrently. When unset, no limit is enforced.",
+        "max_sessions": {
+          "description": "Maximum number of agent sessions that can be open concurrently. When unset, no limit is enforced.",
           "format": "uint",
           "minimum": 1.0,
           "type": "integer"
@@ -251,7 +251,7 @@
           "type": "boolean"
         },
         "model": {
-          "type": "string"
+          "$ref": "#/definitions/SelectedModel"
         },
         "model_instructions_file": {
           "allOf": [
@@ -393,6 +393,10 @@
           "description": "Base URL for the provider's OpenAI-compatible API.",
           "type": "string"
         },
+        "display_name": {
+          "description": "Friendly display name.",
+          "type": "string"
+        },
         "env_http_headers": {
           "additionalProperties": {
             "type": "string"
@@ -419,10 +423,6 @@
           "description": "Additional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and value.",
           "type": "object"
         },
-        "name": {
-          "description": "Friendly display name.",
-          "type": "string"
-        },
         "query_params": {
           "additionalProperties": {
             "type": "string"
@@ -440,6 +440,9 @@
           "default": false,
           "description": "Does this provider require an OpenAI API Key or ChatGPT login token? If true, user is presented with login screen on first run, and login preference and token/key are stored in auth storage. If false (which is the default), login screen is skipped, and API key (if needed) comes from the \"env_key\" environment variable.",
           "type": "boolean"
+        },
+        "slug": {
+          "type": "string"
         },
         "stream_idle_timeout_ms": {
           "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating the connection as lost.",
@@ -469,7 +472,8 @@
         }
       },
       "required": [
-        "name"
+        "display_name",
+        "slug"
       ],
       "type": "object"
     },
@@ -884,6 +888,25 @@
       },
       "type": "object"
     },
+    "SelectedModel": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "$ref": "#/definitions/ReasoningEffort"
+        },
+        "slug": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "slug"
+      ],
+      "type": "object"
+    },
     "ShellEnvironmentPolicyInherit": {
       "oneOf": [
         {
@@ -1102,6 +1125,13 @@
             "chat"
           ],
           "type": "string"
+        },
+        {
+          "description": "Anthropic Messages API at `/v1/messages`.",
+          "enum": [
+            "anthropic"
+          ],
+          "type": "string"
         }
       ]
     }
@@ -1114,7 +1144,7 @@
           "$ref": "#/definitions/AgentsToml"
         }
       ],
-      "description": "Agent-related settings (thread limits, etc.)."
+      "description": "Agent-related settings (session limits, etc.)."
     },
     "analytics": {
       "allOf": [
@@ -1355,8 +1385,13 @@
       "type": "object"
     },
     "model": {
-      "description": "Optional override of model selection.",
-      "type": "string"
+      "allOf": [
+        {
+          "$ref": "#/definitions/SelectedModel"
+        }
+      ],
+      "default": null,
+      "description": "Optional override of model selection.\n\nAccepted form: - `{ slug = \"glm-5\", provider = \"openai\", reasoning_effort = \"medium\" }`"
     },
     "model_auto_compact_token_limit": {
       "description": "Token usage threshold triggering auto-compaction of conversation history.",

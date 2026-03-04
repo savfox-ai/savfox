@@ -83,7 +83,9 @@ async fn loads_user_yaml_config_when_toml_missing() {
     std::fs::write(
         tmp.path().join(CONFIG_YAML_FILE),
         r#"
-model: "yaml-model"
+model:
+  provider: openai
+  slug: yaml-model
 "#,
     )
     .expect("write yaml config");
@@ -106,18 +108,31 @@ model: "yaml-model"
         }
         other => panic!("unexpected user layer source: {other:?}"),
     }
-    assert_eq!(
-        user_layer.config.get("model").and_then(TomlValue::as_str),
-        Some("yaml-model")
-    );
+    let model = user_layer
+        .config
+        .get("model")
+        .and_then(TomlValue::as_table)
+        .expect("model table");
+    assert_eq!(model.get("provider").and_then(TomlValue::as_str), Some("openai"));
+    assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("yaml-model"));
 }
 
 #[tokio::test]
 async fn prefers_toml_when_multiple_user_config_formats_exist() {
     let tmp = tempdir().expect("tempdir");
-    std::fs::write(tmp.path().join(CONFIG_TOML_FILE), r#"model = "toml-model""#)
+    std::fs::write(
+        tmp.path().join(CONFIG_TOML_FILE),
+        r#"model = { provider = "openai", slug = "toml-model" }"#,
+    )
         .expect("write toml config");
-    std::fs::write(tmp.path().join(CONFIG_YAML_FILE), r#"model: "yaml-model""#)
+    std::fs::write(
+        tmp.path().join(CONFIG_YAML_FILE),
+        r#"
+model:
+  provider: openai
+  slug: yaml-model
+"#,
+    )
         .expect("write yaml config");
 
     let cwd = AbsolutePathBuf::try_from(tmp.path()).expect("cwd");
@@ -138,10 +153,13 @@ async fn prefers_toml_when_multiple_user_config_formats_exist() {
         }
         other => panic!("unexpected user layer source: {other:?}"),
     }
-    assert_eq!(
-        user_layer.config.get("model").and_then(TomlValue::as_str),
-        Some("toml-model")
-    );
+    let model = user_layer
+        .config
+        .get("model")
+        .and_then(TomlValue::as_table)
+        .expect("model table");
+    assert_eq!(model.get("provider").and_then(TomlValue::as_str), Some("openai"));
+    assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("toml-model"));
 }
 
 #[tokio::test]
@@ -150,7 +168,7 @@ async fn expands_env_placeholders_in_config_values() {
     std::fs::write(
         tmp.path().join(CONFIG_TOML_FILE),
         r#"
-model = "${SAVFOX_TEST_UNSET:-default-model}"
+model = { provider = "openai", slug = "${SAVFOX_TEST_UNSET:-default-model}" }
 review_model = "${PATH}"
 "#,
     )
@@ -168,8 +186,16 @@ review_model = "${PATH}"
     .expect("load layers");
 
     let effective = layers.effective_config();
+    let model = effective
+        .get("model")
+        .and_then(TomlValue::as_table)
+        .expect("model table");
     assert_eq!(
-        effective.get("model").and_then(TomlValue::as_str),
+        model.get("provider").and_then(TomlValue::as_str),
+        Some("openai")
+    );
+    assert_eq!(
+        model.get("slug").and_then(TomlValue::as_str),
         Some("default-model")
     );
     assert!(
@@ -185,7 +211,7 @@ async fn errors_when_required_env_placeholder_is_missing() {
     let tmp = tempdir().expect("tempdir");
     std::fs::write(
         tmp.path().join(CONFIG_TOML_FILE),
-        r#"model = "${SAVFOX_MISSING_REQUIRED_VAR:?missing required env var}""#,
+        r#"model = { provider = "openai", slug = "${SAVFOX_MISSING_REQUIRED_VAR:?missing required env var}" }"#,
     )
     .expect("write config");
 
