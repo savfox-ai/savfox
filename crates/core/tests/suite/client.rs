@@ -85,7 +85,7 @@ fn assert_message_ends_with(request_body: &serde_json::Value, text: &str) {
     );
 }
 
-/// Writes ChatGPT auth into `models/chatgpt.json` in the provided `savfox_home`.
+/// Writes ChatGPT auth into `models/openai.json` in the provided `savfox_home`.
 /// Returns the fake JWT string written to `tokens.id_token`.
 #[expect(clippy::unwrap_used)]
 fn write_chatgpt_provider_store_auth(
@@ -528,7 +528,7 @@ async fn prefers_apikey_when_config_prefers_apikey_even_with_chatgpt_tokens() {
 
     // Init session
     let savfox_home = TempDir::new().unwrap();
-    // Write models/chatgpt.json that contains both API key and ChatGPT tokens for a plan that should prefer
+    // Write models/openai.json that contains both API key and ChatGPT tokens for a plan that should prefer
     // ChatGPT, but config will force API key preference.
     let _jwt = write_chatgpt_provider_store_auth(
         &savfox_home,

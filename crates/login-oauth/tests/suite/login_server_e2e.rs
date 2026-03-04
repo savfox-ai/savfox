@@ -76,7 +76,7 @@ fn start_mock_issuer(chatgpt_account_id: &str) -> (SocketAddr, thread::JoinHandl
 }
 
 #[tokio::test]
-async fn end_to_end_login_flow_persists_chatgpt_provider_store_file() -> Result<()> {
+async fn end_to_end_login_flow_persists_openai_provider_store_file() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let chatgpt_account_id = "12345678-0000-0000-0000-000000000000";
@@ -106,7 +106,7 @@ async fn end_to_end_login_flow_persists_chatgpt_provider_store_file() -> Result<
     });
     std::fs::create_dir_all(savfox_home.join("models"))?;
     std::fs::write(
-        savfox_home.join("models").join("chatgpt.json"),
+        savfox_home.join("models").join("openai.json"),
         serde_json::to_string_pretty(&stale_auth)?,
     )?;
 
@@ -145,13 +145,13 @@ async fn end_to_end_login_flow_persists_chatgpt_provider_store_file() -> Result<
     // Wait for server shutdown
     server.block_until_done().await?;
 
-    // Validate models/chatgpt.json
-    let auth_path = savfox_home.join("models").join("chatgpt.json");
+    // Validate models/openai.json
+    let auth_path = savfox_home.join("models").join("openai.json");
     let data = std::fs::read_to_string(&auth_path)?;
     let json: serde_json::Value = serde_json::from_str(&data)?;
     assert_eq!(json["version"], 2);
-    assert_eq!(json["provider_id"], "chatgpt");
-    assert_eq!(json["display_name"], "ChatGPT");
+    assert_eq!(json["provider_id"], "openai");
+    assert_eq!(json["display_name"], "OpenAI");
     // The following assert is here because of the old oauth flow that exchanges tokens for an
     // API key. See obtain_api_key in server.rs for details. Once we remove this old mechanism
     // from the code, this test should be updated to expect that the API key is no longer present.
@@ -199,10 +199,10 @@ async fn creates_missing_savfox_home_dir() -> Result<()> {
 
     server.block_until_done().await?;
 
-    let auth_path = savfox_home.join("models").join("chatgpt.json");
+    let auth_path = savfox_home.join("models").join("openai.json");
     assert!(
         auth_path.exists(),
-        "models/chatgpt.json should be created even if parent dir was missing"
+        "models/openai.json should be created even if parent dir was missing"
     );
     Ok(())
 }
@@ -255,10 +255,10 @@ async fn forced_chatgpt_workspace_id_mismatch_blocks_login() -> Result<()> {
     let err = result.unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
 
-    let auth_path = savfox_home.join("models").join("chatgpt.json");
+    let auth_path = savfox_home.join("models").join("openai.json");
     assert!(
         !auth_path.exists(),
-        "models/chatgpt.json should not be written when the workspace mismatches"
+        "models/openai.json should not be written when the workspace mismatches"
     );
 
     Ok(())

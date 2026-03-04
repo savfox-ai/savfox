@@ -92,7 +92,7 @@
       "description": "Determine where Savfox should store CLI auth credentials.",
       "oneOf": [
         {
-          "description": "Persist credentials in SAVFOX_HOME/models/chatgpt.json.",
+          "description": "Persist credentials in SAVFOX_HOME/models/openai.json.",
           "enum": [
             "file"
           ],

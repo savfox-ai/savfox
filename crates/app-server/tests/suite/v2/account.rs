@@ -87,8 +87,8 @@ async fn logout_account_removes_auth_and_notifies() -> Result<()> {
         "sk-test-key",
         AuthCredentialsStoreMode::File,
     )?;
-    let chatgpt_auth_path = savfox_home.path().join("models").join("chatgpt.json");
-    assert!(chatgpt_auth_path.exists());
+    let openai_auth_path = savfox_home.path().join("models").join("openai.json");
+    assert!(openai_auth_path.exists());
 
     let mut mcp = McpProcess::new_with_env(savfox_home.path(), &[("OPENAI_API_KEY", None)]).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
@@ -116,8 +116,8 @@ async fn logout_account_removes_auth_and_notifies() -> Result<()> {
     );
 
     assert!(
-        !chatgpt_auth_path.exists(),
-        "models/chatgpt.json should be deleted"
+        !openai_auth_path.exists(),
+        "models/openai.json should be deleted"
     );
 
     let get_id = mcp
@@ -803,7 +803,7 @@ async fn login_account_api_key_succeeds_and_notifies() -> Result<()> {
         savfox_home
             .path()
             .join("models")
-            .join("chatgpt.json")
+            .join("openai.json")
             .exists()
     );
     Ok(())

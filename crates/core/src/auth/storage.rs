@@ -27,7 +27,7 @@ use crate::token_data::TokenData;
 #[serde(rename_all = "lowercase")]
 pub enum AuthCredentialsStoreMode {
     #[default]
-    /// Persist credentials in SAVFOX_HOME/models/chatgpt.json.
+    /// Persist credentials in SAVFOX_HOME/models/openai.json.
     File,
     /// Persist credentials in the keyring. Fail if unavailable.
     Keyring,
@@ -53,8 +53,9 @@ pub struct AuthDotJson {
     pub last_refresh: Option<DateTime<Utc>>,
 }
 
-const CHATGPT_PROVIDER_ID: &str = "chatgpt";
-const CHATGPT_DISPLAY_NAME: &str = "ChatGPT";
+const AUTH_PROVIDER_ID: &str = "openai";
+const AUTH_PROVIDER_DISPLAY_NAME: &str = "OpenAI";
+const LEGACY_CHATGPT_PROVIDER_ID: &str = "chatgpt";
 
 impl From<&AuthDotJson> for ProviderStoreFile {
     fn from(auth: &AuthDotJson) -> Self {
@@ -65,8 +66,8 @@ impl From<&AuthDotJson> for ProviderStoreFile {
         };
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
-            provider_id: CHATGPT_PROVIDER_ID.to_string(),
-            display_name: CHATGPT_DISPLAY_NAME.to_string(),
+            provider_id: AUTH_PROVIDER_ID.to_string(),
+            display_name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
             auth: Some(ProviderStoreAuth {
                 auth_type,
                 env_key: Some("OPENAI_API_KEY".to_string()),
@@ -75,14 +76,14 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 tokens: auth.tokens.clone(),
                 last_refresh: auth.last_refresh,
             }),
-            enabled_models: default_chatgpt_enabled_models(),
+            enabled_models: default_openai_enabled_models(),
             models: Vec::new(),
         }
     }
 }
 
-fn default_chatgpt_enabled_models() -> Vec<String> {
-    provider_default_models(CHATGPT_PROVIDER_ID)
+fn default_openai_enabled_models() -> Vec<String> {
+    provider_default_models(AUTH_PROVIDER_ID)
         .iter()
         .map(|model| model.slug.clone())
         .collect()
@@ -105,7 +106,11 @@ impl ProviderStoreFile {
 }
 
 pub(super) fn get_auth_file(savfox_home: &Path) -> PathBuf {
-    provider_store_path(savfox_home, CHATGPT_PROVIDER_ID)
+    provider_store_path(savfox_home, AUTH_PROVIDER_ID)
+}
+
+fn get_legacy_chatgpt_provider_auth_file(savfox_home: &Path) -> PathBuf {
+    provider_store_path(savfox_home, LEGACY_CHATGPT_PROVIDER_ID)
 }
 
 fn get_legacy_auth_file(savfox_home: &Path) -> PathBuf {
@@ -122,8 +127,10 @@ fn remove_file_if_exists(path: &Path) -> std::io::Result<bool> {
 
 pub(super) fn delete_file_if_exists(savfox_home: &Path) -> std::io::Result<bool> {
     let current_removed = remove_file_if_exists(get_auth_file(savfox_home).as_path())?;
+    let legacy_chatgpt_removed =
+        remove_file_if_exists(get_legacy_chatgpt_provider_auth_file(savfox_home).as_path())?;
     let legacy_removed = remove_file_if_exists(get_legacy_auth_file(savfox_home).as_path())?;
-    Ok(current_removed || legacy_removed)
+    Ok(current_removed || legacy_chatgpt_removed || legacy_removed)
 }
 
 pub(super) trait AuthStorageBackend: Debug + Send + Sync {
@@ -162,10 +169,20 @@ impl AuthStorageBackend for FileAuthStorage {
             match self.try_read_auth_json(get_auth_file(&self.savfox_home).as_path()) {
                 Ok(auth) => auth,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                    let legacy_auth_file = get_legacy_auth_file(&self.savfox_home);
-                    match self.try_read_auth_json(&legacy_auth_file) {
+                    let legacy_chatgpt_auth_file =
+                        get_legacy_chatgpt_provider_auth_file(&self.savfox_home);
+                    match self.try_read_auth_json(&legacy_chatgpt_auth_file) {
                         Ok(auth) => auth,
-                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                            let legacy_auth_file = get_legacy_auth_file(&self.savfox_home);
+                            match self.try_read_auth_json(&legacy_auth_file) {
+                                Ok(auth) => auth,
+                                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                                    return Ok(None);
+                                }
+                                Err(err) => return Err(err),
+                            }
+                        }
                         Err(err) => return Err(err),
                     }
                 }
@@ -191,6 +208,11 @@ impl AuthStorageBackend for FileAuthStorage {
         let mut file = options.open(auth_file)?;
         file.write_all(json_data.as_bytes())?;
         file.flush()?;
+        if let Err(err) = remove_file_if_exists(
+            get_legacy_chatgpt_provider_auth_file(&self.savfox_home).as_path(),
+        ) {
+            warn!("failed to remove legacy chatgpt provider auth file: {err}");
+        }
         if let Err(err) = remove_file_if_exists(get_legacy_auth_file(&self.savfox_home).as_path()) {
             warn!("failed to remove legacy auth.json: {err}");
         }
@@ -437,10 +459,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_storage_load_accepts_models_field() -> anyhow::Result<()> {
+    async fn file_storage_load_accepts_legacy_chatgpt_provider_file() -> anyhow::Result<()> {
         let savfox_home = tempdir()?;
         let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
-        let auth_file = get_auth_file(savfox_home.path());
+        let auth_file = get_legacy_chatgpt_provider_auth_file(savfox_home.path());
         if let Some(parent) = auth_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -503,8 +525,8 @@ mod tests {
 
         let raw_file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
         assert_eq!(raw_file["version"], 2);
-        assert_eq!(raw_file["provider_id"], "chatgpt");
-        assert_eq!(raw_file["display_name"], "ChatGPT");
+        assert_eq!(raw_file["provider_id"], "openai");
+        assert_eq!(raw_file["display_name"], "OpenAI");
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");
@@ -513,14 +535,42 @@ mod tests {
             .expect("provider store file should include an enabled_models array");
         assert!(
             !enabled_models.is_empty(),
-            "provider store file should include default ChatGPT enabled models"
+            "provider store file should include default OpenAI enabled models"
         );
         assert_eq!(enabled_models[0], json!("gpt-5.3-codex"));
         assert!(
             enabled_models
                 .iter()
                 .any(|model_slug| model_slug == &json!("gpt-5.3-codex")),
-            "provider store file should include gpt-5.3-codex in default ChatGPT enabled models"
+            "provider store file should include gpt-5.3-codex in default OpenAI enabled models"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn file_storage_save_removes_legacy_chatgpt_provider_file() -> anyhow::Result<()> {
+        let savfox_home = tempdir()?;
+        let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
+        let legacy_file = get_legacy_chatgpt_provider_auth_file(savfox_home.path());
+        if let Some(parent) = legacy_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&legacy_file, r#"{"provider_id":"chatgpt"}"#)?;
+        assert!(legacy_file.exists(), "legacy chatgpt provider file should exist");
+
+        let auth_dot_json = AuthDotJson {
+            auth_mode: Some(AuthMode::ApiKey),
+            openai_api_key: Some("test-key".to_string()),
+            tokens: None,
+            last_refresh: Some(Utc::now()),
+        };
+        storage
+            .save(&auth_dot_json)
+            .context("failed to save auth file")?;
+
+        assert!(
+            !legacy_file.exists(),
+            "saving auth should remove legacy chatgpt provider file"
         );
         Ok(())
     }

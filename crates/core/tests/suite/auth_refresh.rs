@@ -534,8 +534,8 @@ impl RefreshTokenTestContext {
 
     fn load_auth(&self) -> Result<AuthDotJson> {
         load_auth_dot_json(self.savfox_home.path(), AuthCredentialsStoreMode::File)
-            .context("load models/chatgpt.json")?
-            .context("models/chatgpt.json should exist")
+            .context("load models/openai.json")?
+            .context("models/openai.json should exist")
     }
 
     fn write_auth(&self, auth_dot_json: &AuthDotJson) -> Result<()> {
