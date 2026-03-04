@@ -7,13 +7,13 @@ use ratatui::text::{Line, Span};
 
 use crate::render::renderable::Renderable;
 
-/// Savfox ASCII logo – spells SAVFOX in solid block letters.
+/// Savfox ASCII logo – spells SAVFOX using half-block glyphs for finer detail.
 pub const SAVFOX_LOGO: [&str; 5] = [
-    " ██████    ████   ██    ██ ██████  ██████  ██    ██",
-    "██        ██  ██  ██    ██ ██     ██    ██  ██  ██ ",
-    " ██████  ████████ ██    ██ █████  ██    ██   ████  ",
-    "      ██ ██    ██  ██  ██  ██     ██    ██  ██  ██ ",
-    "██████   ██    ██   ████   ██      ██████  ██    ██",
+    "▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██",
+    "██▄▄     ██    ██ ██    ██ ██     ██    ██  ▀█▄▄█▀ ",
+    " ▀▀▀▀█▄  ████████ ██    ██ █████  ██    ██    ██   ",
+    "▄▄    ██ ██    ██  ██  ██  ██     ██    ██  ▄█▀▀█▄ ",
+    " ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██",
 ];
 
 /// Width of the ASCII logo in columns.

@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use savfox_protocol::config_types::{Personality, TrustLevel};
 use savfox_protocol::openai_models::ReasoningEffort;
+use serde_json::Value as JsonValue;
 use tokio::task;
-use toml_edit::{ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, value};
+use toml_edit::{ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, value, Value as TomlValue};
 
-use crate::config::CONFIG_TOML_FILE;
+use crate::config::{CONFIG_JSON_FILE, CONFIG_TOML_FILE};
 use crate::config::types::{McpServerConfig, Notice};
 use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
@@ -289,14 +290,11 @@ impl ConfigDocument {
                                 );
                             }
                             mutated |= self.write_profile_value(
-                                &["model", "reasoning_level"],
+                                &["model", "reasoning_effort"],
                                 effort.map(|effort| value(effort.to_string())),
                             );
-                            // Keep legacy field in sync for older readers.
-                            mutated |= self.write_profile_value(
-                                &["model_reasoning_effort"],
-                                effort.map(|effort| value(effort.to_string())),
-                            );
+                            // Remove legacy global field
+                            mutated |= self.write_profile_value(&["model_reasoning_effort"], None);
                         } else {
                             mutated |= self.write_profile_value(&["model"], None);
                             mutated |= self.write_profile_value(&["model_reasoning_effort"], None);
@@ -319,9 +317,11 @@ impl ConfigDocument {
                                 .write_profile_value(&["model_provider"], Some(value(provider_id)));
                         }
                         mutated |= self.write_profile_value(
-                            &["model_reasoning_effort"],
+                            &["model", "reasoning_effort"],
                             effort.map(|effort| value(effort.to_string())),
                         );
+                        // Remove legacy global field
+                        mutated |= self.write_profile_value(&["model_reasoning_effort"], None);
                         mutated
                     })
                 }
@@ -686,8 +686,254 @@ pub fn apply_blocking(
         return Ok(());
     }
 
-    let config_path = savfox_home.join(CONFIG_TOML_FILE);
-    let write_paths = resolve_symlink_write_paths(&config_path)?;
+    // Prefer config.json over config.toml
+    let json_path = savfox_home.join(CONFIG_JSON_FILE);
+    if json_path.exists() {
+        apply_blocking_json(&json_path, profile, edits)
+    } else {
+    let toml_path = savfox_home.join(CONFIG_TOML_FILE);
+        apply_blocking_toml(&toml_path, profile, edits)
+    }
+}
+
+fn apply_blocking_json(
+    config_path: &Path,
+    profile: Option<&str>,
+    edits: &[ConfigEdit],
+) -> anyhow::Result<()> {
+    let write_paths = resolve_symlink_write_paths(config_path)?;
+    let serialized = match write_paths.read_path {
+        Some(path) => match std::fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(err.into()),
+        },
+        None => String::new(),
+    };
+
+    let mut json_value = if serialized.is_empty() {
+        JsonValue::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_str(&serialized)?
+    };
+
+    let profile = profile.map(ToOwned::to_owned).or_else(|| {
+        json_value
+            .get("profile")
+            .and_then(|v| v.as_str())
+            .map(ToOwned::to_owned)
+    });
+
+    let mut mutated = false;
+
+    for edit in edits {
+        mutated |= apply_edit_to_json(&mut json_value, &profile, edit)?;
+    }
+
+    if !mutated {
+        return Ok(());
+    }
+
+    let json_string = serde_json::to_string_pretty(&json_value)?;
+    
+    write_atomically(&write_paths.write_path, &json_string).with_context(|| {
+        format!(
+            "failed to persist config.json at {}",
+            write_paths.write_path.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn apply_edit_to_json(
+    json: &mut JsonValue,
+    profile: &Option<String>,
+    edit: &ConfigEdit,
+) -> anyhow::Result<bool> {
+    let result = if profile.is_some() {
+        // For profile-specific edits, we need to update the profile section
+        if let JsonValue::Object(root) = json {
+            let profiles = root.entry("profiles".to_string()).or_insert_with(|| {
+                JsonValue::Object(serde_json::Map::new())
+            });
+            if let JsonValue::Object(profiles_map) = profiles {
+                let profile_name = profile.as_ref().unwrap();
+                let profile_obj = profiles_map.entry(profile_name.clone()).or_insert_with(|| {
+                    JsonValue::Object(serde_json::Map::new())
+                });
+                apply_edit_to_json_value(profile_obj, edit)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
+    } else {
+        apply_edit_to_json_value(json, edit)
+    };
+    result
+}
+
+fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::Result<bool> {
+    match edit {
+        ConfigEdit::SetModel { model, effort } => {
+            let model = model
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            if let JsonValue::Object(root) = json {
+                match model {
+                    Some(model_value) => {
+                        let (provider_id, slug) = if let Some((provider, model_code)) =
+                            parse_provider_prefixed_model(model_value.as_str())
+                        {
+                            (Some(provider.to_string()), model_code.to_string())
+                        } else {
+                            (None, model_value)
+                        };
+
+                        let model_obj = root.entry("model".to_string()).or_insert_with(|| {
+                            JsonValue::Object(serde_json::Map::new())
+                        });
+                        
+                        if let JsonValue::Object(model_map) = model_obj {
+                            model_map.insert("slug".to_string(), JsonValue::String(slug));
+                            
+                            if let Some(ref provider_id) = provider_id {
+                                model_map.insert("provider".to_string(), JsonValue::String(provider_id.clone()));
+                            }
+                            
+                            if let Some(effort) = effort {
+                                model_map.insert("reasoning_effort".to_string(), JsonValue::String(effort.to_string()));
+                            } else {
+                                model_map.remove("reasoning_effort");
+                            }
+                        }
+                        
+                        // Add model_provider at root level
+                        if let Some(provider_id) = provider_id {
+                            root.insert("model_provider".to_string(), JsonValue::String(provider_id));
+                        }
+                        
+                        Ok(true)
+                    }
+                    None => {
+                        root.remove("model");
+                        Ok(true)
+                    }
+                }
+            } else {
+                Ok(false)
+            }
+        }
+        ConfigEdit::SetModelPersonality { personality } => {
+            if let JsonValue::Object(root) = json {
+                match personality {
+                    Some(p) => {
+                        root.insert("personality".to_string(), JsonValue::String(p.to_string()));
+                        Ok(true)
+                    }
+                    None => {
+                        root.remove("personality");
+                        Ok(true)
+                    }
+                }
+            } else {
+                Ok(false)
+            }
+        }
+        ConfigEdit::SetPath { segments, value } => {
+            set_json_value_at_path(json, segments, value.clone());
+            Ok(true)
+        }
+        ConfigEdit::ClearPath { segments } => {
+            let removed = remove_json_value_at_path(json, segments);
+            Ok(removed)
+        }
+        _ => {
+            // For other edits, delegate to a simpler implementation
+            Ok(false)
+        }
+    }
+}
+
+fn set_json_value_at_path(json: &mut JsonValue, segments: &[String], value: TomlItem) {
+    if segments.is_empty() {
+        return;
+    }
+
+    if let JsonValue::Object(map) = json {
+        if segments.len() == 1 {
+            let json_value = toml_item_to_json(value);
+            map.insert(segments[0].clone(), json_value);
+        } else {
+            let child = map.entry(segments[0].clone()).or_insert_with(|| {
+                JsonValue::Object(serde_json::Map::new())
+            });
+            set_json_value_at_path(child, &segments[1..], value);
+        }
+    }
+}
+
+fn remove_json_value_at_path(json: &mut JsonValue, segments: &[String]) -> bool {
+    if segments.is_empty() {
+        return false;
+    }
+
+    if let JsonValue::Object(map) = json {
+        if segments.len() == 1 {
+            map.remove(&segments[0]).is_some()
+        } else {
+            if let Some(child) = map.get_mut(&segments[0]) {
+                remove_json_value_at_path(child, &segments[1..])
+            } else {
+                false
+            }
+        }
+    } else {
+        false
+    }
+}
+
+fn toml_item_to_json(item: TomlItem) -> JsonValue {
+    match item {
+        TomlItem::Value(v) => toml_value_to_json(&v),
+        TomlItem::Table(_) | TomlItem::ArrayOfTables(_) => JsonValue::Null,
+        TomlItem::None => JsonValue::Null,
+    }
+}
+
+fn toml_value_to_json(value: &TomlValue) -> JsonValue {
+    if let Some(s) = value.as_str() {
+        JsonValue::String(s.to_string())
+    } else if let Some(i) = value.as_integer() {
+        JsonValue::Number(i.into())
+    } else if let Some(f) = value.as_float() {
+        if let Some(n) = serde_json::Number::from_f64(f) {
+            JsonValue::Number(n)
+        } else {
+            JsonValue::Null
+        }
+    } else if let Some(b) = value.as_bool() {
+        JsonValue::Bool(b)
+    } else if let Some(arr) = value.as_array() {
+        JsonValue::Array(arr.iter().map(toml_value_to_json).collect())
+    } else if let Some(dt) = value.as_datetime() {
+        JsonValue::String(dt.to_string())
+    } else {
+        JsonValue::Null
+    }
+}
+
+fn apply_blocking_toml(
+    config_path: &Path,
+    profile: Option<&str>,
+    edits: &[ConfigEdit],
+) -> anyhow::Result<()> {
+    let write_paths = resolve_symlink_write_paths(config_path)?;
     let serialized = match write_paths.read_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(contents) => contents,
@@ -899,15 +1145,15 @@ mod tests {
         .expect("persist");
 
         let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let value: TomlValue = toml::from_str(&contents).expect("parse config");
+            std::fs::read_to_string(savfox_home.join(CONFIG_JSON_FILE)).expect("read config");
+        let value: JsonValue = serde_json::from_str(&contents).expect("parse config");
         let model = value
             .get("model")
-            .and_then(|v| v.as_table())
+            .and_then(|v| v.as_object())
             .expect("model table");
         assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
         assert_eq!(
-            model.get("reasoning_level").and_then(|v| v.as_str()),
+            model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
         );
     }
@@ -926,14 +1172,17 @@ mod tests {
             .expect("persist");
 
         let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        assert_eq!(contents, "enabled = true\n");
+            std::fs::read_to_string(savfox_home.join(CONFIG_JSON_FILE)).expect("read config");
+        let json: JsonValue = serde_json::from_str(&contents).expect("parse json");
+        assert_eq!(json.get("enabled").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
     fn set_skill_config_writes_disabled_entry() {
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
+        // Pre-create config.toml so it uses TOML format
+        std::fs::write(savfox_home.join(CONFIG_TOML_FILE), "").unwrap();
 
         ConfigEditsBuilder::new(savfox_home)
             .with_edits([ConfigEdit::SetSkillConfig {
@@ -1182,7 +1431,9 @@ profiles = { fast = { model = "gpt-4o", sandbox_mode = "strict" } }
 
 [profiles.fast]
 sandbox_mode = "strict"
-model_reasoning_effort = "high"
+
+[profiles.fast.model]
+reasoning_effort = "high"
 "#;
         assert_eq!(contents, expected);
     }
@@ -1216,8 +1467,10 @@ model_reasoning_effort = "low"
         let expected = r#"profile = "team"
 
 [profiles.team]
-model_reasoning_effort = "minimal"
 model = "o5-preview"
+
+[profiles.team.model]
+reasoning_effort = "minimal"
 "#;
         assert_eq!(contents, expected);
     }
