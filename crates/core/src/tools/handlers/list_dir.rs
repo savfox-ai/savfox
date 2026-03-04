@@ -174,7 +174,7 @@ async fn collect_entries(
                 prefix.join(&file_name)
             };
 
-            let name = format_entry_component(&file_name);
+            let display_name = format_entry_component(&file_name);
             let display_depth = prefix.components().count();
             let sort_key = format_entry_name(&relative_path);
             let kind = DirEntryKind::from(&file_type);
@@ -184,7 +184,7 @@ async fn collect_entries(
                 kind,
                 DirEntry {
                     name: sort_key,
-                    name,
+                    display_name,
                     depth: display_depth,
                     kind,
                 },
@@ -237,6 +237,7 @@ fn format_entry_line(entry: &DirEntry) -> String {
 #[derive(Clone)]
 struct DirEntry {
     name: String,
+    display_name: String,
     depth: usize,
     kind: DirEntryKind,
 }

@@ -308,7 +308,7 @@ impl ModelProviderInfo {
             } else {
                 return Err(crate::error::SavfoxError::Fatal(format!(
                     "Model provider `{}` has no base_url configured.",
-                    self.slug
+                    self.id
                 )));
             }
         };
@@ -345,7 +345,7 @@ impl ModelProviderInfo {
             WireApi::Anthropic => ApiWireApi::Anthropic,
         };
 
-        is_azure_responses_wire_base_url(wire, &self.slug, self.base_url.as_deref())
+        is_azure_responses_wire_base_url(wire, &self.id, self.base_url.as_deref())
     }
 
     /// If `env_key` is Some, returns the API key for this provider if present
@@ -402,7 +402,7 @@ impl ModelProviderInfo {
     }
     pub fn create_openai_provider() -> ModelProviderInfo {
         ModelProviderInfo {
-            slug: "openai".into(),
+            id: "openai".into(),
             name: "OpenAI".into(),
             // Allow users to override the default OpenAI endpoint by
             // exporting `OPENAI_BASE_URL`. This is useful when pointing
@@ -443,7 +443,7 @@ impl ModelProviderInfo {
     }
 
     pub fn is_openai(&self) -> bool {
-        self.slug == "openai" || self.name == "OpenAI"
+        self.id == "openai" || self.name == "OpenAI"
     }
 }
 
@@ -623,7 +623,7 @@ pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> Mod
 
 fn create_anthropic_provider() -> ModelProviderInfo {
     ModelProviderInfo {
-        slug: "anthropic".into(),
+        id: "anthropic".into(),
         name: "Anthropic".into(),
         base_url: Some("https://api.anthropic.com".into()),
         env_key: None,
@@ -651,7 +651,7 @@ fn create_anthropic_provider() -> ModelProviderInfo {
 
 fn create_cloud_chat_provider(name: &str, base_url: &str, env_key: &str) -> ModelProviderInfo {
     ModelProviderInfo {
-        slug: name.to_lowercase().into(),
+        id: name.to_lowercase().into(),
         name: name.into(),
         base_url: Some(base_url.into()),
         env_key: Some(env_key.into()),
@@ -674,7 +674,7 @@ fn create_gemini_provider() -> ModelProviderInfo {
     // The API key is passed via the `key` query parameter OR via Bearer token.
     // We use the OpenAI-compatible endpoint which accepts Bearer auth.
     ModelProviderInfo {
-        slug: "gemini".into(),
+        id: "gemini".into(),
         name: "Gemini".into(),
         base_url: Some(
             std::env::var("GEMINI_BASE_URL")

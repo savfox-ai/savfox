@@ -121,7 +121,7 @@ fn merge_provider_store_model_providers(
         model_providers.insert(
             provider_id.clone(),
             ModelProviderInfo {
-                slug: provider_id,
+                id: provider_id,
                 name: name,
                 base_url: Some(base_url),
                 env_key,

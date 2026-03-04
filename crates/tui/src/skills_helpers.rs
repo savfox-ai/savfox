@@ -5,7 +5,7 @@ use crate::text_formatting::truncate_text;
 
 pub(crate) const SKILL_NAME_TRUNCATE_LEN: usize = 21;
 
-pub(crate) fn skill_display_name(skill: &SkillMetadata) -> &str {
+pub(crate) fn skill_name(skill: &SkillMetadata) -> &str {
     skill
         .interface
         .as_ref()

@@ -2908,7 +2908,7 @@ impl ChatComposer {
 
         if let Some(skills) = self.skills.as_ref() {
             for skill in skills {
-                let name = skill_display_name(skill).to_string();
+                let name = skill_name(skill).to_string();
                 let description = skill_description(skill);
                 let skill_name = skill.name.clone();
                 let search_terms = if name == skill.name {
@@ -3027,7 +3027,7 @@ impl ChatComposer {
     }
 }
 
-fn skill_display_name(skill: &SkillMetadata) -> &str {
+fn skill_name(skill: &SkillMetadata) -> &str {
     skill
         .interface
         .as_ref()
