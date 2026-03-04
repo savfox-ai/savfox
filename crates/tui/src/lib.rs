@@ -18,6 +18,7 @@ use savfox_common::oss::{
 };
 use savfox_core::auth::enforce_login_restrictions;
 use savfox_core::config::edit::ConfigEditsBuilder;
+use savfox_core::config::provider_store::ProviderStoreFile;
 use savfox_core::config::{
     Config, ConfigBuilder, ConfigOverrides, ConfigToml, find_savfox_home,
     load_config_as_toml_with_cli_overrides, resolve_oss_provider,
@@ -39,7 +40,6 @@ use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::protocol::{RolloutItem, RolloutLine};
 use savfox_state::log_db;
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use serde::Deserialize;
 use serde_json::Value;
 use tracing::error;
 use tracing_appender::non_blocking;
@@ -201,10 +201,7 @@ fn load_provider_model_catalog(savfox_home: &Path) -> Vec<ProviderModelCatalog> 
             let models: Vec<Value> = if !file.enabled_models.is_empty() {
                 file.enabled_models.into_iter().map(Value::String).collect()
             } else {
-                serde_json::from_str::<Value>(&data)
-                    .ok()
-                    .and_then(|raw| raw.get("models").and_then(Value::as_array).cloned())
-                    .unwrap_or_default()
+                file.legacy_models
             };
             (provider_id, models)
         } else if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {

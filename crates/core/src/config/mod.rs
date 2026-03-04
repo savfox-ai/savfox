@@ -21,6 +21,7 @@ use toml_edit::DocumentMut;
 use crate::auth::AuthCredentialsStoreMode;
 use crate::config::edit::{ConfigEdit, ConfigEditsBuilder};
 use crate::config::profile::ConfigProfile;
+use crate::config::provider_store::ProviderStoreFile;
 use crate::config::types::{
     DEFAULT_OTEL_ENVIRONMENT, History, McpServerConfig, McpServerDisabledReason,
     McpServerTransportConfig, Notice, NotificationMethod, Notifications, OtelConfig,
@@ -46,6 +47,7 @@ use crate::windows_sandbox::WindowsSandboxLevelExt;
 mod constraint;
 pub mod edit;
 pub mod profile;
+pub mod provider_store;
 pub mod schema;
 pub mod service;
 pub mod types;
@@ -64,22 +66,6 @@ pub const CONFIG_JSON_FILE: &str = "config.json";
 pub const CONFIG_YAML_FILE: &str = "config.yaml";
 pub const CONFIG_YML_FILE: &str = "config.yml";
 const PROVIDER_MODELS_DIR: &str = "models";
-
-#[derive(Debug, Deserialize)]
-struct ProviderStoreConfigFile {
-    #[serde(default)]
-    provider_id: String,
-    #[serde(default)]
-    display_name: String,
-    #[serde(default)]
-    auth: Option<ProviderStoreConfigAuth>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProviderStoreConfigAuth {
-    #[serde(default)]
-    env_key: Option<String>,
-}
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
@@ -111,7 +97,7 @@ fn merge_provider_store_model_providers(
 
         let file = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|data| serde_json::from_str::<ProviderStoreConfigFile>(&data).ok());
+            .and_then(|data| serde_json::from_str::<ProviderStoreFile>(&data).ok());
         let provider_id = file
             .as_ref()
             .and_then(|file| trim_nonempty(&file.provider_id))

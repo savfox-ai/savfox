@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use savfox_core::ModelProviderInfo;
-use serde::{Deserialize, Serialize};
+use savfox_core::config::provider_store::{
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, ProviderStoreFile,
+};
 use serde_json::{Value, json};
 
 const MODELS_DIR_NAME: &str = "models";
@@ -55,38 +57,6 @@ pub(crate) struct ProviderConnectRuntimeAuth {
     pub(crate) use_chatgpt_openai_base_url: bool,
 }
 
-fn default_provider_file_version() -> u32 {
-    2
-}
-
-fn default_auth_type() -> String {
-    "api_key".to_string()
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub(crate) struct ProviderStoreFile {
-    #[serde(default)]
-    pub(crate) provider_id: String,
-    #[serde(default)]
-    pub(crate) display_name: String,
-    #[serde(default)]
-    pub(crate) auth: Option<ProviderStoreAuth>,
-    #[serde(default)]
-    pub(crate) enabled_models: Vec<String>,
-    #[serde(default, rename = "models", skip_serializing)]
-    pub(crate) legacy_models: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ProviderStoreAuth {
-    #[serde(rename = "type", default = "default_auth_type")]
-    pub(crate) auth_type: String,
-    #[serde(default)]
-    pub(crate) env_key: Option<String>,
-    #[serde(default)]
-    pub(crate) api_key: Option<String>,
-}
-
 pub(crate) fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
     savfox_home.join(MODELS_DIR_NAME)
 }
@@ -104,14 +74,7 @@ fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderSt
     let path = provider_store_path(savfox_home, provider_id);
     let data = std::fs::read_to_string(&path);
     let Ok(data) = data else {
-        return ProviderStoreFile {
-            version: 2,
-            provider_id: provider_id.to_string(),
-            display_name: String::new(),
-            auth: None,
-            enabled_models: Vec::new(),
-            legacy_models: Vec::new(),
-        };
+        return ProviderStoreFile::empty(provider_id);
     };
 
     if let Ok(mut file) = serde_json::from_str::<ProviderStoreFile>(&data) {
@@ -135,27 +98,16 @@ fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> ProviderSt
     }
 
     if let Ok(legacy_models) = serde_json::from_str::<Vec<Value>>(&data) {
-        return ProviderStoreFile {
-            version: 2,
-            provider_id: provider_id.to_string(),
-            display_name: String::new(),
-            auth: None,
-            enabled_models: legacy_models
-                .iter()
-                .filter_map(model_slug_from_entry)
-                .collect(),
-            legacy_models,
-        };
+        let mut file = ProviderStoreFile::empty(provider_id);
+        file.enabled_models = legacy_models
+            .iter()
+            .filter_map(model_slug_from_entry)
+            .collect();
+        file.legacy_models = legacy_models;
+        return file;
     }
 
-    ProviderStoreFile {
-        version: 2,
-        provider_id: provider_id.to_string(),
-        display_name: String::new(),
-        auth: None,
-        enabled_models: Vec::new(),
-        legacy_models: Vec::new(),
-    }
+    ProviderStoreFile::empty(provider_id)
 }
 
 fn save_provider_store_file(
@@ -747,7 +699,7 @@ pub(crate) fn persist_provider_connection(
     result: &ProviderConnectResult,
 ) -> Result<(), String> {
     let mut file = load_provider_store_file(savfox_home, &result.provider_id);
-    file.version = 2;
+    file.version = PROVIDER_STORE_FILE_VERSION;
     file.provider_id = result.provider_id.clone();
     file.display_name = if result.provider_name.trim().is_empty() {
         result.provider_id.clone()
@@ -766,6 +718,7 @@ pub(crate) fn persist_provider_connection(
             auth_type: "api_key".to_string(),
             env_key: result.env_key.clone(),
             api_key: Some(api_key),
+            ..ProviderStoreAuth::default()
         });
     }
 

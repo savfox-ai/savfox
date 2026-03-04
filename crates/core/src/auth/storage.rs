@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
+use crate::config::provider_store::{
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, ProviderStoreFile,
+};
 use crate::token_data::TokenData;
 
 /// Determine where Savfox should store CLI auth credentials.
@@ -54,44 +57,6 @@ const MODELS_DIR_NAME: &str = "models";
 const CHATGPT_PROVIDER_ID: &str = "chatgpt";
 const CHATGPT_DISPLAY_NAME: &str = "ChatGPT";
 
-fn default_provider_file_version() -> u32 {
-    2
-}
-
-fn default_auth_type() -> String {
-    "api_key".to_string()
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
-struct ProviderStoreFile {
-    #[serde(default = "default_provider_file_version")]
-    version: u32,
-    #[serde(default)]
-    provider_id: String,
-    #[serde(default)]
-    display_name: String,
-    #[serde(default)]
-    auth: Option<ProviderStoreAuth>,
-    #[serde(default)]
-    enabled_models: Vec<String>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
-struct ProviderStoreAuth {
-    #[serde(rename = "type", default = "default_auth_type")]
-    auth_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    env_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    api_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    auth_mode: Option<AuthMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    tokens: Option<TokenData>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_refresh: Option<DateTime<Utc>>,
-}
-
 impl From<&AuthDotJson> for ProviderStoreFile {
     fn from(auth: &AuthDotJson) -> Self {
         let auth_type = if auth.tokens.is_some() || auth.auth_mode == Some(AuthMode::Chatgpt) {
@@ -100,7 +65,7 @@ impl From<&AuthDotJson> for ProviderStoreFile {
             "api_key".to_string()
         };
         Self {
-            version: 2,
+            version: PROVIDER_STORE_FILE_VERSION,
             provider_id: CHATGPT_PROVIDER_ID.to_string(),
             display_name: CHATGPT_DISPLAY_NAME.to_string(),
             auth: Some(ProviderStoreAuth {
@@ -112,6 +77,7 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 last_refresh: auth.last_refresh,
             }),
             enabled_models: default_chatgpt_enabled_models(),
+            legacy_models: Vec::new(),
         }
     }
 }

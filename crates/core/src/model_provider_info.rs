@@ -25,6 +25,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthMode;
+use crate::config::provider_store::ProviderStoreFile;
 use crate::error::EnvVarError;
 
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 300_000;
@@ -104,22 +105,6 @@ pub fn get_bearer_token_override(provider_id: &str) -> Option<String> {
         .filter(|v| !v.trim().is_empty())
 }
 
-#[derive(Debug, Deserialize)]
-struct ProviderStoreAuthFile {
-    #[serde(default)]
-    provider_id: String,
-    #[serde(default)]
-    auth: Option<ProviderStoreAuth>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProviderStoreAuth {
-    #[serde(default)]
-    env_key: Option<String>,
-    #[serde(default)]
-    api_key: Option<String>,
-}
-
 /// Load provider auth from `{savfox_home}/models/*.json` and inject runtime
 /// overrides for API key resolution.
 ///
@@ -150,7 +135,7 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
         let Ok(data) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Ok(file) = serde_json::from_str::<ProviderStoreAuthFile>(&data) else {
+        let Ok(file) = serde_json::from_str::<ProviderStoreFile>(&data) else {
             // Ignore legacy bare-array model files (no auth payload).
             continue;
         };

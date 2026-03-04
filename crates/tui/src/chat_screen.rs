@@ -34,6 +34,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};
 use savfox_backend_client::Client as BackendClient;
 use savfox_chatgpt::connectors;
+use savfox_core::config::provider_store::ProviderStoreFile;
 use savfox_core::config::types::Notifications;
 use savfox_core::config::{Config, ConstraintResult};
 use savfox_core::features::{FEATURES, Feature};
@@ -71,7 +72,6 @@ use savfox_protocol::models::local_image_label_text;
 use savfox_protocol::parse_command::ParsedCommand;
 use savfox_protocol::request_user_input::RequestUserInputEvent;
 use savfox_protocol::user_input::{TextElement, UserInput};
-use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use tracing::debug;
@@ -6922,14 +6922,6 @@ struct ModelProviderBucket {
     id: String,
     name: String,
     aliases: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProviderStoreFile {
-    #[serde(default)]
-    enabled_models: Vec<String>,
-    #[serde(default, rename = "models")]
-    legacy_models: Vec<serde_json::Value>,
 }
 
 fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPreset>> {
