@@ -3668,7 +3668,7 @@ model_verbosity = "high"
         let savfox_home_temp_dir = TempDir::new().unwrap();
 
         let openai_chat_completions_provider = ModelProviderInfo {
-            slug: "openai-chat-completions".to_string(),
+id: "openai-chat-completions".to_string(),
             name: "OpenAI using Chat Completions".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             env_key: Some("OPENAI_API_KEY".to_string()),
@@ -3715,7 +3715,7 @@ model_verbosity = "high"
             ..Default::default()
         };
         let zhipu_provider = ModelProviderInfo {
-            slug: "zhipuai-coding-plan".to_string(),
+id: "zhipuai-coding-plan".to_string(),
             name: "Zhipu AI Coding Plan".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
             env_key: Some("ZHIPUAI_API_KEY".to_string()),
@@ -3811,7 +3811,7 @@ model_verbosity = "high"
             ..Default::default()
         };
         let provider = ModelProviderInfo {
-            slug: "acme/team".to_string(),
+id: "acme/team".to_string(),
             name: "Acme Team".to_string(),
             base_url: Some("https://example.invalid/v1".to_string()),
             env_key: Some("ACME_API_KEY".to_string()),
@@ -3857,7 +3857,7 @@ model_verbosity = "high"
         cfg.model_providers.insert(
             "zhipuai-coding-plan".to_string(),
             ModelProviderInfo {
-                slug: "zhipuai-coding-plan".to_string(),
+id: "zhipuai-coding-plan".to_string(),
                 name: "Zhipu AI Coding Plan".to_string(),
                 base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
                 env_key: Some("ZHIPUAI_API_KEY".to_string()),

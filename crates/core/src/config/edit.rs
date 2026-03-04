@@ -258,8 +258,14 @@ impl ConfigFile {
 
     fn apply(&mut self, edit: &ConfigEdit) -> anyhow::Result<bool> {
         match edit {
-            ConfigEdit::SetModel { model, effort } => {
-                let model = model
+            ConfigEdit::SetModel { slug, provider, effort } => {
+                let slug = slug
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned);
+
+                let provider = provider
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
@@ -267,20 +273,13 @@ impl ConfigFile {
 
                 Ok({
                     let mut mutated = false;
-                    if let Some(model_value) = model {
-                        let (provider_id, slug) = if let Some((provider, model_slug)) =
-                            parse_provider_prefixed_model(model_value.as_str())
-                        {
-                            (Some(provider.to_string()), model_slug.to_string())
-                        } else {
-                            (None, model_value)
-                        };
+                    if let Some(slug_value) = slug {
+                        mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug_value.clone()));
 
-                        mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug));
-                        let provider_to_write = if let Some(provider_id) = provider_id {
-                            provider_id
+                        let provider_to_write: Option<String> = if let Some(ref provider_value) = provider {
+                            Some(provider_value.clone())
                         } else {
-                            // If no provider in model string, try to read from existing config
+                            // If no provider specified, try to read from existing config
                             self.doc
                                 .as_table()
                                 .get("model_provider")
@@ -295,11 +294,11 @@ impl ConfigFile {
                             );
                         }
                         // Keep legacy field in sync for older readers.
-                        if let Some(provider_id) = provider_id.or_else(|| provider_to_write.clone()) {
+                        if let Some(provider_for_legacy) = provider.as_ref().or(provider_to_write.as_ref()) {
                             mutated |= self.write_value(
                                 Scope::Global,
                                 &["model_provider"],
-                                value(provider_id),
+                                value(provider_for_legacy),
                             );
                         }
                         if let Some(effort_value) = effort {
@@ -727,39 +726,40 @@ fn apply_edit_to_json(
 
 fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::Result<bool> {
     match edit {
-        ConfigEdit::SetModel { model, effort } => {
-            let model = model
+        ConfigEdit::SetModel { slug, provider, effort } => {
+            let slug = slug
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            let provider = provider
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
 
             if let JsonValue::Object(root) = json {
-                match model {
-                    Some(model_value) => {
-                        let (provider_id, slug) = if let Some((provider, model_slug)) =
-                            parse_provider_prefixed_model(model_value.as_str())
-                        {
-                            (Some(provider.to_string()), model_slug.to_string())
-                        } else {
-                            (None, model_value)
-                        };
+                match slug {
+                    Some(slug_value) => {
+                        // Read existing model_provider before any mutable borrow
+                        let existing_provider = root.get("model_provider")
+                            .and_then(|v| v.as_str())
+                            .map(ToOwned::to_owned)
+                            .unwrap_or_default();
 
                         let model_obj = root
                             .entry("model".to_string())
                             .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
 
                         if let JsonValue::Object(model_map) = model_obj {
-                            model_map.insert("slug".to_string(), JsonValue::String(slug));
+                            model_map.insert("slug".to_string(), JsonValue::String(slug_value.clone()));
 
-                            let provider_to_write = if let Some(ref provider_id) = provider_id {
-                                provider_id.clone()
+                            let provider_to_write = if let Some(provider_value) = &provider {
+                                provider_value.clone()
                             } else {
-                                // If no provider in model string, try to read from existing config
-                                root.get("model_provider")
-                                    .and_then(|v| v.as_str())
-                                    .map(ToOwned::to_owned)
-                                    .unwrap_or_default()
+                                // If no provider specified, use existing config value
+                                existing_provider.clone()
                             };
 
                             if !provider_to_write.is_empty() {
@@ -780,14 +780,11 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                         }
 
                         // Add model_provider at root level
-                        let provider_for_root = if let Some(provider_id) = provider_id {
-                            provider_id
+                        let provider_for_root = if let Some(provider_value) = &provider {
+                            provider_value.clone()
                         } else {
                             // Try to preserve existing model_provider value
-                            root.get("model_provider")
-                                .and_then(|v| v.as_str())
-                                .map(ToOwned::to_owned)
-                                .unwrap_or_default()
+                            existing_provider.clone()
                         };
                         if !provider_for_root.is_empty() {
                             root.insert(
@@ -974,8 +971,19 @@ impl ConfigEditsBuilder {
     }
 
     pub fn set_model(mut self, model: Option<&str>, effort: Option<ReasoningEffort>) -> Self {
+        let (slug, provider) = if let Some(model_value) = model {
+            if let Some((provider_id, model_slug)) = parse_provider_prefixed_model(model_value) {
+                (Some(model_slug.to_string()), Some(provider_id.to_string()))
+            } else {
+                (Some(model_value.to_string()), None)
+            }
+        } else {
+            (None, None)
+        };
+
         self.edits.push(ConfigEdit::SetModel {
-            model: model.map(ToOwned::to_owned),
+            slug,
+            provider,
             effort,
         });
         self
@@ -1099,7 +1107,8 @@ mod tests {
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                model: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_string()),
+                provider: None,
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -1207,7 +1216,8 @@ enabled = false
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                model: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_string()),
+                provider: None,
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -1330,7 +1340,8 @@ network_access = true
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                model: Some("zhipuai-coding-plan/glm-5".to_string()),
+                slug: Some("glm-5".to_string()),
+                provider: Some("zhipuai-coding-plan".to_string()),
                 effort: None,
             }],
         )
@@ -1366,7 +1377,8 @@ network_access = true
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                model: Some("glm-5".to_string()),
+                slug: Some("glm-5".to_string()),
+                provider: None,
                 effort: None,
             }],
         )

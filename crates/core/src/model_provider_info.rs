@@ -769,7 +769,7 @@ name = "Ollama"
 base_url = "http://localhost:11434/v1"
         "#;
         let expected_provider = ModelProviderInfo {
-            slug: "ollama".into(),
+            id: "ollama".into(),
             name: "Ollama".into(),
             base_url: Some("http://localhost:11434/v1".into()),
             env_key: None,
@@ -800,7 +800,7 @@ env_key = "AZURE_OPENAI_API_KEY"
 query_params = { api-version = "2025-04-01-preview" }
         "#;
         let expected_provider = ModelProviderInfo {
-            slug: "azure".into(),
+            id: "azure".into(),
             name: "Azure".into(),
             base_url: Some("https://xxxxx.openai.azure.com/openai".into()),
             env_key: Some("AZURE_OPENAI_API_KEY".into()),
@@ -834,7 +834,7 @@ http_headers = { "anthropic-version" = "2023-06-01" }
 env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
         "#;
         let expected_provider = ModelProviderInfo {
-            slug: "anthropic".into(),
+            id: "anthropic".into(),
             name: "Anthropic".into(),
             base_url: Some("https://api.anthropic.com".into()),
             env_key: None,
@@ -870,7 +870,7 @@ http_headers = { "X-Example-Header" = "example-value" }
 env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
         "#;
         let expected_provider = ModelProviderInfo {
-            slug: "example".into(),
+            id: "example".into(),
             name: "Example".into(),
             base_url: Some("https://example.com".into()),
             env_key: Some("API_KEY".into()),
@@ -982,7 +982,7 @@ env_key = "GEMINI_API_KEY"
         inject_provider_auth_overrides_from_store(tmp.path());
 
         let provider = ModelProviderInfo {
-            slug: "zhipuai".to_string(),
+            id: "zhipuai".to_string(),
             name: "ZhipuAI".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
             env_key: Some(env_key.to_string()),
@@ -1045,7 +1045,7 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_uses_known_provider_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
-            slug: "anthropic".to_string(),
+            id: "anthropic".to_string(),
             name: "Anthropic".to_string(),
             base_url: None,
             env_key: None,
@@ -1070,7 +1070,7 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_uses_known_provider_alias_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
-            slug: "qwen".to_string(),
+            id: "qwen".to_string(),
             name: "Qwen".to_string(),
             base_url: None,
             env_key: None,
@@ -1098,7 +1098,7 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_errors_when_provider_has_no_base_url_and_no_default() {
         let provider = ModelProviderInfo {
-            slug: "other".to_string(),
+            id: "other".to_string(),
             name: "Other".to_string(),
             base_url: None,
             env_key: None,

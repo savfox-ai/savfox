@@ -414,7 +414,7 @@ mod tests {
     }
 
     fn remote_model_with_visibility(
-        slug: &str,
+id: &str,
         display: &str,
         priority: i32,
         visibility: &str,
@@ -456,7 +456,7 @@ mod tests {
 
     fn provider_for(base_url: String) -> ModelProviderInfo {
         ModelProviderInfo {
-            slug: "mock".into(),
+id: "mock".into(),
             name: "mock".into(),
             base_url: Some(base_url),
             env_key: None,
