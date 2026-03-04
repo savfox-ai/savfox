@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
+use savfox_core::config::provider_store::{provider_env_key_for_store, read_provider_store_api_key};
+#[cfg(test)]
 use savfox_core::config::provider_store::{
-    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth, load_provider_store_file,
-    provider_models_store_dir, save_provider_store_file,
+    has_provider_store_configuration, persist_provider_connection,
 };
 use savfox_core::ModelProviderInfo;
 use serde_json::{Value, json};
@@ -61,7 +62,6 @@ fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
-
 
 pub(crate) fn connect_provider_candidates(
     model_providers: &HashMap<String, ModelProviderInfo>,
@@ -171,40 +171,6 @@ pub(crate) fn provider_has_auth_in_env(provider_id: &str, provider: &ModelProvid
     resolve_provider_api_key_from_env(provider_id, provider).is_some()
 }
 
-pub(crate) fn provider_env_key_for_store(
-    provider_id: &str,
-    provider: &ModelProviderInfo,
-) -> Option<String> {
-    if let Some(env_key) = provider.env_key.as_deref().and_then(trim_nonempty) {
-        return Some(env_key);
-    }
-
-    if let Some(env_headers) = &provider.env_http_headers {
-        let mut env_keys: Vec<String> = env_headers
-            .values()
-            .filter_map(|env_key| trim_nonempty(env_key))
-            .collect();
-        env_keys.sort();
-        env_keys.dedup();
-
-        if let Some(env_key) = env_keys
-            .iter()
-            .find(|env_key| env_var_looks_like_secret(env_key))
-        {
-            return Some(env_key.clone());
-        }
-        if let Some(env_key) = env_keys.first() {
-            return Some(env_key.clone());
-        }
-    }
-
-    match provider_id.trim().to_ascii_lowercase().as_str() {
-        "openai" => Some("OPENAI_API_KEY".to_string()),
-        "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
-        _ => None,
-    }
-}
-
 pub(crate) fn resolve_provider_base_url(
     provider_id: &str,
     provider: &ModelProviderInfo,
@@ -242,53 +208,6 @@ fn resolve_provider_base_url_for_connect(
         "lmstudio" => Some(DEFAULT_LMSTUDIO_BASE_URL.to_string()),
         _ => None,
     }
-}
-
-pub(crate) fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str) -> Option<String> {
-    load_provider_store_file(savfox_home, provider_id)
-        .auth
-        .and_then(|auth| auth.api_key)
-        .and_then(|api_key| trim_nonempty(&api_key))
-}
-
-pub(crate) fn has_provider_store_configuration(savfox_home: &Path) -> bool {
-    let dir = provider_models_store_dir(savfox_home);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-
-    entries.flatten().any(|entry| {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-            return false;
-        }
-
-        let provider_id = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("")
-            .trim();
-        if provider_id.is_empty() {
-            return false;
-        }
-
-        let file = load_provider_store_file(savfox_home, provider_id);
-        let has_models = !file.enabled_models.is_empty() || !file.legacy_models.is_empty();
-        let has_api_key = file
-            .auth
-            .as_ref()
-            .and_then(|auth| auth.api_key.as_deref())
-            .is_some_and(|value| !value.trim().is_empty());
-        let has_auth_object = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|data| serde_json::from_str::<Value>(&data).ok())
-            .and_then(|json| json.get("auth").cloned())
-            .is_some_and(|auth| {
-                !auth.is_null() && !auth.as_object().is_some_and(|obj| obj.is_empty())
-            });
-
-        has_models || has_api_key || has_auth_object
-    })
 }
 
 #[derive(Debug)]
@@ -634,38 +553,6 @@ pub(crate) async fn connect_provider(
     })
 }
 
-pub(crate) fn persist_provider_connection(
-    savfox_home: &Path,
-    result: &ProviderConnectResult,
-) -> Result<(), String> {
-    let mut file = load_provider_store_file(savfox_home, &result.provider_id);
-    file.version = PROVIDER_STORE_FILE_VERSION;
-    file.provider_id = result.provider_id.clone();
-    file.display_name = if result.provider_name.trim().is_empty() {
-        result.provider_id.clone()
-    } else {
-        result.provider_name.clone()
-    };
-    file.enabled_models = result
-        .models
-        .iter()
-        .filter_map(model_slug_from_entry)
-        .collect();
-    file.legacy_models.clear();
-
-    if let Some(api_key) = result.api_key.as_deref().and_then(trim_nonempty) {
-        file.auth = Some(ProviderStoreAuth {
-            auth_type: "api_key".to_string(),
-            env_key: result.env_key.clone(),
-            api_key: Some(api_key),
-            ..ProviderStoreAuth::default()
-        });
-    }
-
-    save_provider_store_file(savfox_home, &result.provider_id, &file)
-        .map_err(|err| format!("write provider file failed: {err}"))
-}
-
 fn model_id_from_entry(item: &Value, provider_id: &str) -> Option<String> {
     let raw = nonempty_string(item.get("id"))
         .or_else(|| nonempty_string(item.get("model")))
@@ -675,22 +562,6 @@ fn model_id_from_entry(item: &Value, provider_id: &str) -> Option<String> {
     } else {
         Some(format!("{provider_id}/{raw}"))
     }
-}
-
-fn normalize_model_slug(raw: &str) -> Option<String> {
-    let raw = trim_nonempty(raw)?;
-    if let Some((_provider_id, model_code)) = savfox_core::parse_provider_prefixed_model(&raw) {
-        return Some(model_code.to_string());
-    }
-    Some(raw)
-}
-
-fn model_slug_from_entry(item: &Value) -> Option<String> {
-    nonempty_string(item.get("model_code"))
-        .or_else(|| nonempty_string(item.get("id")))
-        .or_else(|| nonempty_string(item.get("model")))
-        .or_else(|| item.as_str().and_then(trim_nonempty))
-        .and_then(|raw| normalize_model_slug(&raw))
 }
 
 pub(crate) fn select_default_model(models: &[Value], provider_id: &str) -> Option<String> {
@@ -833,7 +704,15 @@ mod tests {
             })],
         };
 
-        persist_provider_connection(&savfox_home, &result).expect("persist provider");
+        persist_provider_connection(
+            &savfox_home,
+            &result.provider_id,
+            &result.provider_name,
+            &result.models,
+            result.env_key.as_deref(),
+            result.api_key.as_deref(),
+        )
+        .expect("persist provider");
 
         let savfox_file = tmp.path().join(".savfox/models/anthropic.json");
         assert!(

@@ -14,6 +14,7 @@ use savfox_ansi_escape::ansi_escape_line;
 use savfox_app_server_protocol::ConfigLayerSource;
 use savfox_core::auth::CLIENT_ID;
 use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
+use savfox_core::config::provider_store::persist_provider_connection;
 use savfox_core::config::{Config, ConfigBuilder, ConfigOverrides};
 use savfox_core::config_loader::ConfigLayerStackOrdering;
 use savfox_core::features::Feature;
@@ -71,7 +72,7 @@ use crate::model_migration::{
 };
 use crate::pager_overlay::Overlay;
 use crate::provider_connect::{
-    ProviderConnectRuntimeAuth, connect_provider, persist_provider_connection, select_default_model,
+    ProviderConnectRuntimeAuth, connect_provider, select_default_model,
 };
 use crate::render::highlight::highlight_bash_to_lines;
 use crate::render::renderable::Renderable;
@@ -1870,9 +1871,14 @@ impl App {
                     return Ok(AppRunControl::Continue);
                 }
 
-                if let Err(err) =
-                    persist_provider_connection(self.config.savfox_home.as_path(), &result)
-                {
+                if let Err(err) = persist_provider_connection(
+                    self.config.savfox_home.as_path(),
+                    &result.provider_id,
+                    &result.provider_name,
+                    &result.models,
+                    result.env_key.as_deref(),
+                    result.api_key.as_deref(),
+                ) {
                     self.chat_screen.add_error_message(format!(
                         "Failed to save provider models for {}: {err}",
                         result.provider_id

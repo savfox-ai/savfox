@@ -13,6 +13,9 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, WidgetRef, Wrap};
 use savfox_core::auth::{AuthCredentialsStoreMode, CLIENT_ID};
 use savfox_core::config::edit::{ConfigEdit, ConfigEditsBuilder};
+use savfox_core::config::provider_store::{
+    persist_provider_connection, provider_env_key_for_store, read_provider_store_api_key,
+};
 use savfox_core::{AuthManager, ModelProviderInfo};
 use savfox_login_oauth::{DeviceCode, ServerOptions, ShutdownHandle, run_login_server};
 use savfox_protocol::config_types::ForcedLoginMethod;
@@ -23,8 +26,7 @@ use super::onboarding_screen::StepState;
 use crate::onboarding::onboarding_screen::{KeyboardHandler, StepStateProvider};
 use crate::provider_connect::{
     ConnectProviderCandidate, ProviderConnectRuntimeAuth, connect_provider,
-    connect_provider_candidates, persist_provider_connection, provider_env_key_for_store,
-    provider_has_auth_in_env, provider_requires_api_key, read_provider_store_api_key,
+    connect_provider_candidates, provider_has_auth_in_env, provider_requires_api_key,
     select_default_model,
 };
 use crate::shimmer::shimmer_spans;
@@ -854,7 +856,14 @@ impl AuthModeWidget {
 
             let final_state = match result {
                 Ok(result) => {
-                    if let Err(err) = persist_provider_connection(savfox_home.as_path(), &result) {
+                    if let Err(err) = persist_provider_connection(
+                        savfox_home.as_path(),
+                        &result.provider_id,
+                        &result.provider_name,
+                        &result.models,
+                        result.env_key.as_deref(),
+                        result.api_key.as_deref(),
+                    ) {
                         SignInState::ProviderError(ProviderErrorState {
                             message: format!("Failed to save provider settings: {err}"),
                         })

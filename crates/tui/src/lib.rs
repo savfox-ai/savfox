@@ -18,7 +18,7 @@ use savfox_common::oss::{
 };
 use savfox_core::auth::enforce_login_restrictions;
 use savfox_core::config::edit::ConfigEditsBuilder;
-use savfox_core::config::provider_store::ProviderStoreFile;
+use savfox_core::config::provider_store::{ProviderStoreFile, has_provider_store_configuration};
 use savfox_core::config::{
     Config, ConfigBuilder, ConfigOverrides, ConfigToml, find_savfox_home,
     load_config_as_toml_with_cli_overrides, resolve_oss_provider,
@@ -114,7 +114,6 @@ pub use markdown_render::render_markdown_text;
 pub use public_widgets::composer_input::{ComposerAction, ComposerInput};
 
 use crate::onboarding::onboarding_screen::{OnboardingScreenArgs, run_onboarding_app};
-use crate::provider_connect::has_provider_store_configuration;
 use crate::tui::Tui;
 // (tests access modules directly within the crate)
 
