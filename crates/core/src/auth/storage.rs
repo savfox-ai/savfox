@@ -76,7 +76,7 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 last_refresh: auth.last_refresh,
             }),
             enabled_models: default_chatgpt_enabled_models(),
-            legacy_models: Vec::new(),
+            models: Vec::new(),
         }
     }
 }
@@ -437,7 +437,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_storage_load_accepts_legacy_models_array_shape() -> anyhow::Result<()> {
+    async fn file_storage_load_accepts_models_field() -> anyhow::Result<()> {
         let savfox_home = tempdir()?;
         let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
         let auth_file = get_auth_file(savfox_home.path());
@@ -445,7 +445,7 @@ mod tests {
             std::fs::create_dir_all(parent)?;
         }
 
-        let legacy_provider_file = json!({
+        let provider_file = json!({
             "version": 2,
             "provider_id": "chatgpt",
             "display_name": "ChatGPT",
@@ -467,12 +467,10 @@ mod tests {
         });
         std::fs::write(
             &auth_file,
-            serde_json::to_string_pretty(&legacy_provider_file)?,
+            serde_json::to_string_pretty(&provider_file)?,
         )?;
 
-        let loaded = storage
-            .load()
-            .context("failed to load legacy provider file")?;
+        let loaded = storage.load().context("failed to load provider file")?;
         assert_eq!(
             loaded
                 .as_ref()

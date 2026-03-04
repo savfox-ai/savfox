@@ -3457,6 +3457,35 @@ fn provider_store_loader_parses_enabled_models_field() {
     assert_eq!(presets[1].slug, "provider-enabled/model-b");
 }
 
+#[test]
+fn provider_store_loader_prefers_models_field_over_enabled_models() {
+    let savfox_home = tempdir().expect("tempdir");
+    let models_dir = savfox_home.path().join("models");
+    std::fs::create_dir_all(&models_dir).expect("create models dir");
+    std::fs::write(
+        models_dir.join("provider-full.json"),
+        r#"{
+  "version": 2,
+  "provider_id": "provider-full",
+  "display_name": "Provider Full",
+  "enabled_models": [
+    "provider-full/model-a"
+  ],
+  "models": [
+    { "id": "provider-full/model-a", "name": "Model A" },
+    { "id": "provider-full/model-b", "name": "Model B" }
+  ]
+}"#,
+    )
+    .expect("write provider file");
+
+    let presets = load_provider_store_model_presets(savfox_home.path())
+        .expect("models dir exists and should be read");
+    assert_eq!(presets.len(), 2, "expected full provider models list");
+    assert_eq!(presets[0].slug, "provider-full/model-a");
+    assert_eq!(presets[1].slug, "provider-full/model-b");
+}
+
 #[tokio::test]
 async fn footer_uses_model_prefix_for_provider_display() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("provider-a/model-one")).await;

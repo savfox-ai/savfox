@@ -8000,7 +8000,7 @@ fn models_dir(bridge: &GatewayBridge) -> std::path::PathBuf {
     bridge.config().savfox_home.join("models")
 }
 
-fn legacy_models_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn legacy_model_store_path(bridge: &GatewayBridge) -> std::path::PathBuf {
     bridge.config().savfox_home.join("models.json")
 }
 
@@ -8651,8 +8651,8 @@ async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
 }
 
 /// Migrate legacy `models.json` (flat HashMap) to per-provider `models/` dir.
-async fn maybe_migrate_legacy_models(bridge: &GatewayBridge) {
-    let legacy = legacy_models_path(bridge);
+async fn maybe_migrate_legacy_model_store(bridge: &GatewayBridge) {
+    let legacy = legacy_model_store_path(bridge);
     let dir = models_dir(bridge);
     if !legacy.exists() || dir.exists() {
         return;
@@ -8694,7 +8694,7 @@ async fn load_provider_models(bridge: &GatewayBridge, provider_id: &str) -> Vec<
 
 /// Load all models from all `models/*.json` files, merged into a flat HashMap keyed by model ID.
 async fn load_all_provider_models(bridge: &GatewayBridge) -> HashMap<String, Value> {
-    maybe_migrate_legacy_models(bridge).await;
+    maybe_migrate_legacy_model_store(bridge).await;
     let mut out = HashMap::new();
     let dir = models_dir(bridge);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {

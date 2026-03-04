@@ -2,12 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use savfox_core::config::provider_store::{provider_env_key_for_store, read_provider_store_api_key};
+use savfox_core::ModelProviderInfo;
 #[cfg(test)]
 use savfox_core::config::provider_store::{
     has_provider_store_configuration, persist_provider_connection,
 };
-use savfox_core::ModelProviderInfo;
+use savfox_core::config::provider_store::{
+    provider_env_key_for_store, read_provider_store_api_key,
+};
 use serde_json::{Value, json};
 
 const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -804,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn has_provider_store_configuration_supports_legacy_models_field() {
+    fn has_provider_store_configuration_supports_models_field() {
         let tmp = TempDir::new().expect("temp root");
         let savfox_home = tmp.path().join(".savfox");
         let models_dir = savfox_home.join("models");

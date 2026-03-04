@@ -6987,6 +6987,11 @@ fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPres
 
 fn parse_provider_store_models(data: &str) -> Vec<serde_json::Value> {
     if let Ok(file) = serde_json::from_str::<ProviderStoreFile>(data) {
+        // Prefer full provider catalogs when available. `enabled_models` can be a subset
+        // selected by other clients, but `/model` should list all provider-supported models.
+        if !file.models.is_empty() {
+            return file.models;
+        }
         if !file.enabled_models.is_empty() {
             return file
                 .enabled_models
@@ -6994,7 +6999,7 @@ fn parse_provider_store_models(data: &str) -> Vec<serde_json::Value> {
                 .map(serde_json::Value::String)
                 .collect();
         }
-        return file.legacy_models;
+        return Vec::new();
     }
     serde_json::from_str::<Vec<serde_json::Value>>(data).unwrap_or_default()
 }

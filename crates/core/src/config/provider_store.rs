@@ -31,9 +31,8 @@ pub struct ProviderStoreFile {
     pub auth: Option<ProviderStoreAuth>,
     #[serde(default)]
     pub enabled_models: Vec<String>,
-    /// Legacy model list field still accepted on read for backwards compatibility.
-    #[serde(default, rename = "models", skip_serializing)]
-    pub legacy_models: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<Value>,
 }
 
 impl ProviderStoreFile {
@@ -53,7 +52,7 @@ impl Default for ProviderStoreFile {
             display_name: String::new(),
             auth: None,
             enabled_models: Vec::new(),
-            legacy_models: Vec::new(),
+            models: Vec::new(),
         }
     }
 }
@@ -104,8 +103,16 @@ fn model_slug_from_entry(item: &Value) -> Option<String> {
     item.get("model_code")
         .and_then(Value::as_str)
         .and_then(trim_nonempty)
-        .or_else(|| item.get("id").and_then(Value::as_str).and_then(trim_nonempty))
-        .or_else(|| item.get("model").and_then(Value::as_str).and_then(trim_nonempty))
+        .or_else(|| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .and_then(trim_nonempty)
+        })
+        .or_else(|| {
+            item.get("model")
+                .and_then(Value::as_str)
+                .and_then(trim_nonempty)
+        })
         .or_else(|| item.as_str().and_then(trim_nonempty))
         .and_then(|raw| normalize_model_slug(&raw))
 }
@@ -134,29 +141,21 @@ pub fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> Provid
         if file.provider_id.trim().is_empty() {
             file.provider_id = provider_id.to_string();
         }
+        file.enabled_models = file
+            .enabled_models
+            .iter()
+            .filter_map(|slug| normalize_model_slug(slug))
+            .collect();
         if file.enabled_models.is_empty() {
-            file.enabled_models = file
-                .legacy_models
-                .iter()
-                .filter_map(model_slug_from_entry)
-                .collect();
-        } else {
-            file.enabled_models = file
-                .enabled_models
-                .iter()
-                .filter_map(|slug| normalize_model_slug(slug))
-                .collect();
+            file.enabled_models = file.models.iter().filter_map(model_slug_from_entry).collect();
         }
         return file;
     }
 
-    if let Ok(legacy_models) = serde_json::from_str::<Vec<Value>>(&data) {
+    if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
         let mut file = ProviderStoreFile::empty(provider_id);
-        file.enabled_models = legacy_models
-            .iter()
-            .filter_map(model_slug_from_entry)
-            .collect();
-        file.legacy_models = legacy_models;
+        file.enabled_models = models.iter().filter_map(model_slug_from_entry).collect();
+        file.models = models;
         return file;
     }
 
@@ -204,7 +203,7 @@ pub fn has_provider_store_configuration(savfox_home: &Path) -> bool {
         }
 
         let file = load_provider_store_file(savfox_home, provider_id);
-        let has_models = !file.enabled_models.is_empty() || !file.legacy_models.is_empty();
+        let has_models = !file.enabled_models.is_empty() || !file.models.is_empty();
         let has_api_key = file
             .auth
             .as_ref()
@@ -273,7 +272,7 @@ pub fn persist_provider_connection(
         provider_name.to_string()
     };
     file.enabled_models = models.iter().filter_map(model_slug_from_entry).collect();
-    file.legacy_models.clear();
+    file.models = models.to_vec();
 
     if let Some(api_key) = api_key.and_then(trim_nonempty) {
         file.auth = Some(ProviderStoreAuth {

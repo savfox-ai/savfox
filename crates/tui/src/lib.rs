@@ -197,10 +197,10 @@ fn load_provider_model_catalog(savfox_home: &Path) -> Vec<ProviderModelCatalog> 
             serde_json::from_str::<ProviderStoreFile>(&data)
         {
             let provider_id = trim_nonempty(&file.provider_id).unwrap_or(provider_from_filename);
-            let models: Vec<Value> = if !file.enabled_models.is_empty() {
-                file.enabled_models.into_iter().map(Value::String).collect()
+            let models: Vec<Value> = if !file.models.is_empty() {
+                file.models
             } else {
-                file.legacy_models
+                file.enabled_models.into_iter().map(Value::String).collect()
             };
             (provider_id, models)
         } else if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {

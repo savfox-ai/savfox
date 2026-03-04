@@ -71,9 +71,7 @@ use crate::model_migration::{
     ModelMigrationOutcome, migration_copy_for_models, run_model_migration_prompt,
 };
 use crate::pager_overlay::Overlay;
-use crate::provider_connect::{
-    ProviderConnectRuntimeAuth, connect_provider, select_default_model,
-};
+use crate::provider_connect::{ProviderConnectRuntimeAuth, connect_provider, select_default_model};
 use crate::render::highlight::highlight_bash_to_lines;
 use crate::render::renderable::Renderable;
 use crate::resume_picker::SessionSelection;
