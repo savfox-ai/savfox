@@ -195,7 +195,7 @@ pub enum WireApi {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ModelProviderInfo {
-    pub slug: String,
+    pub id: String,
     /// Friendly display name.
     pub name: String,
     /// Base URL for the provider's OpenAI-compatible API.
@@ -709,7 +709,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
     // For direct Bedrock access, users typically deploy a proxy like
     // `bedrock-access-gateway` or use LiteLLM as a middleware.
     ModelProviderInfo {
-        slug: "bedrock".into(),
+        id: "bedrock".into(),
         name: "Bedrock".into(),
         base_url: std::env::var("BEDROCK_BASE_URL")
             .ok()
@@ -736,7 +736,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
     ModelProviderInfo {
-        slug: "gpt-oss".into(),
+        id: "gpt-oss".into(),
         name: "gpt-oss".into(),
         base_url: Some(base_url.into()),
         env_key: None,
