@@ -98,7 +98,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         sandbox_mode: sandbox_mode_cli_arg,
         prompt,
         output_schema: output_schema_path,
-        config_overrides,
     } = cli;
 
     let (stdout_with_ansi, stderr_with_ansi) = match color {
@@ -131,16 +130,6 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         sandbox_mode_cli_arg.map(Into::<SandboxMode>::into)
     };
 
-    // Parse `-c` overrides from the CLI.
-    let cli_kv_overrides = match config_overrides.parse_overrides() {
-        Ok(v) => v,
-        #[allow(clippy::print_stderr)]
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
-    };
-
     let resolved_cwd = cwd.clone();
     let config_cwd = match resolved_cwd.as_deref() {
         Some(path) => AbsolutePathBuf::from_absolute_path(path.canonicalize()?)?,
@@ -161,7 +150,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     let config_toml = match load_config_as_toml_with_cli_overrides(
         &savfox_home,
         &config_cwd,
-        cli_kv_overrides.clone(),
+        Vec::new(),
     )
     .await
     {
@@ -199,6 +188,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         let resolved = resolve_oss_provider(
             oss_provider.as_deref(),
             &config_toml,
+            None,
         );
 
         if let Some(provider) = resolved {
@@ -243,10 +233,10 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
         tools_web_search_request: None,
         ephemeral: None,
         additional_writable_roots: add_dir,
+        config_profile: None,
     };
 
     let config = ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides)
         .harness_overrides(overrides)
         .cloud_requirements(cloud_requirements)
         .build()

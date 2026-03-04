@@ -2,7 +2,6 @@ use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 
 use savfox_app_server_protocol::AuthMode;
-use savfox_common::CliConfigOverrides;
 use savfox_core::SavfoxAuth;
 use savfox_core::auth::{AuthCredentialsStoreMode, CLIENT_ID, login_with_api_key, logout};
 use savfox_core::config::Config;
@@ -39,8 +38,8 @@ pub async fn login_with_chatgpt(
     server.block_until_done().await
 }
 
-pub async fn run_login_with_chatgpt(cli_config_overrides: CliConfigOverrides) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+pub async fn run_login_with_chatgpt() -> ! {
+    let config = load_config_or_exit().await;
 
     if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
         eprintln!("{CHATGPT_LOGIN_DISABLED_MESSAGE}");
@@ -68,10 +67,9 @@ pub async fn run_login_with_chatgpt(cli_config_overrides: CliConfigOverrides) ->
 }
 
 pub async fn run_login_with_api_key(
-    cli_config_overrides: CliConfigOverrides,
     api_key: String,
 ) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+    let config = load_config_or_exit().await;
 
     if matches!(config.forced_login_method, Some(ForcedLoginMethod::Chatgpt)) {
         eprintln!("{API_KEY_LOGIN_DISABLED_MESSAGE}");
@@ -123,11 +121,10 @@ pub fn read_api_key_from_stdin() -> String {
 
 /// Login using the OAuth device code flow.
 pub async fn run_login_with_device_code(
-    cli_config_overrides: CliConfigOverrides,
     issuer_base_url: Option<String>,
     client_id: Option<String>,
 ) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+    let config = load_config_or_exit().await;
     if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
         eprintln!("{CHATGPT_LOGIN_DISABLED_MESSAGE}");
         std::process::exit(1);
@@ -159,11 +156,10 @@ pub async fn run_login_with_device_code(
 /// disabled/feature-gated. If `run_device_code_login` returns `ErrorKind::NotFound` ("device-code
 /// unsupported"), this falls back to starting the local browser login server.
 pub async fn run_login_with_device_code_fallback_to_browser(
-    cli_config_overrides: CliConfigOverrides,
     issuer_base_url: Option<String>,
     client_id: Option<String>,
 ) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+    let config = load_config_or_exit().await;
     if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
         eprintln!("{CHATGPT_LOGIN_DISABLED_MESSAGE}");
         std::process::exit(1);
@@ -216,8 +212,8 @@ pub async fn run_login_with_device_code_fallback_to_browser(
     }
 }
 
-pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+pub async fn run_login_status() -> ! {
+    let config = load_config_or_exit().await;
 
     match SavfoxAuth::from_auth_storage(&config.savfox_home, config.cli_auth_credentials_store_mode)
     {
@@ -252,8 +248,8 @@ pub async fn run_login_status(cli_config_overrides: CliConfigOverrides) -> ! {
     }
 }
 
-pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
-    let config = load_config_or_exit(cli_config_overrides).await;
+pub async fn run_logout() -> ! {
+    let config = load_config_or_exit().await;
 
     match logout(&config.savfox_home, config.cli_auth_credentials_store_mode) {
         Ok(true) => {
@@ -271,16 +267,13 @@ pub async fn run_logout(cli_config_overrides: CliConfigOverrides) -> ! {
     }
 }
 
-async fn load_config_or_exit(cli_config_overrides: CliConfigOverrides) -> Config {
-    let cli_overrides = match cli_config_overrides.parse_overrides() {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    match Config::load_with_cli_overrides(cli_overrides).await {
+async fn load_config_or_exit() -> Config {
+    match Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    {
         Ok(config) => config,
         Err(e) => {
             eprintln!("Error loading configuration: {e}");

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use savfox_app_server::run_main;
 use savfox_arg0::arg0_dispatch_or_else;
-use savfox_common::CliConfigOverrides;
 use savfox_core::config_loader::LoaderOverrides;
 
 // Debug-only test hook: lets integration tests point the server at a temporary
@@ -19,7 +18,6 @@ fn main() -> anyhow::Result<()> {
 
         run_main(
             savfox_linux_sandbox_exe,
-            CliConfigOverrides::default(),
             loader_overrides,
             false,
         )

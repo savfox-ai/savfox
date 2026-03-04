@@ -11,29 +11,12 @@
 //! of the `savfox-exec` binary.
 use clap::Parser;
 use savfox_arg0::arg0_dispatch_or_else;
-use savfox_common::CliConfigOverrides;
 use savfox_exec::{Cli, run_main};
-
-#[derive(Parser, Debug)]
-struct TopCli {
-    #[clap(flatten)]
-    config_overrides: CliConfigOverrides,
-
-    #[clap(flatten)]
-    inner: Cli,
-}
 
 fn main() -> anyhow::Result<()> {
     arg0_dispatch_or_else(|savfox_linux_sandbox_exe| async move {
-        let top_cli = TopCli::parse();
-        // Merge root-level overrides into inner CLI struct so downstream logic remains unchanged.
-        let mut inner = top_cli.inner;
-        inner
-            .config_overrides
-            .raw_overrides
-            .splice(0..0, top_cli.config_overrides.raw_overrides);
-
-        run_main(inner, savfox_linux_sandbox_exe).await?;
+        let cli = Cli::parse();
+        run_main(cli, savfox_linux_sandbox_exe).await?;
         Ok(())
     })
 }

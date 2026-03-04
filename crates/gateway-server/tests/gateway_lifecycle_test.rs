@@ -8,7 +8,6 @@ mod helpers;
 use std::time::Duration;
 
 use helpers::{free_port, http_client, wait_for_port};
-use savfox_common::CliConfigOverrides;
 use savfox_gateway_server::config::GatewayConfig;
 
 #[tokio::test]
@@ -23,7 +22,7 @@ async fn gateway_startup_shutdown_lifecycle() {
     cfg.token = Some(token);
 
     let handle = tokio::spawn(async move {
-        savfox_gateway_server::run_main(cfg, None, CliConfigOverrides::default()).await
+        savfox_gateway_server::run_main(cfg, None).await
     });
 
     assert!(

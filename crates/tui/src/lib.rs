@@ -441,26 +441,10 @@ pub async fn run_main(
     };
 
     // Map the legacy --search flag to the canonical web_search mode.
-    if cli.web_search {
-        cli.config_overrides
-            .raw_overrides
-            .push("web_search=\"live\"".to_string());
-    }
-
     // When using `--oss`, let the bootstrapper pick the model (defaulting to
     // gpt-oss:20b) and ensure it is present locally. Also, force the built‑in
-    let raw_overrides = cli.config_overrides.raw_overrides.clone();
     // `oss` model provider.
-    let overrides_cli = savfox_common::CliConfigOverrides { raw_overrides };
-    let cli_kv_overrides = match overrides_cli.parse_overrides() {
-        // Parse `-c` overrides from the CLI.
-        Ok(v) => v,
-        #[allow(clippy::print_stderr)]
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
-    };
+    let cli_kv_overrides: Vec<(String, toml::Value)> = Vec::new();
 
     // we load config.toml here to determine project state.
     #[allow(clippy::print_stderr)]
@@ -482,7 +466,7 @@ pub async fn run_main(
     let mut config_toml = match load_config_as_toml_with_cli_overrides(
         &savfox_home,
         &config_cwd,
-        cli_kv_overrides.clone(),
+        Vec::new(),
     )
     .await
     {
@@ -511,16 +495,12 @@ pub async fn run_main(
         tracing::warn!(error = %err, "failed to run personality migration");
     }
 
-    let has_model_cli_override = cli_kv_overrides.iter().any(|(key, _)| {
-        key == "model"
-            || key == "model_provider"
-            || key.ends_with(".model")
-            || key.ends_with(".model_provider")
-    });
+    let has_model_cli_override = false;
     if !cli.oss && cli.model.is_none() && !has_model_cli_override {
         match maybe_repair_model_from_provider_store(
             &savfox_home,
             &config_toml,
+            None,
         )
         .await
         {
@@ -532,7 +512,7 @@ pub async fn run_main(
                 config_toml = load_config_as_toml_with_cli_overrides(
                     &savfox_home,
                     &config_cwd,
-                    cli_kv_overrides.clone(),
+                    Vec::new(),
                 )
                 .await?;
             }
@@ -561,6 +541,7 @@ pub async fn run_main(
         let resolved = resolve_oss_provider(
             cli.oss_provider.as_deref(),
             &config_toml,
+            None,
         );
 
         if let Some(provider) = resolved {
@@ -607,7 +588,6 @@ pub async fn run_main(
     };
 
     let config = load_config_or_exit(
-        cli_kv_overrides.clone(),
         overrides.clone(),
         cloud_requirements.clone(),
     )
@@ -729,7 +709,6 @@ pub async fn run_main(
         cli,
         config,
         overrides,
-        cli_kv_overrides,
         cloud_requirements,
         feedback,
     )
@@ -741,7 +720,6 @@ async fn run_ratatui_app(
     cli: Cli,
     initial_config: Config,
     overrides: ConfigOverrides,
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     cloud_requirements: CloudRequirementsLoader,
     feedback: savfox_feedback::SavfoxFeedback,
 ) -> color_eyre::Result<AppExitInfo> {
@@ -836,7 +814,6 @@ async fn run_ratatui_app(
         // process state reflects what was persisted to config.toml.
         if onboarding_result.directory_trust_decision.is_some() {
             load_config_or_exit(
-                cli_kv_overrides.clone(),
                 overrides.clone(),
                 cloud_requirements.clone(),
             )
@@ -1012,7 +989,6 @@ async fn run_ratatui_app(
     let config = match &session_selection {
         resume_picker::SessionSelection::Resume(_) | resume_picker::SessionSelection::Fork(_) => {
             load_config_or_exit_with_fallback_cwd(
-                cli_kv_overrides.clone(),
                 overrides.clone(),
                 cloud_requirements.clone(),
                 fallback_cwd,
@@ -1038,7 +1014,6 @@ async fn run_ratatui_app(
         &mut tui,
         auth_manager,
         config,
-        cli_kv_overrides.clone(),
         overrides.clone(),
         active_profile,
         prompt,
@@ -1172,23 +1147,20 @@ fn determine_alt_screen_mode(
 }
 
 async fn load_config_or_exit(
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
     cloud_requirements: CloudRequirementsLoader,
 ) -> Config {
-    load_config_or_exit_with_fallback_cwd(cli_kv_overrides, overrides, cloud_requirements, None)
+    load_config_or_exit_with_fallback_cwd(overrides, cloud_requirements, None)
         .await
 }
 
 async fn load_config_or_exit_with_fallback_cwd(
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
     cloud_requirements: CloudRequirementsLoader,
     fallback_cwd: Option<PathBuf>,
 ) -> Config {
     #[allow(clippy::print_stderr)]
     match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides)
         .harness_overrides(overrides)
         .cloud_requirements(cloud_requirements)
         .fallback_cwd(fallback_cwd)

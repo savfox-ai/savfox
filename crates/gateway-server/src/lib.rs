@@ -6,7 +6,6 @@ use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use savfox_common::CliConfigOverrides;
 use savfox_core::AuthManager;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::CloudRequirementsLoader;
@@ -98,7 +97,6 @@ use crate::session::{GatewaySessionManager, SessionStore};
 pub async fn run_main(
     gateway_config: GatewayConfig,
     savfox_linux_sandbox_exe: Option<PathBuf>,
-    cli_config_overrides: CliConfigOverrides,
 ) -> IoResult<()> {
     // Install tracing subscriber.
     let stderr_fmt = tracing_subscriber::fmt::layer()
@@ -108,17 +106,8 @@ pub async fn run_main(
 
     let _ = tracing_subscriber::registry().with(stderr_fmt).try_init();
 
-    // Parse CLI config overrides.
-    let cli_kv_overrides = cli_config_overrides.parse_overrides().map_err(|e| {
-        std::io::Error::new(
-            ErrorKind::InvalidInput,
-            format!("error parsing -c overrides: {e}"),
-        )
-    })?;
-
     // Load configuration.
     let cloud_requirements = match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides.clone())
         .build()
         .await
     {
@@ -140,7 +129,6 @@ pub async fn run_main(
     };
 
     let config = match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides.clone())
         .cloud_requirements(cloud_requirements.clone())
         .build()
         .await
@@ -148,7 +136,7 @@ pub async fn run_main(
         Ok(config) => config,
         Err(err) => {
             error!("failed to load config: {err}");
-            Config::load_default_with_cli_overrides(cli_kv_overrides.clone()).map_err(|e| {
+            Config::load_default_with_cli_overrides(Vec::new()).map_err(|e| {
                 std::io::Error::new(
                     ErrorKind::InvalidData,
                     format!("error loading default config: {e}"),
@@ -174,7 +162,7 @@ pub async fn run_main(
 
     let bridge = Arc::new(GatewayBridge::new(GatewayBridgeArgs {
         config: Arc::clone(&config),
-        cli_overrides: cli_kv_overrides,
+        cli_overrides: Vec::new(),
         cloud_requirements,
         feedback,
         savfox_linux_sandbox_exe,

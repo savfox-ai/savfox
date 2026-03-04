@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::ArgGroup;
-use savfox_common::CliConfigOverrides;
 use savfox_common::format_env_display::format_env_display;
 use savfox_core::config::edit::ConfigEditsBuilder;
 use savfox_core::config::types::{McpServerConfig, McpServerTransportConfig};
@@ -20,9 +19,6 @@ use savfox_rmcp_client::{delete_oauth_tokens, perform_oauth_login};
 /// - `logout` — remove OAuth credentials for MCP server
 #[derive(Debug, clap::Parser)]
 pub struct McpCli {
-    #[clap(flatten)]
-    pub config_overrides: CliConfigOverrides,
-
     #[command(subcommand)]
     pub subcommand: McpSubcommand,
 }
@@ -142,28 +138,27 @@ pub struct LogoutArgs {
 impl McpCli {
     pub async fn run(self) -> Result<()> {
         let McpCli {
-            config_overrides,
             subcommand,
         } = self;
 
         match subcommand {
             McpSubcommand::List(args) => {
-                run_list(&config_overrides, args).await?;
+                run_list(args).await?;
             }
             McpSubcommand::Get(args) => {
-                run_get(&config_overrides, args).await?;
+                run_get(args).await?;
             }
             McpSubcommand::Add(args) => {
-                run_add(&config_overrides, args).await?;
+                run_add(args).await?;
             }
             McpSubcommand::Remove(args) => {
-                run_remove(&config_overrides, args).await?;
+                run_remove(args).await?;
             }
             McpSubcommand::Login(args) => {
-                run_login(&config_overrides, args).await?;
+                run_login(args).await?;
             }
             McpSubcommand::Logout(args) => {
-                run_logout(&config_overrides, args).await?;
+                run_logout(args).await?;
             }
         }
 
@@ -171,14 +166,13 @@ impl McpCli {
     }
 }
 
-async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Result<()> {
-    // Validate any provided overrides even though they are not currently applied.
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = Config::load_with_cli_overrides(overrides)
-        .await
-        .context("failed to load configuration")?;
+async fn run_add(add_args: AddArgs) -> Result<()> {
+    let config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    .context("failed to load configuration")?;
 
     let AddArgs {
         name,
@@ -276,11 +270,7 @@ async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Re
     Ok(())
 }
 
-async fn run_remove(config_overrides: &CliConfigOverrides, remove_args: RemoveArgs) -> Result<()> {
-    config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-
+async fn run_remove(remove_args: RemoveArgs) -> Result<()> {
     let RemoveArgs { name } = remove_args;
 
     validate_server_name(&name)?;
@@ -309,13 +299,13 @@ async fn run_remove(config_overrides: &CliConfigOverrides, remove_args: RemoveAr
     Ok(())
 }
 
-async fn run_login(config_overrides: &CliConfigOverrides, login_args: LoginArgs) -> Result<()> {
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = Config::load_with_cli_overrides(overrides)
-        .await
-        .context("failed to load configuration")?;
+async fn run_login(login_args: LoginArgs) -> Result<()> {
+    let config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    .context("failed to load configuration")?;
 
     let LoginArgs { name, scopes } = login_args;
 
@@ -352,13 +342,13 @@ async fn run_login(config_overrides: &CliConfigOverrides, login_args: LoginArgs)
     Ok(())
 }
 
-async fn run_logout(config_overrides: &CliConfigOverrides, logout_args: LogoutArgs) -> Result<()> {
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = Config::load_with_cli_overrides(overrides)
-        .await
-        .context("failed to load configuration")?;
+async fn run_logout(logout_args: LogoutArgs) -> Result<()> {
+    let config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    .context("failed to load configuration")?;
 
     let LogoutArgs { name } = logout_args;
 
@@ -382,13 +372,13 @@ async fn run_logout(config_overrides: &CliConfigOverrides, logout_args: LogoutAr
     Ok(())
 }
 
-async fn run_list(config_overrides: &CliConfigOverrides, list_args: ListArgs) -> Result<()> {
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = Config::load_with_cli_overrides(overrides)
-        .await
-        .context("failed to load configuration")?;
+async fn run_list(list_args: ListArgs) -> Result<()> {
+    let config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    .context("failed to load configuration")?;
 
     let mut entries: Vec<_> = config.mcp_servers.iter().collect();
     entries.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -632,13 +622,13 @@ async fn run_list(config_overrides: &CliConfigOverrides, list_args: ListArgs) ->
     Ok(())
 }
 
-async fn run_get(config_overrides: &CliConfigOverrides, get_args: GetArgs) -> Result<()> {
-    let overrides = config_overrides
-        .parse_overrides()
-        .map_err(anyhow::Error::msg)?;
-    let config = Config::load_with_cli_overrides(overrides)
-        .await
-        .context("failed to load configuration")?;
+async fn run_get(get_args: GetArgs) -> Result<()> {
+    let config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        Default::default(),
+    )
+    .await
+    .context("failed to load configuration")?;
 
     let Some(server) = config.mcp_servers.get().get(&get_args.name) else {
         bail!("No MCP server named '{name}' found.", name = get_args.name);

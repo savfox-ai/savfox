@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use clap::{Args, FromArgMatches, Parser, ValueEnum};
-use savfox_common::CliConfigOverrides;
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -70,9 +69,6 @@ pub struct Cli {
     /// Path to a JSON Schema file describing the model's final response shape.
     #[arg(long = "output-schema", value_name = "FILE")]
     pub output_schema: Option<PathBuf>,
-
-    #[clap(skip)]
-    pub config_overrides: CliConfigOverrides,
 
     /// Specifies color settings for use in the output.
     #[arg(long = "color", value_enum, default_value_t = Color::Auto)]

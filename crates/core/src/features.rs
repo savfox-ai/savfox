@@ -12,6 +12,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use toml::Value as TomlValue;
 
+use crate::config::profile::ConfigProfile;
 use crate::config::{CONFIG_TOML_FILE, Config, ConfigToml};
 use crate::protocol::{Event, EventMsg, WarningEvent};
 
@@ -264,21 +265,11 @@ impl Features {
                     if k != feat.key() {
                         self.record_legacy_usage(k.as_str(), feat);
                     }
-                if *v {
-                    if k != feat.key() {
+                    if *v {
+                        self.enable(feat);
                     } else {
                         self.disable(feat);
                     }
-                }
-                None => {
-                    tracing::warn!("unknown feature key in config: {k}");
-                }
-            }
-        } else if let Some(profile_features) = config_profile.features.as_ref() {
-            features.apply_map(&profile_features.entries);
-        }
-    }
-}
                 }
                 None => {
                     tracing::warn!("unknown feature key in config: {k}");
@@ -289,6 +280,7 @@ impl Features {
 
     pub fn from_config(
         cfg: &ConfigToml,
+        config_profile: &ConfigProfile,
         overrides: FeatureOverrides,
     ) -> Self {
         let mut features = Features::with_defaults();
@@ -304,11 +296,6 @@ impl Features {
         if let Some(base_features) = cfg.features.as_ref() {
             features.apply_map(&base_features.entries);
         }
-
-        overrides.apply(&mut features);
-
-        features
-    }
 
         let profile_legacy = LegacyFeatureToggles {
             include_apply_patch_tool: config_profile.include_apply_patch_tool,

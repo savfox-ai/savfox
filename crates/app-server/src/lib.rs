@@ -9,7 +9,6 @@ use savfox_app_server_protocol::{
     TextRange as AppTextRange,
 };
 use savfox_cloud_requirements::cloud_requirements_loader;
-use savfox_common::CliConfigOverrides;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::{
     CloudRequirementsLoader, ConfigLayerStackOrdering, ConfigLoadError, LoaderOverrides,
@@ -159,7 +158,6 @@ fn project_config_warning(config: &Config) -> Option<ConfigWarningNotification> 
 
 pub async fn run_main(
     savfox_linux_sandbox_exe: Option<PathBuf>,
-    cli_config_overrides: CliConfigOverrides,
     loader_overrides: LoaderOverrides,
     default_analytics_enabled: bool,
 ) -> IoResult<()> {
@@ -190,16 +188,8 @@ pub async fn run_main(
         }
     });
 
-    // Parse CLI overrides once and derive the base Config eagerly so later
-    // components do not need to work with raw TOML values.
-    let cli_kv_overrides = cli_config_overrides.parse_overrides().map_err(|e| {
-        std::io::Error::new(
-            ErrorKind::InvalidInput,
-            format!("error parsing -c overrides: {e}"),
-        )
-    })?;
+    // Load configuration.
     let cloud_requirements = match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides.clone())
         .loader_overrides(loader_overrides.clone())
         .build()
         .await
@@ -238,7 +228,6 @@ pub async fn run_main(
     let loader_overrides_for_config_api = loader_overrides.clone();
     let mut config_warnings = Vec::new();
     let config = match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides.clone())
         .loader_overrides(loader_overrides)
         .cloud_requirements(cloud_requirements.clone())
         .build()
@@ -248,7 +237,7 @@ pub async fn run_main(
         Err(err) => {
             let message = config_warning_from_error("Invalid configuration; using defaults.", &err);
             config_warnings.push(message);
-            Config::load_default_with_cli_overrides(cli_kv_overrides.clone()).map_err(|e| {
+            Config::load_default_with_cli_overrides(Vec::new()).map_err(|e| {
                 std::io::Error::new(
                     ErrorKind::InvalidData,
                     format!("error loading default config after config error: {e}"),
@@ -320,7 +309,7 @@ pub async fn run_main(
     // Task: process incoming messages.
     let processor_handle = tokio::spawn({
         let outgoing_message_sender = OutgoingMessageSender::new(outgoing_tx);
-        let cli_overrides: Vec<(String, TomlValue)> = cli_kv_overrides.clone();
+        let cli_overrides: Vec<(String, TomlValue)> = Vec::new();
         let loader_overrides = loader_overrides_for_config_api;
         let mut processor = MessageProcessor::new(MessageProcessorArgs {
             outgoing: outgoing_message_sender,

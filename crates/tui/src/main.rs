@@ -1,13 +1,9 @@
 use clap::Parser;
 use savfox_arg0::arg0_dispatch_or_else;
-use savfox_common::CliConfigOverrides;
 use savfox_tui::{Cli, run_main};
 
 #[derive(Parser, Debug)]
 struct TopCli {
-    #[clap(flatten)]
-    config_overrides: CliConfigOverrides,
-
     #[clap(flatten)]
     inner: Cli,
 }
@@ -32,13 +28,8 @@ fn print_boxed_summary(lines: &[String]) {
 
 fn main() -> anyhow::Result<()> {
     arg0_dispatch_or_else(|savfox_linux_sandbox_exe| async move {
-        let top_cli = TopCli::parse();
-        let mut inner = top_cli.inner;
-        inner
-            .config_overrides
-            .raw_overrides
-            .splice(0..0, top_cli.config_overrides.raw_overrides);
-        let exit_info = run_main(inner, savfox_linux_sandbox_exe).await?;
+        let cli = TopCli::parse().inner;
+        let exit_info = run_main(cli, savfox_linux_sandbox_exe).await?;
         let token_usage = exit_info.token_usage;
         let session_id = exit_info.session_id;
         let model_display = exit_info.model_display;

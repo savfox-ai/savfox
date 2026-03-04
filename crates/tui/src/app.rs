@@ -562,7 +562,6 @@ pub(crate) struct App {
     /// Config is stored here so we can recreate ChatScreens as needed.
     pub(crate) config: Config,
     pub(crate) active_profile: Option<String>,
-    cli_kv_overrides: Vec<(String, TomlValue)>,
     harness_overrides: ConfigOverrides,
     runtime_approval_policy_override: Option<AskForApproval>,
     runtime_sandbox_policy_override: Option<SandboxPolicy>,
@@ -660,7 +659,6 @@ impl App {
         let cwd_display = cwd.display().to_string();
         ConfigBuilder::default()
             .savfox_home(self.config.savfox_home.clone())
-            .cli_overrides(self.cli_kv_overrides.clone())
             .harness_overrides(overrides)
             .build()
             .await
@@ -1026,7 +1024,6 @@ impl App {
         tui: &mut tui::Tui,
         auth_manager: Arc<AuthManager>,
         mut config: Config,
-        cli_kv_overrides: Vec<(String, TomlValue)>,
         harness_overrides: ConfigOverrides,
         active_profile: Option<String>,
         initial_prompt: Option<String>,
@@ -1203,7 +1200,6 @@ impl App {
             auth_manager: auth_manager.clone(),
             config,
             active_profile,
-            cli_kv_overrides,
             harness_overrides,
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
@@ -3064,7 +3060,6 @@ mod tests {
             auth_manager,
             config,
             active_profile: None,
-            cli_kv_overrides: Vec::new(),
             harness_overrides: ConfigOverrides::default(),
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
@@ -3117,7 +3112,6 @@ mod tests {
                 auth_manager,
                 config,
                 active_profile: None,
-                cli_kv_overrides: Vec::new(),
                 harness_overrides: ConfigOverrides::default(),
                 runtime_approval_policy_override: None,
                 runtime_sandbox_policy_override: None,
