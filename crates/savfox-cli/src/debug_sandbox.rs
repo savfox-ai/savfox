@@ -5,7 +5,6 @@ mod seatbelt;
 
 use std::path::PathBuf;
 
-use savfox_common::CliConfigOverrides;
 use savfox_core::config::{Config, ConfigOverrides};
 use savfox_core::exec_env::create_env;
 use savfox_core::landlock::spawn_command_under_linux_sandbox;
@@ -27,13 +26,11 @@ pub async fn run_command_under_seatbelt(
     let SeatbeltCommand {
         full_auto,
         log_denials,
-        config_overrides,
         command,
     } = command;
     run_command_under_sandbox(
         full_auto,
         command,
-        config_overrides,
         savfox_linux_sandbox_exe,
         SandboxType::Seatbelt,
         log_denials,
@@ -53,15 +50,10 @@ pub async fn run_command_under_landlock(
     command: LandlockCommand,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let LandlockCommand {
-        full_auto,
-        config_overrides,
-        command,
-    } = command;
+    let LandlockCommand { full_auto, command } = command;
     run_command_under_sandbox(
         full_auto,
         command,
-        config_overrides,
         savfox_linux_sandbox_exe,
         SandboxType::Landlock,
         false,
@@ -73,15 +65,10 @@ pub async fn run_command_under_windows(
     command: WindowsCommand,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    let WindowsCommand {
-        full_auto,
-        config_overrides,
-        command,
-    } = command;
+    let WindowsCommand { full_auto, command } = command;
     run_command_under_sandbox(
         full_auto,
         command,
-        config_overrides,
         savfox_linux_sandbox_exe,
         SandboxType::Windows,
         false,
@@ -99,16 +86,13 @@ enum SandboxType {
 async fn run_command_under_sandbox(
     full_auto: bool,
     command: Vec<String>,
-    config_overrides: CliConfigOverrides,
     savfox_linux_sandbox_exe: Option<PathBuf>,
     sandbox_type: SandboxType,
     log_denials: bool,
 ) -> anyhow::Result<()> {
     let sandbox_mode = create_sandbox_mode(full_auto);
     let config = Config::load_with_cli_overrides_and_harness_overrides(
-        config_overrides
-            .parse_overrides()
-            .map_err(anyhow::Error::msg)?,
+        Vec::new(),
         ConfigOverrides {
             sandbox_mode: Some(sandbox_mode),
             savfox_linux_sandbox_exe,

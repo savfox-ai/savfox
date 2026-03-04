@@ -3,11 +3,11 @@
 use core_test_support::responses::start_mock_server;
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_sse_fixture_with_id, responses, skip_if_no_network};
+use pretty_assertions::assert_eq;
 use savfox_core::features::Feature;
 use savfox_core::protocol::SandboxPolicy;
 use savfox_core::{WireApi, built_in_model_providers};
 use savfox_protocol::config_types::WebSearchMode;
-use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 fn sse_completed(id: &str) -> String {
@@ -196,10 +196,10 @@ async fn web_search_mode_defaults_to_disabled_for_azure_responses() {
         .with_config(|config| {
             let base_url = config.model_provider.base_url.clone();
             let mut provider = built_in_model_providers()["openai"].clone();
-            provider.display_name = "Azure".to_string();
+            provider.name = "Azure".to_string();
             provider.base_url = base_url;
             provider.wire_api = WireApi::Responses;
-            config.model_provider_id = provider.slug.clone();
+            config.model_provider_id = provider.id.clone();
             config.model_provider = provider;
             config.web_search_mode = None;
             config.features.disable(Feature::WebSearchCached);

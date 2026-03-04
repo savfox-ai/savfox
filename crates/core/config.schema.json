@@ -121,180 +121,6 @@
         }
       ]
     },
-    "ConfigProfile": {
-      "additionalProperties": false,
-      "description": "Collection of common configuration options that a user can define as a unit in `config.toml`.",
-      "properties": {
-        "analytics": {
-          "$ref": "#/definitions/AnalyticsConfigToml"
-        },
-        "approval_policy": {
-          "$ref": "#/definitions/AskForApproval"
-        },
-        "chatgpt_base_url": {
-          "type": "string"
-        },
-        "experimental_compact_prompt_file": {
-          "$ref": "#/definitions/AbsolutePathBuf"
-        },
-        "experimental_use_freeform_apply_patch": {
-          "type": "boolean"
-        },
-        "experimental_use_unified_exec_tool": {
-          "type": "boolean"
-        },
-        "features": {
-          "additionalProperties": false,
-          "default": null,
-          "description": "Optional feature toggles scoped to this profile.",
-          "properties": {
-            "apply_patch_freeform": {
-              "type": "boolean"
-            },
-            "apps": {
-              "type": "boolean"
-            },
-            "child_agents_md": {
-              "type": "boolean"
-            },
-            "collab": {
-              "type": "boolean"
-            },
-            "collaboration_modes": {
-              "type": "boolean"
-            },
-            "connectors": {
-              "type": "boolean"
-            },
-            "elevated_windows_sandbox": {
-              "type": "boolean"
-            },
-            "enable_experimental_windows_sandbox": {
-              "type": "boolean"
-            },
-            "enable_request_compression": {
-              "type": "boolean"
-            },
-            "exec_policy": {
-              "type": "boolean"
-            },
-            "experimental_use_freeform_apply_patch": {
-              "type": "boolean"
-            },
-            "experimental_use_unified_exec_tool": {
-              "type": "boolean"
-            },
-            "experimental_windows_sandbox": {
-              "type": "boolean"
-            },
-            "include_apply_patch_tool": {
-              "type": "boolean"
-            },
-            "personality": {
-              "type": "boolean"
-            },
-            "powershell_utf8": {
-              "type": "boolean"
-            },
-            "remote_compaction": {
-              "type": "boolean"
-            },
-            "remote_models": {
-              "type": "boolean"
-            },
-            "request_rule": {
-              "type": "boolean"
-            },
-            "responses_websockets": {
-              "type": "boolean"
-            },
-            "runtime_metrics": {
-              "type": "boolean"
-            },
-            "shell_snapshot": {
-              "type": "boolean"
-            },
-            "shell_tool": {
-              "type": "boolean"
-            },
-            "skill_env_var_dependency_prompt": {
-              "type": "boolean"
-            },
-            "skill_mcp_dependency_install": {
-              "type": "boolean"
-            },
-            "sqlite": {
-              "type": "boolean"
-            },
-            "steer": {
-              "type": "boolean"
-            },
-            "undo": {
-              "type": "boolean"
-            },
-            "unified_exec": {
-              "type": "boolean"
-            },
-            "web_search": {
-              "type": "boolean"
-            },
-            "web_search_cached": {
-              "type": "boolean"
-            },
-            "web_search_request": {
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        },
-        "include_apply_patch_tool": {
-          "type": "boolean"
-        },
-        "model": {
-          "$ref": "#/definitions/SelectedModel"
-        },
-        "model_instructions_file": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/AbsolutePathBuf"
-            }
-          ],
-          "description": "Optional path to a file containing model instructions."
-        },
-        "model_provider": {
-          "description": "The key in the `model_providers` map identifying the [`ModelProviderInfo`] to use.",
-          "type": "string"
-        },
-        "model_reasoning_effort": {
-          "$ref": "#/definitions/ReasoningEffort"
-        },
-        "model_reasoning_summary": {
-          "$ref": "#/definitions/ReasoningSummary"
-        },
-        "model_verbosity": {
-          "$ref": "#/definitions/Verbosity"
-        },
-        "oss_provider": {
-          "type": "string"
-        },
-        "personality": {
-          "$ref": "#/definitions/Personality"
-        },
-        "sandbox_mode": {
-          "$ref": "#/definitions/SandboxMode"
-        },
-        "tools_view_image": {
-          "type": "boolean"
-        },
-        "tools_web_search": {
-          "type": "boolean"
-        },
-        "web_search": {
-          "$ref": "#/definitions/WebSearchMode"
-        }
-      },
-      "type": "object"
-    },
     "FeedbackConfigToml": {
       "additionalProperties": false,
       "properties": {
@@ -393,7 +219,7 @@
           "description": "Base URL for the provider's OpenAI-compatible API.",
           "type": "string"
         },
-        "display_name": {
+        "name": {
           "description": "Friendly display name.",
           "type": "string"
         },
@@ -472,7 +298,7 @@
         }
       },
       "required": [
-        "display_name",
+        "name",
         "slug"
       ],
       "type": "object"
@@ -1476,18 +1302,6 @@
         }
       ],
       "description": "Optionally specify a personality for the model"
-    },
-    "profile": {
-      "description": "Profile to use from the `profiles` map.",
-      "type": "string"
-    },
-    "profiles": {
-      "additionalProperties": {
-        "$ref": "#/definitions/ConfigProfile"
-      },
-      "default": {},
-      "description": "Named profiles to facilitate switching between different configurations.",
-      "type": "object"
     },
     "project_doc_fallback_filenames": {
       "description": "Ordered list of fallback filenames to look for when AGENTS.md is missing.",

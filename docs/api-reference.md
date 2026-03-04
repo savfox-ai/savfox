@@ -322,7 +322,7 @@ Get chat history for a session.
 | `source_channel` | string | no    | Filter user messages by source channel (`platform:channel`) |
 
 - **Response**: `{ "messages": [...], "session_id": "...", "source_channel": "discord:123" }`
-  - User messages include `provenance`: `{ channel, user_id, display_name, timestamp }`
+  - User messages include `provenance`: `{ channel, user_id, name, timestamp }`
 
 ### `chat.abort`
 

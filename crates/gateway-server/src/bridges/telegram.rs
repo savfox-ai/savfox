@@ -361,7 +361,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 }
             };
             let meta = parse_start_meta(&body);
-            let display_name = parse_display_name(&body);
+            let name = parse_display_name(&body);
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
@@ -370,7 +370,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     "telegram",
                     channel,
                     prompt,
-                    display_name,
+                    name,
                     Some(meta),
                 )
                 .await;

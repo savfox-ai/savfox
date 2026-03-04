@@ -8,7 +8,6 @@
 |------|------|
 | `-m, --model <MODEL>` | 指定使用的 LLM 模型 |
 | `-c, --config <KEY=VALUE>` | 覆盖配置值（可重复使用） |
-| `-p, --profile <PROFILE>` | 使用命名配置档案 |
 | `--oss` | 使用本地开源提供商（Ollama、LM Studio） |
 | `--search` | 启用网络搜索模式 |
 | `--sandbox <MODE>` | 沙箱策略：`read-only`、`workspace-write`、`full-access` |

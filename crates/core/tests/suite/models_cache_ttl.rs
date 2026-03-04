@@ -8,6 +8,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{responses, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::SavfoxAuth;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::RefreshStrategy;
@@ -18,7 +19,6 @@ use savfox_protocol::openai_models::{
     ReasoningEffortPreset, TruncationPolicyConfig, default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde::{Deserialize, Serialize};
 use wiremock::MockServer;
 
@@ -308,8 +308,8 @@ struct ModelsCache {
 
 fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
     ModelInfo {
-        slug: slug.to_string(),
-        display_name: "Remote Test".to_string(),
+            slug: slug.to_string(),,
+        name: "Remote Test".to_string(),
         description: Some("remote model".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![

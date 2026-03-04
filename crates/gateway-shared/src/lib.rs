@@ -47,12 +47,12 @@ pub fn normalize_session_label(raw: &str) -> Option<String> {
 pub fn derive_session_label(
     first_message: Option<&str>,
     topic: Option<&str>,
-    display_name: Option<&str>,
+    name: Option<&str>,
 ) -> Option<String> {
     first_message
         .and_then(normalize_session_label)
         .or_else(|| topic.and_then(normalize_session_label))
-        .or_else(|| display_name.and_then(normalize_session_label))
+        .or_else(|| name.and_then(normalize_session_label))
 }
 
 // ── Chat ──
@@ -111,7 +111,7 @@ pub struct StatusResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSender {
     pub user_id: Option<String>,
-    pub display_name: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -152,7 +152,7 @@ impl SessionEntry {
             .map(ToString::to_string)
             .or_else(|| self.title.clone())
             .or_else(|| self.subject.clone())
-            .or_else(|| self.sender.as_ref().and_then(|s| s.display_name.clone()))
+            .or_else(|| self.sender.as_ref().and_then(|s| s.name.clone()))
             .unwrap_or_else(|| short_id(&self.display_id()))
     }
 }
@@ -243,7 +243,7 @@ pub struct ModelInfo {
     pub id: String,
     pub name: Option<String>,
     pub provider: Option<String>,
-    pub model_code: Option<String>,
+    pub model_slug: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub max_tokens: Option<i64>,

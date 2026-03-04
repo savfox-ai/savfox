@@ -162,7 +162,6 @@ pub(crate) struct AuthModeWidget {
     pub cli_auth_credentials_store_mode: AuthCredentialsStoreMode,
     pub auth_manager: Arc<AuthManager>,
     pub model_providers: HashMap<String, ModelProviderInfo>,
-    pub active_profile: Option<String>,
     pub forced_chatgpt_workspace_id: Option<String>,
     pub forced_login_method: Option<ForcedLoginMethod>,
     pub animations_enabled: bool,
@@ -816,7 +815,7 @@ impl AuthModeWidget {
             return;
         };
 
-        let provider_name = provider.display_name.clone();
+        let provider_name = provider.name.clone();
         self.error = None;
         *self.sign_in_state.write().unwrap() =
             SignInState::ProviderConnecting(ProviderConnectingState {
@@ -827,7 +826,6 @@ impl AuthModeWidget {
         let sign_in_state = self.sign_in_state.clone();
         let request_frame = self.request_frame.clone();
         let savfox_home = self.savfox_home.clone();
-        let active_profile = self.active_profile.clone();
         let auth_manager = self.auth_manager.clone();
 
         tokio::spawn(async move {
@@ -892,10 +890,18 @@ impl AuthModeWidget {
                                         value: toml_edit_value(result.base_url.clone()),
                                     });
                                 }
+                                let model_to_persist = if savfox_core::parse_provider_prefixed_model(
+                                    normalized_model.as_str(),
+                                )
+                                .is_some()
+                                {
+                                    normalized_model.clone()
+                                } else {
+                                    format!("{}/{}", result.provider_id, normalized_model.trim())
+                                };
                                 let persist_result = ConfigEditsBuilder::new(&savfox_home)
-                                    .with_profile(active_profile.as_deref())
                                     .with_edits(edits)
-                                    .set_model(Some(normalized_model.as_str()), None)
+                                    .set_model(Some(model_to_persist.as_str()), None)
                                     .apply()
                                     .await;
 
@@ -1127,7 +1133,6 @@ mod tests {
                 AuthCredentialsStoreMode::File,
             ),
             model_providers: built_in_model_providers(),
-            active_profile: None,
             forced_chatgpt_workspace_id: None,
             forced_login_method: Some(ForcedLoginMethod::Chatgpt),
             animations_enabled: true,

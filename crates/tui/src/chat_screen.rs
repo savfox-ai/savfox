@@ -60,7 +60,10 @@ use savfox_core::protocol::{
 use savfox_core::skills::model::SkillMetadata;
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
-use savfox_core::{ModelProviderInfo, built_in_model_providers, parse_provider_prefixed_model};
+use savfox_core::{
+    ModelProviderInfo, built_in_model_providers, canonical_provider_id,
+    parse_provider_prefixed_model, provider_model_info,
+};
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
 use savfox_protocol::account::PlanType;
@@ -3871,7 +3874,7 @@ impl ChatScreen {
 
     fn open_rate_limit_switch_prompt(&mut self, preset: ModelPreset) {
         let switch_model = preset.slug.to_string();
-        let display_name = preset.display_name.to_string();
+        let name = preset.name.to_string();
         let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
 
         let switch_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
@@ -3903,7 +3906,7 @@ impl ChatScreen {
 
         let items = vec![
             SelectionItem {
-                name: format!("Switch to {display_name}"),
+                name: format!("Switch to {name}"),
                 description,
                 selected_description: None,
                 is_current: false,
@@ -3935,7 +3938,7 @@ impl ChatScreen {
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some("Approaching rate limits".to_string()),
-            subtitle: Some(format!("Switch to {display_name} for lower credit usage?")),
+            subtitle: Some(format!("Switch to {name} for lower credit usage?")),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
@@ -3998,7 +4001,7 @@ impl ChatScreen {
         };
 
         if provider_id.eq_ignore_ascii_case("openai") {
-            self.open_openai_connect_auth_method_popup(provider_id, provider.display_name);
+            self.open_openai_connect_auth_method_popup(provider_id, provider.name);
             return;
         }
 
@@ -4093,7 +4096,7 @@ impl ChatScreen {
         provider: ModelProviderInfo,
     ) {
         if !provider_requires_api_key(&provider_id) {
-            self.add_info_message(format!("Connecting to {}...", provider.display_name), None);
+            self.add_info_message(format!("Connecting to {}...", provider.name), None);
             self.app_event_tx.send(AppEvent::BeginProviderConnect {
                 provider_id,
                 api_key: None,
@@ -4111,7 +4114,7 @@ impl ChatScreen {
         };
 
         let tx = self.app_event_tx.clone();
-        let title = format!("Connect {}", provider.display_name);
+        let title = format!("Connect {}", provider.name);
         let provider_id_for_action = provider_id.clone();
         let view = CustomPromptView::new(
             title,
@@ -4304,8 +4307,8 @@ impl ChatScreen {
                 Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)
                     .then(|| ModelProviderBucket {
                         id: provider_id.clone(),
-                        name: provider.display_name.clone(),
-                        aliases: Self::provider_aliases(provider_id, &provider.display_name),
+                        name: provider.name.clone(),
+                        aliases: Self::provider_aliases(provider_id, &provider.name),
                     })
             })
             .collect();
@@ -4316,10 +4319,10 @@ impl ChatScreen {
         {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.display_name.clone(),
+                name: self.config.model_provider.name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.display_name,
+                    &self.config.model_provider.name,
                 ),
             });
         }
@@ -4327,10 +4330,10 @@ impl ChatScreen {
         if buckets.is_empty() {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.display_name.clone(),
+                name: self.config.model_provider.name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.display_name,
+                    &self.config.model_provider.name,
                 ),
             });
         }
@@ -4371,11 +4374,11 @@ impl ChatScreen {
                     .config
                     .model_providers
                     .get(provider_id.as_str())
-                    .map(|provider| provider.display_name.clone())
+                    .map(|provider| provider.name.clone())
                     .or_else(|| {
                         builtins
                             .get(provider_id.as_str())
-                            .map(|provider| provider.display_name.clone())
+                            .map(|provider| provider.name.clone())
                     })
                     .unwrap_or_else(|| provider_id.clone());
                 ModelProviderBucket {
@@ -4492,7 +4495,7 @@ impl ChatScreen {
         }
 
         let model_name = preset.slug.to_ascii_lowercase();
-        let display_name = preset.display_name.to_ascii_lowercase();
+        let name = preset.name.to_ascii_lowercase();
         let mut best_match: Option<(usize, usize)> = None;
 
         for (index, bucket) in buckets.iter().enumerate() {
@@ -4504,7 +4507,7 @@ impl ChatScreen {
                 let matches_alias = model_name.starts_with(alias)
                     || model_name.contains(&format!("-{alias}"))
                     || model_name.contains(&format!("{alias}-"))
-                    || display_name.contains(alias);
+                    || name.contains(alias);
                 if !matches_alias {
                     continue;
                 }
@@ -4535,7 +4538,7 @@ impl ChatScreen {
         let current_label = presets
             .iter()
             .find(|preset| Self::model_matches_current_selection(current_model, &preset.slug))
-            .map(|preset| preset.display_name.to_string())
+            .map(|preset| preset.name.to_string())
             .unwrap_or_else(|| self.model_display_name().to_string());
 
         let (mut auto_presets, other_presets): (Vec<ModelPreset>, Vec<ModelPreset>) = presets
@@ -4561,7 +4564,7 @@ impl ChatScreen {
                     Some(preset.default_reasoning_effort),
                 );
                 SelectionItem {
-                    name: preset.display_name.clone(),
+                    name: preset.name.clone(),
                     description,
                     is_current: Self::model_matches_current_selection(current_model, &model),
                     is_default: preset.is_default,
@@ -4690,7 +4693,7 @@ impl ChatScreen {
                 let search_value = Some(
                     format!(
                         "{} {} {} {}",
-                        preset.display_name, preset.slug, bucket.name, bucket.id
+                        preset.name, preset.slug, bucket.name, bucket.id
                     )
                     .to_ascii_lowercase(),
                 );
@@ -4708,7 +4711,7 @@ impl ChatScreen {
                     initial_selected_idx = Some(item_index);
                 }
                 items.push(SelectionItem {
-                    name: preset.display_name.clone(),
+                    name: preset.name.clone(),
                     description,
                     is_current,
                     is_default: preset.is_default,
@@ -4824,8 +4827,15 @@ impl ChatScreen {
 
     /// Open a popup to choose the reasoning effort (stage 2) for the given model.
     pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
-        let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
-        let supported = preset.supported_reasoning_efforts;
+        let (selected_provider_id, selected_model_slug) = parse_provider_prefixed_model(&preset.slug)
+            .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()))
+            .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
+        let (default_effort, supported) = Self::reasoning_effort_options_for_model(
+            &preset,
+            selected_provider_id.as_str(),
+            selected_model_slug.as_str(),
+        );
+        let is_openai_provider = canonical_provider_id(selected_provider_id.as_str()) == "openai";
 
         let warn_effort = if supported
             .iter()
@@ -4844,9 +4854,9 @@ impl ChatScreen {
             let effort_label = Self::reasoning_effort_label(effort);
             format!("⚠ {effort_label} reasoning effort can quickly consume Plus plan rate limits.")
         });
-        let warn_for_model = preset.slug.starts_with("gpt-5.1-codex")
-            || preset.slug.starts_with("gpt-5.1-codex-max")
-            || preset.slug.starts_with("gpt-5.2");
+        let warn_for_model = selected_model_slug.starts_with("gpt-5.1-codex")
+            || selected_model_slug.starts_with("gpt-5.1-codex-max")
+            || selected_model_slug.starts_with("gpt-5.2");
 
         struct EffortChoice {
             stored: Option<ReasoningEffortConfig>,
@@ -4868,7 +4878,7 @@ impl ChatScreen {
             });
         }
 
-        if choices.len() == 1 {
+        if choices.len() == 1 && !is_openai_provider {
             if let Some(effort) = choices.first().and_then(|c| c.stored) {
                 self.apply_model_and_effort(preset.slug, Some(effort));
             } else {
@@ -4961,6 +4971,24 @@ impl ChatScreen {
             initial_selected_idx,
             ..Default::default()
         });
+    }
+
+    fn reasoning_effort_options_for_model(
+        preset: &ModelPreset,
+        provider_id: &str,
+        model_slug: &str,
+    ) -> (ReasoningEffortConfig, Vec<ReasoningEffortPreset>) {
+        let default_effort = preset.default_reasoning_effort;
+        let supported = preset.supported_reasoning_efforts.clone();
+        let Some(model_info) = provider_model_info(provider_id, model_slug) else {
+            return (default_effort, supported);
+        };
+        let default_effort = model_info.default_reasoning_level.unwrap_or(default_effort);
+        if model_info.supported_reasoning_levels.is_empty() {
+            (default_effort, supported)
+        } else {
+            (default_effort, model_info.supported_reasoning_levels)
+        }
     }
 
     fn reasoning_effort_label(effort: ReasoningEffortConfig) -> &'static str {
@@ -6032,10 +6060,10 @@ impl ChatScreen {
                 .config
                 .model_providers
                 .get(provider_id)
-                .map(|provider| provider.display_name.clone())
+                .map(|provider| provider.name.clone())
                 .unwrap_or_else(|| provider_id.to_string());
         }
-        self.config.model_provider.display_name.clone()
+        self.config.model_provider.name.clone()
     }
 
     /// Get the label for the current collaboration mode.
@@ -7012,7 +7040,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         .map(str::to_string)
         .or_else(|| {
             value_string(model, &["id", "model"])
-                .or_else(|| value_string(model, &["model_code"]))
+                .or_else(|| value_string(model, &["model_slug"]))
                 .map(|value| value.trim().to_string())
         })?;
     if raw_id.is_empty() {
@@ -7025,16 +7053,23 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         format!("{provider_id}/{raw_id}")
     };
     let model_tail = model_id.rsplit('/').next().unwrap_or(model_id.as_str());
-    let display_name = value_string(model, &["name", "display_name", "title"])
-        .or_else(|| value_string(model, &["model_code"]))
+    let name = value_string(model, &["name", "display_name", "displayName", "title"])
+        .or_else(|| value_string(model, &["model_slug"]))
         .unwrap_or_else(|| model_tail.to_string());
     let description = value_string(model, &["description", "remark"]).unwrap_or_default();
-    let is_default = value_bool(model, "is_default").unwrap_or(false);
-    let is_disabled = value_bool(model, "is_disabled").unwrap_or(false)
-        || value_bool(model, "disabled").unwrap_or(false);
+    let is_default = value_bool_any(model, &["is_default", "isDefault"]).unwrap_or(false);
+    let is_disabled = value_bool_any(model, &["is_disabled", "disabled", "hidden"])
+        .unwrap_or(false)
+        || value_string(model, &["visibility"])
+            .is_some_and(|value| value.eq_ignore_ascii_case("hide"));
     let default_reasoning_effort = value_reasoning_effort(
         model,
-        &["default_reasoning_effort", "default_reasoning_level"],
+        &[
+            "default_reasoning_effort",
+            "default_reasoning_level",
+            "defaultReasoningEffort",
+            "defaultReasoningLevel",
+        ],
     )
     .unwrap_or(ReasoningEffortConfig::None);
     let supported_reasoning_efforts = value_reasoning_presets(model)
@@ -7045,14 +7080,16 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
                 description: "Use provider default reasoning level".to_string(),
             }]
         });
-    let supports_personality = value_bool(model, "supports_personality").unwrap_or(false);
-    let supported_in_api = value_bool(model, "supported_in_api").unwrap_or(true);
+    let supports_personality =
+        value_bool_any(model, &["supports_personality", "supportsPersonality"]).unwrap_or(false);
+    let supported_in_api =
+        value_bool_any(model, &["supported_in_api", "supportedInApi"]).unwrap_or(true);
     let input_modalities = value_input_modalities(model).unwrap_or_else(default_input_modalities);
 
     Some(ModelPreset {
         id: model_id.clone(),
         slug: model_id,
-        display_name,
+        name,
         description,
         default_reasoning_effort,
         supported_reasoning_efforts,
@@ -7077,8 +7114,55 @@ fn value_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn value_bool(value: &serde_json::Value, key: &str) -> Option<bool> {
-    value.get(key).and_then(serde_json::Value::as_bool)
+fn value_bool_any(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    for key in keys {
+        if let Some(flag) = value.get(*key).and_then(serde_json::Value::as_bool) {
+            return Some(flag);
+        }
+    }
+    None
+}
+
+fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningEffortPreset>> {
+    let options = raw.as_array()?;
+    let mut presets: Vec<ReasoningEffortPreset> = Vec::with_capacity(options.len());
+    for option in options {
+        if let Ok(parsed) = serde_json::from_value::<ReasoningEffortPreset>(option.clone()) {
+            presets.push(parsed);
+            continue;
+        }
+
+        let Some(obj) = option.as_object() else {
+            continue;
+        };
+
+        let effort = obj
+            .get("effort")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| obj.get("reasoning_effort").and_then(serde_json::Value::as_str))
+            .or_else(|| obj.get("reasoningEffort").and_then(serde_json::Value::as_str))
+            .and_then(|text| {
+                serde_json::from_value::<ReasoningEffortConfig>(serde_json::Value::String(
+                    text.to_string(),
+                ))
+                .ok()
+            });
+        let Some(effort) = effort else {
+            continue;
+        };
+
+        let description = obj
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        presets.push(ReasoningEffortPreset {
+            effort,
+            description,
+        });
+    }
+
+    Some(presets)
 }
 
 fn value_reasoning_effort(
@@ -7096,9 +7180,15 @@ fn value_reasoning_effort(
 }
 
 fn value_reasoning_presets(value: &serde_json::Value) -> Option<Vec<ReasoningEffortPreset>> {
-    for key in ["supported_reasoning_efforts", "supported_reasoning_levels"] {
+    for key in [
+        "supported_reasoning_efforts",
+        "supported_reasoning_levels",
+        "supportedReasoningEfforts",
+        "supportedReasoningLevels",
+    ] {
         if let Some(raw) = value.get(key)
-            && let Ok(presets) = serde_json::from_value::<Vec<ReasoningEffortPreset>>(raw.clone())
+            && let Some(presets) = normalize_reasoning_presets(raw)
+            && !presets.is_empty()
         {
             return Some(presets);
         }
@@ -7107,9 +7197,13 @@ fn value_reasoning_presets(value: &serde_json::Value) -> Option<Vec<ReasoningEff
 }
 
 fn value_input_modalities(value: &serde_json::Value) -> Option<Vec<InputModality>> {
-    value
-        .get("input_modalities")
-        .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+    value.get("input_modalities").and_then(|raw| {
+        serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok()
+    }).or_else(|| {
+        value
+            .get("inputModalities")
+            .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+    })
 }
 
 // Extract the first bold (Markdown) element in the form **...** from `s`.

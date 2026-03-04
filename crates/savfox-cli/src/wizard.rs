@@ -234,7 +234,7 @@ fn provider_options() -> Vec<ProviderOption> {
             let info = model_providers.get(provider_id.as_str())?;
             Some(ProviderOption {
                 id: provider_id.clone(),
-                name: info.display_name.clone(),
+                name: info.name.clone(),
                 requires_api_key: provider_requires_api_key(provider_id.as_str()),
             })
         })

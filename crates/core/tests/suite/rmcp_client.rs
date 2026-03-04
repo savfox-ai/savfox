@@ -833,8 +833,8 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
 }
 
 /// This test writes to a fallback credentials file in SAVFOX_HOME.
-/// Ideally, we wouldn't need to serialize the test but it's much more cumbersome to wire SAVFOX_HOME
-/// through the code.
+/// Ideally, we wouldn't need to serialize the test but it's much more cumbersome to wire
+/// SAVFOX_HOME through the code.
 #[serial(savfox_home)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {

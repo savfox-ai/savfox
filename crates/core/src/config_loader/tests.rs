@@ -113,8 +113,14 @@ model:
         .get("model")
         .and_then(TomlValue::as_table)
         .expect("model table");
-    assert_eq!(model.get("provider").and_then(TomlValue::as_str), Some("openai"));
-    assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("yaml-model"));
+    assert_eq!(
+        model.get("provider").and_then(TomlValue::as_str),
+        Some("openai")
+    );
+    assert_eq!(
+        model.get("slug").and_then(TomlValue::as_str),
+        Some("yaml-model")
+    );
 }
 
 #[tokio::test]
@@ -124,7 +130,7 @@ async fn prefers_toml_when_multiple_user_config_formats_exist() {
         tmp.path().join(CONFIG_TOML_FILE),
         r#"model = { provider = "openai", slug = "toml-model" }"#,
     )
-        .expect("write toml config");
+    .expect("write toml config");
     std::fs::write(
         tmp.path().join(CONFIG_YAML_FILE),
         r#"
@@ -133,7 +139,7 @@ model:
   slug: yaml-model
 "#,
     )
-        .expect("write yaml config");
+    .expect("write yaml config");
 
     let cwd = AbsolutePathBuf::try_from(tmp.path()).expect("cwd");
     let layers = load_config_layers_state(
@@ -158,8 +164,14 @@ model:
         .get("model")
         .and_then(TomlValue::as_table)
         .expect("model table");
-    assert_eq!(model.get("provider").and_then(TomlValue::as_str), Some("openai"));
-    assert_eq!(model.get("slug").and_then(TomlValue::as_str), Some("toml-model"));
+    assert_eq!(
+        model.get("provider").and_then(TomlValue::as_str),
+        Some("openai")
+    );
+    assert_eq!(
+        model.get("slug").and_then(TomlValue::as_str),
+        Some("toml-model")
+    );
 }
 
 #[tokio::test]

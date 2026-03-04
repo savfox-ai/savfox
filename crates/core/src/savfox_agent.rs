@@ -833,7 +833,7 @@ impl Session {
         );
 
         otel_manager.conversation_starts(
-            config.model_provider.slug.as_str(),
+            config.model_provider.id.as_str(),
             session_configuration.collaboration_mode.reasoning_effort(),
             config.model_reasoning_summary,
             config.model_context_window,
@@ -841,7 +841,6 @@ impl Session {
             config.approval_policy.value(),
             config.sandbox_policy.get().clone(),
             mcp_servers.keys().map(String::as_str).collect(),
-            config.active_profile.clone(),
         );
 
         let mut default_shell = shell::default_user_shell();
@@ -3193,7 +3192,7 @@ fn skills_to_info(
                 .interface
                 .clone()
                 .map(|interface| ProtocolSkillInterface {
-                    display_name: interface.display_name,
+                    name: interface.name,
                     short_description: interface.short_description,
                     icon_small: interface.icon_small,
                     icon_large: interface.icon_large,

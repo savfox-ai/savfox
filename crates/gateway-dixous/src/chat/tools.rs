@@ -61,7 +61,7 @@ impl ToolCard {
         self.status == ToolStatus::Failed
     }
 
-    pub fn display_name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 

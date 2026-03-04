@@ -12,7 +12,7 @@ pub struct ProviderModelItem {
     pub model_id: String,
     pub full_id: String,
     pub name: String,
-    pub model_code: Option<String>,
+    pub model_slug: Option<String>,
     pub base_url: Option<String>,
     pub builtin: bool,
     pub is_default: bool,
@@ -63,13 +63,13 @@ pub fn normalize_provider_id(provider: Option<&str>, full_model_id: &str) -> Str
 }
 
 fn normalize_model_id(model: &ModelInfo, provider_id: &str) -> String {
-    if let Some(model_code) = model
-        .model_code
+    if let Some(model_slug) = model
+        .model_slug
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return model_code.to_string();
+        return model_slug.to_string();
     }
 
     let id = model.id.trim();
@@ -153,7 +153,7 @@ pub fn build_provider_catalog(models: &[ModelInfo]) -> ProviderCatalog {
                 model_id: key,
                 full_id: model.id.clone(),
                 name: model_name,
-                model_code: model.model_code.clone(),
+                model_slug: model.model_slug.clone(),
                 base_url: model.base_url.clone(),
                 builtin: model.builtin.unwrap_or(false),
                 is_default: model.is_default.unwrap_or(false),

@@ -36,8 +36,8 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         .await;
 
     let provider = ModelProviderInfo {
-        slug: "mock".into(),
-        display_name: "mock".into(),
+id: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -58,7 +58,7 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         Err(e) => panic!("failed to create TempDir: {e}"),
     };
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     config.show_raw_agent_reasoning = true;
     let effort = config.model_reasoning_effort;

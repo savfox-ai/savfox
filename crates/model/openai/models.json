@@ -13,7 +13,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5.2-codex",
-      "display_name": "gpt-5.2-codex",
+      "name": "gpt-5.2-codex",
       "description": "Latest frontier agentic coding model.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -82,7 +82,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "none",
       "slug": "gpt-5.2",
-      "display_name": "gpt-5.2",
+      "name": "gpt-5.2",
       "description": "Latest frontier model with improvements across knowledge, reasoning and coding",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -147,7 +147,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5.1-codex-max",
-      "display_name": "gpt-5.1-codex-max",
+      "name": "gpt-5.1-codex-max",
       "description": "Codex-optimized flagship for deep and fast reasoning.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -212,7 +212,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5.1-codex",
-      "display_name": "gpt-5.1-codex",
+      "name": "gpt-5.1-codex",
       "description": "Optimized for codex.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -273,7 +273,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5.1-codex-mini",
-      "display_name": "gpt-5.1-codex-mini",
+      "name": "gpt-5.1-codex-mini",
       "description": "Optimized for codex. Cheaper, faster, but less capable.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -330,7 +330,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "none",
       "slug": "gpt-5.1",
-      "display_name": "gpt-5.1",
+      "name": "gpt-5.1",
       "description": "Broad world knowledge with strong general reasoning.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -391,7 +391,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5-codex",
-      "display_name": "gpt-5-codex",
+      "name": "gpt-5-codex",
       "description": "Optimized for codex.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -452,7 +452,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "none",
       "slug": "gpt-5",
-      "display_name": "gpt-5",
+      "name": "gpt-5",
       "description": "Broad world knowledge with strong general reasoning.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -517,7 +517,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5-codex-mini",
-      "display_name": "gpt-5-codex-mini",
+      "name": "gpt-5-codex-mini",
       "description": "Optimized for codex. Cheaper, faster, but less capable.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -579,7 +579,7 @@
       "context_window": 272000,
       "reasoning_summary_format": "experimental",
       "slug": "gpt-5.3-codex",
-      "display_name": "gpt-5.3-codex",
+      "name": "gpt-5.3-codex",
       "description": "Latest frontier agentic coding model.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -646,7 +646,7 @@
       "context_window": 128000,
       "reasoning_summary_format": "none",
       "slug": "gpt-oss-120b",
-      "display_name": "gpt-oss-120b",
+      "name": "gpt-oss-120b",
       "description": "OpenAI OSS model, 120B parameters.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
@@ -703,7 +703,7 @@
       "context_window": 128000,
       "reasoning_summary_format": "none",
       "slug": "gpt-oss-20b",
-      "display_name": "gpt-oss-20b",
+      "name": "gpt-oss-20b",
       "description": "OpenAI OSS model, 20B parameters.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [

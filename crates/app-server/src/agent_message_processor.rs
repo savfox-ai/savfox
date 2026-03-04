@@ -1354,7 +1354,6 @@ impl SavfoxMessageProcessor {
         } = params;
 
         match ConfigEditsBuilder::new(&self.config.savfox_home)
-            .with_profile(self.config.active_profile.as_deref())
             .set_model(model.as_deref(), reasoning_effort)
             .apply()
             .await
@@ -1464,7 +1463,6 @@ impl SavfoxMessageProcessor {
         let NewConversationParams {
             model,
             model_provider,
-            profile,
             cwd,
             approval_policy,
             sandbox: sandbox_mode,
@@ -1477,7 +1475,6 @@ impl SavfoxMessageProcessor {
 
         let typesafe_overrides = ConfigOverrides {
             model,
-            config_profile: profile,
             cwd: cwd.clone().map(PathBuf::from),
             approval_policy,
             sandbox_mode,
@@ -3312,7 +3309,6 @@ impl SavfoxMessageProcessor {
                 let NewConversationParams {
                     model,
                     model_provider,
-                    profile,
                     cwd,
                     approval_policy,
                     sandbox: sandbox_mode,
@@ -3334,7 +3330,6 @@ impl SavfoxMessageProcessor {
 
                 let typesafe_overrides = ConfigOverrides {
                     model,
-                    config_profile: profile,
                     cwd: cwd.map(PathBuf::from),
                     approval_policy,
                     sandbox_mode,
@@ -3498,7 +3493,6 @@ impl SavfoxMessageProcessor {
                 let NewConversationParams {
                     model,
                     model_provider,
-                    profile,
                     cwd,
                     approval_policy,
                     sandbox: sandbox_mode,
@@ -3525,7 +3519,6 @@ impl SavfoxMessageProcessor {
 
                 let overrides = ConfigOverrides {
                     model,
-                    config_profile: profile,
                     cwd: cwd.map(PathBuf::from),
                     approval_policy,
                     sandbox_mode,
@@ -4738,7 +4731,7 @@ fn skills_to_info(
                 short_description: skill.short_description.clone(),
                 interface: skill.interface.clone().map(|interface| {
                     savfox_app_server_protocol::SkillInterface {
-                        display_name: interface.display_name,
+                        name: interface.name,
                         short_description: interface.short_description,
                         icon_small: interface.icon_small,
                         icon_large: interface.icon_large,

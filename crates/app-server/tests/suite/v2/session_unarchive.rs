@@ -103,7 +103,10 @@ async fn session_unarchive_moves_rollout_back_into_sessions_directory() -> Resul
         .path
         .as_ref()
         .expect("expected response session path after unarchive");
-    assert!(response_path.exists(), "expected response session path to exist");
+    assert!(
+        response_path.exists(),
+        "expected response session path to exist"
+    );
     assert_eq!(
         response_path.file_name(),
         restored_rollout_path.file_name(),

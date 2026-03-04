@@ -4,11 +4,14 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use savfox_protocol::config_types::{Personality, TrustLevel};
 use savfox_protocol::openai_models::ReasoningEffort;
+use serde_json::Value as JsonValue;
 use tokio::task;
-use toml_edit::{ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, value};
+use toml_edit::{
+    ArrayOfTables, DocumentMut, Item as TomlItem, Table as TomlTable, Value as TomlValue, value,
+};
 
-use crate::config::CONFIG_TOML_FILE;
 use crate::config::types::{McpServerConfig, Notice};
+use crate::config::{CONFIG_JSON_FILE, CONFIG_TOML_FILE};
 use crate::model_identifiers::parse_provider_prefixed_model;
 use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
 
@@ -17,7 +20,8 @@ use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
 pub enum ConfigEdit {
     /// Update the active (or default) model selection and optional reasoning effort.
     SetModel {
-        model: Option<String>,
+        slug: Option<String>,
+        provider: Option<String>,
         effort: Option<ReasoningEffort>,
     },
     /// Update the active (or default) model personality.
@@ -232,15 +236,13 @@ mod document_helpers {
     }
 }
 
-struct ConfigDocument {
+struct ConfigFile {
     doc: DocumentMut,
-    profile: Option<String>,
 }
 
 #[derive(Copy, Clone)]
 enum Scope {
     Global,
-    Profile,
 }
 
 #[derive(Copy, Clone)]
@@ -249,87 +251,75 @@ enum TraversalMode {
     Existing,
 }
 
-impl ConfigDocument {
-    fn new(doc: DocumentMut, profile: Option<String>) -> Self {
-        Self { doc, profile }
+impl ConfigFile {
+    fn new(doc: DocumentMut) -> Self {
+        Self { doc }
     }
 
     fn apply(&mut self, edit: &ConfigEdit) -> anyhow::Result<bool> {
         match edit {
-            ConfigEdit::SetModel { model, effort } => {
-                let model = model
+            ConfigEdit::SetModel { slug, provider, effort } => {
+                let slug = slug
                     .as_deref()
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .map(ToOwned::to_owned);
 
-                if self.profile.is_none() {
-                    Ok({
-                        let mut mutated = false;
-                        if let Some(model_value) = model {
-                            let (provider_id, slug) = if let Some((provider, model_code)) =
-                                parse_provider_prefixed_model(model_value.as_str())
-                            {
-                                (Some(provider.to_string()), model_code.to_string())
-                            } else {
-                                (None, model_value)
-                            };
+                let provider = provider
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned);
 
-                            mutated |=
-                                self.write_profile_value(&["model", "slug"], Some(value(slug)));
-                            if let Some(provider_id) = provider_id {
-                                mutated |= self.write_profile_value(
-                                    &["model", "provider"],
-                                    Some(value(provider_id.clone())),
-                                );
-                                // Keep legacy field in sync for older readers.
-                                mutated |= self.write_profile_value(
-                                    &["model_provider"],
-                                    Some(value(provider_id)),
+                Ok({
+                    let mut mutated = false;
+                    if let Some(slug_value) = slug {
+                        let Some(provider_to_write) = provider.clone() else {
+                            anyhow::bail!(
+                                "model.provider is required when setting model `{slug_value}`"
+                            );
+                        };
+
+                        mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug_value.clone()));
+
+                        mutated |= self.write_value(
+                            Scope::Global,
+                            &["model", "provider"],
+                            value(provider_to_write.clone()),
+                        );
+                        match effort {
+                            Some(effort_value) if !matches!(effort_value, &ReasoningEffort::None) => {
+                                mutated |= self.write_value(
+                                    Scope::Global,
+                                    &["model", "reasoning_effort"],
+                                    value(effort_value.to_string()),
                                 );
                             }
-                            mutated |= self.write_profile_value(
-                                &["model", "reasoning_level"],
-                                effort.map(|effort| value(effort.to_string())),
-                            );
-                            // Keep legacy field in sync for older readers.
-                            mutated |= self.write_profile_value(
-                                &["model_reasoning_effort"],
-                                effort.map(|effort| value(effort.to_string())),
-                            );
-                        } else {
-                            mutated |= self.write_profile_value(&["model"], None);
-                            mutated |= self.write_profile_value(&["model_reasoning_effort"], None);
+                            _ => {
+                                mutated |= self.clear(
+                                    Scope::Global,
+                                    &["model", "reasoning_effort"],
+                                );
+                            }
                         }
-                        mutated
-                    })
+                    } else {
+                        mutated |= self.clear(Scope::Global, &["model"]);
+                        mutated |= self.clear(Scope::Global, &["model_reasoning_effort"]);
+                    }
+                    mutated
+                })
+            }
+            ConfigEdit::SetModelPersonality { personality } => {
+                if let Some(personality_value) = personality {
+                    Ok(self.write_value(
+                        Scope::Global,
+                        &["personality"],
+                        value(personality_value.to_string()),
+                    ))
                 } else {
-                    Ok({
-                        let mut mutated = false;
-                        mutated |= self.write_profile_value(
-                            &["model"],
-                            model.as_ref().map(|model_value| value(model_value.clone())),
-                        );
-                        if let Some(provider_id) = model
-                            .as_deref()
-                            .and_then(parse_provider_prefixed_model)
-                            .map(|(provider_id, _)| provider_id.to_string())
-                        {
-                            mutated |= self
-                                .write_profile_value(&["model_provider"], Some(value(provider_id)));
-                        }
-                        mutated |= self.write_profile_value(
-                            &["model_reasoning_effort"],
-                            effort.map(|effort| value(effort.to_string())),
-                        );
-                        mutated
-                    })
+                    Ok(self.clear(Scope::Global, &["personality"]))
                 }
             }
-            ConfigEdit::SetModelPersonality { personality } => Ok(self.write_profile_value(
-                &["personality"],
-                personality.map(|personality| value(personality.to_string())),
-            )),
             ConfigEdit::SetNoticeHideFullAccessWarning(acknowledged) => Ok(self.write_value(
                 Scope::Global,
                 &[Notice::TABLE_KEY, "hide_full_access_warning"],
@@ -378,13 +368,6 @@ impl ConfigDocument {
                 )?;
                 Ok(true)
             }
-        }
-    }
-
-    fn write_profile_value(&mut self, segments: &[&str], value: Option<TomlItem>) -> bool {
-        match value {
-            Some(item) => self.write_value(Scope::Profile, segments, item),
-            None => self.clear(Scope::Profile, segments),
         }
     }
 
@@ -562,24 +545,11 @@ impl ConfigDocument {
         mutated
     }
 
-    fn scoped_segments(&self, scope: Scope, segments: &[&str]) -> Vec<String> {
-        let resolved: Vec<String> = segments
+    fn scoped_segments(&self, _scope: Scope, segments: &[&str]) -> Vec<String> {
+        segments
             .iter()
             .map(|segment| (*segment).to_string())
-            .collect();
-
-        if matches!(scope, Scope::Profile)
-            && resolved.first().is_none_or(|segment| segment != "profiles")
-            && let Some(profile) = self.profile.as_deref()
-        {
-            let mut scoped = Vec::with_capacity(resolved.len() + 2);
-            scoped.push("profiles".to_string());
-            scoped.push(profile.to_string());
-            scoped.extend(resolved);
-            return scoped;
-        }
-
-        resolved
+            .collect()
     }
 
     fn insert(&mut self, segments: &[String], value: TomlItem) -> bool {
@@ -679,15 +649,240 @@ fn normalize_skill_config_path(path: &Path) -> String {
 /// Persist edits using a blocking strategy.
 pub fn apply_blocking(
     savfox_home: &Path,
-    profile: Option<&str>,
     edits: &[ConfigEdit],
 ) -> anyhow::Result<()> {
     if edits.is_empty() {
         return Ok(());
     }
 
-    let config_path = savfox_home.join(CONFIG_TOML_FILE);
-    let write_paths = resolve_symlink_write_paths(&config_path)?;
+    // Prefer config.json over config.toml
+    let json_path = savfox_home.join(CONFIG_JSON_FILE);
+    if json_path.exists() {
+        apply_blocking_json(&json_path, edits)
+    } else {
+        let toml_path = savfox_home.join(CONFIG_TOML_FILE);
+        apply_blocking_toml(&toml_path, edits)
+    }
+}
+
+fn apply_blocking_json(
+    config_path: &Path,
+    edits: &[ConfigEdit],
+) -> anyhow::Result<()> {
+    let write_paths = resolve_symlink_write_paths(config_path)?;
+    let serialized = match write_paths.read_path {
+        Some(path) => match std::fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(err.into()),
+        },
+        None => String::new(),
+    };
+
+    let mut json_value = if serialized.is_empty() {
+        JsonValue::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_str(&serialized)?
+    };
+
+    let mut mutated = false;
+
+    for edit in edits {
+        mutated |= apply_edit_to_json(&mut json_value, edit)?;
+    }
+
+    if !mutated {
+        return Ok(());
+    }
+
+    let json_string = serde_json::to_string_pretty(&json_value)?;
+
+    write_atomically(&write_paths.write_path, &json_string).with_context(|| {
+        format!(
+            "failed to persist config.json at {}",
+            write_paths.write_path.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn apply_edit_to_json(
+    json: &mut JsonValue,
+    edit: &ConfigEdit,
+) -> anyhow::Result<bool> {
+    apply_edit_to_json_value(json, edit)
+}
+
+fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::Result<bool> {
+    match edit {
+        ConfigEdit::SetModel { slug, provider, effort } => {
+            let slug = slug
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            let provider = provider
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            if let JsonValue::Object(root) = json {
+                match slug {
+                    Some(slug_value) => {
+                        let Some(provider_to_write) = provider.clone() else {
+                            anyhow::bail!(
+                                "model.provider is required when setting model `{slug_value}`"
+                            );
+                        };
+
+                        let model_obj = root
+                            .entry("model".to_string())
+                            .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+
+                        if let JsonValue::Object(model_map) = model_obj {
+                            model_map.insert("slug".to_string(), JsonValue::String(slug_value.clone()));
+                            model_map.insert(
+                                "provider".to_string(),
+                                JsonValue::String(provider_to_write.clone()),
+                            );
+
+                            match effort {
+                                Some(effort) if !matches!(effort, &ReasoningEffort::None) => {
+                                    model_map.insert(
+                                        "reasoning_effort".to_string(),
+                                        JsonValue::String(effort.to_string()),
+                                    );
+                                }
+                                _ => {
+                                    model_map.remove("reasoning_effort");
+                                }
+                            }
+                        }
+
+                        // Add model_provider at root level
+                        root.insert(
+                            "model_provider".to_string(),
+                            JsonValue::String(provider_to_write),
+                        );
+
+                        Ok(true)
+                    }
+                    None => {
+                        root.remove("model");
+                        Ok(true)
+                    }
+                }
+            } else {
+                Ok(false)
+            }
+        }
+        ConfigEdit::SetModelPersonality { personality } => {
+            if let JsonValue::Object(root) = json {
+                match personality {
+                    Some(p) => {
+                        root.insert("personality".to_string(), JsonValue::String(p.to_string()));
+                        Ok(true)
+                    }
+                    None => {
+                        root.remove("personality");
+                        Ok(true)
+                    }
+                }
+            } else {
+                Ok(false)
+            }
+        }
+        ConfigEdit::SetPath { segments, value } => {
+            set_json_value_at_path(json, segments, value.clone());
+            Ok(true)
+        }
+        ConfigEdit::ClearPath { segments } => {
+            let removed = remove_json_value_at_path(json, segments);
+            Ok(removed)
+        }
+        _ => {
+            // For other edits, delegate to a simpler implementation
+            Ok(false)
+        }
+    }
+}
+
+fn set_json_value_at_path(json: &mut JsonValue, segments: &[String], value: TomlItem) {
+    if segments.is_empty() {
+        return;
+    }
+
+    if let JsonValue::Object(map) = json {
+        if segments.len() == 1 {
+            let json_value = toml_item_to_json(value);
+            map.insert(segments[0].clone(), json_value);
+        } else {
+            let child = map
+                .entry(segments[0].clone())
+                .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+            set_json_value_at_path(child, &segments[1..], value);
+        }
+    }
+}
+
+fn remove_json_value_at_path(json: &mut JsonValue, segments: &[String]) -> bool {
+    if segments.is_empty() {
+        return false;
+    }
+
+    if let JsonValue::Object(map) = json {
+        if segments.len() == 1 {
+            map.remove(&segments[0]).is_some()
+        } else {
+            if let Some(child) = map.get_mut(&segments[0]) {
+                remove_json_value_at_path(child, &segments[1..])
+            } else {
+                false
+            }
+        }
+    } else {
+        false
+    }
+}
+
+fn toml_item_to_json(item: TomlItem) -> JsonValue {
+    match item {
+        TomlItem::Value(v) => toml_value_to_json(&v),
+        TomlItem::Table(_) | TomlItem::ArrayOfTables(_) => JsonValue::Null,
+        TomlItem::None => JsonValue::Null,
+    }
+}
+
+fn toml_value_to_json(value: &TomlValue) -> JsonValue {
+    if let Some(s) = value.as_str() {
+        JsonValue::String(s.to_string())
+    } else if let Some(i) = value.as_integer() {
+        JsonValue::Number(i.into())
+    } else if let Some(f) = value.as_float() {
+        if let Some(n) = serde_json::Number::from_f64(f) {
+            JsonValue::Number(n)
+        } else {
+            JsonValue::Null
+        }
+    } else if let Some(b) = value.as_bool() {
+        JsonValue::Bool(b)
+    } else if let Some(arr) = value.as_array() {
+        JsonValue::Array(arr.iter().map(toml_value_to_json).collect())
+    } else if let Some(dt) = value.as_datetime() {
+        JsonValue::String(dt.to_string())
+    } else {
+        JsonValue::Null
+    }
+}
+
+fn apply_blocking_toml(
+    config_path: &Path,
+    edits: &[ConfigEdit],
+) -> anyhow::Result<()> {
+    let write_paths = resolve_symlink_write_paths(config_path)?;
     let serialized = match write_paths.read_path {
         Some(path) => match std::fs::read_to_string(&path) {
             Ok(contents) => contents,
@@ -703,13 +898,7 @@ pub fn apply_blocking(
         serialized.parse::<DocumentMut>()?
     };
 
-    let profile = profile.map(ToOwned::to_owned).or_else(|| {
-        doc.get("profile")
-            .and_then(|item| item.as_str())
-            .map(ToOwned::to_owned)
-    });
-
-    let mut document = ConfigDocument::new(doc, profile);
+    let mut document = ConfigFile::new(doc);
     let mut mutated = false;
 
     for edit in edits {
@@ -733,12 +922,10 @@ pub fn apply_blocking(
 /// Persist edits asynchronously by offloading the blocking writer.
 pub async fn apply(
     savfox_home: &Path,
-    profile: Option<&str>,
     edits: Vec<ConfigEdit>,
 ) -> anyhow::Result<()> {
     let savfox_home = savfox_home.to_path_buf();
-    let profile = profile.map(ToOwned::to_owned);
-    task::spawn_blocking(move || apply_blocking(&savfox_home, profile.as_deref(), &edits))
+    task::spawn_blocking(move || apply_blocking(&savfox_home, &edits))
         .await
         .context("config persistence task panicked")?
 }
@@ -747,7 +934,6 @@ pub async fn apply(
 #[derive(Default)]
 pub struct ConfigEditsBuilder {
     savfox_home: PathBuf,
-    profile: Option<String>,
     edits: Vec<ConfigEdit>,
 }
 
@@ -755,19 +941,24 @@ impl ConfigEditsBuilder {
     pub fn new(savfox_home: &Path) -> Self {
         Self {
             savfox_home: savfox_home.to_path_buf(),
-            profile: None,
             edits: Vec::new(),
         }
     }
 
-    pub fn with_profile(mut self, profile: Option<&str>) -> Self {
-        self.profile = profile.map(ToOwned::to_owned);
-        self
-    }
-
     pub fn set_model(mut self, model: Option<&str>, effort: Option<ReasoningEffort>) -> Self {
+        let (slug, provider) = if let Some(model_value) = model {
+            if let Some((provider_id, model_slug)) = parse_provider_prefixed_model(model_value) {
+                (Some(model_slug.to_string()), Some(provider_id.to_string()))
+            } else {
+                (Some(model_value.to_string()), None)
+            }
+        } else {
+            (None, None)
+        };
+
         self.edits.push(ConfigEdit::SetModel {
-            model: model.map(ToOwned::to_owned),
+            slug,
+            provider,
             effort,
         });
         self
@@ -857,13 +1048,13 @@ impl ConfigEditsBuilder {
 
     /// Apply edits on a blocking session.
     pub fn apply_blocking(self) -> anyhow::Result<()> {
-        apply_blocking(&self.savfox_home, self.profile.as_deref(), &self.edits)
+        apply_blocking(&self.savfox_home, &self.edits)
     }
 
     /// Apply edits asynchronously via a blocking offload.
     pub async fn apply(self) -> anyhow::Result<()> {
         task::spawn_blocking(move || {
-            apply_blocking(&self.savfox_home, self.profile.as_deref(), &self.edits)
+            apply_blocking(&self.savfox_home, &self.edits)
         })
         .await
         .context("config persistence task panicked")?
@@ -890,9 +1081,9 @@ mod tests {
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetModel {
-                model: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_string()),
+                provider: Some("openai".to_string()),
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -905,10 +1096,21 @@ mod tests {
             .get("model")
             .and_then(|v| v.as_table())
             .expect("model table");
-        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
         assert_eq!(
-            model.get("reasoning_level").and_then(|v| v.as_str()),
+            model.get("slug").and_then(|v| v.as_str()),
+            Some("gpt-5.1-savfox")
+        );
+        assert_eq!(
+            model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
+        );
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("openai")
+        );
+        assert_eq!(
+            value.get("model_provider").and_then(|v| v.as_str()),
+            Some("openai")
         );
     }
 
@@ -927,13 +1129,16 @@ mod tests {
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        assert_eq!(contents, "enabled = true\n");
+        let value: TomlValue = toml::from_str(&contents).expect("parse toml");
+        assert_eq!(value.get("enabled").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
     fn set_skill_config_writes_disabled_entry() {
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
+        // Pre-create config.toml so it uses TOML format
+        std::fs::write(savfox_home.join(CONFIG_TOML_FILE), "").unwrap();
 
         ConfigEditsBuilder::new(savfox_home)
             .with_edits([ConfigEdit::SetSkillConfig {
@@ -978,53 +1183,6 @@ enabled = false
         assert_eq!(contents, "");
     }
 
-    #[test]
-    fn blocking_set_model_preserves_inline_table_contents() {
-        let tmp = tempdir().expect("tmpdir");
-        let savfox_home = tmp.path();
-
-        // Seed with inline tables for profiles to simulate common user config.
-        std::fs::write(
-            savfox_home.join(CONFIG_TOML_FILE),
-            r#"profile = "fast"
-
-profiles = { fast = { model = "gpt-4o", sandbox_mode = "strict" } }
-"#,
-        )
-        .expect("seed");
-
-        apply_blocking(
-            savfox_home,
-            None,
-            &[ConfigEdit::SetModel {
-                model: Some("o4-mini".to_string()),
-                effort: None,
-            }],
-        )
-        .expect("persist");
-
-        let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let value: TomlValue = toml::from_str(&raw).expect("parse config");
-
-        // Ensure sandbox_mode is preserved under profiles.fast and model updated.
-        let profiles_tbl = value
-            .get("profiles")
-            .and_then(|v| v.as_table())
-            .expect("profiles table");
-        let fast_tbl = profiles_tbl
-            .get("fast")
-            .and_then(|v| v.as_table())
-            .expect("fast table");
-        assert_eq!(
-            fast_tbl.get("sandbox_mode").and_then(|v| v.as_str()),
-            Some("strict")
-        );
-        assert_eq!(
-            fast_tbl.get("model").and_then(|v| v.as_str()),
-            Some("o4-mini")
-        );
-    }
-
     #[cfg(unix)]
     #[test]
     fn blocking_set_model_writes_through_symlink_chain() {
@@ -1040,9 +1198,9 @@ profiles = { fast = { model = "gpt-4o", sandbox_mode = "strict" } }
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetModel {
-                model: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_string()),
+                provider: None,
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -1112,7 +1270,6 @@ network_access = false
 
         apply_blocking(
             savfox_home,
-            None,
             &[
                 ConfigEdit::SetPath {
                     segments: vec![
@@ -1153,76 +1310,6 @@ network_access = true
     }
 
     #[test]
-    fn blocking_clear_model_removes_inline_table_entry() {
-        let tmp = tempdir().expect("tmpdir");
-        let savfox_home = tmp.path();
-
-        std::fs::write(
-            savfox_home.join(CONFIG_TOML_FILE),
-            r#"profile = "fast"
-
-profiles = { fast = { model = "gpt-4o", sandbox_mode = "strict" } }
-"#,
-        )
-        .expect("seed");
-
-        apply_blocking(
-            savfox_home,
-            None,
-            &[ConfigEdit::SetModel {
-                model: None,
-                effort: Some(ReasoningEffort::High),
-            }],
-        )
-        .expect("persist");
-
-        let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"profile = "fast"
-
-[profiles.fast]
-sandbox_mode = "strict"
-model_reasoning_effort = "high"
-"#;
-        assert_eq!(contents, expected);
-    }
-
-    #[test]
-    fn blocking_set_model_scopes_to_active_profile() {
-        let tmp = tempdir().expect("tmpdir");
-        let savfox_home = tmp.path();
-        std::fs::write(
-            savfox_home.join(CONFIG_TOML_FILE),
-            r#"profile = "team"
-
-[profiles.team]
-model_reasoning_effort = "low"
-"#,
-        )
-        .expect("seed");
-
-        apply_blocking(
-            savfox_home,
-            None,
-            &[ConfigEdit::SetModel {
-                model: Some("o5-preview".to_string()),
-                effort: Some(ReasoningEffort::Minimal),
-            }],
-        )
-        .expect("persist");
-
-        let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"profile = "team"
-
-[profiles.team]
-model_reasoning_effort = "minimal"
-model = "o5-preview"
-"#;
-        assert_eq!(contents, expected);
-    }
-
-    #[test]
     fn blocking_set_model_prefixed_updates_model_provider() {
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
@@ -1235,9 +1322,9 @@ model = "o5-preview"
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetModel {
-                model: Some("zhipuai-coding-plan/glm-5".to_string()),
+                slug: Some("glm-5".to_string()),
+                provider: Some("zhipuai-coding-plan".to_string()),
                 effort: None,
             }],
         )
@@ -1254,13 +1341,21 @@ model = "o5-preview"
             Some("glm-5")
         );
         assert_eq!(
+            value
+                .get("model")
+                .and_then(|v| v.as_table())
+                .and_then(|tbl| tbl.get("provider"))
+                .and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
+        assert_eq!(
             value.get("model_provider").and_then(|v| v.as_str()),
             Some("zhipuai-coding-plan")
         );
     }
 
     #[test]
-    fn blocking_set_model_bare_preserves_existing_model_provider() {
+    fn blocking_set_model_bare_without_provider_errors() {
         let tmp = tempdir().expect("tmpdir");
         let savfox_home = tmp.path();
         std::fs::write(
@@ -1270,60 +1365,16 @@ model = "o5-preview"
         )
         .expect("seed");
 
-        apply_blocking(
+        let err = apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetModel {
-                model: Some("glm-5".to_string()),
+                slug: Some("glm-5".to_string()),
+                provider: None,
                 effort: None,
             }],
         )
-        .expect("persist");
-
-        let raw = std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let value: TomlValue = toml::from_str(&raw).expect("parse config");
-        assert_eq!(
-            value
-                .get("model")
-                .and_then(|v| v.as_table())
-                .and_then(|tbl| tbl.get("slug"))
-                .and_then(|v| v.as_str()),
-            Some("glm-5")
-        );
-        assert_eq!(
-            value.get("model_provider").and_then(|v| v.as_str()),
-            Some("zhipuai-coding-plan")
-        );
-    }
-
-    #[test]
-    fn blocking_set_model_with_explicit_profile() {
-        let tmp = tempdir().expect("tmpdir");
-        let savfox_home = tmp.path();
-        std::fs::write(
-            savfox_home.join(CONFIG_TOML_FILE),
-            r#"[profiles."team a"]
-model = "gpt-5.1-savfox"
-"#,
-        )
-        .expect("seed");
-
-        apply_blocking(
-            savfox_home,
-            Some("team a"),
-            &[ConfigEdit::SetModel {
-                model: Some("o4-mini".to_string()),
-                effort: None,
-            }],
-        )
-        .expect("persist");
-
-        let contents =
-            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
-        let expected = r#"[profiles."team a"]
-model = "o4-mini"
-"#;
-        assert_eq!(contents, expected);
+        .expect_err("missing provider should error");
+        assert!(err.to_string().contains("model.provider is required"));
     }
 
     #[test]
@@ -1343,7 +1394,6 @@ existing = "value"
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetNoticeHideFullAccessWarning(true)],
         )
         .expect("persist");
@@ -1374,7 +1424,6 @@ existing = "value"
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetNoticeHideRateLimitModelNudge(true)],
         )
         .expect("persist");
@@ -1401,7 +1450,6 @@ existing = "value"
         .expect("seed");
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetNoticeHideModelMigrationPrompt(
                 "hide_gpt5_1_migration_prompt".to_string(),
                 true,
@@ -1431,7 +1479,6 @@ existing = "value"
         .expect("seed");
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetNoticeHideModelMigrationPrompt(
                 "hide_gpt-5.1-savfox-max_migration_prompt".to_string(),
                 true,
@@ -1461,7 +1508,6 @@ existing = "value"
         .expect("seed");
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::RecordModelMigrationSeen {
                 from: "gpt-5".to_string(),
                 to: "gpt-5.1".to_string(),
@@ -1538,7 +1584,6 @@ gpt-5 = "gpt-5.1"
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::ReplaceMcpServers(servers.clone())],
         )
         .expect("persist");
@@ -1602,7 +1647,7 @@ foo = { command = "cmd" }
             },
         );
 
-        apply_blocking(savfox_home, None, &[ConfigEdit::ReplaceMcpServers(servers)])
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
             .expect("persist");
 
         let contents =
@@ -1647,7 +1692,7 @@ foo = { command = "cmd" } # keep me
             },
         );
 
-        apply_blocking(savfox_home, None, &[ConfigEdit::ReplaceMcpServers(servers)])
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
             .expect("persist");
 
         let contents =
@@ -1691,7 +1736,7 @@ foo = { command = "cmd", args = ["--flag"] } # keep me
             },
         );
 
-        apply_blocking(savfox_home, None, &[ConfigEdit::ReplaceMcpServers(servers)])
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
             .expect("persist");
 
         let contents =
@@ -1736,7 +1781,7 @@ foo = { command = "cmd" }
             },
         );
 
-        apply_blocking(savfox_home, None, &[ConfigEdit::ReplaceMcpServers(servers)])
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
             .expect("persist");
 
         let contents =
@@ -1755,7 +1800,6 @@ foo = { command = "cmd" , enabled = false }
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::ClearPath {
                 segments: vec!["missing".to_string()],
             }],
@@ -1776,7 +1820,6 @@ foo = { command = "cmd" , enabled = false }
         let item = value(false);
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetPath {
                 segments: vec!["tui".to_string(), "notifications".to_string()],
                 value: item,
@@ -1800,7 +1843,7 @@ foo = { command = "cmd" , enabled = false }
         let savfox_home = tmp.path().to_path_buf();
 
         ConfigEditsBuilder::new(&savfox_home)
-            .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::High))
+            .set_model(Some("openai/gpt-5.1-savfox"), Some(ReasoningEffort::High))
             .apply()
             .await
             .expect("persist");
@@ -1812,10 +1855,47 @@ foo = { command = "cmd" , enabled = false }
             .get("model")
             .and_then(|v| v.as_table())
             .expect("model table");
-        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("gpt-5.1-savfox"));
         assert_eq!(
-            model.get("reasoning_level").and_then(|v| v.as_str()),
+            model.get("slug").and_then(|v| v.as_str()),
+            Some("gpt-5.1-savfox")
+        );
+        assert_eq!(
+            model.get("reasoning_effort").and_then(|v| v.as_str()),
             Some("high")
+        );
+    }
+
+    #[test]
+    fn blocking_set_model_none_effort_does_not_persist_reasoning_effort() {
+        let tmp = tempdir().expect("tmpdir");
+        let savfox_home = tmp.path();
+
+        apply_blocking(
+            savfox_home,
+            &[ConfigEdit::SetModel {
+                slug: Some("glm-5".to_string()),
+                provider: Some("zhipuai-coding-plan".to_string()),
+                effort: Some(ReasoningEffort::None),
+            }],
+        )
+        .expect("persist");
+
+        let contents =
+            std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
+        let value: TomlValue = toml::from_str(&contents).expect("parse config");
+        let model = value
+            .get("model")
+            .and_then(|v| v.as_table())
+            .expect("model table");
+
+        assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some("glm-5"));
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("zhipuai-coding-plan")
+        );
+        assert!(
+            model.get("reasoning_effort").is_none(),
+            "reasoning_effort should be omitted when effort is None"
         );
     }
 
@@ -1831,11 +1911,14 @@ foo = { command = "cmd" , enabled = false }
                 .and_then(|v| v.as_table())
                 .expect("model table");
             assert_eq!(model.get("slug").and_then(|v| v.as_str()), Some(slug));
-            assert_eq!(model.get("reasoning_level").and_then(|v| v.as_str()), Some(level));
+            assert_eq!(
+                model.get("reasoning_effort").and_then(|v| v.as_str()),
+                Some(level)
+            );
         };
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
+            .set_model(Some("openai/o4-mini"), Some(ReasoningEffort::Low))
             .apply_blocking()
             .expect("persist initial");
         let mut contents =
@@ -1843,7 +1926,7 @@ foo = { command = "cmd" , enabled = false }
         assert_model(&contents, "o4-mini", "low");
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("gpt-5.1-savfox"), Some(ReasoningEffort::High))
+            .set_model(Some("openai/gpt-5.1-savfox"), Some(ReasoningEffort::High))
             .apply_blocking()
             .expect("persist update");
         contents =
@@ -1851,7 +1934,7 @@ foo = { command = "cmd" , enabled = false }
         assert_model(&contents, "gpt-5.1-savfox", "high");
 
         ConfigEditsBuilder::new(savfox_home)
-            .set_model(Some("o4-mini"), Some(ReasoningEffort::Low))
+            .set_model(Some("openai/o4-mini"), Some(ReasoningEffort::Low))
             .apply_blocking()
             .expect("persist revert");
         contents =
@@ -1892,7 +1975,6 @@ foo = { command = "cmd" , enabled = false }
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::ReplaceMcpServers(BTreeMap::new())],
         )
         .expect("persist");

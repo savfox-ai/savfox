@@ -1045,7 +1045,10 @@ foo = "xyzzy"
             "provider".to_string(),
             TomlValue::String("openai".to_string()),
         );
-        model.insert("slug".to_string(), TomlValue::String("gpt-1000".to_string()));
+        model.insert(
+            "slug".to_string(),
+            TomlValue::String("gpt-1000".to_string()),
+        );
         expected_toml_value.insert("model".to_string(), TomlValue::Table(model));
         expected_toml_value.insert("foo".to_string(), TomlValue::String("xyzzy".to_string()));
         assert_eq!(normalized_toml_value, TomlValue::Table(expected_toml_value));

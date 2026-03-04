@@ -12,7 +12,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use toml::Value as TomlValue;
 
-use crate::config::profile::ConfigProfile;
 use crate::config::{CONFIG_TOML_FILE, Config, ConfigToml};
 use crate::protocol::{Event, EventMsg, WarningEvent};
 
@@ -278,11 +277,7 @@ impl Features {
         }
     }
 
-    pub fn from_config(
-        cfg: &ConfigToml,
-        config_profile: &ConfigProfile,
-        overrides: FeatureOverrides,
-    ) -> Self {
+    pub fn from_config(cfg: &ConfigToml, overrides: FeatureOverrides) -> Self {
         let mut features = Features::with_defaults();
 
         let base_legacy = LegacyFeatureToggles {
@@ -295,19 +290,6 @@ impl Features {
 
         if let Some(base_features) = cfg.features.as_ref() {
             features.apply_map(&base_features.entries);
-        }
-
-        let profile_legacy = LegacyFeatureToggles {
-            include_apply_patch_tool: config_profile.include_apply_patch_tool,
-            experimental_use_freeform_apply_patch: config_profile
-                .experimental_use_freeform_apply_patch,
-
-            experimental_use_unified_exec_tool: config_profile.experimental_use_unified_exec_tool,
-            tools_web_search: config_profile.tools_web_search,
-        };
-        profile_legacy.apply(&mut features);
-        if let Some(profile_features) = config_profile.features.as_ref() {
-            features.apply_map(&profile_features.entries);
         }
 
         overrides.apply(&mut features);

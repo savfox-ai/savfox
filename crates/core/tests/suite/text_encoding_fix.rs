@@ -1,10 +1,10 @@
-﻿//! Integration test for the text encoding fix for issue #6178.
+//! Integration test for the text encoding fix for issue #6178.
 //!
 //! These tests simulate VSCode's shell preview on Windows/WSL where the output
 //! may be encoded with a legacy code page before it reaches Savfox.
 
-use savfox_core::exec::StreamOutput;
 use pretty_assertions::assert_eq;
+use savfox_core::exec::StreamOutput;
 
 #[test]
 fn test_utf8_shell_output() {

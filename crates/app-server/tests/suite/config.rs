@@ -29,7 +29,6 @@ sandbox_mode = "workspace-write"
 model_reasoning_summary = "detailed"
 model_reasoning_effort = "high"
 model_verbosity = "medium"
-profile = "test"
 forced_chatgpt_workspace_id = "12345678-0000-0000-0000-000000000000"
 forced_login_method = "chatgpt"
 
@@ -42,15 +41,6 @@ exclude_slash_tmp = true
 [tools]
 web_search = false
 view_image = true
-
-[profiles.test]
-model = "gpt-4o"
-approval_policy = "on-request"
-model_reasoning_effort = "high"
-model_reasoning_summary = "detailed"
-model_verbosity = "medium"
-model_provider = "openai"
-chatgpt_base_url = "https://api.taidge.com"
 "#,
             serde_json::json!(writable_root)
         ),
@@ -94,19 +84,6 @@ async fn get_config_toml_parses_all_fields() -> Result<()> {
                 web_search: Some(false),
                 view_image: Some(true),
             }),
-            profile: Some("test".to_string()),
-            profiles: HashMap::from([(
-                "test".into(),
-                Profile {
-                    model: Some("openai/gpt-4o".into()),
-                    approval_policy: Some(AskForApproval::OnRequest),
-                    model_reasoning_effort: Some(ReasoningEffort::High),
-                    model_reasoning_summary: Some(ReasoningSummary::Detailed),
-                    model_verbosity: Some(Verbosity::Medium),
-                    model_provider: Some("openai".into()),
-                    chatgpt_base_url: Some("https://api.taidge.com".into()),
-                },
-            )]),
         },
     };
 

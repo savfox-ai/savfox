@@ -13,7 +13,6 @@ use savfox_cli::login::{
 };
 use savfox_cli::{LandlockCommand, SeatbeltCommand, WindowsCommand};
 use savfox_cloud_tasks::Cli as CloudTasksCli;
-use savfox_common::CliConfigOverrides;
 use savfox_exec::{Cli as ExecCli, Command as ExecCommand, ReviewArgs};
 use savfox_exec_policy::ExecPolicyCheckCommand;
 use savfox_gateway_server::GatewayCommand;
@@ -80,9 +79,6 @@ use crate::wizard::WizardCommand;
     override_usage = "savfox [OPTIONS] [PROMPT]\n       savfox [OPTIONS] <COMMAND> [ARGS]"
 )]
 struct MultitoolCli {
-    #[clap(flatten)]
-    pub config_overrides: CliConfigOverrides,
-
     #[clap(flatten)]
     pub feature_toggles: FeatureToggles,
 
@@ -315,9 +311,6 @@ enum ExecpolicySubcommand {
 
 #[derive(Debug, Parser)]
 struct LoginCommand {
-    #[clap(skip)]
-    config_overrides: CliConfigOverrides,
-
     #[arg(
         long = "with-api-key",
         help = "Read the API key from stdin (e.g. `printenv OPENAI_API_KEY | savfox login --with-api-key`)"
@@ -355,10 +348,7 @@ enum LoginSubcommand {
 }
 
 #[derive(Debug, Parser)]
-struct LogoutCommand {
-    #[clap(skip)]
-    config_overrides: CliConfigOverrides,
-}
+struct LogoutCommand {}
 
 #[derive(Debug, Parser)]
 struct AppServerCommand {
@@ -636,56 +626,36 @@ fn main() -> anyhow::Result<()> {
 
 async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     let MultitoolCli {
-        config_overrides: mut root_config_overrides,
         feature_toggles,
         mut interactive,
         subcommand,
     } = MultitoolCli::parse();
 
-    // Fold --enable/--disable into config overrides so they flow to all subcommands.
-    let toggle_overrides = feature_toggles.to_overrides()?;
-    root_config_overrides.raw_overrides.extend(toggle_overrides);
-
     match subcommand {
         None => {
             // Interactive startup uses the TUI onboarding flow. Keep the CLI wizard
             // as an explicit command (`savfox wizard`) for full setup workflows.
-            prepend_config_flags(
-                &mut interactive.config_overrides,
-                root_config_overrides.clone(),
-            );
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
         Some(Subcommand::Exec(mut exec_cli)) => {
-            prepend_config_flags(
-                &mut exec_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
             savfox_exec::run_main(exec_cli, savfox_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Review(review_args)) => {
             let mut exec_cli = ExecCli::try_parse_from(["savfox", "exec"])?;
             exec_cli.command = Some(ExecCommand::Review(review_args));
-            prepend_config_flags(
-                &mut exec_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
             savfox_exec::run_main(exec_cli, savfox_linux_sandbox_exe).await?;
         }
         Some(Subcommand::McpServer) => {
-            savfox_mcp_server::run_main(savfox_linux_sandbox_exe, root_config_overrides).await?;
+            savfox_mcp_server::run_main(savfox_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Mcp(mut mcp_cli)) => {
-            // Propagate any root-level config overrides (e.g. `-c key=value`).
-            prepend_config_flags(&mut mcp_cli.config_overrides, root_config_overrides.clone());
             mcp_cli.run().await?;
         }
         Some(Subcommand::AppServer(app_server_cli)) => match app_server_cli.subcommand {
             None => {
                 savfox_app_server::run_main(
                     savfox_linux_sandbox_exe,
-                    root_config_overrides,
                     savfox_core::config_loader::LoaderOverrides::default(),
                     app_server_cli.analytics_default_enabled,
                 )
@@ -716,12 +686,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             } else {
                 // Start the gateway server.
                 let gateway_config = gateway_cli.into_config();
-                savfox_gateway_server::run_main(
-                    gateway_config,
-                    savfox_linux_sandbox_exe,
-                    root_config_overrides,
-                )
-                .await?;
+                savfox_gateway_server::run_main(gateway_config, savfox_linux_sandbox_exe).await?;
             }
         }
         Some(Subcommand::Acp(cmd)) => {
@@ -735,16 +700,10 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             session_id,
             last,
             all,
-            config_overrides,
+            ..
         })) => {
-            interactive = finalize_resume_interactive(
-                interactive,
-                root_config_overrides.clone(),
-                session_id,
-                last,
-                all,
-                config_overrides,
-            );
+            interactive =
+                finalize_resume_interactive(interactive, session_id, last, all, TuiCli::default());
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
@@ -752,56 +711,36 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             session_id,
             last,
             all,
-            config_overrides,
+            ..
         })) => {
-            interactive = finalize_fork_interactive(
-                interactive,
-                root_config_overrides.clone(),
-                session_id,
-                last,
-                all,
-                config_overrides,
-            );
+            interactive =
+                finalize_fork_interactive(interactive, session_id, last, all, TuiCli::default());
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
-        Some(Subcommand::Login(mut login_cli)) => {
-            prepend_config_flags(
-                &mut login_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
-            match login_cli.action {
-                Some(LoginSubcommand::Status) => {
-                    run_login_status(login_cli.config_overrides).await;
-                }
-                None => {
-                    if login_cli.use_device_code {
-                        run_login_with_device_code(
-                            login_cli.config_overrides,
-                            login_cli.issuer_base_url,
-                            login_cli.client_id,
-                        )
+        Some(Subcommand::Login(mut login_cli)) => match login_cli.action {
+            Some(LoginSubcommand::Status) => {
+                run_login_status().await;
+            }
+            None => {
+                if login_cli.use_device_code {
+                    run_login_with_device_code(login_cli.issuer_base_url, login_cli.client_id)
                         .await;
-                    } else if login_cli.api_key.is_some() {
-                        eprintln!(
-                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | savfox login --with-api-key`."
-                        );
-                        std::process::exit(1);
-                    } else if login_cli.with_api_key {
-                        let api_key = read_api_key_from_stdin();
-                        run_login_with_api_key(login_cli.config_overrides, api_key).await;
-                    } else {
-                        run_login_with_chatgpt(login_cli.config_overrides).await;
-                    }
+                } else if login_cli.api_key.is_some() {
+                    eprintln!(
+                        "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | savfox login --with-api-key`."
+                    );
+                    std::process::exit(1);
+                } else if login_cli.with_api_key {
+                    let api_key = read_api_key_from_stdin();
+                    run_login_with_api_key(api_key).await;
+                } else {
+                    run_login_with_chatgpt().await;
                 }
             }
-        }
-        Some(Subcommand::Logout(mut logout_cli)) => {
-            prepend_config_flags(
-                &mut logout_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
-            run_logout(logout_cli.config_overrides).await;
+        },
+        Some(Subcommand::Logout(mut _logout_cli)) => {
+            run_logout().await;
         }
         Some(Subcommand::Completion(completion_cli)) => {
             if let Some(kind) = completion_cli.dynamic_kind {
@@ -813,41 +752,25 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
                 completion_support::output_completion(shell, completion_cli.install)?;
             }
         }
-        Some(Subcommand::Cloud(mut cloud_cli)) => {
-            prepend_config_flags(
-                &mut cloud_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
+        Some(Subcommand::Cloud(cloud_cli)) => {
             savfox_cloud_tasks::run_main(cloud_cli, savfox_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Sandbox(sandbox_args)) => match sandbox_args.cmd {
-            SandboxCommand::Macos(mut seatbelt_cli) => {
-                prepend_config_flags(
-                    &mut seatbelt_cli.config_overrides,
-                    root_config_overrides.clone(),
-                );
+            SandboxCommand::Macos(seatbelt_cli) => {
                 savfox_cli::debug_sandbox::run_command_under_seatbelt(
                     seatbelt_cli,
                     savfox_linux_sandbox_exe,
                 )
                 .await?;
             }
-            SandboxCommand::Linux(mut landlock_cli) => {
-                prepend_config_flags(
-                    &mut landlock_cli.config_overrides,
-                    root_config_overrides.clone(),
-                );
+            SandboxCommand::Linux(landlock_cli) => {
                 savfox_cli::debug_sandbox::run_command_under_landlock(
                     landlock_cli,
                     savfox_linux_sandbox_exe,
                 )
                 .await?;
             }
-            SandboxCommand::Windows(mut windows_cli) => {
-                prepend_config_flags(
-                    &mut windows_cli.config_overrides,
-                    root_config_overrides.clone(),
-                );
+            SandboxCommand::Windows(windows_cli) => {
                 savfox_cli::debug_sandbox::run_command_under_windows(
                     windows_cli,
                     savfox_linux_sandbox_exe,
@@ -858,11 +781,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         Some(Subcommand::Execpolicy(ExecpolicyCommand { sub })) => match sub {
             ExecpolicySubcommand::Check(cmd) => run_execpolicycheck(cmd)?,
         },
-        Some(Subcommand::Apply(mut apply_cli)) => {
-            prepend_config_flags(
-                &mut apply_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
+        Some(Subcommand::Apply(apply_cli)) => {
             run_apply_command(apply_cli, None).await?;
         }
         Some(Subcommand::ResponsesApiProxy(args)) => {
@@ -972,10 +891,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         }
         Some(Subcommand::Features(FeaturesCli { sub })) => match sub {
             FeaturesSubcommand::List => {
-                // Respect root-level `-c` overrides plus top-level flags like `--profile`.
-                let mut cli_kv_overrides = root_config_overrides
-                    .parse_overrides()
-                    .map_err(anyhow::Error::msg)?;
+                // Respect top-level flags like `--profile`.
+                let mut cli_kv_overrides = Vec::new();
 
                 // Honor `--search` via the canonical web_search mode.
                 if interactive.web_search {
@@ -985,9 +902,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
                     ));
                 }
 
-                // Session through relevant top-level flags (at minimum, `--profile`).
+                // Session through relevant top-level flags.
                 let overrides = ConfigOverrides {
-                    config_profile: interactive.config_profile.clone(),
                     ..Default::default()
                 };
 
@@ -1024,16 +940,15 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
     Ok(())
 }
 
-async fn enable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyhow::Result<()> {
+async fn enable_feature_in_config(_interactive: &TuiCli, feature: &str) -> anyhow::Result<()> {
     FeatureToggles::validate_feature(feature)?;
     let savfox_home = find_savfox_home()?;
     ConfigEditsBuilder::new(&savfox_home)
-        .with_profile(interactive.config_profile.as_deref())
         .set_feature_enabled(feature, true)
         .apply()
         .await?;
     println!("Enabled feature `{feature}` in config.toml.");
-    maybe_print_under_development_feature_warning(&savfox_home, interactive, feature);
+    maybe_print_under_development_feature_warning(&savfox_home, _interactive, feature);
     Ok(())
 }
 
@@ -1041,7 +956,6 @@ async fn disable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyho
     FeatureToggles::validate_feature(feature)?;
     let savfox_home = find_savfox_home()?;
     ConfigEditsBuilder::new(&savfox_home)
-        .with_profile(interactive.config_profile.as_deref())
         .set_feature_enabled(feature, false)
         .apply()
         .await?;
@@ -1054,10 +968,6 @@ fn maybe_print_under_development_feature_warning(
     interactive: &TuiCli,
     feature: &str,
 ) {
-    if interactive.config_profile.is_some() {
-        return;
-    }
-
     let Some(spec) = savfox_core::features::FEATURES
         .iter()
         .find(|spec| spec.key == feature)
@@ -1073,17 +983,6 @@ fn maybe_print_under_development_feature_warning(
         "Under-development features enabled: {feature}. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in {}.",
         config_path.display()
     );
-}
-
-/// Prepend root-level overrides so they have lower precedence than
-/// CLI-specific ones specified after the subcommand (if any).
-fn prepend_config_flags(
-    subcommand_config_overrides: &mut CliConfigOverrides,
-    cli_config_overrides: CliConfigOverrides,
-) {
-    subcommand_config_overrides
-        .raw_overrides
-        .splice(0..0, cli_config_overrides.raw_overrides);
 }
 
 async fn run_interactive_tui(
@@ -1128,7 +1027,6 @@ fn confirm(prompt: &str) -> std::io::Result<bool> {
 /// Build the final `TuiCli` for a `savfox resume` invocation.
 fn finalize_resume_interactive(
     mut interactive: TuiCli,
-    root_config_overrides: CliConfigOverrides,
     session_id: Option<String>,
     last: bool,
     show_all: bool,
@@ -1145,16 +1043,12 @@ fn finalize_resume_interactive(
     // Merge resume-scoped flags and overrides with highest precedence.
     merge_interactive_cli_flags(&mut interactive, resume_cli);
 
-    // Propagate any root-level config overrides (e.g. `-c key=value`).
-    prepend_config_flags(&mut interactive.config_overrides, root_config_overrides);
-
     interactive
 }
 
 /// Build the final `TuiCli` for a `savfox fork` invocation.
 fn finalize_fork_interactive(
     mut interactive: TuiCli,
-    root_config_overrides: CliConfigOverrides,
     session_id: Option<String>,
     last: bool,
     show_all: bool,
@@ -1171,9 +1065,6 @@ fn finalize_fork_interactive(
     // Merge fork-scoped flags and overrides with highest precedence.
     merge_interactive_cli_flags(&mut interactive, fork_cli);
 
-    // Propagate any root-level config overrides (e.g. `-c key=value`).
-    prepend_config_flags(&mut interactive.config_overrides, root_config_overrides);
-
     interactive
 }
 
@@ -1186,9 +1077,6 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
     }
     if subcommand_cli.oss {
         interactive.oss = true;
-    }
-    if let Some(profile) = subcommand_cli.config_profile {
-        interactive.config_profile = Some(profile);
     }
     if let Some(sandbox) = subcommand_cli.sandbox_mode {
         interactive.sandbox_mode = Some(sandbox);
@@ -1218,11 +1106,6 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
         // Normalize CRLF/CR to LF so CLI-provided text can't leak `\r` into TUI state.
         interactive.prompt = Some(prompt.replace("\r\n", "\n").replace('\r', "\n"));
     }
-
-    interactive
-        .config_overrides
-        .raw_overrides
-        .extend(subcommand_cli.config_overrides.raw_overrides);
 }
 
 #[cfg(test)]
@@ -1238,7 +1121,6 @@ mod tests {
         let cli = MultitoolCli::try_parse_from(args).expect("parse");
         let MultitoolCli {
             interactive,
-            config_overrides: root_overrides,
             subcommand,
             feature_toggles: _,
         } = cli;
@@ -1247,27 +1129,19 @@ mod tests {
             session_id,
             last,
             all,
-            config_overrides: resume_cli,
+            ..
         }) = subcommand.expect("resume present")
         else {
             unreachable!()
         };
 
-        finalize_resume_interactive(
-            interactive,
-            root_overrides,
-            session_id,
-            last,
-            all,
-            resume_cli,
-        )
+        finalize_resume_interactive(interactive, session_id, last, all, TuiCli::default())
     }
 
     fn finalize_fork_from_args(args: &[&str]) -> TuiCli {
         let cli = MultitoolCli::try_parse_from(args).expect("parse");
         let MultitoolCli {
             interactive,
-            config_overrides: root_overrides,
             subcommand,
             feature_toggles: _,
         } = cli;
@@ -1276,13 +1150,13 @@ mod tests {
             session_id,
             last,
             all,
-            config_overrides: fork_cli,
+            ..
         }) = subcommand.expect("fork present")
         else {
             unreachable!()
         };
 
-        finalize_fork_interactive(interactive, root_overrides, session_id, last, all, fork_cli)
+        finalize_fork_interactive(interactive, session_id, last, all, TuiCli::default())
     }
 
     #[test]
@@ -1488,7 +1362,6 @@ mod tests {
 
         assert_eq!(interactive.model.as_deref(), Some("gpt-5.1-test"));
         assert!(interactive.oss);
-        assert_eq!(interactive.config_profile.as_deref(), Some("my-profile"));
         assert_matches!(
             interactive.sandbox_mode,
             Some(savfox_common::SandboxModeCliArg::WorkspaceWrite)

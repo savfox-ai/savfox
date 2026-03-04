@@ -1060,7 +1060,11 @@ remote_compaction = true
 
         assert_eq!(response.config.approval_policy, Some(AskForApproval::Never));
         assert_eq!(
-            response.origins.get("approval_policy").expect("origin").name,
+            response
+                .origins
+                .get("approval_policy")
+                .expect("origin")
+                .name,
             ConfigLayerSource::LegacyManagedConfigTomlFromFile {
                 file: managed_file.clone()
             },

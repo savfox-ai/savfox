@@ -36,8 +36,8 @@ async fn responses_stream_includes_subagent_header_on_review() {
     .await;
 
     let provider = ModelProviderInfo {
-        slug: "mock".into(),
-        display_name: "mock".into(),
+id: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -55,7 +55,7 @@ async fn responses_stream_includes_subagent_header_on_review() {
 
     let savfox_home = TempDir::new().expect("failed to create TempDir");
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     let effort = config.model_reasoning_effort;
     let summary = config.model_reasoning_summary;
@@ -136,8 +136,8 @@ async fn responses_stream_includes_subagent_header_on_other() {
     .await;
 
     let provider = ModelProviderInfo {
-        slug: "mock".into(),
-        display_name: "mock".into(),
+id: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -155,7 +155,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
 
     let savfox_home = TempDir::new().expect("failed to create TempDir");
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     let effort = config.model_reasoning_effort;
     let summary = config.model_reasoning_summary;
@@ -295,8 +295,8 @@ async fn responses_respects_model_info_overrides_from_config() {
     let request_recorder = responses::mount_sse_once(&server, response_body).await;
 
     let provider = ModelProviderInfo {
-        slug: "mock".into(),
-        display_name: "mock".into(),
+id: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -315,7 +315,7 @@ async fn responses_respects_model_info_overrides_from_config() {
     let savfox_home = TempDir::new().expect("failed to create TempDir");
     let mut config = load_default_config_for_test(&savfox_home).await;
     config.model = Some("gpt-3.5-turbo".to_string());
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     config.model_supports_reasoning_summaries = Some(true);
     config.model_reasoning_summary = ReasoningSummary::Detailed;
@@ -405,8 +405,8 @@ async fn responses_stream_includes_turn_metadata_header_for_git_workspace_e2e() 
         responses::ev_completed("resp-1"),
     ]);
     let provider = ModelProviderInfo {
-        slug: "mock".into(),
-        display_name: "mock".into(),
+id: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,
@@ -424,7 +424,7 @@ async fn responses_stream_includes_turn_metadata_header_for_git_workspace_e2e() 
 
     let savfox_home = TempDir::new().expect("failed to create TempDir");
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model_provider_id = provider.slug.clone();
+    config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     let effort = config.model_reasoning_effort;
     let summary = config.model_reasoning_summary;

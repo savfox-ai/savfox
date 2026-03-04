@@ -6035,7 +6035,7 @@
             "null"
           ]
         },
-        "display_name": {
+        "name": {
           "type": [
             "string",
             "null"

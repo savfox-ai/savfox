@@ -63,7 +63,7 @@ pub(crate) struct TailscaleIdentity {
     /// Tailscale login name (email).
     pub(crate) login_name: String,
     /// Display name.
-    pub(crate) display_name: String,
+    pub(crate) name: String,
     /// Tailscale node name.
     pub(crate) node_name: String,
     /// Tailscale IP of the connecting node.
@@ -176,7 +176,7 @@ pub(crate) async fn whois(remote_addr: &str) -> anyhow::Result<TailscaleIdentity
             .as_str()
             .unwrap_or("unknown")
             .to_string(),
-        display_name: user_profile["DisplayName"]
+        name: user_profile["DisplayName"]
             .as_str()
             .unwrap_or("Unknown")
             .to_string(),

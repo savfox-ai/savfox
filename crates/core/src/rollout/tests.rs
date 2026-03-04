@@ -38,7 +38,10 @@ fn provider_vec(providers: &[&str]) -> Vec<String> {
 fn rollout_date_parts_extracts_directory_components() {
     let file_name = OsStr::new("00000000-0000-0000-0000-000000000000.jsonl");
     let parts = rollout_date_parts(file_name);
-    assert_eq!(parts, Some(("1970".to_string(), "01".to_string(), "01".to_string())));
+    assert_eq!(
+        parts,
+        Some(("1970".to_string(), "01".to_string(), "01".to_string()))
+    );
 }
 
 fn write_session_file(
@@ -607,9 +610,7 @@ async fn test_created_at_sort_uses_file_mtime_for_updated_at() -> Result<()> {
     let updated = created + Duration::hours(2);
     let expected_updated = updated.format(&time::format_description::well_known::Rfc3339)?;
 
-    let file_path = home
-        .join("sessions")
-        .join(format!("{uuid}.jsonl"));
+    let file_path = home.join("sessions").join(format!("{uuid}.jsonl"));
     let file = std::fs::OpenOptions::new().write(true).open(&file_path)?;
     let times = FileTimes::new().set_modified(updated.into());
     file.set_times(times)?;
@@ -830,7 +831,11 @@ async fn test_source_filter_excludes_non_matching_sessions() {
         .collect();
 
     assert_eq!(paths.len(), 1);
-    assert!(paths.iter().all(|path| path.ends_with("00000000-0000-0000-0000-00000000002a.jsonl")));
+    assert!(
+        paths
+            .iter()
+            .all(|path| path.ends_with("00000000-0000-0000-0000-00000000002a.jsonl"))
+    );
 
     let all_sessions = get_sessions(
         home,

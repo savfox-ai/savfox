@@ -88,7 +88,7 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
         let has_account_id = self.streaming.has_account_id();
         let conversation_id_set = conversation_id.is_some();
         debug!(
-            provider = %self.streaming.provider().slug,
+            provider = %self.streaming.provider().id,
             url = %self.streaming.provider().url_for_path(self.path()),
             model,
             input_items = prompt.input.len(),
@@ -121,7 +121,7 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
         let stream_result = self.stream_request(request, turn_state).await;
         if let Err(err) = &stream_result {
             error!(
-                provider = %self.streaming.provider().slug,
+                provider = %self.streaming.provider().id,
                 url = %self.streaming.provider().url_for_path(self.path()),
                 model,
                 input_items = prompt.input.len(),

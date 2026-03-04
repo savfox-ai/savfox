@@ -13,6 +13,7 @@ use core_test_support::{
     load_default_config_for_test, skip_if_no_network, skip_if_sandbox, wait_for_event,
     wait_for_event_match,
 };
+use pretty_assertions::assert_eq;
 use savfox_core::config::Config;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::{ModelsManager, RefreshStrategy};
@@ -24,7 +25,6 @@ use savfox_protocol::openai_models::{
     ReasoningEffortPreset, TruncationPolicyConfig, default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::{Duration, Instant, sleep, timeout};
@@ -43,8 +43,8 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .await;
 
     let remote_model = ModelInfo {
-        slug: REMOTE_MODEL_SLUG.to_string(),
-        display_name: "Remote Test".to_string(),
+            slug: REMOTE_MODEL_SLUG.to_string(),,
+        name: "Remote Test".to_string(),
         description: Some("A remote model that requires the test shell".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -281,8 +281,8 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 
     let remote_base = "Use the remote base instructions only.";
     let remote_model = ModelInfo {
-        slug: model.to_string(),
-        display_name: "Parallel Remote".to_string(),
+            slug: model.to_string(),,
+        name: "Parallel Remote".to_string(),
         description: Some("A remote model with custom instructions".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -504,7 +504,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     let server = MockServer::start().await;
     let slug = bundled_model_slug();
     let mut remote_model = test_remote_model(&slug, ModelVisibility::List, 0);
-    remote_model.display_name = "Overridden".to_string();
+    remote_model.name = "Overridden".to_string();
     remote_model.description = Some("Overridden description".to_string());
     let models_mock = mount_models_once(
         &server,
@@ -536,7 +536,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
         .iter()
         .find(|model| model.slug == slug)
         .expect("overlapping model should be listed");
-    assert_eq!(overridden.display_name, remote_model.display_name);
+    assert_eq!(overridden.name, remote_model.name);
     assert_eq!(
         overridden.description,
         remote_model
@@ -709,7 +709,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
 async fn wait_for_model_available(
     manager: &Arc<ModelsManager>,
-    slug: &str,
+            slug: &str,,
     config: &Config,
 ) -> ModelPreset {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -730,8 +730,7 @@ async fn wait_for_model_available(
 }
 
 fn bundled_model_slug() -> String {
-    let response: ModelsResponse =
-        serde_json::from_str(savfox_model::bundled_models_json())
+    let response: ModelsResponse = serde_json::from_str(savfox_model::bundled_models_json())
         .expect("bundled models.json should deserialize");
     response
         .models
@@ -751,14 +750,14 @@ fn test_remote_model(slug: &str, visibility: ModelVisibility, priority: i32) -> 
 }
 
 fn test_remote_model_with_policy(
-    slug: &str,
+            slug: &str,,
     visibility: ModelVisibility,
     priority: i32,
     truncation_policy: TruncationPolicyConfig,
 ) -> ModelInfo {
     ModelInfo {
-        slug: slug.to_string(),
-        display_name: format!("{slug} display"),
+            slug: slug.to_string(),,
+        name: format!("{slug} display"),
         description: Some(format!("{slug} description")),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {

@@ -9,6 +9,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::compact::{SUMMARIZATION_PROMPT, SUMMARY_PREFIX};
 use savfox_core::config::Config;
 use savfox_core::features::Feature;
@@ -20,7 +21,6 @@ use savfox_core::{ModelProviderInfo, SavfoxAuth, built_in_model_providers};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::items::TurnItem;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::json;
 use wiremock::MockServer;
 // --- Test helpers -----------------------------------------------------------
@@ -87,7 +87,7 @@ fn json_fragment(text: &str) -> String {
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
     let mut provider = built_in_model_providers()["openai"].clone();
-    provider.display_name = "OpenAI (test)".into();
+    provider.name = "OpenAI (test)".into();
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider
 }
@@ -505,10 +505,10 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
 
     let server = start_mock_server().await;
 
-    let non_openai_provider_name = non_openai_model_provider(&server).display_name;
+    let non_openai_provider_name = non_openai_model_provider(&server).name;
     let savfox = test_savfox()
         .with_config(move |config| {
-            config.model_provider.display_name = non_openai_provider_name;
+            config.model_provider.name = non_openai_provider_name;
         })
         .build(&server)
         .await

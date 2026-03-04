@@ -90,7 +90,7 @@ impl OtelManager {
     #[allow(clippy::too_many_arguments)]
     pub fn conversation_starts(
         &self,
-        provider_name: &str,
+        provider_id: &str,
         reasoning_effort: Option<ReasoningEffort>,
         reasoning_summary: ReasoningSummary,
         context_window: Option<i64>,
@@ -98,7 +98,6 @@ impl OtelManager {
         approval_policy: AskForApproval,
         sandbox_policy: SandboxPolicy,
         mcp_servers: Vec<&str>,
-        active_profile: Option<String>,
     ) {
         tracing::event!(
             tracing::Level::INFO,
@@ -112,7 +111,7 @@ impl OtelManager {
             terminal.type = %self.metadata.terminal_type,
             model = %self.metadata.model,
             slug = %self.metadata.slug,
-            provider_name = %provider_name,
+            provider_id = %provider_id,
             reasoning_effort = reasoning_effort.map(|e| e.to_string()),
             reasoning_summary = %reasoning_summary,
             context_window = context_window,
@@ -120,7 +119,6 @@ impl OtelManager {
             approval_policy = %approval_policy,
             sandbox_policy = %sandbox_policy,
             mcp_servers = mcp_servers.join(", "),
-            active_profile = active_profile,
         )
     }
 

@@ -6,13 +6,13 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::config::Constrained;
 use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy};
 use savfox_exec_policy::Policy;
 use savfox_protocol::models::DeveloperInstructions;
 use savfox_protocol::user_input::UserInput;
 use savfox_utils_absolute_path::AbsolutePathBuf;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 fn permissions_texts(input: &[serde_json::Value]) -> Vec<String> {
@@ -394,7 +394,10 @@ async fn resume_and_fork_append_permissions_messages() -> Result<()> {
             final_output_json_schema: None,
         })
         .await?;
-    wait_for_event(&forked.session, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    wait_for_event(&forked.session, |ev| {
+        matches!(ev, EventMsg::TurnComplete(_))
+    })
+    .await;
 
     let body4 = req4.single_request().body_json();
     let input4 = body4["input"].as_array().expect("input array");

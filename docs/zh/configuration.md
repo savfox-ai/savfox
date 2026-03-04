@@ -109,16 +109,6 @@ savfox -c gateway.port=9090 gateway
 savfox -c model.model=gpt-4o -c sandbox.mode=full-access exec "执行操作"
 ```
 
-## 配置档案
-
-使用命名档案在不同配置之间切换：
-
-```bash
-savfox --profile work exec "工作项目任务"
-savfox --profile personal exec "个人项目任务"
-savfox -p oss exec "使用 OSS 模型"
-```
-
 ## 特性标志
 
 特性标志控制实验性和开发中功能的访问权限。

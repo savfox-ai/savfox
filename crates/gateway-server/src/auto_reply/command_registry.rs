@@ -159,16 +159,11 @@ impl CommandRegistry {
             handler: |ctx, args| {
                 let model = args.named("model").or_else(|| args.positional(0));
                 if let Some(model) = model {
-                    let with_profile = match args.named("profile") {
-                        Some(profile) if !profile.trim().is_empty() => {
-                            format!("{}@{}", model.trim(), profile.trim())
-                        }
-                        _ => model.trim().to_string(),
-                    };
+                    let model = model.trim().to_string();
                     CommandResult {
-                        reply: Some(format!("Model set to: {with_profile}")),
+                        reply: Some(format!("Model set to: {model}")),
                         action: Some(CommandAction::SetModel {
-                            model: with_profile,
+                            model,
                         }),
                         error: None,
                     }

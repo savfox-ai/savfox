@@ -128,7 +128,6 @@ struct ProviderModelCatalog {
 
 #[derive(Debug, Clone)]
 struct EffectiveModelSelection {
-    write_profile: Option<String>,
     configured_model: String,
     configured_provider: Option<String>,
     effective_effort: Option<ReasoningEffort>,
@@ -155,7 +154,7 @@ fn model_id_from_store_item(item: &Value, provider_id: &str) -> Option<String> {
                 .and_then(trim_nonempty)
         })
         .or_else(|| {
-            item.get("model_code")
+            item.get("model_slug")
                 .and_then(Value::as_str)
                 .and_then(trim_nonempty)
         })
@@ -259,24 +258,11 @@ fn model_exists_in_catalog(model: &str, catalog: &ProviderModelCatalog) -> bool 
 
 fn effective_model_selection(
     config_toml: &ConfigToml,
-    override_profile: Option<String>,
 ) -> std::io::Result<Option<EffectiveModelSelection>> {
-    let active_profile = override_profile
-        .clone()
-        .or_else(|| config_toml.profile.clone());
-    let profile = config_toml.get_config_profile(override_profile)?;
-
-    let profile_model = profile.model.as_ref().and_then(|model| model.to_model_id());
-    let profile_provider = profile
-        .model_provider
-        .and_then(|provider| trim_nonempty(&provider));
-
-    let configured_model = profile_model.clone().or_else(|| {
-        config_toml
-            .model
-            .as_ref()
-            .and_then(|model| model.to_model_id())
-    });
+    let configured_model = config_toml
+        .model
+        .as_ref()
+        .and_then(|model| model.to_model_id());
     let Some(configured_model) = configured_model else {
         return Ok(None);
     };
@@ -284,38 +270,25 @@ fn effective_model_selection(
     let provider_from_model = parse_provider_prefixed_model(&configured_model)
         .map(|(provider_id, _)| provider_id.to_string());
     let configured_provider = provider_from_model.or_else(|| {
-        profile_provider.clone().or_else(|| {
-            config_toml
-                .model
-                .as_ref()
-                .and_then(|model| model.normalized_provider())
-                .or_else(|| {
-                    config_toml
-                        .model_provider
-                        .as_deref()
-                        .and_then(trim_nonempty)
-                })
-        })
+        config_toml
+            .model
+            .as_ref()
+            .and_then(|model| model.normalized_provider())
+            .or_else(|| {
+                config_toml
+                    .model_provider
+                    .as_deref()
+                    .and_then(trim_nonempty)
+            })
     });
 
-    let write_profile =
-        if active_profile.is_some() && (profile_model.is_some() || profile_provider.is_some()) {
-            active_profile
-        } else {
-            None
-        };
-    let effective_effort = profile
-        .model_reasoning_effort
-        .or_else(|| {
-            config_toml
-                .model
-                .as_ref()
-                .and_then(|model| model.reasoning_effort)
-        })
+    let effective_effort = config_toml
+        .model
+        .as_ref()
+        .and_then(|model| model.reasoning_effort)
         .or(config_toml.model_reasoning_effort);
 
     Ok(Some(EffectiveModelSelection {
-        write_profile,
         configured_model,
         configured_provider,
         effective_effort,
@@ -343,14 +316,13 @@ fn configured_model_for_provider(model: &str, provider_id: Option<&str>) -> Opti
 async fn maybe_repair_model_from_provider_store(
     savfox_home: &Path,
     config_toml: &ConfigToml,
-    override_profile: Option<String>,
 ) -> std::io::Result<Option<String>> {
     let catalogs = load_provider_model_catalog(savfox_home);
     if catalogs.is_empty() {
         return Ok(None);
     }
 
-    let Some(selection) = effective_model_selection(config_toml, override_profile.clone())? else {
+    let Some(selection) = effective_model_selection(config_toml)? else {
         return Ok(None);
     };
 
@@ -405,7 +377,6 @@ async fn maybe_repair_model_from_provider_store(
     }
 
     ConfigEditsBuilder::new(savfox_home)
-        .with_profile(selection.write_profile.as_deref())
         .set_model(
             Some(target.first_model.as_str()),
             selection.effective_effort,
@@ -441,26 +412,10 @@ pub async fn run_main(
     };
 
     // Map the legacy --search flag to the canonical web_search mode.
-    if cli.web_search {
-        cli.config_overrides
-            .raw_overrides
-            .push("web_search=\"live\"".to_string());
-    }
-
     // When using `--oss`, let the bootstrapper pick the model (defaulting to
     // gpt-oss:20b) and ensure it is present locally. Also, force the built‑in
-    let raw_overrides = cli.config_overrides.raw_overrides.clone();
     // `oss` model provider.
-    let overrides_cli = savfox_common::CliConfigOverrides { raw_overrides };
-    let cli_kv_overrides = match overrides_cli.parse_overrides() {
-        // Parse `-c` overrides from the CLI.
-        Ok(v) => v,
-        #[allow(clippy::print_stderr)]
-        Err(e) => {
-            eprintln!("Error parsing -c overrides: {e}");
-            std::process::exit(1);
-        }
-    };
+    let cli_kv_overrides: Vec<(String, toml::Value)> = Vec::new();
 
     // we load config.toml here to determine project state.
     #[allow(clippy::print_stderr)]
@@ -479,30 +434,25 @@ pub async fn run_main(
     };
 
     #[allow(clippy::print_stderr)]
-    let mut config_toml = match load_config_as_toml_with_cli_overrides(
-        &savfox_home,
-        &config_cwd,
-        cli_kv_overrides.clone(),
-    )
-    .await
-    {
-        Ok(config_toml) => config_toml,
-        Err(err) => {
-            let config_error = err
-                .get_ref()
-                .and_then(|err| err.downcast_ref::<ConfigLoadError>())
-                .map(ConfigLoadError::config_error);
-            if let Some(config_error) = config_error {
-                eprintln!(
-                    "Error loading config.toml:\n{}",
-                    format_config_error_with_source(config_error)
-                );
-            } else {
-                eprintln!("Error loading config.toml: {err}");
+    let mut config_toml =
+        match load_config_as_toml_with_cli_overrides(&savfox_home, &config_cwd, Vec::new()).await {
+            Ok(config_toml) => config_toml,
+            Err(err) => {
+                let config_error = err
+                    .get_ref()
+                    .and_then(|err| err.downcast_ref::<ConfigLoadError>())
+                    .map(ConfigLoadError::config_error);
+                if let Some(config_error) = config_error {
+                    eprintln!(
+                        "Error loading config.toml:\n{}",
+                        format_config_error_with_source(config_error)
+                    );
+                } else {
+                    eprintln!("Error loading config.toml: {err}");
+                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
-    };
+        };
 
     if let Err(err) =
         savfox_core::personality_migration::maybe_migrate_personality(&savfox_home, &config_toml)
@@ -511,31 +461,17 @@ pub async fn run_main(
         tracing::warn!(error = %err, "failed to run personality migration");
     }
 
-    let has_model_cli_override = cli_kv_overrides.iter().any(|(key, _)| {
-        key == "model"
-            || key == "model_provider"
-            || key.ends_with(".model")
-            || key.ends_with(".model_provider")
-    });
+    let has_model_cli_override = false;
     if !cli.oss && cli.model.is_none() && !has_model_cli_override {
-        match maybe_repair_model_from_provider_store(
-            &savfox_home,
-            &config_toml,
-            cli.config_profile.clone(),
-        )
-        .await
-        {
+        match maybe_repair_model_from_provider_store(&savfox_home, &config_toml).await {
             Ok(Some(warning)) => {
                 #[allow(clippy::print_stderr)]
                 {
                     eprintln!("Warning: {warning}");
                 }
-                config_toml = load_config_as_toml_with_cli_overrides(
-                    &savfox_home,
-                    &config_cwd,
-                    cli_kv_overrides.clone(),
-                )
-                .await?;
+                config_toml =
+                    load_config_as_toml_with_cli_overrides(&savfox_home, &config_cwd, Vec::new())
+                        .await?;
             }
             Ok(None) => {}
             Err(err) => {
@@ -559,11 +495,7 @@ pub async fn run_main(
     let cloud_requirements = cloud_requirements_loader(cloud_auth_manager, chatgpt_base_url);
 
     let model_provider_override = if cli.oss {
-        let resolved = resolve_oss_provider(
-            cli.oss_provider.as_deref(),
-            &config_toml,
-            cli.config_profile.clone(),
-        );
+        let resolved = resolve_oss_provider(cli.oss_provider.as_deref(), &config_toml);
 
         if let Some(provider) = resolved {
             Some(provider)
@@ -602,19 +534,13 @@ pub async fn run_main(
         sandbox_mode,
         cwd,
         model_provider: model_provider_override.clone(),
-        config_profile: cli.config_profile.clone(),
         savfox_linux_sandbox_exe,
         show_raw_agent_reasoning: cli.oss.then_some(true),
         additional_writable_roots: additional_dirs,
         ..Default::default()
     };
 
-    let config = load_config_or_exit(
-        cli_kv_overrides.clone(),
-        overrides.clone(),
-        cloud_requirements.clone(),
-    )
-    .await;
+    let config = load_config_or_exit(overrides.clone(), cloud_requirements.clone()).await;
     set_default_client_residency_requirement(config.enforce_residency.value());
 
     if let Some(warning) = add_dir_warning_message(&cli.add_dir, config.sandbox_policy.get()) {
@@ -728,23 +654,15 @@ pub async fn run_main(
         .with(otel_tracing_layer)
         .try_init();
 
-    run_ratatui_app(
-        cli,
-        config,
-        overrides,
-        cli_kv_overrides,
-        cloud_requirements,
-        feedback,
-    )
-    .await
-    .map_err(|err| std::io::Error::other(err.to_string()))
+    run_ratatui_app(cli, config, overrides, cloud_requirements, feedback)
+        .await
+        .map_err(|err| std::io::Error::other(err.to_string()))
 }
 
 async fn run_ratatui_app(
     cli: Cli,
     initial_config: Config,
     overrides: ConfigOverrides,
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     cloud_requirements: CloudRequirementsLoader,
     feedback: savfox_feedback::SavfoxFeedback,
 ) -> color_eyre::Result<AppExitInfo> {
@@ -838,12 +756,7 @@ async fn run_ratatui_app(
         // If the user made an explicit trust decision, reload config so current
         // process state reflects what was persisted to config.toml.
         if onboarding_result.directory_trust_decision.is_some() {
-            load_config_or_exit(
-                cli_kv_overrides.clone(),
-                overrides.clone(),
-                cloud_requirements.clone(),
-            )
-            .await
+            load_config_or_exit(overrides.clone(), cloud_requirements.clone()).await
         } else {
             initial_config
         }
@@ -1015,7 +928,6 @@ async fn run_ratatui_app(
     let config = match &session_selection {
         resume_picker::SessionSelection::Resume(_) | resume_picker::SessionSelection::Fork(_) => {
             load_config_or_exit_with_fallback_cwd(
-                cli_kv_overrides.clone(),
                 overrides.clone(),
                 cloud_requirements.clone(),
                 fallback_cwd,
@@ -1024,7 +936,6 @@ async fn run_ratatui_app(
         }
         _ => config,
     };
-    let active_profile = config.active_profile.clone();
     let should_show_trust_screen = should_show_trust_screen(&config);
 
     let Cli {
@@ -1041,9 +952,7 @@ async fn run_ratatui_app(
         &mut tui,
         auth_manager,
         config,
-        cli_kv_overrides.clone(),
         overrides.clone(),
-        active_profile,
         prompt,
         images,
         session_selection,
@@ -1175,23 +1084,19 @@ fn determine_alt_screen_mode(
 }
 
 async fn load_config_or_exit(
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
     cloud_requirements: CloudRequirementsLoader,
 ) -> Config {
-    load_config_or_exit_with_fallback_cwd(cli_kv_overrides, overrides, cloud_requirements, None)
-        .await
+    load_config_or_exit_with_fallback_cwd(overrides, cloud_requirements, None).await
 }
 
 async fn load_config_or_exit_with_fallback_cwd(
-    cli_kv_overrides: Vec<(String, toml::Value)>,
     overrides: ConfigOverrides,
     cloud_requirements: CloudRequirementsLoader,
     fallback_cwd: Option<PathBuf>,
 ) -> Config {
     #[allow(clippy::print_stderr)]
     match ConfigBuilder::default()
-        .cli_overrides(cli_kv_overrides)
         .harness_overrides(overrides)
         .cloud_requirements(cloud_requirements)
         .fallback_cwd(fallback_cwd)
@@ -1543,7 +1448,7 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "display_name": "ZhipuAI Coding Plan",
+  "name": "ZhipuAI Coding Plan",
   "auth": {
     "type": "api_key",
     "env_key": "ZHIPUAI_API_KEY",
@@ -1588,12 +1493,13 @@ trust_level = "untrusted"
         };
 
         let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
-        let updated: ConfigToml =
-            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
-                .expect("parse updated config");
+        let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
+            temp_dir.path().join("config.toml"),
+        )?)
+        .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
             Some("zhipuai-coding-plan/glm-5".to_string())
@@ -1628,12 +1534,13 @@ trust_level = "untrusted"
         };
 
         let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml, None).await?;
+            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
-        let updated: ConfigToml =
-            toml::from_str(&std::fs::read_to_string(temp_dir.path().join("config.toml"))?)
-                .expect("parse updated config");
+        let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
+            temp_dir.path().join("config.toml"),
+        )?)
+        .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
             Some("zhipuai-coding-plan/glm-4.5".to_string())

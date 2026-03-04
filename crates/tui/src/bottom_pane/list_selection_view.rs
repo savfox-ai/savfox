@@ -204,7 +204,7 @@ impl ListSelectionView {
                         format!("{prefix} {n}. ")
                     };
                     let wrap_prefix_width = UnicodeWidthStr::width(wrap_prefix.as_str());
-                    let display_name = format!("{wrap_prefix}{name_with_marker}");
+                    let name = format!("{wrap_prefix}{name_with_marker}");
                     let description = is_selected
                         .then(|| item.selected_description.clone())
                         .flatten()
@@ -212,7 +212,7 @@ impl ListSelectionView {
                     let wrap_indent = description.is_none().then_some(wrap_prefix_width);
                     let is_disabled = item.is_disabled || item.disabled_reason.is_some();
                     GenericDisplayRow {
-                        name: display_name,
+                        name: name,
                         display_shortcut: item.display_shortcut,
                         match_indices: None,
                         description,

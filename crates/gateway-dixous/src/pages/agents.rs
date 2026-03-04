@@ -828,7 +828,7 @@ fn AgentOverviewTab(
                         move |_| {
                             let id = id.clone();
                             let ws = ws.clone();
-                            let display_name = form_name().trim().to_string();
+                            let name = form_name().trim().to_string();
                             let model_val = form_model().trim().to_string();
                             let desc_val = form_desc();
                             let fallback_str = form_fallback();
@@ -842,7 +842,7 @@ fn AgentOverviewTab(
                             spawn(async move {
                                 let mut params = json!({
                                     "id": id,
-                                    "name": display_name,
+                                    "name": name,
                                     "model": model_val.clone(),
                                     "system_prompt": desc_val,
                                 });
@@ -853,8 +853,6 @@ fn AgentOverviewTab(
                                 }
                                 if !fallback_list.is_empty() {
                                     models_obj["fallbacks"] = json!(fallback_list.clone());
-                                    // Keep legacy field too for backward compat
-                                    params["fallback_models"] = json!(fallback_list);
                                 }
                                 params["models"] = models_obj;
                                 if !emoji_val.is_empty() {
@@ -1862,10 +1860,10 @@ fn AgentCronTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> 
                                     let status_label = if enabled { "Enabled" } else { "Disabled" };
                                     let schedule = job.schedule.as_deref().unwrap_or("-");
                                     let next = job.next_run.as_deref().unwrap_or("-");
-                                    let display_name = job.name.as_deref().unwrap_or(&job.id);
+                                    let name = job.name.as_deref().unwrap_or(&job.id);
                                     rsx! {
                                         tr { key: "{job.id}", style: "border-top:1px solid var(--border);",
-                                            td { style: "{TD}font-weight:500;", "{display_name}" }
+                                            td { style: "{TD}font-weight:500;", "{name}" }
                                             td { style: "{TD}font-family:monospace;font-size:12px;", "{schedule}" }
                                             td { style: "{TD}",
                                                 span { class: "{status_class}", "{status_label}" }

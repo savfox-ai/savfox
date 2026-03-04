@@ -1020,10 +1020,10 @@ fn render_step_summary(
                                     .iter()
                                     .enumerate()
                                     .map(|(i, entry)| {
-                                        let model_code = entry.id.split('/').last().unwrap_or(&entry.id);
+                                        let model_slug = entry.id.split('/').last().unwrap_or(&entry.id);
                                         json!({
                                             "id": entry.id,
-                                            "model_code": model_code,
+                                            "model_slug": model_slug,
                                             "name": entry.name,
                                             "provider": provider_id,
                                             "is_default": i == 0,
@@ -1033,7 +1033,7 @@ fn render_step_summary(
 
                                 let mut import_params = json!({
                                     "provider_id": provider_id,
-                                    "display_name": provider_name,
+                                    "name": provider_name,
                                     "models": model_entries,
                                     "api_key": api_key,
                                     "env_key": provider_env_key,

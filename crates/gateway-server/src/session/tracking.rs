@@ -24,7 +24,7 @@ pub struct InboundSessionMeta<'a> {
     pub parent_thread_id: Option<&'a str>,
     pub reply_target: Option<&'a str>,
     pub account_id: Option<&'a str>,
-    pub display_name: Option<&'a str>,
+    pub name: Option<&'a str>,
     pub topic: Option<&'a str>,
     pub first_message: Option<&'a str>,
     pub chat_type: Option<&'a str>,
@@ -107,15 +107,15 @@ pub async fn track_inbound_message(
     }
 
     if let Some(user_id) = meta.peer_id {
-        let display = meta.display_name.unwrap_or(user_id);
+        let display = meta.name.unwrap_or(user_id);
         entry.sender = Some(SessionSender {
             user_id: Some(user_id.to_owned()),
-            display_name: Some(display.to_owned()),
+            name: Some(display.to_owned()),
         });
         entry.push_provenance(SessionMessageProvenance {
             channel: source_channel,
             user_id: user_id.to_owned(),
-            display_name: display.to_owned(),
+            name: display.to_owned(),
             timestamp: now_epoch_ms(),
         });
     }
@@ -133,7 +133,7 @@ pub async fn track_inbound_message(
         entry.label = derive_auto_label(
             meta.first_message,
             entry.subject.as_deref(),
-            meta.display_name,
+            meta.name,
         );
     }
 
@@ -160,11 +160,11 @@ fn now_epoch_ms() -> u64 {
 fn derive_auto_label(
     first_message: Option<&str>,
     topic: Option<&str>,
-    display_name: Option<&str>,
+    name: Option<&str>,
 ) -> Option<String> {
     normalize_label_candidate(first_message)
         .or_else(|| normalize_label_candidate(topic))
-        .or_else(|| normalize_label_candidate(display_name))
+        .or_else(|| normalize_label_candidate(name))
 }
 
 fn normalize_label_candidate(raw: Option<&str>) -> Option<String> {

@@ -8,7 +8,6 @@ These options apply to all subcommands:
 |------|-------------|
 | `-m, --model <MODEL>` | Specify the LLM model to use |
 | `-c, --config <KEY=VALUE>` | Override a config value (repeatable) |
-| `-p, --profile <PROFILE>` | Use a named configuration profile |
 | `--oss` | Use open-source local provider (Ollama, LM Studio) |
 | `--search` | Enable web search mode |
 | `--sandbox <MODE>` | Sandbox policy: `read-only`, `workspace-write`, `full-access` |

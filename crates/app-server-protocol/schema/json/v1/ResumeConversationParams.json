@@ -334,12 +334,6 @@
             "null"
           ]
         },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "sandbox": {
           "anyOf": [
             {

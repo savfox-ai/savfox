@@ -12,9 +12,9 @@ use core_test_support::test_savfox::{
     ApplyPatchModelOutput, ShellModelOutput, TestSavfoxBuilder, test_savfox,
 };
 use core_test_support::{assert_regex_match, skip_if_no_network};
-use savfox_core::protocol::SandboxPolicy;
 use pretty_assertions::assert_eq;
 use regex_lite::Regex;
+use savfox_core::protocol::SandboxPolicy;
 use serde_json::{Value, json};
 use test_case::test_case;
 

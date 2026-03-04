@@ -46,7 +46,7 @@ struct SkillMetadataFile {
 
 #[derive(Debug, Default, Deserialize)]
 struct Interface {
-    display_name: Option<String>,
+    name: Option<String>,
     short_description: Option<String>,
     icon_small: Option<PathBuf>,
     icon_large: Option<PathBuf>,
@@ -547,10 +547,10 @@ fn load_skill_metadata(skill_path: &Path) -> (Option<SkillInterface>, Option<Ski
 fn resolve_interface(interface: Option<Interface>, skill_dir: &Path) -> Option<SkillInterface> {
     let interface = interface?;
     let interface = SkillInterface {
-        display_name: resolve_str(
-            interface.display_name,
+        name: resolve_str(
+            interface.name,
             MAX_NAME_LEN,
-            "interface.display_name",
+            "interface.name",
         ),
         short_description: resolve_str(
             interface.short_description,
@@ -566,7 +566,7 @@ fn resolve_interface(interface: Option<Interface>, skill_dir: &Path) -> Option<S
             "interface.default_prompt",
         ),
     };
-    let has_fields = interface.display_name.is_some()
+    let has_fields = interface.name.is_some()
         || interface.short_description.is_some()
         || interface.icon_small.is_some()
         || interface.icon_large.is_some()
@@ -1149,7 +1149,7 @@ mod tests {
             skill_dir,
             r##"
 interface:
-  display_name: "UI Skill"
+  name: "UI Skill"
   short_description: "  short    desc   "
   icon_small: "./assets/small-400px.png"
   icon_large: "./assets/large-logo.svg"
@@ -1178,7 +1178,7 @@ interface:
                 description: "from json".to_string(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    display_name: Some("UI Skill".to_string()),
+                    name: Some("UI Skill".to_string()),
                     short_description: Some("short desc".to_string()),
                     icon_small: Some(normalized_skill_dir.join("assets/small-400px.png")),
                     icon_large: Some(normalized_skill_dir.join("assets/large-logo.svg")),
@@ -1204,7 +1204,7 @@ interface:
             r#"
 {
   "interface": {
-    "display_name": "UI Skill",
+    "name": "UI Skill",
     "icon_small": "assets/icon.png",
     "icon_large": "./assets/logo.svg"
   }
@@ -1227,7 +1227,7 @@ interface:
                 description: "from json".to_string(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    display_name: Some("UI Skill".to_string()),
+                    name: Some("UI Skill".to_string()),
                     short_description: None,
                     icon_small: Some(normalized_skill_dir.join("assets/icon.png")),
                     icon_large: Some(normalized_skill_dir.join("assets/logo.svg")),
@@ -1294,7 +1294,7 @@ interface:
                 r##"
 {{
   "interface": {{
-    "display_name": "UI Skill",
+    "name": "UI Skill",
     "icon_small": "./assets/small-400px.png",
     "default_prompt": "{too_long}"
   }}
@@ -1318,7 +1318,7 @@ interface:
                 description: "from json".to_string(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    display_name: Some("UI Skill".to_string()),
+                    name: Some("UI Skill".to_string()),
                     short_description: None,
                     icon_small: Some(normalized_skill_dir.join("assets/small-400px.png")),
                     icon_large: None,

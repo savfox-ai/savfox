@@ -11,10 +11,10 @@ use core_test_support::responses::{
 use core_test_support::streaming_sse::{StreamingSseChunk, start_streaming_sse_server};
 use core_test_support::test_savfox::{TestSavfox, test_savfox};
 use core_test_support::{skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::protocol::{AskForApproval, EventMsg, Op, SandboxPolicy};
 use savfox_protocol::config_types::ReasoningSummary;
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio::sync::oneshot;
 

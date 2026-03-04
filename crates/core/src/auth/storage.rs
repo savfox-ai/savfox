@@ -67,7 +67,7 @@ impl From<&AuthDotJson> for ProviderStoreFile {
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
             provider_id: AUTH_PROVIDER_ID.to_string(),
-            display_name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
+            name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
             auth: Some(ProviderStoreAuth {
                 auth_type,
                 env_key: Some("OPENAI_API_KEY".to_string()),
@@ -470,7 +470,7 @@ mod tests {
         let provider_file = json!({
             "version": 2,
             "provider_id": "chatgpt",
-            "display_name": "ChatGPT",
+            "name": "ChatGPT",
             "auth": {
                 "type": "api_key",
                 "env_key": "OPENAI_API_KEY",
@@ -481,16 +481,13 @@ mod tests {
                     "id": "openai/gpt-5.2-codex",
                     "name": "gpt-5.2-codex",
                     "provider": "openai",
-                    "model_code": "gpt-5.2-codex",
+                    "model_slug": "gpt-5.2-codex",
                     "is_default": true,
                     "builtin": true
                 }
             ]
         });
-        std::fs::write(
-            &auth_file,
-            serde_json::to_string_pretty(&provider_file)?,
-        )?;
+        std::fs::write(&auth_file, serde_json::to_string_pretty(&provider_file)?)?;
 
         let loaded = storage.load().context("failed to load provider file")?;
         assert_eq!(
@@ -526,7 +523,7 @@ mod tests {
         let raw_file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
         assert_eq!(raw_file["version"], 2);
         assert_eq!(raw_file["provider_id"], "openai");
-        assert_eq!(raw_file["display_name"], "OpenAI");
+        assert_eq!(raw_file["name"], "OpenAI");
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");
@@ -556,7 +553,10 @@ mod tests {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(&legacy_file, r#"{"provider_id":"chatgpt"}"#)?;
-        assert!(legacy_file.exists(), "legacy chatgpt provider file should exist");
+        assert!(
+            legacy_file.exists(),
+            "legacy chatgpt provider file should exist"
+        );
 
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),

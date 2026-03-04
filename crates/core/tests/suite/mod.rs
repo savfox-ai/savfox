@@ -1,4 +1,4 @@
-﻿// Aggregates all former standalone integration tests as modules.
+// Aggregates all former standalone integration tests as modules.
 use ctor::ctor;
 use savfox_arg0::arg0_dispatch;
 use tempfile::TempDir;
@@ -45,7 +45,6 @@ mod model_tools;
 mod models_cache_ttl;
 mod models_etag_responses;
 mod otel;
-mod savfox_delegate;
 mod pending_input;
 mod permissions_messages;
 mod personality;
@@ -61,6 +60,7 @@ mod resume_warning;
 mod review;
 mod rmcp_client;
 mod rollout_list_find;
+mod savfox_delegate;
 mod seatbelt;
 mod shell_command;
 mod shell_serialization;

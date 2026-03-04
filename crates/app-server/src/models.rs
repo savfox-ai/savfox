@@ -19,8 +19,8 @@ pub async fn supported_models(session_manager: Arc<SessionManager>, config: &Con
 fn model_from_preset(preset: ModelPreset) -> Model {
     Model {
         id: preset.id.to_string(),
-        model: preset.slug.to_string(),
-        display_name: preset.display_name.to_string(),
+        slug: preset.slug.to_string(),
+        name: preset.name.to_string(),
         description: preset.description.to_string(),
         supported_reasoning_efforts: reasoning_efforts_from_preset(
             preset.supported_reasoning_efforts,

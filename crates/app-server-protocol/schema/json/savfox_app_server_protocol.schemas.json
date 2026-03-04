@@ -5784,12 +5784,6 @@
             "null"
           ]
         },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "sandbox": {
           "anyOf": [
             {
@@ -5974,69 +5968,6 @@
         "unknown"
       ],
       "type": "string"
-    },
-    "Profile": {
-      "properties": {
-        "approvalPolicy": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/AskForApproval"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "chatgptBaseUrl": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "model": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "modelProvider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "modelReasoningEffort": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ReasoningEffort"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "modelReasoningSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/ReasoningSummary"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "modelVerbosity": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Verbosity"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
     },
     "RateLimitSnapshot": {
       "properties": {
@@ -8412,7 +8343,7 @@
             "null"
           ]
         },
-        "display_name": {
+        "name": {
           "type": [
             "string",
             "null"
@@ -9242,18 +9173,6 @@
             }
           ]
         },
-        "profile": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "profiles": {
-          "additionalProperties": {
-            "$ref": "#/definitions/Profile"
-          },
-          "type": "object"
-        },
         "sandboxMode": {
           "anyOf": [
             {
@@ -9285,9 +9204,6 @@
           ]
         }
       },
-      "required": [
-        "profiles"
-      ],
       "type": "object"
     },
     "V1ByteRange": {
@@ -10196,19 +10112,6 @@
                 "type": "null"
               }
             ]
-          },
-          "profile": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "profiles": {
-            "additionalProperties": {
-              "$ref": "#/definitions/v2/ProfileV2"
-            },
-            "default": {},
-            "type": "object"
           },
           "review_model": {
             "type": [
@@ -11924,80 +11827,6 @@
           "unknown"
         ],
         "type": "string"
-      },
-      "ProfileV2": {
-        "additionalProperties": true,
-        "properties": {
-          "approval_policy": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/AskForApproval"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "chatgpt_base_url": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "model_provider": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "model_reasoning_effort": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ReasoningEffort"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model_reasoning_summary": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/ReasoningSummary"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model_verbosity": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/Verbosity"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "web_search": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/v2/WebSearchMode"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object"
       },
       "RateLimitSnapshot": {
         "properties": {

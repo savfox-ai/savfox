@@ -12,10 +12,10 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::{TestSavfoxHarness, test_savfox};
 use core_test_support::{skip_if_no_network, wait_for_event_match};
+use pretty_assertions::assert_eq;
 use savfox_core::SavfoxSession;
 use savfox_core::features::Feature;
 use savfox_core::protocol::{EventMsg, Op, UndoCompletedEvent};
-use pretty_assertions::assert_eq;
 
 #[allow(clippy::expect_used)]
 async fn undo_harness() -> Result<TestSavfoxHarness> {

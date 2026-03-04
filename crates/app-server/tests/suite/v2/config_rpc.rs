@@ -56,10 +56,7 @@ sandbox_mode = "workspace-write"
         layers,
     } = to_response(resp)?;
 
-    assert_eq!(
-        config.sandbox_mode,
-        Some(SandboxMode::WorkspaceWrite),
-    );
+    assert_eq!(config.sandbox_mode, Some(SandboxMode::WorkspaceWrite),);
     assert_eq!(
         origins.get("sandbox_mode").expect("origin").name,
         ConfigLayerSource::User {

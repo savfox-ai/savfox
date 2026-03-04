@@ -6,7 +6,6 @@ use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;
 
 use rmcp::model::{ClientNotification, ClientRequest, JsonRpcMessage};
-use savfox_common::CliConfigOverrides;
 use savfox_core::config::Config;
 use serde_json::Value;
 use tokio::io::{
@@ -38,10 +37,7 @@ const CHANNEL_CAPACITY: usize = 128;
 
 type IncomingMessage = JsonRpcMessage<ClientRequest, Value, ClientNotification>;
 
-pub async fn run_main(
-    savfox_linux_sandbox_exe: Option<PathBuf>,
-    cli_config_overrides: CliConfigOverrides,
-) -> IoResult<()> {
+pub async fn run_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()> {
     // Install a simple subscriber so `tracing` output is visible.  Users can
     // control the log level with `RUST_LOG`.
     tracing_subscriber::fmt()
@@ -76,19 +72,13 @@ pub async fn run_main(
         }
     });
 
-    // Parse CLI overrides once and derive the base Config eagerly so later
-    // components do not need to work with raw TOML values.
-    let cli_kv_overrides = cli_config_overrides.parse_overrides().map_err(|e| {
-        std::io::Error::new(
-            ErrorKind::InvalidInput,
-            format!("error parsing -c overrides: {e}"),
-        )
-    })?;
-    let config = Config::load_with_cli_overrides(cli_kv_overrides)
-        .await
-        .map_err(|e| {
-            std::io::Error::new(ErrorKind::InvalidData, format!("error loading config: {e}"))
-        })?;
+    // Load configuration.
+    let config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), Default::default())
+            .await
+            .map_err(|e| {
+                std::io::Error::new(ErrorKind::InvalidData, format!("error loading config: {e}"))
+            })?;
 
     // Task: process incoming messages.
     let processor_handle = tokio::spawn({

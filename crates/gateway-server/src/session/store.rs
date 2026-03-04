@@ -69,7 +69,7 @@ pub struct SessionMessageProvenance {
     /// Platform-native sender ID.
     pub user_id: String,
     /// Display name captured from the inbound event.
-    pub display_name: String,
+    pub name: String,
     /// Capture timestamp (epoch milliseconds).
     pub timestamp: u64,
 }
@@ -83,7 +83,7 @@ pub struct SessionSender {
     pub user_id: Option<String>,
     /// Display name of the sender.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
+    pub name: Option<String>,
 }
 
 // ─── Session Entry ─────────────────────────────────────────────────────────
@@ -147,9 +147,9 @@ pub struct SessionEntry {
     /// Sender information (last message sender).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<SessionSender>,
-    /// Legacy display_name field for backward compatibility during migration.
+    /// Legacy name field for backward compatibility during migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
+    pub name: Option<String>,
 
     // ── Agent config overrides ──────────────────────────────────────
     /// Model to use for this session.
@@ -293,7 +293,7 @@ impl Default for SessionEntry {
             group_channel: None,
             space: None,
             sender: None,
-            display_name: None,
+            name: None,
             model: None,
             provider: None,
             identity: None,
@@ -571,7 +571,7 @@ impl SessionStore {
                         updated_at: created_at,
                         created_at,
                         session_file: Some(uuid_str.to_string()),
-                        model: meta_line.meta.model_code().map(str::to_string),
+                        model: meta_line.meta.model_slug().map(str::to_string),
                         provider: meta_line.meta.model_provider_id().map(str::to_string),
                         from: Some(format!("{:?}", meta_line.meta.source)),
                         // Add other fields as needed from SessionMeta

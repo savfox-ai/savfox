@@ -206,13 +206,13 @@ impl ModelsManager {
             Some(config.chatgpt_base_url.as_str()),
         )?;
         let api_auth = auth_provider_from_auth(auth.clone(), &self.provider, "openai")?;
-        let provider_name = api_provider.slug.clone();
+        let provider_id = api_provider.id.clone();
         let models_url = api_provider.url_for_path("models");
         let has_bearer_token = api_auth.has_bearer_token();
         let has_account_id = api_auth.has_account_id();
         if self.provider.requires_openai_auth && !has_bearer_token && !has_account_id {
             debug!(
-                provider = %provider_name,
+                provider = %provider_id,
                 url = %models_url,
                 auth_mode = ?auth_mode,
                 has_bearer_token,
@@ -226,7 +226,7 @@ impl ModelsManager {
 
         let client_version = crate::models_manager::client_version_to_whole();
         debug!(
-            provider = %provider_name,
+            provider = %provider_id,
             url = %models_url,
             auth_mode = ?auth_mode,
             has_bearer_token,
@@ -246,7 +246,7 @@ impl ModelsManager {
             Err(err) => {
                 let mapped = map_api_error(err);
                 error!(
-                    provider = %provider_name,
+                    provider = %provider_id,
                     url = %models_url,
                     auth_mode = ?auth_mode,
                     has_bearer_token,
@@ -414,14 +414,14 @@ mod tests {
     }
 
     fn remote_model_with_visibility(
-        slug: &str,
+id: &str,
         display: &str,
         priority: i32,
         visibility: &str,
     ) -> ModelInfo {
         serde_json::from_value(json!({
             "slug": slug,
-            "display_name": display,
+            "name": display,
             "description": format!("{display} desc"),
             "default_reasoning_level": "medium",
             "supported_reasoning_levels": [{"effort": "low", "description": "low"}, {"effort": "medium", "description": "medium"}],
@@ -456,8 +456,8 @@ mod tests {
 
     fn provider_for(base_url: String) -> ModelProviderInfo {
         ModelProviderInfo {
-            slug: "mock".into(),
-            display_name: "mock".into(),
+id: "mock".into(),
+            name: "mock".into(),
             base_url: Some(base_url),
             env_key: None,
             env_key_instructions: None,

@@ -22,6 +22,7 @@ use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::models_manager::model_presets::{
     HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
 };
+use savfox_core::parse_provider_prefixed_model;
 use savfox_core::protocol::{
     AskForApproval, DeprecationNoticeEvent, Event, EventMsg, FinalOutput, ListSkillsResponseEvent,
     Op, SandboxPolicy, SessionSource, SkillErrorInfo, TokenUsage,
@@ -484,7 +485,7 @@ async fn handle_model_migration_prompt_if_needed(
         let current_preset = available_models.iter().find(|preset| preset.slug == model);
         let target_preset = target_preset_for_upgrade(&available_models, &target_model);
         let target_preset = target_preset?;
-        let target_display_name = target_preset.display_name.clone();
+        let target_display_name = target_preset.name.clone();
         let heading_label = if target_display_name == model {
             target_model.clone()
         } else {
@@ -561,8 +562,6 @@ pub(crate) struct App {
     pub(crate) auth_manager: Arc<AuthManager>,
     /// Config is stored here so we can recreate ChatScreens as needed.
     pub(crate) config: Config,
-    pub(crate) active_profile: Option<String>,
-    cli_kv_overrides: Vec<(String, TomlValue)>,
     harness_overrides: ConfigOverrides,
     runtime_approval_policy_override: Option<AskForApproval>,
     runtime_sandbox_policy_override: Option<SandboxPolicy>,
@@ -660,7 +659,6 @@ impl App {
         let cwd_display = cwd.display().to_string();
         ConfigBuilder::default()
             .savfox_home(self.config.savfox_home.clone())
-            .cli_overrides(self.cli_kv_overrides.clone())
             .harness_overrides(overrides)
             .build()
             .await
@@ -886,11 +884,11 @@ impl App {
                     initial_selected_idx = Some(idx);
                 }
                 let id = *session_id;
-                let display_name = session_name
+                let name = session_name
                     .clone()
                     .unwrap_or_else(|| session_id.to_string());
                 SelectionItem {
-                    name: display_name.clone(),
+                    name: name.clone(),
                     is_current: self.active_session_id == Some(*session_id),
                     description: session_name
                         .as_ref()
@@ -900,7 +898,7 @@ impl App {
                     })],
                     dismiss_on_select: true,
                     search_value: Some(match session_name.as_ref() {
-                        Some(_) => format!("{display_name} {session_id}"),
+                        Some(_) => format!("{name} {session_id}"),
                         None => session_id.to_string(),
                     }),
                     ..Default::default()
@@ -1026,9 +1024,7 @@ impl App {
         tui: &mut tui::Tui,
         auth_manager: Arc<AuthManager>,
         mut config: Config,
-        cli_kv_overrides: Vec<(String, TomlValue)>,
         harness_overrides: ConfigOverrides,
-        active_profile: Option<String>,
         initial_prompt: Option<String>,
         initial_images: Vec<PathBuf>,
         session_selection: SessionSelection,
@@ -1202,8 +1198,6 @@ impl App {
             chat_screen,
             auth_manager: auth_manager.clone(),
             config,
-            active_profile,
-            cli_kv_overrides,
             harness_overrides,
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
@@ -1837,7 +1831,7 @@ impl App {
                 };
 
                 self.chat_screen
-                    .add_info_message(format!("Connecting to {}...", provider.display_name), None);
+                    .add_info_message(format!("Connecting to {}...", provider.name), None);
                 let tx = self.app_event_tx.clone();
                 let savfox_home = self.config.savfox_home.clone();
                 let runtime_auth = self.provider_connect_runtime_auth().await;
@@ -1946,7 +1940,6 @@ impl App {
                 self.app_event_tx
                     .send(AppEvent::UpdateReasoningEffort(None));
 
-                let profile = self.active_profile.as_deref();
                 let mut edits: Vec<ConfigEdit> = vec![ConfigEdit::SetPath {
                     segments: vec!["model_provider".to_string()],
                     value: toml_edit_value(provider_id.clone()),
@@ -1961,10 +1954,17 @@ impl App {
                         value: toml_edit_value(result.base_url.clone()),
                     });
                 }
+                let model_to_persist = if parse_provider_prefixed_model(normalized_model.as_str())
+                    .is_some()
+                {
+                    normalized_model.clone()
+                } else {
+                    format!("{provider_id}/{}", normalized_model.trim())
+                };
+
                 let persist_result = ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
                     .with_edits(edits)
-                    .set_model(Some(normalized_model.as_str()), None)
+                    .set_model(Some(model_to_persist.as_str()), None)
                     .apply()
                     .await;
                 if let Err(err) = persist_result {
@@ -1980,11 +1980,6 @@ impl App {
                     result.provider_name,
                     result.models.len()
                 );
-                if let Some(profile) = profile {
-                    message.push_str(" Updated ");
-                    message.push_str(profile);
-                    message.push_str(" profile.");
-                }
                 self.chat_screen.add_info_message(message, None);
                 self.chat_screen
                     .open_connected_provider_models_popup(provider_id.as_str());
@@ -2158,12 +2153,11 @@ impl App {
                             &[("result", "success")],
                         );
                     }
-                    let profile = self.active_profile.as_deref();
                     let feature_key = Feature::WindowsSandbox.key();
                     let elevated_key = Feature::WindowsSandboxElevated.key();
                     let elevated_enabled = matches!(mode, WindowsSandboxEnableMode::Elevated);
                     let mut builder =
-                        ConfigEditsBuilder::new(&self.config.savfox_home).with_profile(profile);
+                        ConfigEditsBuilder::new(&self.config.savfox_home);
                     if elevated_enabled {
                         builder = builder.set_feature_enabled(elevated_key, true);
                     } else {
@@ -2260,10 +2254,13 @@ impl App {
                 }
             }
             AppEvent::PersistModelSelection { model, effort } => {
-                let profile = self.active_profile.as_deref();
+                let model_to_persist = if parse_provider_prefixed_model(model.as_str()).is_some() {
+                    model.clone()
+                } else {
+                    format!("{}/{}", self.config.model_provider_id, model.trim())
+                };
                 match ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
-                    .set_model(Some(model.as_str()), effort)
+                    .set_model(Some(model_to_persist.as_str()), effort)
                     .apply()
                     .await
                 {
@@ -2273,11 +2270,6 @@ impl App {
                             message.push(' ');
                             message.push_str(label);
                         }
-                        if let Some(profile) = profile {
-                            message.push_str(" for ");
-                            message.push_str(profile);
-                            message.push_str(" profile");
-                        }
                         self.chat_screen.add_info_message(message, None);
                     }
                     Err(err) => {
@@ -2285,33 +2277,20 @@ impl App {
                             error = %err,
                             "failed to persist model selection"
                         );
-                        if let Some(profile) = profile {
-                            self.chat_screen.add_error_message(format!(
-                                "Failed to save model for profile `{profile}`: {err}"
-                            ));
-                        } else {
-                            self.chat_screen
-                                .add_error_message(format!("Failed to save default model: {err}"));
-                        }
+                        self.chat_screen
+                            .add_error_message(format!("Failed to save default model: {err}"));
                     }
                 }
             }
             AppEvent::PersistPersonalitySelection { personality } => {
-                let profile = self.active_profile.as_deref();
                 match ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(profile)
                     .set_personality(Some(personality))
                     .apply()
                     .await
                 {
                     Ok(()) => {
                         let label = Self::personality_label(personality);
-                        let mut message = format!("Personality set to {label}");
-                        if let Some(profile) = profile {
-                            message.push_str(" for ");
-                            message.push_str(profile);
-                            message.push_str(" profile");
-                        }
+                        let message = format!("Personality set to {label}");
                         self.chat_screen.add_info_message(message, None);
                     }
                     Err(err) => {
@@ -2319,15 +2298,9 @@ impl App {
                             error = %err,
                             "failed to persist personality selection"
                         );
-                        if let Some(profile) = profile {
-                            self.chat_screen.add_error_message(format!(
-                                "Failed to save personality for profile `{profile}`: {err}"
-                            ));
-                        } else {
-                            self.chat_screen.add_error_message(format!(
+                        self.chat_screen.add_error_message(format!(
                                 "Failed to save default personality: {err}"
                             ));
-                        }
                     }
                 }
             }
@@ -2412,8 +2385,7 @@ impl App {
                         Feature::WindowsSandbox | Feature::WindowsSandboxElevated
                     )
                 });
-                let mut builder = ConfigEditsBuilder::new(&self.config.savfox_home)
-                    .with_profile(self.active_profile.as_deref());
+                let mut builder = ConfigEditsBuilder::new(&self.config.savfox_home);
                 for (feature, enabled) in &updates {
                     let feature_key = feature.key();
                     if *enabled {
@@ -3063,8 +3035,6 @@ mod tests {
             chat_screen,
             auth_manager,
             config,
-            active_profile: None,
-            cli_kv_overrides: Vec::new(),
             harness_overrides: ConfigOverrides::default(),
             runtime_approval_policy_override: None,
             runtime_sandbox_policy_override: None,
@@ -3117,7 +3087,6 @@ mod tests {
                 auth_manager,
                 config,
                 active_profile: None,
-                cli_kv_overrides: Vec::new(),
                 harness_overrides: ConfigOverrides::default(),
                 runtime_approval_policy_override: None,
                 runtime_sandbox_policy_override: None,
@@ -3320,7 +3289,7 @@ mod tests {
             upgrade.model_link.clone(),
             upgrade.upgrade_copy.clone(),
             upgrade.migration_markdown.clone(),
-            target.display_name.clone(),
+            target.name.clone(),
             target_description,
             can_opt_out,
         );

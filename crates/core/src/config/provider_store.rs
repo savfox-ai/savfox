@@ -1,8 +1,9 @@
+use std::path::{Path, PathBuf};
+
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
 
 use crate::model_provider_info::ModelProviderInfo;
 use crate::token_data::TokenData;
@@ -26,7 +27,7 @@ pub struct ProviderStoreFile {
     #[serde(default)]
     pub provider_id: String,
     #[serde(default)]
-    pub display_name: String,
+    pub name: String,
     #[serde(default)]
     pub auth: Option<ProviderStoreAuth>,
     #[serde(default)]
@@ -49,7 +50,7 @@ impl Default for ProviderStoreFile {
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
             provider_id: String::new(),
-            display_name: String::new(),
+            name: String::new(),
             auth: None,
             enabled_models: Vec::new(),
             models: Vec::new(),
@@ -93,14 +94,14 @@ fn trim_nonempty(value: &str) -> Option<String> {
 
 fn normalize_model_slug(raw: &str) -> Option<String> {
     let raw = trim_nonempty(raw)?;
-    if let Some((_provider_id, model_code)) = crate::parse_provider_prefixed_model(&raw) {
-        return Some(model_code.to_string());
+    if let Some((_provider_id, model_slug)) = crate::parse_provider_prefixed_model(&raw) {
+        return Some(model_slug.to_string());
     }
     Some(raw)
 }
 
 fn model_slug_from_entry(item: &Value) -> Option<String> {
-    item.get("model_code")
+    item.get("model_slug")
         .and_then(Value::as_str)
         .and_then(trim_nonempty)
         .or_else(|| {
@@ -147,7 +148,11 @@ pub fn load_provider_store_file(savfox_home: &Path, provider_id: &str) -> Provid
             .filter_map(|slug| normalize_model_slug(slug))
             .collect();
         if file.enabled_models.is_empty() {
-            file.enabled_models = file.models.iter().filter_map(model_slug_from_entry).collect();
+            file.enabled_models = file
+                .models
+                .iter()
+                .filter_map(model_slug_from_entry)
+                .collect();
         }
         return file;
     }
@@ -266,7 +271,7 @@ pub fn persist_provider_connection(
     let mut file = load_provider_store_file(savfox_home, provider_id);
     file.version = PROVIDER_STORE_FILE_VERSION;
     file.provider_id = provider_id.to_string();
-    file.display_name = if provider_name.trim().is_empty() {
+    file.name = if provider_name.trim().is_empty() {
         provider_id.to_string()
     } else {
         provider_name.to_string()

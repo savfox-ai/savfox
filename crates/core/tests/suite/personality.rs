@@ -6,6 +6,7 @@ use core_test_support::responses::{
 };
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_default_config_for_test, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::config::types::Personality;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::{ModelsManager, RefreshStrategy};
@@ -17,7 +18,6 @@ use savfox_protocol::openai_models::{
     default_input_modalities,
 };
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::{Duration, Instant, sleep};
 use wiremock::{BodyPrintLimit, MockServer};
@@ -466,7 +466,7 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
     let remote_personality_message = "Friendly from remote template";
     let remote_model = ModelInfo {
         slug: remote_slug.to_string(),
-        display_name: "Remote personality test".to_string(),
+        name: "Remote personality test".to_string(),
         description: Some("Remote model with personality template".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -581,8 +581,8 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
     let default_personality_message = "Default from remote template";
     let friendly_personality_message = "Friendly variant";
     let remote_model = ModelInfo {
-        slug: remote_slug.to_string(),
-        display_name: "Remote default personality test".to_string(),
+            slug: remote_slug.to_string(),,
+        name: "Remote default personality test".to_string(),
         description: Some("Remote model with default personality template".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -693,7 +693,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
     let remote_pragmatic_message = "Pragmatic from remote template";
     let remote_model = ModelInfo {
         slug: remote_slug.to_string(),
-        display_name: "Remote personality test".to_string(),
+        name: "Remote personality test".to_string(),
         description: Some("Remote model with personality template".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -836,7 +836,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
 
 async fn wait_for_model_available(
     manager: &Arc<ModelsManager>,
-    slug: &str,
+            slug: &str,,
     config: &savfox_core::config::Config,
 ) {
     let deadline = Instant::now() + Duration::from_secs(2);

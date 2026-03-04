@@ -670,7 +670,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(target_os = "windows", ignore = "flaky shell marker creation on Windows CI")]
+    #[cfg_attr(
+        target_os = "windows",
+        ignore = "flaky shell marker creation on Windows CI"
+    )]
     async fn emit_runs_matching_handlers() {
         // Use a shell handler that creates a temp directory so we can verify
         // execution.  This is a lightweight integration-style test.

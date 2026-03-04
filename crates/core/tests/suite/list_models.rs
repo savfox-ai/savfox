@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use anyhow::Result;
 use core_test_support::load_default_config_for_test;
 use indoc::indoc;
+use pretty_assertions::assert_eq;
 use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::{SavfoxAuth, SessionManager, built_in_model_providers};
 use savfox_protocol::openai_models::{
     ModelPreset, ModelUpgrade, ReasoningEffort, ReasoningEffortPreset, default_input_modalities,
 };
-use pretty_assertions::assert_eq;
 use tempfile::tempdir;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -70,8 +70,8 @@ fn expected_models_for_chatgpt() -> Vec<ModelPreset> {
 fn gpt_52_savfox() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.2-savfox".to_string(),
-        slug: "gpt-5.2-savfox".to_string(),
-        display_name: "gpt-5.2-savfox".to_string(),
+id: "gpt-5.2-savfox".to_string(),
+        name: "gpt-5.2-savfox".to_string(),
         description: "Latest frontier agentic coding model.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -104,8 +104,8 @@ fn gpt_52_savfox() -> ModelPreset {
 fn gpt_5_1_savfox_max() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.1-savfox-max".to_string(),
-        slug: "gpt-5.1-savfox-max".to_string(),
-        display_name: "gpt-5.1-savfox-max".to_string(),
+id: "gpt-5.1-savfox-max".to_string(),
+        name: "gpt-5.1-savfox-max".to_string(),
         description: "Savfox-optimized flagship for deep and fast reasoning.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -148,8 +148,8 @@ fn gpt_5_1_savfox_max() -> ModelPreset {
 fn gpt_5_1_savfox_mini() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.1-savfox-mini".to_string(),
-        slug: "gpt-5.1-savfox-mini".to_string(),
-        display_name: "gpt-5.1-savfox-mini".to_string(),
+id: "gpt-5.1-savfox-mini".to_string(),
+        name: "gpt-5.1-savfox-mini".to_string(),
         description: "Optimized for savfox. Cheaper, faster, but less capable.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -184,8 +184,8 @@ fn gpt_5_1_savfox_mini() -> ModelPreset {
 fn gpt_5_2() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.2".to_string(),
-        slug: "gpt-5.2".to_string(),
-        display_name: "gpt-5.2".to_string(),
+id: "gpt-5.2".to_string(),
+        name: "gpt-5.2".to_string(),
         description:
             "Latest frontier model with improvements across knowledge, reasoning and coding"
                 .to_string(),
@@ -230,8 +230,8 @@ fn gpt_5_2() -> ModelPreset {
 fn bengalfox() -> ModelPreset {
     ModelPreset {
         id: "bengalfox".to_string(),
-        slug: "bengalfox".to_string(),
-        display_name: "bengalfox".to_string(),
+id: "bengalfox".to_string(),
+        name: "bengalfox".to_string(),
         description: "bengalfox".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -264,8 +264,8 @@ fn bengalfox() -> ModelPreset {
 fn boomslang() -> ModelPreset {
     ModelPreset {
         id: "boomslang".to_string(),
-        slug: "boomslang".to_string(),
-        display_name: "boomslang".to_string(),
+id: "boomslang".to_string(),
+        name: "boomslang".to_string(),
         description: "boomslang".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -298,8 +298,8 @@ fn boomslang() -> ModelPreset {
 fn gpt_5_savfox() -> ModelPreset {
     ModelPreset {
         id: "gpt-5-savfox".to_string(),
-        slug: "gpt-5-savfox".to_string(),
-        display_name: "gpt-5-savfox".to_string(),
+id: "gpt-5-savfox".to_string(),
+        name: "gpt-5-savfox".to_string(),
         description: "Optimized for savfox.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -338,8 +338,8 @@ fn gpt_5_savfox() -> ModelPreset {
 fn gpt_5_savfox_mini() -> ModelPreset {
     ModelPreset {
         id: "gpt-5-savfox-mini".to_string(),
-        slug: "gpt-5-savfox-mini".to_string(),
-        display_name: "gpt-5-savfox-mini".to_string(),
+id: "gpt-5-savfox-mini".to_string(),
+        name: "gpt-5-savfox-mini".to_string(),
         description: "Optimized for savfox. Cheaper, faster, but less capable.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -374,8 +374,8 @@ fn gpt_5_savfox_mini() -> ModelPreset {
 fn gpt_5_1_savfox() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.1-savfox".to_string(),
-        slug: "gpt-5.1-savfox".to_string(),
-        display_name: "gpt-5.1-savfox".to_string(),
+id: "gpt-5.1-savfox".to_string(),
+        name: "gpt-5.1-savfox".to_string(),
         description: "Optimized for savfox.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -414,8 +414,8 @@ fn gpt_5_1_savfox() -> ModelPreset {
 fn gpt_5() -> ModelPreset {
     ModelPreset {
         id: "gpt-5".to_string(),
-        slug: "gpt-5".to_string(),
-        display_name: "gpt-5".to_string(),
+id: "gpt-5".to_string(),
+        name: "gpt-5".to_string(),
         description: "Broad world knowledge with strong general reasoning.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
@@ -458,8 +458,8 @@ fn gpt_5() -> ModelPreset {
 fn gpt_5_1() -> ModelPreset {
     ModelPreset {
         id: "gpt-5.1".to_string(),
-        slug: "gpt-5.1".to_string(),
-        display_name: "gpt-5.1".to_string(),
+id: "gpt-5.1".to_string(),
+        name: "gpt-5.1".to_string(),
         description: "Broad world knowledge with strong general reasoning.".to_string(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![

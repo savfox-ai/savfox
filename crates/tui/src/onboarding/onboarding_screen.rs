@@ -96,7 +96,6 @@ impl OnboardingScreen {
                 cli_auth_credentials_store_mode,
                 auth_manager,
                 model_providers: config.model_providers.clone(),
-                active_profile: config.active_profile.clone(),
                 forced_chatgpt_workspace_id,
                 forced_login_method,
                 animations_enabled: config.animations,

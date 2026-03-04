@@ -90,7 +90,7 @@ async fn end_to_end_login_flow_persists_openai_provider_store_file() -> Result<(
     let stale_auth = serde_json::json!({
         "version": 2,
         "provider_id": "chatgpt",
-        "display_name": "ChatGPT",
+        "name": "ChatGPT",
         "auth": {
             "type": "chatgpt_oauth",
             "env_key": "OPENAI_API_KEY",
@@ -151,7 +151,7 @@ async fn end_to_end_login_flow_persists_openai_provider_store_file() -> Result<(
     let json: serde_json::Value = serde_json::from_str(&data)?;
     assert_eq!(json["version"], 2);
     assert_eq!(json["provider_id"], "openai");
-    assert_eq!(json["display_name"], "OpenAI");
+    assert_eq!(json["name"], "OpenAI");
     // The following assert is here because of the old oauth flow that exchanges tokens for an
     // API key. See obtain_api_key in server.rs for details. Once we remove this old mechanism
     // from the code, this test should be updated to expect that the API key is no longer present.

@@ -153,18 +153,6 @@ jobs:
       - name: Ensure license report is non-empty
         run: test -s licenses.json
 
-  # ─── RPC latency benchmark ─────────────────────────────────────────
-  benchmark:
-    runs-on: ubuntu-latest
-    needs: [changes]
-    if: needs.changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run RPC latency benchmark
-        run: bash scripts/bench-rpc.sh
-
   # ─── Build release binary ──────────────────────────────────────────
   build:
     runs-on: ${{ matrix.os }}

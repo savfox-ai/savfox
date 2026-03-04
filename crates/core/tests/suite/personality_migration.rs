@@ -1,6 +1,7 @@
-﻿use std::io;
+use std::io;
 use std::path::Path;
 
+use pretty_assertions::assert_eq;
 use savfox_core::config::ConfigToml;
 use savfox_core::personality_migration::{
     PERSONALITY_MIGRATION_FILENAME, PersonalityMigrationStatus, maybe_migrate_personality,
@@ -12,7 +13,6 @@ use savfox_protocol::protocol::{
     EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionSource,
     UserMessageEvent,
 };
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
 

@@ -543,11 +543,11 @@ pub fn Overview() -> Element {
                         for model in model_list.iter() {
                             {
                                 let provider = model.provider.as_deref().unwrap_or("unknown");
-                                let display_name = model.name.as_deref().unwrap_or(&model.id);
+                                let name = model.name.as_deref().unwrap_or(&model.id);
                                 rsx! {
                                     div { class: "ov-model-row",
                                         div { class: "ov-model-name",
-                                            span { class: "ov-model-id", "{display_name}" }
+                                            span { class: "ov-model-id", "{name}" }
                                             span { class: "ov-model-provider-badge", "{provider}" }
                                         }
                                         div { class: "ov-model-status",

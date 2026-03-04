@@ -1,12 +1,8 @@
 use clap::{Args, Parser};
-use savfox_common::CliConfigOverrides;
 
 #[derive(Parser, Debug, Default)]
 #[command(version)]
 pub struct Cli {
-    #[clap(skip)]
-    pub config_overrides: CliConfigOverrides,
-
     #[command(subcommand)]
     pub command: Option<Command>,
 }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use core_test_support::responses::{ResponseMock, mount_sse_sequence};
 use core_test_support::test_savfox::test_savfox;
 use core_test_support::{load_sse_fixture_with_id_from_str, skip_if_no_network, wait_for_event};
+use pretty_assertions::assert_eq;
 use savfox_core::config::Config;
 use savfox_core::protocol::{
     ENVIRONMENT_CONTEXT_OPEN_TAG, EventMsg, ExitedReviewModeEvent, Op, ReviewCodeLocation,
@@ -11,9 +12,8 @@ use savfox_core::protocol::{
     RolloutLine,
 };
 use savfox_core::review_format::render_review_output_text;
-use savfox_core::{ContentItem, SavfoxSession, REVIEW_PROMPT, ResponseItem};
+use savfox_core::{ContentItem, REVIEW_PROMPT, ResponseItem, SavfoxSession};
 use savfox_protocol::user_input::UserInput;
-use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt as _;
 use uuid::Uuid;
