@@ -974,7 +974,7 @@ pub struct ModelListParams {
 pub struct Model {
     pub id: String,
     pub slug: String,
-    pub display_name: String,
+    pub name: String,
     pub description: String,
     pub supported_reasoning_efforts: Vec<ReasoningEffortOption>,
     pub default_reasoning_effort: ReasoningEffort,
@@ -1517,7 +1517,7 @@ pub struct SkillMetadata {
 #[ts(export_to = "v2/")]
 pub struct SkillInterface {
     #[ts(optional)]
-    pub display_name: Option<String>,
+    pub name: Option<String>,
     #[ts(optional)]
     pub short_description: Option<String>,
     #[ts(optional)]
@@ -1609,7 +1609,7 @@ impl From<CoreSkillMetadata> for SkillMetadata {
 impl From<CoreSkillInterface> for SkillInterface {
     fn from(value: CoreSkillInterface) -> Self {
         Self {
-            display_name: value.display_name,
+            name: value.name,
             short_description: value.short_description,
             brand_color: value.brand_color,
             default_prompt: value.default_prompt,

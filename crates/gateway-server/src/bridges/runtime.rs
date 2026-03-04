@@ -845,7 +845,7 @@ async fn resolve_linked_identity(
     session_store: &Arc<SessionStore>,
     platform: &str,
     peer_id: Option<&str>,
-    display_name: Option<&str>,
+    name: Option<&str>,
 ) -> Option<String> {
     let peer = platform_peer(platform, peer_id?)?;
     let mut links = load_identity_links(savfox_home).await;
@@ -854,8 +854,8 @@ async fn resolve_linked_identity(
         return Some(identity);
     }
 
-    let display_name = display_name?.trim().to_ascii_lowercase();
-    if display_name.is_empty() {
+    let name = name?.trim().to_ascii_lowercase();
+    if name.is_empty() {
         return None;
     }
 
@@ -868,10 +868,10 @@ async fn resolve_linked_identity(
         let existing_name = entry
             .sender
             .as_ref()
-            .and_then(|s| s.display_name.as_ref())?
+            .and_then(|s| s.name.as_ref())?
             .trim()
             .to_ascii_lowercase();
-        if existing_name == display_name {
+        if existing_name == name {
             Some(identity)
         } else {
             None
@@ -889,7 +889,7 @@ async fn resolve_routed_agent(
     session_store: &Arc<SessionStore>,
     platform: &str,
     channel: &str,
-    display_name: Option<&str>,
+    name: Option<&str>,
     meta: &StartThreadMeta,
 ) -> String {
     let rules = load_routing_rules(&bridge.config().savfox_home).await;
@@ -911,7 +911,7 @@ async fn resolve_routed_agent(
         sender_id: meta
             .peer_id
             .clone()
-            .or_else(|| display_name.map(std::string::ToString::to_string)),
+            .or_else(|| name.map(std::string::ToString::to_string)),
         group_id: meta.group_id.clone(),
         guild_id: meta.guild_id.clone(),
         team_id: meta.team_id.clone(),
@@ -955,7 +955,7 @@ pub(crate) async fn spawn_start_thread_pipeline(
     platform: &'static str,
     channel: String,
     prompt: String,
-    display_name: Option<String>,
+    name: Option<String>,
 ) {
     spawn_start_thread_pipeline_with_meta(
         bridge,
@@ -963,7 +963,7 @@ pub(crate) async fn spawn_start_thread_pipeline(
         platform,
         channel,
         prompt,
-        display_name,
+        name,
         None,
     )
     .await;
@@ -975,7 +975,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     platform: &'static str,
     channel: String,
     prompt: String,
-    display_name: Option<String>,
+    name: Option<String>,
     meta: Option<StartThreadMeta>,
 ) {
     let parsed = parse_directives(&prompt);
@@ -999,7 +999,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         &session_store,
         platform,
         start_meta.peer_id.as_deref(),
-        display_name.as_deref(),
+        name.as_deref(),
     )
     .await;
     let routed_agent = resolve_routed_agent(
@@ -1007,7 +1007,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         &session_store,
         platform,
         &channel,
-        display_name.as_deref(),
+        name.as_deref(),
         &start_meta,
     )
     .await;
@@ -1035,7 +1035,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             parent_thread_id: start_meta.parent_thread_id.as_deref(),
             reply_target: start_meta.reply_target.as_deref(),
             account_id: start_meta.account_id.as_deref(),
-            display_name: display_name.as_deref(),
+            name: name.as_deref(),
             topic: start_meta.topic.as_deref(),
             first_message: Some(cleaned_prompt.as_str()),
             chat_type: start_meta.chat_type.as_deref(),
@@ -1069,7 +1069,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             sender_id: start_meta
                 .peer_id
                 .clone()
-                .or_else(|| display_name.clone())
+                .or_else(|| name.clone())
                 .unwrap_or_else(|| format!("{platform}:{channel}")),
             channel_id: outbound_channel.clone(),
             session_id: Some(tracked.session_id.clone()),

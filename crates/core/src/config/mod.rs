@@ -110,7 +110,7 @@ fn merge_provider_store_model_providers(
 
         let name = file
             .as_ref()
-            .and_then(|file| trim_nonempty(&file.display_name))
+            .and_then(|file| trim_nonempty(&file.name))
             .unwrap_or_else(|| provider_id.clone());
         let env_key = file
             .as_ref()
@@ -122,7 +122,7 @@ fn merge_provider_store_model_providers(
             provider_id.clone(),
             ModelProviderInfo {
                 slug: provider_id,
-                display_name: name,
+                name: name,
                 base_url: Some(base_url),
                 env_key,
                 env_key_instructions: None,
@@ -3619,7 +3619,7 @@ enabled = true
 
 [model_providers.openai-chat-completions]
 slug = "openai-chat-completions"
-display_name = "OpenAI using Chat Completions"
+name = "OpenAI using Chat Completions"
 base_url = "https://api.openai.com/v1"
 env_key = "OPENAI_API_KEY"
 wire_api = "chat"
@@ -3669,7 +3669,7 @@ model_verbosity = "high"
 
         let openai_chat_completions_provider = ModelProviderInfo {
             slug: "openai-chat-completions".to_string(),
-            display_name: "OpenAI using Chat Completions".to_string(),
+            name: "OpenAI using Chat Completions".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             env_key: Some("OPENAI_API_KEY".to_string()),
             wire_api: crate::WireApi::Chat,
@@ -3716,7 +3716,7 @@ model_verbosity = "high"
         };
         let zhipu_provider = ModelProviderInfo {
             slug: "zhipuai-coding-plan".to_string(),
-            display_name: "Zhipu AI Coding Plan".to_string(),
+            name: "Zhipu AI Coding Plan".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
             env_key: Some("ZHIPUAI_API_KEY".to_string()),
             env_key_instructions: None,
@@ -3769,7 +3769,7 @@ model_verbosity = "high"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "display_name": "Zhipu AI Coding Plan",
+  "name": "Zhipu AI Coding Plan",
   "auth": {
     "type": "api_key",
     "env_key": "ZHIPUAI_API_KEY",
@@ -3791,7 +3791,7 @@ model_verbosity = "high"
         )?;
 
         assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
-        assert_eq!(config.model_provider.display_name, "Zhipu AI Coding Plan");
+        assert_eq!(config.model_provider.name, "Zhipu AI Coding Plan");
         assert_eq!(
             config.model_provider.base_url.as_deref(),
             Some("https://open.bigmodel.cn/api/coding/paas/v4")
@@ -3812,7 +3812,7 @@ model_verbosity = "high"
         };
         let provider = ModelProviderInfo {
             slug: "acme/team".to_string(),
-            display_name: "Acme Team".to_string(),
+            name: "Acme Team".to_string(),
             base_url: Some("https://example.invalid/v1".to_string()),
             env_key: Some("ACME_API_KEY".to_string()),
             env_key_instructions: None,
@@ -3858,7 +3858,7 @@ model_verbosity = "high"
             "zhipuai-coding-plan".to_string(),
             ModelProviderInfo {
                 slug: "zhipuai-coding-plan".to_string(),
-                display_name: "Zhipu AI Coding Plan".to_string(),
+                name: "Zhipu AI Coding Plan".to_string(),
                 base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
                 env_key: Some("ZHIPUAI_API_KEY".to_string()),
                 env_key_instructions: None,

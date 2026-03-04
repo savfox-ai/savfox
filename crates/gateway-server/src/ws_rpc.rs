@@ -1436,14 +1436,14 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         ));
     }
 
-    let display_name = params
+    let name = params
         .get("name")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .unwrap_or_default();
-    if display_name.is_empty() {
+    if name.is_empty() {
         return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
     }
 
@@ -1462,7 +1462,7 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
     let mut agent_config = json!({
         "id": id,
-        "name": display_name,
+        "name": name,
         "description": description,
         "system_prompt": system_prompt,
         "created_at": chrono::Utc::now().to_rfc3339(),
@@ -1515,7 +1515,7 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
     Ok(json!({
         "id": id,
-        "name": display_name,
+        "name": name,
         "status": "created",
     }))
 }
@@ -2798,7 +2798,7 @@ async fn handle_sessions_list(
             .label
             .clone()
             .or_else(|| entry.subject.clone())
-            .or_else(|| entry.sender.as_ref().and_then(|s| s.display_name.clone()));
+            .or_else(|| entry.sender.as_ref().and_then(|s| s.name.clone()));
         if label.is_none() {
             label =
                 derive_session_label_from_history(&entry.session_id, session_store, bridge).await;
@@ -3278,7 +3278,7 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
         left.reply_target = right.reply_target.clone().or(left.reply_target);
         left.parent_thread_id = right.parent_thread_id.clone().or(left.parent_thread_id);
         left.parent_message_id = right.parent_message_id.clone().or(left.parent_message_id);
-        left.display_name = right.display_name.clone().or(left.display_name);
+        left.name = right.name.clone().or(left.name);
         left.identity = right.identity.clone().or(left.identity);
     }
 
@@ -3362,7 +3362,7 @@ async fn handle_dm_scope_migrate(params: &Value, session_store: &Arc<SessionStor
             .to
             .clone()
             .or(entry.identity.clone())
-            .or_else(|| entry.sender.as_ref().and_then(|s| s.display_name.clone()));
+            .or_else(|| entry.sender.as_ref().and_then(|s| s.name.clone()));
         let Some(peer) = peer else {
             skipped = skipped.saturating_add(1);
             rebuilt.insert(entry.session_id.clone(), entry);
@@ -4317,14 +4317,14 @@ fn session_peer_id(entry: &SessionEntry) -> Option<String> {
 
 fn session_display_name(entry: &SessionEntry) -> Option<String> {
     entry
-        .display_name
+        .name
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| {
             latest_provenance(entry)
-                .map(|item| item.display_name.trim())
+                .map(|item| item.name.trim())
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
@@ -4482,13 +4482,13 @@ async fn handle_directory_peers_list(
         let Some(peer_id) = session_peer_id(&entry) else {
             continue;
         };
-        let display_name = session_display_name(&entry).unwrap_or_else(|| peer_id.clone());
+        let name = session_display_name(&entry).unwrap_or_else(|| peer_id.clone());
         let identity = entry.identity.clone().unwrap_or_default();
         let chat_type = entry.chat_type.clone().unwrap_or_else(|| "dm".to_string());
 
         if !directory_query_match(
             query.as_deref(),
-            &[&channel, &peer_id, &display_name, &identity, &chat_type],
+            &[&channel, &peer_id, &name, &identity, &chat_type],
         ) {
             continue;
         }
@@ -4501,7 +4501,7 @@ async fn handle_directory_peers_list(
         peers.push(json!({
             "channel": channel,
             "peer_id": peer_id,
-            "display_name": display_name,
+            "name": name,
             "identity": entry.identity,
             "chat_type": chat_type,
             "group_id": entry.group_id,
@@ -4644,7 +4644,7 @@ async fn handle_directory_groups_list(
 struct DirectoryMemberAccumulator {
     channel: String,
     user_id: String,
-    display_name: String,
+    name: String,
     sessions: u64,
     last_seen_ms: u64,
 }
@@ -4684,21 +4684,21 @@ async fn handle_directory_groups_members(
 
         if entry.provenance.is_empty() {
             if let Some(peer_id) = session_peer_id(&entry) {
-                let display_name = session_display_name(&entry).unwrap_or_else(|| peer_id.clone());
+                let name = session_display_name(&entry).unwrap_or_else(|| peer_id.clone());
                 let key = format!("{channel}:{peer_id}");
                 let member = members
                     .entry(key)
                     .or_insert_with(|| DirectoryMemberAccumulator {
                         channel: channel.clone(),
                         user_id: peer_id.clone(),
-                        display_name: display_name.clone(),
+                        name: name.clone(),
                         sessions: 0,
                         last_seen_ms: entry.updated_at,
                     });
                 member.sessions = member.sessions.saturating_add(1);
                 member.last_seen_ms = member.last_seen_ms.max(entry.updated_at);
-                if member.display_name.trim().is_empty() && !display_name.trim().is_empty() {
-                    member.display_name = display_name;
+                if member.name.trim().is_empty() && !name.trim().is_empty() {
+                    member.name = name;
                 }
             }
             continue;
@@ -4709,17 +4709,17 @@ async fn handle_directory_groups_members(
             if user_id.is_empty() {
                 continue;
             }
-            let display_name = provenance.display_name.trim();
+            let name = provenance.name.trim();
             let key = format!("{channel}:{user_id}");
             let member = members
                 .entry(key)
                 .or_insert_with(|| DirectoryMemberAccumulator {
                     channel: channel.clone(),
                     user_id: user_id.to_string(),
-                    display_name: if display_name.is_empty() {
+                    name: if name.is_empty() {
                         user_id.to_string()
                     } else {
-                        display_name.to_string()
+                        name.to_string()
                     },
                     sessions: 0,
                     last_seen_ms: entry.updated_at.max(provenance.timestamp),
@@ -4730,8 +4730,8 @@ async fn handle_directory_groups_members(
                 .last_seen_ms
                 .max(entry.updated_at)
                 .max(provenance.timestamp);
-            if member.display_name == member.user_id && !display_name.is_empty() {
-                member.display_name = display_name.to_string();
+            if member.name == member.user_id && !name.is_empty() {
+                member.name = name.to_string();
             }
         }
     }
@@ -4741,14 +4741,14 @@ async fn handle_directory_groups_members(
         .filter(|member| {
             directory_query_match(
                 query.as_deref(),
-                &[&member.channel, &member.user_id, &member.display_name],
+                &[&member.channel, &member.user_id, &member.name],
             )
         })
         .map(|member| {
             json!({
                 "channel": member.channel,
                 "user_id": member.user_id,
-                "display_name": member.display_name,
+                "name": member.name,
                 "sessions": member.sessions,
                 "last_seen_ms": member.last_seen_ms,
             })
@@ -4819,7 +4819,7 @@ fn nostr_profile_path(bridge: &GatewayBridge) -> std::path::PathBuf {
 
 fn default_nostr_profile() -> Value {
     json!({
-        "display_name": "",
+        "name": "",
         "about": "",
         "picture": "",
         "nip05": "",
@@ -4869,7 +4869,7 @@ async fn handle_channels_nostr_profile_set(
         }
     } else {
         for key in [
-            "display_name",
+            "name",
             "about",
             "picture",
             "nip05",
@@ -8007,7 +8007,7 @@ struct ProviderFile {
     #[serde(default)]
     provider_id: String,
     #[serde(default)]
-    display_name: String,
+    name: String,
     #[serde(default)]
     auth: Option<ProviderAuth>,
     #[serde(default, rename = "models", skip_serializing)]
@@ -8050,7 +8050,7 @@ fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[Stri
             let model_slug = model.slug;
             json!({
                 "id": format!("{canonical_provider}/{model_slug}"),
-                "name": model.display_name,
+                "name": model.name,
                 "provider": canonical_provider.as_str(),
                 "model_slug": model_slug,
                 "is_default": default_slug == Some(model_slug.as_str()),
@@ -8141,7 +8141,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
         return ProviderFile {
             version: 2,
             provider_id: provider_id.to_string(),
-            display_name: String::new(),
+            name: String::new(),
             auth: None,
             models: Vec::new(),
             enabled_models: Vec::new(),
@@ -8158,7 +8158,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
         return ProviderFile {
             version: 2,
             provider_id: provider_id.to_string(),
-            display_name: String::new(),
+            name: String::new(),
             auth: None,
             models,
             enabled_models: Vec::new(),
@@ -8168,7 +8168,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
     ProviderFile {
         version: 2,
         provider_id: provider_id.to_string(),
-        display_name: String::new(),
+        name: String::new(),
         auth: None,
         models: Vec::new(),
         enabled_models: Vec::new(),
@@ -8500,12 +8500,12 @@ fn model_test_parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<V
     let mut seen = HashSet::new();
 
     for item in models {
-        let (raw_id, display_name, provider_from_item) = if let Some(id) =
+        let (raw_id, name, provider_from_item) = if let Some(id) =
             model_test_model_item_field(item, &["id", "model", "model_id", "model_slug"])
         {
             (
                 id,
-                model_test_model_item_field(item, &["name", "display_name", "label"]),
+                model_test_model_item_field(item, &["name", "name", "label"]),
                 model_test_model_item_field(item, &["provider"]),
             )
         } else if let Some(id) = item.as_str().map(str::trim).filter(|v| !v.is_empty()) {
@@ -8548,7 +8548,7 @@ fn model_test_parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<V
         entry.insert("id".to_string(), json!(id));
         entry.insert(
             "name".to_string(),
-            json!(display_name.unwrap_or_else(|| model_slug.clone())),
+            json!(name.unwrap_or_else(|| model_slug.clone())),
         );
         entry.insert("model_slug".to_string(), json!(model_slug));
         entry.insert("is_default".to_string(), json!(false));
@@ -8579,7 +8579,7 @@ async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
         let ok = models.iter().any(|preset| {
             preset.id == model_id
                 || preset.slug == model_id
-                || preset.display_name.eq_ignore_ascii_case(model_id)
+                || preset.name.eq_ignore_ascii_case(model_id)
         });
 
         let message = if ok {
@@ -8925,7 +8925,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     let api_key_val = params.get("api_key").and_then(|v| v.as_str()).unwrap_or("");
     let env_key_val = params.get("env_key").and_then(|v| v.as_str()).unwrap_or("");
     let display_name_val = params
-        .get("display_name")
+        .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or(provider_id);
 
@@ -8948,7 +8948,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     let file = ProviderFile {
         version: 2,
         provider_id: provider_id.to_string(),
-        display_name: display_name_val.to_string(),
+        name: display_name_val.to_string(),
         auth,
         models: entries.clone(),
         enabled_models: Vec::new(),

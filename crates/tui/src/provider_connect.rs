@@ -102,7 +102,7 @@ pub(crate) fn connect_provider_candidates(
             let description = description_parts.join(" · ");
             Some(ConnectProviderCandidate {
                 id: provider_id.to_string(),
-                name: provider.display_name.clone(),
+                name: provider.name.clone(),
                 description,
                 requires_api_key,
             })
@@ -388,12 +388,12 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
     let mut seen = HashSet::new();
 
     for item in models {
-        let (raw_id, display_name, provider_from_item, is_default) = if let Some(id) =
+        let (raw_id, name, provider_from_item, is_default) = if let Some(id) =
             model_item_field(item, &["id", "model", "model_id", "model_slug", "slug"])
         {
             (
                 id,
-                model_item_field(item, &["name", "display_name", "label"]),
+                model_item_field(item, &["name", "name", "label"]),
                 model_item_field(item, &["provider"]),
                 item.get("is_default")
                     .and_then(Value::as_bool)
@@ -435,7 +435,7 @@ fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
         entry.insert("id".to_string(), json!(model_id));
         entry.insert(
             "name".to_string(),
-            json!(display_name.unwrap_or_else(|| model_slug.clone())),
+            json!(name.unwrap_or_else(|| model_slug.clone())),
         );
         entry.insert("model_slug".to_string(), json!(model_slug));
         entry.insert("is_default".to_string(), json!(is_default));
@@ -478,7 +478,7 @@ pub(crate) async fn connect_provider(
             || {
                 format!(
                     "Provider `{}` does not define a default base URL. Configure the provider endpoint first.",
-                    provider.display_name
+                    provider.name
                 )
             },
         )?;
@@ -514,7 +514,7 @@ pub(crate) async fn connect_provider(
     {
         return Err(format!(
             "{} requires credentials. Enter an API key or set provider credentials in your environment.",
-            provider.display_name
+            provider.name
         ));
     }
 
@@ -543,7 +543,7 @@ pub(crate) async fn connect_provider(
     }
 
     let env_key = provider_env_key_for_store(&provider_id, &provider);
-    let provider_name = provider.display_name.clone();
+    let provider_name = provider.name.clone();
 
     Ok(ProviderConnectResult {
         provider_id: provider_id.clone(),
@@ -623,7 +623,7 @@ mod tests {
     fn provider_env_key_for_store_prefers_secret_like_env_headers() {
         let provider = ModelProviderInfo {
             slug: "anthropic".to_string(),
-            display_name: "Anthropic".to_string(),
+            name: "Anthropic".to_string(),
             base_url: Some("https://api.anthropic.com".to_string()),
             env_key: None,
             env_key_instructions: None,
@@ -657,7 +657,7 @@ mod tests {
     fn parse_remote_models_reads_slug_shape() {
         let payload = json!({
             "models": [
-                { "slug": "gpt-5", "display_name": "GPT-5", "is_default": true }
+                { "slug": "gpt-5", "name": "GPT-5", "is_default": true }
             ]
         });
 
@@ -754,7 +754,7 @@ mod tests {
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "display_name": "ZhipuAI Coding Plan",
+  "name": "ZhipuAI Coding Plan",
   "auth": {
     "type": "api_key",
     "env_key": "ZHIPUAI_API_KEY",
@@ -789,7 +789,7 @@ mod tests {
             r#"{
   "version": 2,
   "provider_id": "chatgpt",
-  "display_name": "ChatGPT",
+  "name": "ChatGPT",
   "auth": {
     "auth_mode": "chatgpt",
     "tokens": {
@@ -816,7 +816,7 @@ mod tests {
             r#"{
   "version": 2,
   "provider_id": "legacy-provider",
-  "display_name": "Legacy Provider",
+  "name": "Legacy Provider",
   "models": [
     { "id": "legacy-provider/model-a" }
   ]

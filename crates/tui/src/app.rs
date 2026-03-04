@@ -484,7 +484,7 @@ async fn handle_model_migration_prompt_if_needed(
         let current_preset = available_models.iter().find(|preset| preset.slug == model);
         let target_preset = target_preset_for_upgrade(&available_models, &target_model);
         let target_preset = target_preset?;
-        let target_display_name = target_preset.display_name.clone();
+        let target_display_name = target_preset.name.clone();
         let heading_label = if target_display_name == model {
             target_model.clone()
         } else {
@@ -883,11 +883,11 @@ impl App {
                     initial_selected_idx = Some(idx);
                 }
                 let id = *session_id;
-                let display_name = session_name
+                let name = session_name
                     .clone()
                     .unwrap_or_else(|| session_id.to_string());
                 SelectionItem {
-                    name: display_name.clone(),
+                    name: name.clone(),
                     is_current: self.active_session_id == Some(*session_id),
                     description: session_name
                         .as_ref()
@@ -897,7 +897,7 @@ impl App {
                     })],
                     dismiss_on_select: true,
                     search_value: Some(match session_name.as_ref() {
-                        Some(_) => format!("{display_name} {session_id}"),
+                        Some(_) => format!("{name} {session_id}"),
                         None => session_id.to_string(),
                     }),
                     ..Default::default()
@@ -1830,7 +1830,7 @@ impl App {
                 };
 
                 self.chat_screen
-                    .add_info_message(format!("Connecting to {}...", provider.display_name), None);
+                    .add_info_message(format!("Connecting to {}...", provider.name), None);
                 let tx = self.app_event_tx.clone();
                 let savfox_home = self.config.savfox_home.clone();
                 let runtime_auth = self.provider_connect_runtime_auth().await;
@@ -3275,7 +3275,7 @@ mod tests {
             upgrade.model_link.clone(),
             upgrade.upgrade_copy.clone(),
             upgrade.migration_markdown.clone(),
-            target.display_name.clone(),
+            target.name.clone(),
             target_description,
             can_opt_out,
         );

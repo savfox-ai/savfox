@@ -67,7 +67,7 @@ impl From<&AuthDotJson> for ProviderStoreFile {
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
             provider_id: AUTH_PROVIDER_ID.to_string(),
-            display_name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
+            name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
             auth: Some(ProviderStoreAuth {
                 auth_type,
                 env_key: Some("OPENAI_API_KEY".to_string()),
@@ -470,7 +470,7 @@ mod tests {
         let provider_file = json!({
             "version": 2,
             "provider_id": "chatgpt",
-            "display_name": "ChatGPT",
+            "name": "ChatGPT",
             "auth": {
                 "type": "api_key",
                 "env_key": "OPENAI_API_KEY",
@@ -523,7 +523,7 @@ mod tests {
         let raw_file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
         assert_eq!(raw_file["version"], 2);
         assert_eq!(raw_file["provider_id"], "openai");
-        assert_eq!(raw_file["display_name"], "OpenAI");
+        assert_eq!(raw_file["name"], "OpenAI");
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");

@@ -16,7 +16,7 @@ pub struct SkillMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillInterface {
-    pub display_name: Option<String>,
+    pub name: Option<String>,
     pub short_description: Option<String>,
     pub icon_small: Option<PathBuf>,
     pub icon_large: Option<PathBuf>,

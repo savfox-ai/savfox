@@ -3871,7 +3871,7 @@ impl ChatScreen {
 
     fn open_rate_limit_switch_prompt(&mut self, preset: ModelPreset) {
         let switch_model = preset.slug.to_string();
-        let display_name = preset.display_name.to_string();
+        let name = preset.name.to_string();
         let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
 
         let switch_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
@@ -3903,7 +3903,7 @@ impl ChatScreen {
 
         let items = vec![
             SelectionItem {
-                name: format!("Switch to {display_name}"),
+                name: format!("Switch to {name}"),
                 description,
                 selected_description: None,
                 is_current: false,
@@ -3935,7 +3935,7 @@ impl ChatScreen {
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
             title: Some("Approaching rate limits".to_string()),
-            subtitle: Some(format!("Switch to {display_name} for lower credit usage?")),
+            subtitle: Some(format!("Switch to {name} for lower credit usage?")),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
@@ -3998,7 +3998,7 @@ impl ChatScreen {
         };
 
         if provider_id.eq_ignore_ascii_case("openai") {
-            self.open_openai_connect_auth_method_popup(provider_id, provider.display_name);
+            self.open_openai_connect_auth_method_popup(provider_id, provider.name);
             return;
         }
 
@@ -4093,7 +4093,7 @@ impl ChatScreen {
         provider: ModelProviderInfo,
     ) {
         if !provider_requires_api_key(&provider_id) {
-            self.add_info_message(format!("Connecting to {}...", provider.display_name), None);
+            self.add_info_message(format!("Connecting to {}...", provider.name), None);
             self.app_event_tx.send(AppEvent::BeginProviderConnect {
                 provider_id,
                 api_key: None,
@@ -4111,7 +4111,7 @@ impl ChatScreen {
         };
 
         let tx = self.app_event_tx.clone();
-        let title = format!("Connect {}", provider.display_name);
+        let title = format!("Connect {}", provider.name);
         let provider_id_for_action = provider_id.clone();
         let view = CustomPromptView::new(
             title,
@@ -4304,8 +4304,8 @@ impl ChatScreen {
                 Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)
                     .then(|| ModelProviderBucket {
                         id: provider_id.clone(),
-                        name: provider.display_name.clone(),
-                        aliases: Self::provider_aliases(provider_id, &provider.display_name),
+                        name: provider.name.clone(),
+                        aliases: Self::provider_aliases(provider_id, &provider.name),
                     })
             })
             .collect();
@@ -4316,10 +4316,10 @@ impl ChatScreen {
         {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.display_name.clone(),
+                name: self.config.model_provider.name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.display_name,
+                    &self.config.model_provider.name,
                 ),
             });
         }
@@ -4327,10 +4327,10 @@ impl ChatScreen {
         if buckets.is_empty() {
             buckets.push(ModelProviderBucket {
                 id: self.config.model_provider_id.clone(),
-                name: self.config.model_provider.display_name.clone(),
+                name: self.config.model_provider.name.clone(),
                 aliases: Self::provider_aliases(
                     &self.config.model_provider_id,
-                    &self.config.model_provider.display_name,
+                    &self.config.model_provider.name,
                 ),
             });
         }
@@ -4371,11 +4371,11 @@ impl ChatScreen {
                     .config
                     .model_providers
                     .get(provider_id.as_str())
-                    .map(|provider| provider.display_name.clone())
+                    .map(|provider| provider.name.clone())
                     .or_else(|| {
                         builtins
                             .get(provider_id.as_str())
-                            .map(|provider| provider.display_name.clone())
+                            .map(|provider| provider.name.clone())
                     })
                     .unwrap_or_else(|| provider_id.clone());
                 ModelProviderBucket {
@@ -4492,7 +4492,7 @@ impl ChatScreen {
         }
 
         let model_name = preset.slug.to_ascii_lowercase();
-        let display_name = preset.display_name.to_ascii_lowercase();
+        let name = preset.name.to_ascii_lowercase();
         let mut best_match: Option<(usize, usize)> = None;
 
         for (index, bucket) in buckets.iter().enumerate() {
@@ -4504,7 +4504,7 @@ impl ChatScreen {
                 let matches_alias = model_name.starts_with(alias)
                     || model_name.contains(&format!("-{alias}"))
                     || model_name.contains(&format!("{alias}-"))
-                    || display_name.contains(alias);
+                    || name.contains(alias);
                 if !matches_alias {
                     continue;
                 }
@@ -4535,7 +4535,7 @@ impl ChatScreen {
         let current_label = presets
             .iter()
             .find(|preset| Self::model_matches_current_selection(current_model, &preset.slug))
-            .map(|preset| preset.display_name.to_string())
+            .map(|preset| preset.name.to_string())
             .unwrap_or_else(|| self.model_display_name().to_string());
 
         let (mut auto_presets, other_presets): (Vec<ModelPreset>, Vec<ModelPreset>) = presets
@@ -4561,7 +4561,7 @@ impl ChatScreen {
                     Some(preset.default_reasoning_effort),
                 );
                 SelectionItem {
-                    name: preset.display_name.clone(),
+                    name: preset.name.clone(),
                     description,
                     is_current: Self::model_matches_current_selection(current_model, &model),
                     is_default: preset.is_default,
@@ -4690,7 +4690,7 @@ impl ChatScreen {
                 let search_value = Some(
                     format!(
                         "{} {} {} {}",
-                        preset.display_name, preset.slug, bucket.name, bucket.id
+                        preset.name, preset.slug, bucket.name, bucket.id
                     )
                     .to_ascii_lowercase(),
                 );
@@ -4708,7 +4708,7 @@ impl ChatScreen {
                     initial_selected_idx = Some(item_index);
                 }
                 items.push(SelectionItem {
-                    name: preset.display_name.clone(),
+                    name: preset.name.clone(),
                     description,
                     is_current,
                     is_default: preset.is_default,
@@ -6032,10 +6032,10 @@ impl ChatScreen {
                 .config
                 .model_providers
                 .get(provider_id)
-                .map(|provider| provider.display_name.clone())
+                .map(|provider| provider.name.clone())
                 .unwrap_or_else(|| provider_id.to_string());
         }
-        self.config.model_provider.display_name.clone()
+        self.config.model_provider.name.clone()
     }
 
     /// Get the label for the current collaboration mode.
@@ -7025,7 +7025,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         format!("{provider_id}/{raw_id}")
     };
     let model_tail = model_id.rsplit('/').next().unwrap_or(model_id.as_str());
-    let display_name = value_string(model, &["name", "display_name", "title"])
+    let name = value_string(model, &["name", "name", "title"])
         .or_else(|| value_string(model, &["model_slug"]))
         .unwrap_or_else(|| model_tail.to_string());
     let description = value_string(model, &["description", "remark"]).unwrap_or_default();
@@ -7052,7 +7052,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
     Some(ModelPreset {
         id: model_id.clone(),
         slug: model_id,
-        display_name,
+        name,
         description,
         default_reasoning_effort,
         supported_reasoning_efforts,

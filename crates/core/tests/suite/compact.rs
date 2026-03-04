@@ -87,7 +87,7 @@ fn json_fragment(text: &str) -> String {
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
     let mut provider = built_in_model_providers()["openai"].clone();
-    provider.display_name = "OpenAI (test)".into();
+    provider.name = "OpenAI (test)".into();
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider
 }
@@ -505,10 +505,10 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
 
     let server = start_mock_server().await;
 
-    let non_openai_provider_name = non_openai_model_provider(&server).display_name;
+    let non_openai_provider_name = non_openai_model_provider(&server).name;
     let savfox = test_savfox()
         .with_config(move |config| {
-            config.model_provider.display_name = non_openai_provider_name;
+            config.model_provider.name = non_openai_provider_name;
         })
         .build(&server)
         .await

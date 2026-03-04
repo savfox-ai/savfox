@@ -227,7 +227,7 @@ mod tests {
     fn provider() -> Provider {
         Provider {
             slug: "anthropic".to_string(),
-            display_name: "anthropic".to_string(),
+            name: "anthropic".to_string(),
             base_url: "https://api.anthropic.com".to_string(),
             query_params: None,
             wire: WireApi::Anthropic,

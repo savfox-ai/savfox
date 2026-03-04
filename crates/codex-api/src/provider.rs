@@ -49,7 +49,7 @@ impl RetryConfig {
 #[derive(Debug, Clone)]
 pub struct Provider {
     pub id: String,
-    pub display_name: String,
+    pub name: String,
     pub base_url: String,
     pub query_params: Option<HashMap<String, String>>,
     pub wire: WireApi,

@@ -69,12 +69,12 @@ impl ChatScreen {
             .iter()
             .map(|skill| {
                 let core_skill = protocol_skill_to_core(skill);
-                let display_name = skill_display_name(&core_skill).to_string();
+                let name = skill_display_name(&core_skill).to_string();
                 let description = skill_description(&core_skill).to_string();
                 let name = core_skill.name.clone();
                 let path = core_skill.path;
                 SkillsToggleItem {
-                    name: display_name,
+                    name: name,
                     skill_name: name,
                     description,
                     enabled: skill.enabled,
@@ -159,7 +159,7 @@ fn protocol_skill_to_core(skill: &ProtocolSkillMetadata) -> SkillMetadata {
         description: skill.description.clone(),
         short_description: skill.short_description.clone(),
         interface: skill.interface.clone().map(|interface| SkillInterface {
-            display_name: interface.display_name,
+            name: interface.name,
             short_description: interface.short_description,
             icon_small: interface.icon_small,
             icon_large: interface.icon_large,

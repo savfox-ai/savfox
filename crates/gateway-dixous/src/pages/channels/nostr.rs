@@ -14,7 +14,7 @@ pub fn NostrChannel() -> Element {
     let mut action_loading = use_signal(|| false);
     let mut action_msg = use_signal(|| None::<String>);
 
-    let mut display_name = use_signal(String::new);
+    let mut name = use_signal(String::new);
     let mut about = use_signal(String::new);
     let mut picture = use_signal(String::new);
     let mut nip05 = use_signal(String::new);
@@ -51,9 +51,9 @@ pub fn NostrChannel() -> Element {
             match profile_result {
                 Ok(val) => {
                     let profile = val.get("profile").unwrap_or(&val);
-                    display_name.set(
+                    name.set(
                         profile
-                            .get("display_name")
+                            .get("name")
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
@@ -214,8 +214,8 @@ pub fn NostrChannel() -> Element {
                     input {
                         class: "channels-field__input",
                         placeholder: "Display Name",
-                        value: "{display_name}",
-                        oninput: move |e| display_name.set(e.value()),
+                        value: "{name}",
+                        oninput: move |e| name.set(e.value()),
                     }
                     input {
                         class: "channels-field__input",
@@ -268,7 +268,7 @@ pub fn NostrChannel() -> Element {
                                         "channels.nostr.profile.set",
                                         Some(json!({
                                             "profile": {
-                                                "display_name": display_name(),
+                                                "name": name(),
                                                 "about": about(),
                                                 "picture": picture(),
                                                 "nip05": nip05(),

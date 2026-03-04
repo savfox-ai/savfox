@@ -14,7 +14,7 @@ use crate::text_formatting::truncate_text;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MentionItem {
-    pub(crate) display_name: String,
+    pub(crate) name: String,
     pub(crate) description: Option<String>,
     pub(crate) insert_text: String,
     pub(crate) search_terms: Vec<String>,
@@ -89,7 +89,7 @@ impl SkillPopup {
             .into_iter()
             .map(|(idx, indices, _score)| {
                 let mention = &self.mentions[idx];
-                let name = truncate_text(&mention.display_name, 21);
+                let name = truncate_text(&mention.name, 21);
                 let description = mention.description.clone().unwrap_or_default();
                 GenericDisplayRow {
                     name,
@@ -118,12 +118,12 @@ impl SkillPopup {
         for (idx, mention) in self.mentions.iter().enumerate() {
             let mut best_match: Option<(Option<Vec<usize>>, i32)> = None;
 
-            if let Some((indices, score)) = fuzzy_match(&mention.display_name, filter) {
+            if let Some((indices, score)) = fuzzy_match(&mention.name, filter) {
                 best_match = Some((Some(indices), score));
             }
 
             for term in &mention.search_terms {
-                if term == &mention.display_name {
+                if term == &mention.name {
                     continue;
                 }
 
@@ -149,8 +149,8 @@ impl SkillPopup {
 
         out.sort_by(|a, b| {
             a.2.cmp(&b.2).then_with(|| {
-                let an = self.mentions[a.0].display_name.as_str();
-                let bn = self.mentions[b.0].display_name.as_str();
+                let an = self.mentions[a.0].name.as_str();
+                let bn = self.mentions[b.0].name.as_str();
                 an.cmp(bn)
             })
         });

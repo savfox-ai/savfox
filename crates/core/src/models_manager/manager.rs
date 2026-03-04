@@ -421,7 +421,7 @@ mod tests {
     ) -> ModelInfo {
         serde_json::from_value(json!({
             "slug": slug,
-            "display_name": display,
+            "name": display,
             "description": format!("{display} desc"),
             "default_reasoning_level": "medium",
             "supported_reasoning_levels": [{"effort": "low", "description": "low"}, {"effort": "medium", "description": "medium"}],
@@ -457,7 +457,7 @@ mod tests {
     fn provider_for(base_url: String) -> ModelProviderInfo {
         ModelProviderInfo {
             slug: "mock".into(),
-            display_name: "mock".into(),
+            name: "mock".into(),
             base_url: Some(base_url),
             env_key: None,
             env_key_instructions: None,

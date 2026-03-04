@@ -214,7 +214,7 @@ fn prompt_with_input(input: Vec<ResponseItem>) -> Prompt {
 fn websocket_provider(server: &WebSocketTestServer) -> ModelProviderInfo {
     ModelProviderInfo {
         slug: "mock-ws".into(),
-        display_name: "mock-ws".into(),
+        name: "mock-ws".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,

@@ -1448,7 +1448,7 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "display_name": "ZhipuAI Coding Plan",
+  "name": "ZhipuAI Coding Plan",
   "auth": {
     "type": "api_key",
     "env_key": "ZHIPUAI_API_KEY",

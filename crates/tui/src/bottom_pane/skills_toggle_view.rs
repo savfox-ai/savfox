@@ -86,8 +86,8 @@ impl SkillsToggleView {
         } else {
             let mut matches: Vec<(usize, i32)> = Vec::new();
             for (idx, item) in self.items.iter().enumerate() {
-                let display_name = item.name.as_str();
-                if let Some((_indices, score)) = match_skill(filter, display_name, &item.skill_name)
+                let name = item.name.as_str();
+                if let Some((_indices, score)) = match_skill(filter, name, &item.skill_name)
                 {
                     matches.push((idx, score));
                 }

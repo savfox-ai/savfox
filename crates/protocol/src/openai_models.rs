@@ -104,7 +104,7 @@ pub struct ModelPreset {
     #[serde(alias = "model")]
     pub slug: String,
     /// Display name shown in UIs.
-    pub display_name: String,
+    pub name: String,
     /// Short human description shown in UIs.
     pub description: String,
     /// Reasoning effort applied when none is explicitly chosen.
@@ -257,7 +257,7 @@ fn default_experimental_supported_tools() -> Vec<String> {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelInfo {
     pub slug: String,
-    pub display_name: String,
+    pub name: String,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,7 +311,7 @@ impl Default for ModelInfo {
     fn default() -> Self {
         Self {
             slug: String::new(),
-            display_name: String::new(),
+            name: String::new(),
             description: None,
             default_reasoning_level: None,
             supported_reasoning_levels: default_supported_reasoning_levels(),
@@ -338,10 +338,10 @@ impl Default for ModelInfo {
 }
 
 impl ModelInfo {
-    pub fn new(slug: impl Into<String>, display_name: impl Into<String>) -> Self {
+    pub fn new(slug: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             slug: slug.into(),
-            display_name: display_name.into(),
+            name: name.into(),
             ..Self::default()
         }
     }
@@ -466,7 +466,7 @@ impl From<ModelInfo> for ModelPreset {
         ModelPreset {
             id: info.slug.clone(),
             slug: info.slug.clone(),
-            display_name: info.display_name,
+            name: info.name,
             description: info.description.unwrap_or_default(),
             default_reasoning_effort: info
                 .default_reasoning_level
@@ -580,7 +580,7 @@ mod tests {
     fn test_model(spec: Option<ModelMessages>) -> ModelInfo {
         ModelInfo {
             slug: "test-model".to_string(),
-            display_name: "Test Model".to_string(),
+            name: "Test Model".to_string(),
             description: None,
             default_reasoning_level: None,
             supported_reasoning_levels: vec![],
@@ -744,7 +744,7 @@ mod tests {
         let model = ModelInfo::new("gpt-test", "GPT Test");
 
         assert_eq!(model.slug, "gpt-test");
-        assert_eq!(model.display_name, "GPT Test");
+        assert_eq!(model.name, "GPT Test");
         assert_eq!(model.priority, 99);
         assert!(model.supported_in_api);
         assert_eq!(model.visibility, ModelVisibility::None);
@@ -755,12 +755,12 @@ mod tests {
     fn deserialize_model_info_with_only_required_fields_uses_defaults() {
         let value = json!({
             "slug": "gpt-test",
-            "display_name": "GPT Test"
+            "name": "GPT Test"
         });
         let model: ModelInfo = serde_json::from_value(value).expect("model should deserialize");
 
         assert_eq!(model.slug, "gpt-test");
-        assert_eq!(model.display_name, "GPT Test");
+        assert_eq!(model.name, "GPT Test");
         assert_eq!(model.priority, 99);
         assert!(model.supported_in_api);
         assert_eq!(

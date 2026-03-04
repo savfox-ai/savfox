@@ -141,7 +141,7 @@ mod tests {
     fn provider(base_url: &str) -> Provider {
         Provider {
             slug: "test".to_string(),
-            display_name: "test".to_string(),
+            name: "test".to_string(),
             base_url: base_url.to_string(),
             query_params: None,
             wire: WireApi::Responses,
@@ -200,7 +200,7 @@ mod tests {
             models: vec![
                 serde_json::from_value(json!({
                     "slug": "gpt-test",
-                    "display_name": "gpt-test",
+                    "name": "gpt-test",
                     "description": "desc",
                     "default_reasoning_level": "medium",
                     "supported_reasoning_levels": [{"effort": "low", "description": "low"}, {"effort": "medium", "description": "medium"}, {"effort": "high", "description": "high"}],

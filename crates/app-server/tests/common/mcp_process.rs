@@ -799,7 +799,7 @@ fn append_missing_provider_fields(
     }
 
     if !has_display_name {
-        rewritten.push_str("display_name = \"");
+        rewritten.push_str("name = \"");
         rewritten.push_str(provider_id);
         rewritten.push_str("\"\n");
         changed = true;

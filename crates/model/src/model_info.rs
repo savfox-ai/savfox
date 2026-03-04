@@ -33,7 +33,7 @@ macro_rules! model_info {
         #[allow(unused_mut)]
         let mut model = ModelInfo {
             slug: $slug.to_string(),
-            display_name: $slug.to_string(),
+            name: $slug.to_string(),
             description: None,
             // This is primarily used when remote metadata is available. When running
             // offline, core generally omits the effort field unless explicitly

@@ -197,7 +197,7 @@ pub enum WireApi {
 pub struct ModelProviderInfo {
     pub slug: String,
     /// Friendly display name.
-    pub display_name: String,
+    pub name: String,
     /// Base URL for the provider's OpenAI-compatible API.
     pub base_url: Option<String>,
     /// Environment variable that stores the user's API key for this provider.
@@ -323,8 +323,8 @@ impl ModelProviderInfo {
         };
 
         Ok(ApiProvider {
-            display_name: self.display_name.clone(),
-            slug: self.slug.clone(),
+            id: self.id.clone(),
+            name: self.name.clone(),
             base_url,
             query_params: self.query_params.clone(),
             wire: match self.wire_api {
@@ -403,7 +403,7 @@ impl ModelProviderInfo {
     pub fn create_openai_provider() -> ModelProviderInfo {
         ModelProviderInfo {
             slug: "openai".into(),
-            display_name: "OpenAI".into(),
+            name: "OpenAI".into(),
             // Allow users to override the default OpenAI endpoint by
             // exporting `OPENAI_BASE_URL`. This is useful when pointing
             // Savfox at a proxy, mock server, or Azure-style deployment
@@ -443,7 +443,7 @@ impl ModelProviderInfo {
     }
 
     pub fn is_openai(&self) -> bool {
-        self.slug == "openai" || self.display_name == "OpenAI"
+        self.slug == "openai" || self.name == "OpenAI"
     }
 }
 
@@ -624,7 +624,7 @@ pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> Mod
 fn create_anthropic_provider() -> ModelProviderInfo {
     ModelProviderInfo {
         slug: "anthropic".into(),
-        display_name: "Anthropic".into(),
+        name: "Anthropic".into(),
         base_url: Some("https://api.anthropic.com".into()),
         env_key: None,
         env_key_instructions: None,
@@ -652,7 +652,7 @@ fn create_anthropic_provider() -> ModelProviderInfo {
 fn create_cloud_chat_provider(name: &str, base_url: &str, env_key: &str) -> ModelProviderInfo {
     ModelProviderInfo {
         slug: name.to_lowercase().into(),
-        display_name: name.into(),
+        name: name.into(),
         base_url: Some(base_url.into()),
         env_key: Some(env_key.into()),
         env_key_instructions: None,
@@ -675,7 +675,7 @@ fn create_gemini_provider() -> ModelProviderInfo {
     // We use the OpenAI-compatible endpoint which accepts Bearer auth.
     ModelProviderInfo {
         slug: "gemini".into(),
-        display_name: "Gemini".into(),
+        name: "Gemini".into(),
         base_url: Some(
             std::env::var("GEMINI_BASE_URL")
                 .ok()
@@ -710,7 +710,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
     // `bedrock-access-gateway` or use LiteLLM as a middleware.
     ModelProviderInfo {
         slug: "bedrock".into(),
-        display_name: "Bedrock".into(),
+        name: "Bedrock".into(),
         base_url: std::env::var("BEDROCK_BASE_URL")
             .ok()
             .filter(|v| !v.trim().is_empty()),
@@ -737,7 +737,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
     ModelProviderInfo {
         slug: "gpt-oss".into(),
-        display_name: "gpt-oss".into(),
+        name: "gpt-oss".into(),
         base_url: Some(base_url.into()),
         env_key: None,
         env_key_instructions: None,
@@ -765,12 +765,12 @@ mod tests {
     fn test_deserialize_ollama_model_provider_toml() {
         let azure_provider_toml = r#"
 slug = "ollama"
-display_name = "Ollama"
+name = "Ollama"
 base_url = "http://localhost:11434/v1"
         "#;
         let expected_provider = ModelProviderInfo {
             slug: "ollama".into(),
-            display_name: "Ollama".into(),
+            name: "Ollama".into(),
             base_url: Some("http://localhost:11434/v1".into()),
             env_key: None,
             env_key_instructions: None,
@@ -794,14 +794,14 @@ base_url = "http://localhost:11434/v1"
     fn test_deserialize_azure_model_provider_toml() {
         let azure_provider_toml = r#"
 slug = "azure"
-display_name = "Azure"
+name = "Azure"
 base_url = "https://xxxxx.openai.azure.com/openai"
 env_key = "AZURE_OPENAI_API_KEY"
 query_params = { api-version = "2025-04-01-preview" }
         "#;
         let expected_provider = ModelProviderInfo {
             slug: "azure".into(),
-            display_name: "Azure".into(),
+            name: "Azure".into(),
             base_url: Some("https://xxxxx.openai.azure.com/openai".into()),
             env_key: Some("AZURE_OPENAI_API_KEY".into()),
             env_key_instructions: None,
@@ -827,7 +827,7 @@ query_params = { api-version = "2025-04-01-preview" }
     fn test_deserialize_anthropic_model_provider_toml() {
         let anthropic_provider_toml = r#"
 slug = "anthropic"
-display_name = "Anthropic"
+name = "Anthropic"
 base_url = "https://api.anthropic.com"
 wire_api = "anthropic"
 http_headers = { "anthropic-version" = "2023-06-01" }
@@ -835,7 +835,7 @@ env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
         "#;
         let expected_provider = ModelProviderInfo {
             slug: "anthropic".into(),
-            display_name: "Anthropic".into(),
+            name: "Anthropic".into(),
             base_url: Some("https://api.anthropic.com".into()),
             env_key: None,
             env_key_instructions: None,
@@ -863,7 +863,7 @@ env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
     fn test_deserialize_example_model_provider_toml() {
         let azure_provider_toml = r#"
 slug = "example"
-display_name = "Example"
+name = "Example"
 base_url = "https://example.com"
 env_key = "API_KEY"
 http_headers = { "X-Example-Header" = "example-value" }
@@ -871,7 +871,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
         "#;
         let expected_provider = ModelProviderInfo {
             slug: "example".into(),
-            display_name: "Example".into(),
+            name: "Example".into(),
             base_url: Some("https://example.com".into()),
             env_key: Some("API_KEY".into()),
             env_key_instructions: None,
@@ -905,7 +905,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
         );
 
         let gemini = &providers["gemini"];
-        assert_eq!(gemini.display_name, "Gemini");
+        assert_eq!(gemini.name, "Gemini");
         assert_eq!(gemini.wire_api, WireApi::Chat);
         assert_eq!(gemini.env_key.as_deref(), Some("GEMINI_API_KEY"));
         assert!(
@@ -917,7 +917,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
         );
 
         let bedrock = &providers["bedrock"];
-        assert_eq!(bedrock.display_name, "Bedrock");
+        assert_eq!(bedrock.name, "Bedrock");
         assert_eq!(bedrock.wire_api, WireApi::Chat);
         assert_eq!(bedrock.env_key.as_deref(), Some("BEDROCK_API_KEY"));
     }
@@ -927,7 +927,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
         let providers = built_in_model_providers();
         for (id, provider) in &providers {
             assert!(
-                !provider.display_name.is_empty(),
+                !provider.name.is_empty(),
                 "provider {id} has empty name"
             );
         }
@@ -937,12 +937,12 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
     fn test_deserialize_gemini_model_provider_toml() {
         let gemini_toml = r#"
 slug = "gemini"
-display_name = "Gemini"
+name = "Gemini"
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 env_key = "GEMINI_API_KEY"
         "#;
         let provider: ModelProviderInfo = toml::from_str(gemini_toml).unwrap();
-        assert_eq!(provider.display_name, "Gemini");
+        assert_eq!(provider.name, "Gemini");
         assert_eq!(provider.wire_api, WireApi::Chat);
         assert_eq!(provider.env_key.as_deref(), Some("GEMINI_API_KEY"));
     }
@@ -967,7 +967,7 @@ env_key = "GEMINI_API_KEY"
                 r#"{{
   "version": 2,
   "provider_id": "{provider_id}",
-  "display_name": "ZhipuAI",
+  "name": "ZhipuAI",
   "auth": {{
     "type": "api_key",
     "env_key": "{env_key}",
@@ -983,7 +983,7 @@ env_key = "GEMINI_API_KEY"
 
         let provider = ModelProviderInfo {
             slug: "zhipuai".to_string(),
-            display_name: "ZhipuAI".to_string(),
+            name: "ZhipuAI".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
             env_key: Some(env_key.to_string()),
             env_key_instructions: None,
@@ -1046,7 +1046,7 @@ env_key = "GEMINI_API_KEY"
     fn to_api_provider_uses_known_provider_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
             slug: "anthropic".to_string(),
-            display_name: "Anthropic".to_string(),
+            name: "Anthropic".to_string(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,
@@ -1071,7 +1071,7 @@ env_key = "GEMINI_API_KEY"
     fn to_api_provider_uses_known_provider_alias_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
             slug: "qwen".to_string(),
-            display_name: "Qwen".to_string(),
+            name: "Qwen".to_string(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,
@@ -1099,7 +1099,7 @@ env_key = "GEMINI_API_KEY"
     fn to_api_provider_errors_when_provider_has_no_base_url_and_no_default() {
         let provider = ModelProviderInfo {
             slug: "other".to_string(),
-            display_name: "Other".to_string(),
+            name: "Other".to_string(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,

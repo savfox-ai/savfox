@@ -387,7 +387,7 @@ mod tests {
     fn provider() -> Provider {
         Provider {
             slug: "openai".to_string(),
-            display_name: "openai".to_string(),
+            name: "openai".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             query_params: None,
             wire: WireApi::Chat,

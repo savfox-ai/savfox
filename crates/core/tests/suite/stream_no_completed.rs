@@ -55,7 +55,7 @@ async fn retries_on_early_close() {
 
     let model_provider = ModelProviderInfo {
         slug: "openai".into(),
-        display_name: "openai".into(),
+        name: "openai".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         // Environment variable that should exist in the test environment.
         // ModelClientSession will return an error if the environment variable for the

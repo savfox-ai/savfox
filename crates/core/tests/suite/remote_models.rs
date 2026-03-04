@@ -44,7 +44,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
 
     let remote_model = ModelInfo {
         slug: REMOTE_MODEL_SLUG.to_string(),
-        display_name: "Remote Test".to_string(),
+        name: "Remote Test".to_string(),
         description: Some("A remote model that requires the test shell".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -282,7 +282,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
     let remote_base = "Use the remote base instructions only.";
     let remote_model = ModelInfo {
         slug: model.to_string(),
-        display_name: "Parallel Remote".to_string(),
+        name: "Parallel Remote".to_string(),
         description: Some("A remote model with custom instructions".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
@@ -504,7 +504,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
     let server = MockServer::start().await;
     let slug = bundled_model_slug();
     let mut remote_model = test_remote_model(&slug, ModelVisibility::List, 0);
-    remote_model.display_name = "Overridden".to_string();
+    remote_model.name = "Overridden".to_string();
     remote_model.description = Some("Overridden description".to_string());
     let models_mock = mount_models_once(
         &server,
@@ -536,7 +536,7 @@ async fn remote_models_merge_replaces_overlapping_model() -> Result<()> {
         .iter()
         .find(|model| model.slug == slug)
         .expect("overlapping model should be listed");
-    assert_eq!(overridden.display_name, remote_model.display_name);
+    assert_eq!(overridden.name, remote_model.name);
     assert_eq!(
         overridden.description,
         remote_model
@@ -757,7 +757,7 @@ fn test_remote_model_with_policy(
 ) -> ModelInfo {
     ModelInfo {
         slug: slug.to_string(),
-        display_name: format!("{slug} display"),
+        name: format!("{slug} display"),
         description: Some(format!("{slug} description")),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {

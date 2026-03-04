@@ -328,7 +328,7 @@ impl ModelClientSession {
                     Ok(stream) => Ok(stream),
                     Err(err) if self.should_fallback_to_chat_wire(prompt, &err) => {
                         warn!(
-                            provider = %self.state.provider.display_name,
+                            provider = %self.state.provider.name,
                             model = %self.state.model_info.slug,
                             error = %err,
                             "responses wire appears unsupported, falling back to chat/completions for this turn"
@@ -554,7 +554,7 @@ impl ModelClientSession {
 
         debug!(
             transport,
-            provider = %api_provider.display_name,
+            provider = %api_provider.name,
             url = %api_provider.url_for_path("responses"),
             model = %request_model,
             input_items = api_prompt.input.len(),
@@ -831,7 +831,7 @@ impl ModelClientSession {
                 {
                     error!(
                         transport = "responses_http",
-                        provider = %self.state.provider.display_name,
+                        provider = %self.state.provider.name,
                         model = %request_model,
                         input_items = api_prompt.input.len(),
                         has_bearer_token,
@@ -894,7 +894,7 @@ impl ModelClientSession {
                 {
                     error!(
                         transport = "responses_websocket",
-                        provider = %self.state.provider.display_name,
+                        provider = %self.state.provider.name,
                         model = %request_model,
                         input_items = api_prompt.input.len(),
                         has_bearer_token = api_auth.has_bearer_token(),

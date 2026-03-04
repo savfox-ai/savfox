@@ -1317,7 +1317,7 @@ mod tests {
         let stale_auth = json!({
             "version": 2,
             "provider_id": "chatgpt",
-            "display_name": "ChatGPT",
+            "name": "ChatGPT",
             "auth": {
                 "type": "chatgpt_oauth",
                 "env_key": "OPENAI_API_KEY",

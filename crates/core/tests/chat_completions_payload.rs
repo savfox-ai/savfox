@@ -38,7 +38,7 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
 
     let provider = ModelProviderInfo {
         slug: "mock".into(),
-        display_name: "mock".into(),
+        name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,
         env_key_instructions: None,

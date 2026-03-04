@@ -3192,7 +3192,7 @@ fn skills_to_info(
                 .interface
                 .clone()
                 .map(|interface| ProtocolSkillInterface {
-                    display_name: interface.display_name,
+                    name: interface.name,
                     short_description: interface.short_description,
                     icon_small: interface.icon_small,
                     icon_large: interface.icon_large,

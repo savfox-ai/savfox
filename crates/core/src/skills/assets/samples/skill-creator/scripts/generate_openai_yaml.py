@@ -40,7 +40,7 @@ BRANDS = {
 SMALL_WORDS = {"and", "or", "to", "up", "with"}
 
 ALLOWED_INTERFACE_KEYS = {
-    "display_name",
+    "name",
     "short_description",
     "icon_small",
     "icon_large",
@@ -73,24 +73,24 @@ def format_display_name(skill_name):
     return " ".join(formatted)
 
 
-def generate_short_description(display_name):
-    description = f"Help with {display_name} tasks"
+def generate_short_description(name):
+    description = f"Help with {name} tasks"
 
     if len(description) < 25:
-        description = f"Help with {display_name} tasks and workflows"
+        description = f"Help with {name} tasks and workflows"
     if len(description) < 25:
-        description = f"Help with {display_name} tasks with guidance"
+        description = f"Help with {name} tasks with guidance"
 
     if len(description) > 64:
-        description = f"Help with {display_name}"
+        description = f"Help with {name}"
     if len(description) > 64:
-        description = f"{display_name} helper"
+        description = f"{name} helper"
     if len(description) > 64:
-        description = f"{display_name} tools"
+        description = f"{name} tools"
     if len(description) > 64:
         suffix = " helper"
         max_name_length = 64 - len(suffix)
-        trimmed = display_name[:max_name_length].rstrip()
+        trimmed = name[:max_name_length].rstrip()
         description = f"{trimmed}{suffix}"
     if len(description) > 64:
         description = description[:64].rstrip()
@@ -147,7 +147,7 @@ def parse_interface_overrides(raw_overrides):
             print(f"[ERROR] Unknown interface field '{key}'. Allowed: {allowed}")
             return None, None
         overrides[key] = value
-        if key not in ("display_name", "short_description") and key not in optional_order:
+        if key not in ("name", "short_description") and key not in optional_order:
             optional_order.append(key)
     return overrides, optional_order
 
@@ -157,8 +157,8 @@ def write_openai_yaml(skill_dir, skill_name, raw_overrides):
     if overrides is None:
         return None
 
-    display_name = overrides.get("display_name") or format_display_name(skill_name)
-    short_description = overrides.get("short_description") or generate_short_description(display_name)
+    name = overrides.get("name") or format_display_name(skill_name)
+    short_description = overrides.get("short_description") or generate_short_description(name)
 
     if not (25 <= len(short_description) <= 64):
         print(
@@ -169,7 +169,7 @@ def write_openai_yaml(skill_dir, skill_name, raw_overrides):
 
     interface_lines = [
         "interface:",
-        f"  display_name: {yaml_quote(display_name)}",
+        f"  name: {yaml_quote(name)}",
         f"  short_description: {yaml_quote(short_description)}",
     ]
 

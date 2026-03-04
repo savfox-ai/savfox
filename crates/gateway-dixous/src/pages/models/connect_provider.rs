@@ -1033,7 +1033,7 @@ fn render_step_summary(
 
                                 let mut import_params = json!({
                                     "provider_id": provider_id,
-                                    "display_name": provider_name,
+                                    "name": provider_name,
                                     "models": model_entries,
                                     "api_key": api_key,
                                     "env_key": provider_env_key,

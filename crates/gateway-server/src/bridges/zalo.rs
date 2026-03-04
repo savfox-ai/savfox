@@ -308,7 +308,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let display_name = body
+            let name = body
                 .get("sender")
                 .and_then(|s| s.get("id"))
                 .and_then(|v| v.as_str())
@@ -348,7 +348,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     "zalo",
                     channel,
                     prompt,
-                    display_name,
+                    name,
                 )
                 .await;
             });

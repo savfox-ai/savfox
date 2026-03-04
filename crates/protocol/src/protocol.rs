@@ -2243,7 +2243,7 @@ pub struct SkillMetadata {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
 pub struct SkillInterface {
     #[ts(optional)]
-    pub display_name: Option<String>,
+    pub name: Option<String>,
     #[ts(optional)]
     pub short_description: Option<String>,
     #[ts(optional)]

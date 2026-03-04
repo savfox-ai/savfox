@@ -219,7 +219,7 @@
           "description": "Base URL for the provider's OpenAI-compatible API.",
           "type": "string"
         },
-        "display_name": {
+        "name": {
           "description": "Friendly display name.",
           "type": "string"
         },
@@ -298,7 +298,7 @@
         }
       },
       "required": [
-        "display_name",
+        "name",
         "slug"
       ],
       "type": "object"

@@ -27,7 +27,7 @@ pub struct ProviderStoreFile {
     #[serde(default)]
     pub provider_id: String,
     #[serde(default)]
-    pub display_name: String,
+    pub name: String,
     #[serde(default)]
     pub auth: Option<ProviderStoreAuth>,
     #[serde(default)]
@@ -50,7 +50,7 @@ impl Default for ProviderStoreFile {
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
             provider_id: String::new(),
-            display_name: String::new(),
+            name: String::new(),
             auth: None,
             enabled_models: Vec::new(),
             models: Vec::new(),
@@ -271,7 +271,7 @@ pub fn persist_provider_connection(
     let mut file = load_provider_store_file(savfox_home, provider_id);
     file.version = PROVIDER_STORE_FILE_VERSION;
     file.provider_id = provider_id.to_string();
-    file.display_name = if provider_name.trim().is_empty() {
+    file.name = if provider_name.trim().is_empty() {
         provider_id.to_string()
     } else {
         provider_name.to_string()

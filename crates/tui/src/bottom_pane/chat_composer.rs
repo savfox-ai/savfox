@@ -2908,16 +2908,16 @@ impl ChatComposer {
 
         if let Some(skills) = self.skills.as_ref() {
             for skill in skills {
-                let display_name = skill_display_name(skill).to_string();
+                let name = skill_display_name(skill).to_string();
                 let description = skill_description(skill);
                 let skill_name = skill.name.clone();
-                let search_terms = if display_name == skill.name {
+                let search_terms = if name == skill.name {
                     vec![skill_name.clone()]
                 } else {
-                    vec![skill_name.clone(), display_name.clone()]
+                    vec![skill_name.clone(), name.clone()]
                 };
                 mentions.push(MentionItem {
-                    display_name,
+                    name,
                     description,
                     insert_text: format!("${skill_name}"),
                     search_terms,
@@ -2933,13 +2933,13 @@ impl ChatComposer {
                 if !connector.is_accessible {
                     continue;
                 }
-                let display_name = connectors::connector_display_label(connector);
+                let name = connectors::connector_display_label(connector);
                 let description = Some(Self::connector_brief_description(connector));
                 let slug = savfox_core::connectors::connector_mention_slug(connector);
-                let search_terms = vec![display_name.clone(), connector.id.clone(), slug.clone()];
+                let search_terms = vec![name.clone(), connector.id.clone(), slug.clone()];
                 let connector_id = connector.id.as_str();
                 mentions.push(MentionItem {
-                    display_name: display_name.clone(),
+                    name: name.clone(),
                     description,
                     insert_text: format!("${slug}"),
                     search_terms,
@@ -3031,7 +3031,7 @@ fn skill_display_name(skill: &SkillMetadata) -> &str {
     skill
         .interface
         .as_ref()
-        .and_then(|interface| interface.display_name.as_deref())
+        .and_then(|interface| interface.name.as_deref())
         .unwrap_or(&skill.name)
 }
 

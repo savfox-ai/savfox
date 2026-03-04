@@ -25,10 +25,10 @@ const EMPTY_PROVIDER_MODELS: &[ModelInfo] = &[];
 
 /// Build a `ModelInfo` using model-registry defaults, while requiring only the
 /// fields needed for provider model lists.
-pub fn model_info_with_defaults(slug: &str, display_name: &str) -> ModelInfo {
+pub fn model_info_with_defaults(slug: &str, name: &str) -> ModelInfo {
     let mut model = find_model_info_for_slug(slug);
     model.slug = slug.to_string();
-    model.display_name = display_name.to_string();
+    model.name = name.to_string();
     model
 }
 

@@ -133,7 +133,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let mut channel = String::new();
     let mut prompt = String::new();
     let mut dedupe_key: Option<String> = None;
-    let mut display_name: Option<String> = None;
+    let mut name: Option<String> = None;
     if let Some(events) = body.get("events").and_then(|e| e.as_array()) {
         for event in events {
             if event.get("type").and_then(|t| t.as_str()) != Some("message") {
@@ -162,7 +162,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     .get("id")
                     .and_then(|v| v.as_str())
                     .map(|id| format!("line:{id}"));
-                display_name = event
+                name = event
                     .get("source")
                     .and_then(|s| s.get("userId"))
                     .and_then(|v| v.as_str())
@@ -210,7 +210,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 "line",
                 channel,
                 prompt,
-                display_name,
+                name,
             )
             .await;
         });

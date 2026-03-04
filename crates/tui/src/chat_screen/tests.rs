@@ -3384,7 +3384,7 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
         id: slug.to_string(),
         slug: slug.to_string(),
-        display_name: slug.to_string(),
+        name: slug.to_string(),
         description: format!("{slug} description"),
         default_reasoning_effort: ReasoningEffortConfig::Medium,
         supported_reasoning_efforts: vec![ReasoningEffortPreset {
@@ -3427,7 +3427,7 @@ async fn model_popup_prefers_provider_store_models() {
         r#"{
   "version": 2,
   "provider_id": "provider-a",
-  "display_name": "Provider A",
+  "name": "Provider A",
   "enabled_models": [
     "provider-a/model-one"
   ]
@@ -3439,7 +3439,7 @@ async fn model_popup_prefers_provider_store_models() {
         r#"{
   "version": 2,
   "provider_id": "provider-b",
-  "display_name": "Provider B",
+  "name": "Provider B",
   "enabled_models": [
     "provider-b/model-two"
   ]
@@ -3488,7 +3488,7 @@ fn provider_store_loader_parses_enabled_models_field() {
         r#"{
   "version": 2,
   "provider_id": "provider-enabled",
-  "display_name": "Provider Enabled",
+  "name": "Provider Enabled",
   "enabled_models": [
     "provider-enabled/model-a",
     "provider-enabled/model-b"
@@ -3514,7 +3514,7 @@ fn provider_store_loader_prefers_models_field_over_enabled_models() {
         r#"{
   "version": 2,
   "provider_id": "provider-full",
-  "display_name": "Provider Full",
+  "name": "Provider Full",
   "enabled_models": [
     "provider-full/model-a"
   ],
@@ -3566,7 +3566,7 @@ fn provider_store_loader_parses_legacy_array_files() {
         .expect("models dir exists and should be read");
     assert_eq!(presets.len(), 1, "expected one parsed preset");
     assert_eq!(presets[0].slug, "legacy-provider/legacy-one");
-    assert_eq!(presets[0].display_name, "Legacy One");
+    assert_eq!(presets[0].name, "Legacy One");
     assert!(presets[0].is_default);
 }
 
@@ -3791,7 +3791,7 @@ async fn single_reasoning_option_skips_selection() {
     let preset = ModelPreset {
         id: "model-with-single-reasoning".to_string(),
         slug: "model-with-single-reasoning".to_string(),
-        display_name: "model-with-single-reasoning".to_string(),
+        name: "model-with-single-reasoning".to_string(),
         description: "".to_string(),
         default_reasoning_effort: ReasoningEffortConfig::High,
         supported_reasoning_efforts: single_effort,
