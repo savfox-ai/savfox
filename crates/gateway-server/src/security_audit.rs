@@ -8,14 +8,14 @@ use serde_json::Value;
 use crate::dm_policy::{DmPolicyMode, DmPolicyStore};
 
 #[derive(Debug, Clone)]
-pub(crate) struct ConfigDocument {
+pub(crate) struct ConfigFile {
     pub format: String,
     pub path: PathBuf,
     pub value: Value,
 }
 
 /// Load config from `{savfox_home}/config.{json,toml,yaml,yml}`.
-pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigDocument, String> {
+pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFile, String> {
     let candidates = [
         ("json", savfox_home.join("config.json")),
         ("toml", savfox_home.join("config.toml")),
@@ -47,14 +47,14 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigDoc
             _ => Value::Object(serde_json::Map::new()),
         };
 
-        return Ok(ConfigDocument {
+        return Ok(ConfigFile {
             format: format.to_string(),
             path,
             value,
         });
     }
 
-    Ok(ConfigDocument {
+    Ok(ConfigFile {
         format: "json".to_string(),
         path: savfox_home.join("config.json"),
         value: Value::Object(serde_json::Map::new()),

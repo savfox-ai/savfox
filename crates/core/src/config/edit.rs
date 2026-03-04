@@ -20,7 +20,8 @@ use crate::path_utils::{resolve_symlink_write_paths, write_atomically};
 pub enum ConfigEdit {
     /// Update the active (or default) model selection and optional reasoning effort.
     SetModel {
-        model: Option<String>,
+        slug: Option<String>,
+        provider: Option<String>,
         effort: Option<ReasoningEffort>,
     },
     /// Update the active (or default) model personality.
@@ -235,7 +236,7 @@ mod document_helpers {
     }
 }
 
-struct ConfigDocument {
+struct ConfigFile {
     doc: DocumentMut,
 }
 
@@ -250,7 +251,7 @@ enum TraversalMode {
     Existing,
 }
 
-impl ConfigDocument {
+impl ConfigFile {
     fn new(doc: DocumentMut) -> Self {
         Self { doc }
     }
@@ -276,13 +277,25 @@ impl ConfigDocument {
                         };
 
                         mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug));
-                        if let Some(provider_id) = provider_id {
+                        let provider_to_write = if let Some(provider_id) = provider_id {
+                            provider_id
+                        } else {
+                            // If no provider in model string, try to read from existing config
+                            self.doc
+                                .as_table()
+                                .get("model_provider")
+                                .and_then(|item| item.as_str())
+                                .map(ToOwned::to_owned)
+                        };
+                        if let Some(provider) = &provider_to_write {
                             mutated |= self.write_value(
                                 Scope::Global,
                                 &["model", "provider"],
-                                value(provider_id.clone()),
+                                value(provider.clone()),
                             );
-                            // Keep legacy field in sync for older readers.
+                        }
+                        // Keep legacy field in sync for older readers.
+                        if let Some(provider_id) = provider_id.or_else(|| provider_to_write.clone()) {
                             mutated |= self.write_value(
                                 Scope::Global,
                                 &["model_provider"],
@@ -739,10 +752,20 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                         if let JsonValue::Object(model_map) = model_obj {
                             model_map.insert("slug".to_string(), JsonValue::String(slug));
 
-                            if let Some(ref provider_id) = provider_id {
+                            let provider_to_write = if let Some(ref provider_id) = provider_id {
+                                provider_id.clone()
+                            } else {
+                                // If no provider in model string, try to read from existing config
+                                root.get("model_provider")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToOwned::to_owned)
+                                    .unwrap_or_default()
+                            };
+
+                            if !provider_to_write.is_empty() {
                                 model_map.insert(
                                     "provider".to_string(),
-                                    JsonValue::String(provider_id.clone()),
+                                    JsonValue::String(provider_to_write.clone()),
                                 );
                             }
 
@@ -757,10 +780,19 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                         }
 
                         // Add model_provider at root level
-                        if let Some(provider_id) = provider_id {
+                        let provider_for_root = if let Some(provider_id) = provider_id {
+                            provider_id
+                        } else {
+                            // Try to preserve existing model_provider value
+                            root.get("model_provider")
+                                .and_then(|v| v.as_str())
+                                .map(ToOwned::to_owned)
+                                .unwrap_or_default()
+                        };
+                        if !provider_for_root.is_empty() {
                             root.insert(
                                 "model_provider".to_string(),
-                                JsonValue::String(provider_id),
+                                JsonValue::String(provider_for_root),
                             );
                         }
 
@@ -894,7 +926,7 @@ fn apply_blocking_toml(
         serialized.parse::<DocumentMut>()?
     };
 
-    let mut document = ConfigDocument::new(doc);
+    let mut document = ConfigFile::new(doc);
     let mut mutated = false;
 
     for edit in edits {

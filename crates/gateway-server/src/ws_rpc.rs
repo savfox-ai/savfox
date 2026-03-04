@@ -5348,7 +5348,7 @@ async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
 
 async fn load_config_intermediate(
     bridge: &GatewayBridge,
-) -> Result<crate::security_audit::ConfigDocument, String> {
+) -> Result<crate::security_audit::ConfigFile, String> {
     crate::security_audit::load_config_document(&bridge.config().savfox_home).await
 }
 
