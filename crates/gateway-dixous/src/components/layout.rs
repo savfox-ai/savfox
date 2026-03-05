@@ -301,6 +301,14 @@ pub fn Layout() -> Element {
         ws.connect(ws_connected, ws_reconnect_epoch);
     });
 
+    // Gate child page rendering on first successful WS connection
+    let mut ws_ever_connected = use_signal(|| false);
+    use_effect(move || {
+        if ws_connected() {
+            ws_ever_connected.set(true);
+        }
+    });
+
     // Poll for pending approvals periodically
     let mut approval_tick = use_signal(|| 0u32);
     let approvals_data = use_resource(move || {
@@ -573,9 +581,15 @@ pub fn Layout() -> Element {
                     id: "main-content",
                     class: "main-content",
                     role: "main",
-                    div {
-                        key: "route-{route_render_epoch}",
-                        Outlet::<Route> {}
+                    if ws_ever_connected() {
+                        div {
+                            key: "route-{route_render_epoch}",
+                            Outlet::<Route> {}
+                        }
+                    } else {
+                        div { class: "main-content__connecting",
+                            "Connecting to server\u{2026}"
+                        }
                     }
                 }
             } // close app-body

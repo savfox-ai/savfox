@@ -702,13 +702,6 @@ pub fn Channels() -> Element {
         });
     });
 
-    // Force data refresh when WebSocket (re)connects
-    use_effect(move || {
-        if ws_connected() {
-            refresh_tick += 1;
-        }
-    });
-
     // Auto-refresh every 30s when enabled (uses spawn to avoid leaked closures)
     use_effect(move || {
         if !auto_refresh() {
@@ -739,6 +732,7 @@ pub fn Channels() -> Element {
         let _t = refresh_tick();
         let ws = ws_list.clone();
         async move {
+            ws.wait_connected().await;
             ws.call::<serde_json::Value>("channels.status", Some(json!({ "probe": false })))
                 .await
                 .ok()
@@ -751,6 +745,7 @@ pub fn Channels() -> Element {
         let _t = refresh_tick();
         let ws = ws_configs.clone();
         async move {
+            ws.wait_connected().await;
             ws.call::<serde_json::Value>("channels.config.list", None)
                 .await
                 .ok()
@@ -784,9 +779,7 @@ pub fn Channels() -> Element {
         })
         .unwrap_or_default();
 
-    let is_loading = !ws_connected()
-        || channels_data.read().as_ref().map_or(true, |v| v.is_none())
-        || channel_configs_data.read().as_ref().map_or(true, |v| v.is_none());
+    let is_loading = channels_data.read().is_none() || channel_configs_data.read().is_none();
 
     let channels_read = channels_data.read();
     let channels_status = channels_read.as_ref().and_then(|c| c.as_ref());

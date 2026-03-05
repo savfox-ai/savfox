@@ -118,6 +118,23 @@ impl WsRpc {
             .unwrap_or(false)
     }
 
+    /// Wait for the WebSocket connection to be established, polling up to ~5 seconds.
+    pub async fn wait_connected(&self) {
+        for _ in 0..50 {
+            if self.connected() {
+                return;
+            }
+            let promise = js_sys::Promise::new(&mut |resolve, _| {
+                if let Some(win) = web_sys::window() {
+                    let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        &resolve, 100,
+                    );
+                }
+            });
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        }
+    }
+
     fn schedule_reconnect(&self, mut connected_signal: Signal<bool>, reconnect_epoch: Signal<u64>) {
         if self.inner.manual_disconnect.get() || self.inner.reconnect_scheduled.get() {
             return;

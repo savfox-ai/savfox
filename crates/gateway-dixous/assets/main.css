@@ -383,6 +383,15 @@ code, pre {
   flex-direction: column;
 }
 
+.main-content__connecting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 /* Hamburger button (in top header) */
 .hamburger-btn {
   display: flex;
