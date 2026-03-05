@@ -14,8 +14,8 @@ pub mod telegram;
 pub mod whatsapp;
 
 use dioxus::prelude::*;
-use serde_json::{Value, json};
 use savfox_utils_string::normalize_slug;
+use serde_json::{Value, json};
 
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};

@@ -35,9 +35,12 @@ impl DingtalkOutboundConfig {
             raw,
             &["webhook", "webhook_url", "robot_webhook", "webhookUrl"],
         );
-        let access_token =
-            first_non_empty_config_string(raw, &["access_token", "accessToken", "token", "robot_token"]);
-        let secret = first_non_empty_config_string(raw, &["secret", "sign_secret", "webhook_secret"]);
+        let access_token = first_non_empty_config_string(
+            raw,
+            &["access_token", "accessToken", "token", "robot_token"],
+        );
+        let secret =
+            first_non_empty_config_string(raw, &["secret", "sign_secret", "webhook_secret"]);
 
         if webhook_url.is_none() && access_token.is_none() {
             return None;

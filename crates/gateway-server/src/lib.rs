@@ -197,7 +197,9 @@ pub async fn run_main(
         });
     }
 
-    bridges::debug_print_channel_list();
+    if let Err(err) = bridges::matrix::log_configured_matrix_startup(&config.savfox_home).await {
+        warn!(error = %err, "Failed to load Matrix channel configs for startup logging");
+    }
 
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {

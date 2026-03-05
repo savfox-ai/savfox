@@ -48,11 +48,9 @@ impl FeishuOutboundConfig {
             return None;
         }
 
-        let receive_id_type = first_non_empty_config_string(
-            raw,
-            &["receiveIdType", "receive_id_type", "id_type"],
-        )
-        .unwrap_or_else(|| "chat_id".to_string());
+        let receive_id_type =
+            first_non_empty_config_string(raw, &["receiveIdType", "receive_id_type", "id_type"])
+                .unwrap_or_else(|| "chat_id".to_string());
 
         Some(Self {
             app_access_token,
@@ -92,10 +90,11 @@ pub(crate) async fn resolve_feishu_outbound_config(
     if feishu_configs.is_empty() {
         return Ok(None);
     }
-    if let Some(config) = feishu_configs
-        .iter()
-        .find(|cfg| cfg.app_access_token.as_deref().is_some_and(|token| !token.is_empty()))
-    {
+    if let Some(config) = feishu_configs.iter().find(|cfg| {
+        cfg.app_access_token
+            .as_deref()
+            .is_some_and(|token| !token.is_empty())
+    }) {
         return Ok(Some(config.clone()));
     }
     if let Some(config) = feishu_configs.iter().find(|cfg| {
@@ -136,8 +135,8 @@ pub(crate) async fn fetch_feishu_tenant_access_token(
         );
     }
 
-    let parsed: Value =
-        serde_json::from_slice(&body).context("failed to parse Feishu tenant access token response")?;
+    let parsed: Value = serde_json::from_slice(&body)
+        .context("failed to parse Feishu tenant access token response")?;
     let code = parsed.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
     if code != 0 {
         let msg = parsed

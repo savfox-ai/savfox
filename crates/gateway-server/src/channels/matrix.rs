@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -65,6 +66,46 @@ fn parse_invite_event(event: &Value) -> Option<(String, Option<String>)> {
     Some((room_id.to_owned(), invited_user_id))
 }
 
+fn first_non_empty_config_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key).and_then(|value| {
+            let text = value.as_str()?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        })
+    })
+}
+
+pub(crate) async fn log_configured_matrix_startup(savfox_home: &PathBuf) -> anyhow::Result<()> {
+    let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
+    for config in all_configs {
+        if !config.enabled || !config.kind.eq_ignore_ascii_case("matrix") {
+            continue;
+        }
+
+        let homeserver = config
+            .config
+            .as_object()
+            .and_then(|raw| {
+                first_non_empty_config_string(raw, &["homeserver", "homeserver_url", "server_url"])
+            })
+            .unwrap_or_else(|| "https://matrix.org".to_string());
+
+        info!(
+            channel_id = %config.id,
+            homeserver = %homeserver,
+            "Matrix bridge starting with homeserver URL"
+        );
+    }
+    Ok(())
+}
+
 fn render_error(res: &mut Response, status: StatusCode, code: &str, message: impl Into<String>) {
     res.status_code(status);
     res.render(Json(json!({
@@ -78,7 +119,10 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 #[async_trait]
 impl Channel for MatrixChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        println!("Matrix bridge starting with homeserver URL: {}", self.homeserver_url);
+        println!(
+            "Matrix bridge starting with homeserver URL: {}",
+            self.homeserver_url
+        );
         info!(homeserver = %self.homeserver_url, "Matrix bridge starting");
         Ok(())
     }

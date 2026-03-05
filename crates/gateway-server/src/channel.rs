@@ -2167,9 +2167,10 @@ impl GatewayBridge {
                 }
             }
             "feishu" | "lark" => {
-                let config =
-                    crate::bridges::feishu::resolve_feishu_outbound_config(&self.config.savfox_home)
-                        .await?;
+                let config = crate::bridges::feishu::resolve_feishu_outbound_config(
+                    &self.config.savfox_home,
+                )
+                .await?;
                 let receive_id_type = config
                     .as_ref()
                     .map(|cfg| cfg.receive_id_type.as_str())
@@ -2198,7 +2199,8 @@ impl GatewayBridge {
                         app_id,
                         app_secret,
                     )
-                    .await {
+                    .await
+                    {
                         Ok(token) => Some(token),
                         Err(err) => {
                             warn!("failed to fetch Feishu tenant token from channel config: {err}");
@@ -2235,7 +2237,9 @@ impl GatewayBridge {
                     .await?;
                     let target = config
                         .as_ref()
-                        .and_then(|cfg| cfg.webhook_url.clone().or_else(|| cfg.access_token.clone()))
+                        .and_then(|cfg| {
+                            cfg.webhook_url.clone().or_else(|| cfg.access_token.clone())
+                        })
                         .or_else(|| {
                             std::env::var("DINGTALK_WEBHOOK_URL")
                                 .ok()

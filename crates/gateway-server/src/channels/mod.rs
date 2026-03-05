@@ -1,5 +1,5 @@
-pub(crate) mod discord;
 pub(crate) mod dingtalk;
+pub(crate) mod discord;
 pub(crate) mod feishu;
 pub(crate) mod googlechat;
 pub(crate) mod imessage;
@@ -85,8 +85,3 @@ pub(crate) const CHANNEL_NAMES: &[&str] = &[
     "whatsapp",
     "zalo",
 ];
-
-#[allow(clippy::print_stdout)]
-pub(crate) fn debug_print_channel_list() {
-    println!("[gateway][debug] Channel list: {}", CHANNEL_NAMES.join(", "));
-}
