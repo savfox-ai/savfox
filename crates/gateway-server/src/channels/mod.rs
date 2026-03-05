@@ -85,3 +85,116 @@ pub(crate) const CHANNEL_NAMES: &[&str] = &[
     "whatsapp",
     "zalo",
 ];
+
+use std::path::PathBuf;
+use tracing::{info, warn};
+
+pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow::Result<()> {
+    println!("[startup] Loading channel configurations from {:?}...", savfox_home);
+    info!("Loading channel configurations from {:?}", savfox_home);
+    
+    let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
+    
+    println!("[startup] Found {} total channel configuration(s)", all_configs.len());
+    info!("Found {} total channel configuration(s)", all_configs.len());
+    
+    if all_configs.is_empty() {
+        println!("[startup] No channel configurations found");
+        warn!("No channel configurations found in {:?}", savfox_home);
+        return Ok(());
+    }
+    
+    let mut enabled_count = 0;
+    let mut disabled_count = 0;
+    let mut by_kind: std::collections::HashMap<String, Vec<(String, bool)>> = std::collections::HashMap::new();
+    
+    for config in &all_configs {
+        let configs = by_kind.entry(config.kind.clone()).or_insert_with(Vec::new);
+        configs.push((config.id.clone(), config.enabled));
+        
+        if config.enabled {
+            enabled_count += 1;
+        } else {
+            disabled_count += 1;
+        }
+    }
+    
+    println!("[startup] Channel summary: {} enabled, {} disabled", enabled_count, disabled_count);
+    info!("Channel summary: {} enabled, {} disabled", enabled_count, disabled_count);
+    
+    for (kind, configs) in &by_kind {
+        println!("[startup] {} channel(s) of type '{}':", configs.len(), kind);
+        info!("{} channel(s) of type '{}'", configs.len(), kind);
+        
+        for (id, enabled) in configs {
+            let status = if *enabled { "ENABLED" } else { "DISABLED" };
+            println!("[startup]   - {} [{}]", id, status);
+            info!("  - {} [{}]", id, status);
+            
+            if *enabled && kind.eq_ignore_ascii_case("matrix") {
+                if let Err(err) = log_matrix_channel_details(savfox_home, id).await {
+                    warn!("Failed to log Matrix channel details for {}: {}", id, err);
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> anyhow::Result<()> {
+    let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
+    
+    for config in all_configs {
+        if config.id == channel_id && config.enabled && config.kind.eq_ignore_ascii_case("matrix") {
+            if let Some(raw) = config.config.as_object() {
+                let homeserver = raw
+                    .get("homeserver")
+                    .or_else(|| raw.get("homeserver_url"))
+                    .or_else(|| raw.get("server_url"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://matrix.org");
+                
+                let has_token = raw
+                    .get("accessToken")
+                    .or_else(|| raw.get("access_token"))
+                    .or_else(|| raw.get("token"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false);
+                
+                let rooms: Vec<String> = raw
+                    .get("rooms")
+                    .or_else(|| raw.get("groups"))
+                    .or_else(|| raw.get("roomIds"))
+                    .or_else(|| raw.get("room_ids"))
+                    .map(|v| {
+                        match v {
+                            serde_json::Value::String(s) => s.split(['\n', ',']).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+                            serde_json::Value::Array(arr) => arr.iter().filter_map(|item| item.as_str().map(String::from)).collect(),
+                            _ => Vec::new(),
+                        }
+                    })
+                    .unwrap_or_default();
+                
+                let rooms_str = if rooms.is_empty() { 
+                    "none".to_string() 
+                } else { 
+                    rooms.join(", ") 
+                };
+                
+                println!("[startup]     Matrix channel details:");
+                println!("[startup]       Homeserver: {}", homeserver);
+                println!("[startup]       Access token: {}", if has_token { "configured" } else { "NOT SET" });
+                println!("[startup]       Configured rooms: {}", rooms_str);
+                info!("Matrix bridge starting with homeserver URL: {}", homeserver);
+                info!("  Channel ID: {}", channel_id);
+                info!("  Access token: {}", if has_token { "configured" } else { "NOT SET" });
+                info!("  Configured rooms: {}", rooms_str);
+            }
+            break;
+        }
+    }
+    
+    Ok(())
+}

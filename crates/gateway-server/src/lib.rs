@@ -99,6 +99,9 @@ pub async fn run_main(
     gateway_config: GatewayConfig,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> IoResult<()> {
+    println!("[startup] Savfox Gateway Server starting...");
+    println!("[startup] Initializing logging and configuration...");
+    
     // Install tracing subscriber.
     let stderr_fmt = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -145,6 +148,9 @@ pub async fn run_main(
 
     let config = Arc::new(config);
     let feedback = SavfoxFeedback::new();
+    
+    println!("[startup] Configuration loaded successfully");
+    println!("[startup] Savfox home: {:?}", config.savfox_home);
 
     // Set up the gateway token.
     let token = gateway_config
@@ -167,6 +173,8 @@ pub async fn run_main(
         websocket_manager: (*session_mgr).clone(),
         outgoing_tx,
     }));
+    
+    println!("[startup] Gateway bridge created");
 
     // Inject API keys from per-provider files into the runtime env-override
     // map so the core engine can authenticate without a restart.
@@ -175,12 +183,14 @@ pub async fn run_main(
     // Initialize the persistent session store.
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
     info!("session store initialized");
+    println!("[startup] Session store initialized");
 
     // Initialize and start the cron background service.
     let cron_service = Arc::new(CronService::from_home(&config.savfox_home));
     cron_service.init().await;
     let _cron_shutdown = cron_service.start(Arc::clone(&bridge));
     info!("cron service started");
+    println!("[startup] Cron service started");
 
     // Spawn a background task to periodically prune stale sessions (every 5 minutes).
     {
@@ -197,9 +207,12 @@ pub async fn run_main(
         });
     }
 
-    if let Err(err) = bridges::matrix::log_configured_matrix_startup(&config.savfox_home).await {
-        warn!(error = %err, "Failed to load Matrix channel configs for startup logging");
+    println!("[startup] Loading and logging channel configurations...");
+    if let Err(err) = bridges::log_all_configured_channels(&config.savfox_home).await {
+        warn!(error = %err, "Failed to load channel configs for startup logging");
+        println!("[startup] WARNING: Failed to load channel configs: {}", err);
     }
+    println!("[startup] Channel configuration logging complete");
 
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {
