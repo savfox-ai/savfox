@@ -64,4 +64,5 @@ futures = { workspace = true }
 console_error_panic_hook = { workspace = true }
 pulldown-cmark = { workspace = true }
 regex-lite = { workspace = true }
+savfox-utils-string = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }

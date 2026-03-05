@@ -15,6 +15,7 @@ pub mod whatsapp;
 
 use dioxus::prelude::*;
 use serde_json::{Value, json};
+use savfox_utils_string::normalize_slug;
 
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
@@ -568,35 +569,9 @@ fn field_value_key(channel_id: &str, field_key: &str) -> String {
     format!("{channel_id}.{field_key}")
 }
 
-fn normalize_channel_slug(raw: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut prev_dash = false;
-    for ch in raw.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            prev_dash = false;
-            continue;
-        }
-
-        if ch.is_ascii_whitespace() || matches!(ch, '-' | '_' | ':' | '/' | '\\' | '.') {
-            if !out.is_empty() && !prev_dash {
-                out.push('-');
-                prev_dash = true;
-            }
-        }
-    }
-
-    let normalized = out.trim_matches('-');
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized.to_string())
-    }
-}
-
 fn auto_channel_id(kind: &str, name: &str) -> String {
-    let kind_slug = normalize_channel_slug(kind).unwrap_or_else(|| "channel".to_string());
-    let name_slug = normalize_channel_slug(name).unwrap_or_else(|| kind_slug.clone());
+    let kind_slug = normalize_slug(kind).unwrap_or_else(|| "channel".to_string());
+    let name_slug = normalize_slug(name).unwrap_or_else(|| kind_slug.clone());
     format!("{kind_slug}-{name_slug}")
 }
 

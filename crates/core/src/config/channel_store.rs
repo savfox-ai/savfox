@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use savfox_utils_string::normalize_slug;
 use tracing::{info, warn};
 
 const CHANNELS_SUBDIR: &str = "channels";
@@ -35,33 +36,6 @@ fn parse_channel_config(content: &str) -> Result<ChannelConfig, serde_json::Erro
     Ok(config)
 }
 
-fn normalize_channel_slug(raw: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut prev_dash = false;
-    for ch in raw.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            prev_dash = false;
-            continue;
-        }
-
-        if ch.is_ascii_whitespace() || matches!(ch, '-' | '_' | ':' | '/' | '\\' | '.') {
-            if !out.is_empty() && !prev_dash {
-                out.push('-');
-                prev_dash = true;
-            }
-            continue;
-        }
-    }
-
-    let normalized = out.trim_matches('-');
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized.to_string())
-    }
-}
-
 fn normalize_channel_name(raw: &str) -> Option<String> {
     let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let compact = compact.trim();
@@ -75,14 +49,14 @@ fn normalize_channel_name(raw: &str) -> Option<String> {
 fn kind_from_id_candidate(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if let Some((prefix, _)) = trimmed.split_once('-') {
-        normalize_channel_slug(prefix).or_else(|| normalize_channel_slug(trimmed))
+        normalize_slug(prefix).or_else(|| normalize_slug(trimmed))
     } else {
-        normalize_channel_slug(trimmed)
+        normalize_slug(trimmed)
     }
 }
 
 fn resolve_kind(raw_kind: &str, fallback: Option<&str>) -> String {
-    normalize_channel_slug(raw_kind)
+    normalize_slug(raw_kind)
         .or_else(|| fallback.and_then(kind_from_id_candidate))
         .unwrap_or_else(|| DEFAULT_CHANNEL_KIND.to_string())
 }
@@ -92,7 +66,7 @@ fn resolve_name(raw_name: &str, fallback_kind: &str) -> String {
 }
 
 fn resolve_id(name: &str, kind: &str) -> String {
-    let name_slug = normalize_channel_slug(name).unwrap_or_else(|| kind.to_string());
+    let name_slug = normalize_slug(name).unwrap_or_else(|| kind.to_string());
     format!("{kind}-{name_slug}")
 }
 
@@ -104,7 +78,7 @@ fn normalize_config(config: &mut ChannelConfig) {
 }
 
 fn normalized_selector(selector: &str) -> String {
-    normalize_channel_slug(selector).unwrap_or_else(|| selector.trim().to_ascii_lowercase())
+    normalize_slug(selector).unwrap_or_else(|| selector.trim().to_ascii_lowercase())
 }
 
 fn selector_matches(config: &ChannelConfig, selector: &str) -> bool {
