@@ -3868,7 +3868,6 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
                 obj.insert("saved".to_string(), json!(true));
                 obj.insert("enabled".to_string(), json!(saved.enabled));
                 obj.insert("channelName".to_string(), json!(saved.name));
-                obj.insert("agentId".to_string(), json!(saved.agent_id));
             }
         }
     }
@@ -4987,25 +4986,16 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
         .and_then(|v| v.as_str())
         .unwrap_or(&fallback_name);
     let config_value = params.get("config").cloned().unwrap_or_else(|| json!({}));
-    let agent_id = params.get("agent_id").and_then(|v| v.as_str());
 
     if channel_kind.is_empty() {
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
     }
 
-    let mut patch = config_value;
-    if let Some(obj) = patch.as_object_mut() {
-        if let Some(aid) = agent_id {
-            obj.insert("agent_id".to_string(), json!(aid));
-        }
+    let patch = if config_value.is_object() {
+        config_value
     } else {
-        patch = json!({});
-        if let Some(aid) = agent_id {
-            if let Some(obj) = patch.as_object_mut() {
-                obj.insert("agent_id".to_string(), json!(aid));
-            }
-        }
-    }
+        json!({})
+    };
 
     match channel_store::merge_channel_config(
         &bridge.config().savfox_home,
@@ -13510,5 +13500,3 @@ mod tests {
         );
     }
 }
-
-

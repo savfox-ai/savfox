@@ -16,8 +16,6 @@ pub struct ChannelConfig {
     pub enabled: bool,
     pub config: Value,
     #[serde(default)]
-    pub agent_id: Option<String>,
-    #[serde(default)]
     pub created_at: Option<i64>,
     #[serde(default)]
     pub updated_at: Option<i64>,
@@ -215,9 +213,13 @@ pub async fn save_channel_config(
     let mut normalized = config.clone();
     normalize_config(&mut normalized);
 
-    let path = if let Some(existing) = find_channel_config_path_by_selector(savfox_home, &normalized.id).await? {
+    let path = if let Some(existing) =
+        find_channel_config_path_by_selector(savfox_home, &normalized.id).await?
+    {
         existing
-    } else if let Some(existing) = find_channel_config_path_by_selector(savfox_home, &normalized.kind).await? {
+    } else if let Some(existing) =
+        find_channel_config_path_by_selector(savfox_home, &normalized.kind).await?
+    {
         existing
     } else {
         channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::new_v4()))
@@ -231,10 +233,7 @@ pub async fn save_channel_config(
     Ok(())
 }
 
-pub async fn delete_channel_config(
-    savfox_home: &PathBuf,
-    selector: &str,
-) -> std::io::Result<bool> {
+pub async fn delete_channel_config(savfox_home: &PathBuf, selector: &str) -> std::io::Result<bool> {
     let Some(path) = find_channel_config_path_by_selector(savfox_home, selector).await? else {
         return Ok(false);
     };
@@ -260,7 +259,6 @@ pub async fn merge_channel_config(
         name: channel_name.to_string(),
         enabled: true,
         config: Value::Object(serde_json::Map::new()),
-        agent_id: None,
         created_at: Some(now),
         updated_at: Some(now),
     });
@@ -299,14 +297,6 @@ pub async fn merge_channel_config(
     if let Some(enabled) = patch.get("enabled").and_then(|v| v.as_bool()) {
         config.enabled = enabled;
     }
-    if let Some(agent_id) = patch.get("agent_id").and_then(|v| v.as_str()) {
-        config.agent_id = if agent_id.is_empty() {
-            None
-        } else {
-            Some(agent_id.to_string())
-        };
-    }
-
     config.name = resolve_name(&config.name, &config.kind);
     config.id = resolve_id(&config.name, &config.kind);
     if config.created_at.is_none() {
@@ -360,7 +350,6 @@ mod tests {
                 "homeserver": "http://127.0.0.1:6006",
                 "userId": "@bot:127.0.0.1:6006"
             }),
-            agent_id: None,
             created_at: Some(1),
             updated_at: Some(1),
         };
@@ -439,7 +428,9 @@ mod tests {
         let home =
             std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
         let channels = home.join(CHANNELS_SUBDIR);
-        tokio::fs::create_dir_all(&channels).await.expect("mkdir channels");
+        tokio::fs::create_dir_all(&channels)
+            .await
+            .expect("mkdir channels");
         tokio::fs::write(
             channels.join("legacy.json"),
             r#"{

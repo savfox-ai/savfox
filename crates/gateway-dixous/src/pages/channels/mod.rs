@@ -606,7 +606,6 @@ pub fn Channels() -> Element {
     let mut testing_channel = use_signal(|| Option::<String>::None);
     let mut test_result = use_signal(|| Option::<(String, bool, String)>::None);
     let mut add_channel_search = use_signal(String::new);
-    let mut selected_agent = use_signal(|| None::<String>);
 
     let channel_types = get_channel_types();
 
@@ -620,7 +619,6 @@ pub fn Channels() -> Element {
 
         let Some(channel_id) = selected else {
             config_values.write().clear();
-            selected_agent.set(None);
             return;
         };
 
@@ -651,13 +649,7 @@ pub fn Channels() -> Element {
                 }
             }
 
-            let restored_agent = saved
-                .get("agent_id")
-                .and_then(|value| value.as_str())
-                .map(str::to_string);
-
             config_values.set(restored);
-            selected_agent.set(restored_agent);
         });
     });
 
@@ -697,32 +689,6 @@ pub fn Channels() -> Element {
         }
     });
 
-    let ws_agents = ws.clone();
-    let agents_data = use_resource(move || {
-        let _c = ws_connected();
-        let ws = ws_agents.clone();
-        async move { ws.call::<serde_json::Value>("agents.list", None).await.ok() }
-    });
-    let agents_read = agents_data.read();
-    let agents_ref = agents_read.as_ref().and_then(|c| c.as_ref());
-    let agents_list: Vec<(String, String)> = agents_ref
-        .and_then(|d| {
-            d.get("agents").and_then(|a| a.as_array()).map(|arr| {
-                arr.iter()
-                    .filter_map(|a| {
-                        let id = a.get("id").and_then(|v| v.as_str())?.to_string();
-                        let name = a
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(&id)
-                            .to_string();
-                        Some((id, name))
-                    })
-                    .collect()
-            })
-        })
-        .unwrap_or_default();
-
     let ws_configs = ws.clone();
     let channel_configs_data = use_resource(move || {
         let _c = ws_connected();
@@ -736,7 +702,7 @@ pub fn Channels() -> Element {
     });
     let configs_read = channel_configs_data.read();
     let configs_ref = configs_read.as_ref().and_then(|c| c.as_ref());
-    let channel_configs: std::collections::HashMap<String, (Option<String>, String)> = configs_ref
+    let channel_configs: std::collections::HashMap<String, String> = configs_ref
         .and_then(|d| {
             d.as_array().map(|arr| {
                 arr.iter()
@@ -750,16 +716,12 @@ pub fn Channels() -> Element {
                                     .and_then(|raw| raw.split('-').next())
                             })?
                             .to_ascii_lowercase();
-                        let agent_id = c
-                            .get("agent_id")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
                         let name = c
                             .get("name")
                             .and_then(|v| v.as_str())
                             .unwrap_or(&key)
                             .to_string();
-                        Some((key, (agent_id, name)))
+                        Some((key, name))
                     })
                     .collect()
             })
@@ -863,7 +825,6 @@ pub fn Channels() -> Element {
                             config_values.write().clear();
                             add_channel_search.set(String::new());
                             save_msg.set(None);
-                            selected_agent.set(None);
                         },
                         class: "channels-btn channels-btn--primary",
                         "+ Add Channel"
@@ -891,7 +852,7 @@ pub fn Channels() -> Element {
             } else {
                 div { class: "channels-grid",
                     for ch_type in configured_channel_types.into_iter() {
-                        { render_channel_card(ch_type, channels_status, ws.clone(), refresh_tick, show_raw_json, testing_channel, test_result, &channel_configs, &agents_list) }
+                        { render_channel_card(ch_type, channels_status, ws.clone(), refresh_tick, show_raw_json, testing_channel, test_result, &channel_configs) }
                     }
                 }
             }
@@ -942,8 +903,6 @@ pub fn Channels() -> Element {
                 show_add_modal,
                 refresh_tick,
                 add_channel_search,
-                &agents_list,
-                selected_agent,
             ) }
         }
 
@@ -959,22 +918,11 @@ fn render_channel_card(
     mut show_raw_json: Signal<Option<String>>,
     mut testing_channel: Signal<Option<String>>,
     mut test_result: Signal<Option<(String, bool, String)>>,
-    channel_configs: &std::collections::HashMap<String, (Option<String>, String)>,
-    agents_list: &[(String, String)],
+    channel_configs: &std::collections::HashMap<String, String>,
 ) -> Element {
     let channel_data = channels_status
         .and_then(|s| s.get("channels"))
         .and_then(|c| c.get(&ch_type.id));
-
-    let bound_agent_info: Option<(String, String)> = channel_configs
-        .get(&ch_type.id)
-        .and_then(|(agent_id, _)| agent_id.as_ref())
-        .and_then(|aid| {
-            agents_list
-                .iter()
-                .find(|(id, _)| id == aid)
-                .map(|(id, name)| (id.clone(), name.clone()))
-        });
 
     let status_configured = channel_data
         .and_then(|c| c.get("configured"))
@@ -1084,11 +1032,6 @@ fn render_channel_card(
                     div { class: "channels-card__meta",
                         div { class: "channels-card__name", "{ch_type.name}" }
                         div { class: "channels-card__desc", "{ch_type.description}" }
-                        if let Some((_, ref agent_name)) = bound_agent_info {
-                            div { class: "channels-card__agent-binding",
-                                "Bound to: {agent_name}"
-                            }
-                        }
                     }
                 }
                 div { class: "channels-card__status",
@@ -1676,8 +1619,6 @@ fn render_add_modal(
     mut show_add_modal: Signal<bool>,
     mut refresh_tick: Signal<u32>,
     mut add_channel_search: Signal<String>,
-    agents_list: &[(String, String)],
-    mut selected_agent: Signal<Option<String>>,
 ) -> Element {
     let selected = selected_channel();
     let selected_type = channel_types
@@ -1711,7 +1652,6 @@ fn render_add_modal(
                 selected_channel.set(None);
                 config_values.write().clear();
                 save_msg.set(None);
-                selected_agent.set(None);
             },
             div {
                 class: "channels-modal channels-modal--wide",
@@ -1731,7 +1671,6 @@ fn render_add_modal(
                             selected_channel.set(None);
                             config_values.write().clear();
                             save_msg.set(None);
-                            selected_agent.set(None);
                         },
                         class: "channels-modal__close",
                         "x"
@@ -1747,25 +1686,6 @@ fn render_add_modal(
                 if let Some(ch_type) = selected_type {
                     // Configuration form
                     div { class: "channels-modal__form",
-                        div { class: "channels-field",
-                            label { class: "channels-field__label", "Agent" }
-                            select {
-                                value: selected_agent().unwrap_or_default(),
-                                onchange: move |e| {
-                                    let val = e.value();
-                                    selected_agent.set(if val.is_empty() { None } else { Some(val) });
-                                },
-                                class: "channels-field__input channels-cfg__select",
-                                option { value: "", "(No agent)" }
-                                for (id, name) in agents_list.iter() {
-                                    option {
-                                        value: "{id}",
-                                        selected: selected_agent().as_deref() == Some(id.as_str()),
-                                        "{name}"
-                                    }
-                                }
-                            }
-                        }
                         for field in ch_type.config_fields.iter() {
                             {
                                 let key = format!("{}.{}", ch_type.id, field.key);
@@ -1862,7 +1782,6 @@ fn render_add_modal(
                                 onclick: move |_| {
                                     selected_channel.set(None);
                                     config_values.write().clear();
-                                    selected_agent.set(None);
                                 },
                                 class: "channels-action-btn",
                                 "Back"
@@ -1873,13 +1792,11 @@ fn render_add_modal(
                                     let ch_id = ch_type.id.clone();
                                     let ch_name = ch_type.name.clone();
                                     let fields = ch_type.config_fields.clone();
-                                    let agent = selected_agent();
                                     move |_| {
                                         let ws = ws.clone();
                                         let ch_id = ch_id.clone();
                                         let ch_name = ch_name.clone();
                                         let fields = fields.clone();
-                                        let agent = agent.clone();
                                         let config = config_values.read();
                                         let patch = build_channel_patch(&ch_id, &fields, &config);
                                         saving.set(true);
@@ -1889,9 +1806,6 @@ fn render_add_modal(
                                                 "name": ch_name,
                                                 "config": patch,
                                             });
-                                            if let Some(ref aid) = agent {
-                                                params["agent_id"] = json!(aid);
-                                            }
                                             let result = ws.call::<serde_json::Value>(
                                                 "channels.config.save",
                                                 Some(params),
@@ -1941,7 +1855,6 @@ fn render_add_modal(
                                         onclick: move |_| {
                                             selected_channel.set(Some(ch_id.clone()));
                                             config_values.write().clear();
-                                            selected_agent.set(None);
                                             save_msg.set(None);
                                             add_channel_search.set(String::new());
                                         },
@@ -2219,12 +2132,6 @@ const CHANNELS_STYLES: &str = r#"
     .channels-card__desc {
         font-size: 12px;
         color: var(--text-muted);
-    }
-
-    .channels-card__agent-binding {
-        font-size: 11px;
-        color: var(--text-secondary);
-        margin-top: 2px;
     }
 
     .channels-card__status {
