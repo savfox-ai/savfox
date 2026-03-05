@@ -213,6 +213,15 @@ pub async fn run_main(
         println!("[startup] WARNING: Failed to load channel configs: {}", err);
     }
     println!("[startup] Channel configuration logging complete");
+    
+    // Initialize and start configured channels
+    println!("[startup] Initializing channel instances...");
+    let channel_registry = bridges::create_channel_registry();
+    if let Err(err) = bridges::initialize_and_start_channels(&config.savfox_home, channel_registry.clone(), &bridge).await {
+        warn!(error = %err, "Failed to initialize some channels");
+        println!("[startup] WARNING: Some channels failed to initialize: {}", err);
+    }
+    println!("[startup] Channel initialization complete");
 
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {

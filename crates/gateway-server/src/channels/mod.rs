@@ -87,7 +87,145 @@ pub(crate) const CHANNEL_NAMES: &[&str] = &[
 ];
 
 use std::path::PathBuf;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
+
+use crate::bridge::GatewayBridge;
+
+pub(crate) type ChannelRegistry = Arc<RwLock<HashMap<String, Box<dyn Channel>>>>;
+
+pub(crate) fn create_channel_registry() -> ChannelRegistry {
+    Arc::new(RwLock::new(HashMap::new()))
+}
+
+pub(crate) async fn initialize_and_start_channels(
+    savfox_home: &PathBuf,
+    registry: ChannelRegistry,
+    bridge: &Arc<GatewayBridge>,
+) -> anyhow::Result<()> {
+    println!("[startup] Initializing channel instances...");
+    info!("Initializing channel instances");
+    
+    let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
+    
+    let mut started_count = 0;
+    let mut failed_count = 0;
+    
+    for config in all_configs {
+        if !config.enabled {
+            continue;
+        }
+        
+        let channel_id = config.id.clone();
+        let kind = config.kind.to_lowercase();
+        
+        println!("[startup] Starting channel '{}' of type '{}'...", channel_id, kind);
+        info!("Starting channel '{}' of type '{}'", channel_id, kind);
+        
+        let result = match kind.as_str() {
+            "matrix" => {
+                start_matrix_channel(&config, &registry, &bridge).await
+            }
+            "discord" => {
+                start_discord_channel(&config, &registry, &bridge).await
+            }
+            "telegram" => {
+                start_telegram_channel(&config, &registry, &bridge).await
+            }
+            "slack" => {
+                start_slack_channel(&config, &registry, &bridge).await
+            }
+            _ => {
+                println!("[startup]   Channel type '{}' not yet implemented for persistent connections", kind);
+                info!("Channel type '{}' not yet implemented for persistent connections", kind);
+                continue;
+            }
+        };
+        
+        match result {
+            Ok(()) => {
+                started_count += 1;
+                println!("[startup]   ✓ Channel '{}' started successfully", channel_id);
+                info!("Channel '{}' started successfully", channel_id);
+            }
+            Err(err) => {
+                failed_count += 1;
+                println!("[startup]   ✗ Failed to start channel '{}': {}", channel_id, err);
+                warn!("Failed to start channel '{}': {}", channel_id, err);
+            }
+        }
+    }
+    
+    println!("[startup] Channel startup complete: {} started, {} failed", started_count, failed_count);
+    info!("Channel startup complete: {} started, {} failed", started_count, failed_count);
+    
+    Ok(())
+}
+
+async fn start_matrix_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    registry: &ChannelRegistry,
+    bridge: &Arc<GatewayBridge>,
+) -> anyhow::Result<()> {
+    use crate::bridges::matrix::MatrixChannel;
+    
+    let raw = config.config.as_object()
+        .ok_or_else(|| anyhow::anyhow!("Matrix channel config must be an object"))?;
+    
+    let homeserver = raw
+        .get("homeserver")
+        .or_else(|| raw.get("homeserver_url"))
+        .or_else(|| raw.get("server_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://matrix.org")
+        .to_string();
+    
+    let access_token = raw
+        .get("accessToken")
+        .or_else(|| raw.get("access_token"))
+        .or_else(|| raw.get("token"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Matrix channel missing access token"))?
+        .to_string();
+    
+    let mut channel = MatrixChannel::new(homeserver.clone(), access_token, bridge.http_client().clone());
+    
+    channel.start().await?;
+    
+    let mut registry = registry.write().await;
+    registry.insert(config.id.clone(), Box::new(channel));
+    
+    Ok(())
+}
+
+async fn start_discord_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    _registry: &ChannelRegistry,
+    _bridge: &Arc<GatewayBridge>,
+) -> anyhow::Result<()> {
+    println!("[startup]   Discord channel persistent connection not yet implemented - using webhook mode");
+    Ok(())
+}
+
+async fn start_telegram_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    _registry: &ChannelRegistry,
+    _bridge: &Arc<GatewayBridge>,
+) -> anyhow::Result<()> {
+    println!("[startup]   Telegram channel persistent connection not yet implemented - using webhook mode");
+    Ok(())
+}
+
+async fn start_slack_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    _registry: &ChannelRegistry,
+    _bridge: &Arc<GatewayBridge>,
+) -> anyhow::Result<()> {
+    println!("[startup]   Slack channel persistent connection not yet implemented - using webhook mode");
+    Ok(())
+}
 
 pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow::Result<()> {
     println!("[startup] Loading channel configurations from {:?}...", savfox_home);
