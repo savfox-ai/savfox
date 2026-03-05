@@ -564,6 +564,32 @@ fn value_to_field_text(value: &Value) -> Option<String> {
     }
 }
 
+fn field_value_key(channel_id: &str, field_key: &str) -> String {
+    format!("{channel_id}.{field_key}")
+}
+
+fn build_channel_patch(
+    channel_id: &str,
+    fields: &[ConfigField],
+    values: &std::collections::HashMap<String, String>,
+) -> Value {
+    let mut patch = json!({});
+    for field in fields {
+        let key = field_value_key(channel_id, &field.key);
+        if let Some(val) = values.get(&key) {
+            if val.is_empty() {
+                continue;
+            }
+            if matches!(field.field_type, FieldType::Toggle) {
+                patch[&field.key] = json!(val == "true");
+            } else {
+                patch[&field.key] = json!(val);
+            }
+        }
+    }
+    patch
+}
+
 #[component]
 pub fn Channels() -> Element {
     let ws = use_context::<WsRpc>();
@@ -715,7 +741,15 @@ pub fn Channels() -> Element {
             d.as_array().map(|arr| {
                 arr.iter()
                     .filter_map(|c| {
-                        let id = c.get("id").and_then(|v| v.as_str())?.to_ascii_lowercase();
+                        let key = c
+                            .get("kind")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                c.get("id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|raw| raw.split('-').next())
+                            })?
+                            .to_ascii_lowercase();
                         let agent_id = c
                             .get("agent_id")
                             .and_then(|v| v.as_str())
@@ -723,9 +757,9 @@ pub fn Channels() -> Element {
                         let name = c
                             .get("name")
                             .and_then(|v| v.as_str())
-                            .unwrap_or(&id)
+                            .unwrap_or(&key)
                             .to_string();
-                        Some((id, (agent_id, name)))
+                        Some((key, (agent_id, name)))
                     })
                     .collect()
             })
@@ -1329,7 +1363,7 @@ fn ChannelInlineConfig(
                 if let Some(raw) = config_obj.get(&field.key)
                     && let Some(text) = value_to_field_text(raw)
                 {
-                    restored.insert(format!("{ch_id}.{}", field.key), text);
+                    restored.insert(field_value_key(&ch_id, &field.key), text);
                 }
             }
             inline_values.set(restored);
@@ -1369,20 +1403,7 @@ fn ChannelInlineConfig(
                                 let ch_name = ch_name.clone();
                                 let fields = fields.clone();
                                 let vals = inline_values.read();
-                                let mut patch = json!({});
-                                for field in &fields {
-                                    let key = format!("{}.{}", ch_id, field.key);
-                                    if let Some(val) = vals.get(&key) {
-                                        if !val.is_empty() {
-                                            // Toggle fields: store as bool
-                                            if matches!(field.field_type, FieldType::Toggle) {
-                                                patch[&field.key] = json!(val == "true");
-                                            } else {
-                                                patch[&field.key] = json!(val);
-                                            }
-                                        }
-                                    }
-                                }
+                                let patch = build_channel_patch(&ch_id, &fields, &vals);
                                 let persist_patch = patch.clone();
                                 let persist_channel = ch_id.clone();
                                 let runtime_channel = ch_id.clone();
@@ -1860,19 +1881,7 @@ fn render_add_modal(
                                         let fields = fields.clone();
                                         let agent = agent.clone();
                                         let config = config_values.read();
-                                        let mut patch = json!({});
-                                        for field in &fields {
-                                            let key = format!("{}.{}", ch_id, field.key);
-                                            if let Some(val) = config.get(&key) {
-                                                if !val.is_empty() {
-                                                    if matches!(field.field_type, FieldType::Toggle) {
-                                                        patch[&field.key] = json!(val == "true");
-                                                    } else {
-                                                        patch[&field.key] = json!(val);
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        let patch = build_channel_patch(&ch_id, &fields, &config);
                                         saving.set(true);
                                         spawn(async move {
                                             let mut params = json!({

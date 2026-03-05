@@ -31,6 +31,12 @@ fn is_json_file(path: &Path) -> bool {
     path.extension().map(|e| e == "json").unwrap_or(false)
 }
 
+fn parse_channel_config(content: &str) -> Result<ChannelConfig, serde_json::Error> {
+    let mut config = serde_json::from_str::<ChannelConfig>(content)?;
+    normalize_config(&mut config);
+    Ok(config)
+}
+
 fn normalize_channel_slug(raw: &str) -> Option<String> {
     let mut out = String::new();
     let mut prev_dash = false;
@@ -129,10 +135,9 @@ async fn find_channel_config_path_by_selector(
         let Ok(content) = tokio::fs::read_to_string(&path).await else {
             continue;
         };
-        let Ok(mut config) = serde_json::from_str::<ChannelConfig>(&content) else {
+        let Ok(config) = parse_channel_config(&content) else {
             continue;
         };
-        normalize_config(&mut config);
 
         if selector_matches(&config, selector) {
             return Ok(Some(path));
@@ -164,9 +169,8 @@ pub async fn list_channel_configs(savfox_home: &PathBuf) -> std::io::Result<Vec<
         let path = entry.path();
         if is_json_file(&path) {
             match tokio::fs::read_to_string(&path).await {
-                Ok(content) => match serde_json::from_str::<ChannelConfig>(&content) {
-                    Ok(mut config) => {
-                        normalize_config(&mut config);
+                Ok(content) => match parse_channel_config(&content) {
+                    Ok(config) => {
                         configs.push(config);
                     }
                     Err(e) => {
@@ -193,11 +197,8 @@ pub async fn get_channel_config(
     };
 
     let content = tokio::fs::read_to_string(&path).await?;
-    match serde_json::from_str::<ChannelConfig>(&content) {
-        Ok(mut config) => {
-            normalize_config(&mut config);
-            Ok(Some(config))
-        }
+    match parse_channel_config(&content) {
+        Ok(config) => Ok(Some(config)),
         Err(e) => {
             warn!("Failed to parse channel config {}: {}", path.display(), e);
             Ok(None)
@@ -214,18 +215,10 @@ pub async fn save_channel_config(
     let mut normalized = config.clone();
     normalize_config(&mut normalized);
 
-    let path = if let Some(existing) =
-        find_channel_config_path_by_selector(savfox_home, &normalized.id).await?
-    {
+    let path = if let Some(existing) = find_channel_config_path_by_selector(savfox_home, &normalized.id).await? {
         existing
-    } else if normalized.kind != normalized.id {
-        if let Some(existing) =
-            find_channel_config_path_by_selector(savfox_home, &normalized.kind).await?
-        {
-            existing
-        } else {
-            channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::new_v4()))
-        }
+    } else if let Some(existing) = find_channel_config_path_by_selector(savfox_home, &normalized.kind).await? {
+        existing
     } else {
         channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::new_v4()))
     };

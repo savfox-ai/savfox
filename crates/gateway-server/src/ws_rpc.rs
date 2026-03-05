@@ -4988,10 +4988,6 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
         .unwrap_or(&fallback_name);
     let config_value = params.get("config").cloned().unwrap_or_else(|| json!({}));
     let agent_id = params.get("agent_id").and_then(|v| v.as_str());
-    let _enabled = params
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
 
     if channel_kind.is_empty() {
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
