@@ -702,6 +702,13 @@ pub fn Channels() -> Element {
         });
     });
 
+    // Force data refresh when WebSocket (re)connects
+    use_effect(move || {
+        if ws_connected() {
+            refresh_tick += 1;
+        }
+    });
+
     // Auto-refresh every 30s when enabled (uses spawn to avoid leaked closures)
     use_effect(move || {
         if !auto_refresh() {
@@ -777,7 +784,9 @@ pub fn Channels() -> Element {
         })
         .unwrap_or_default();
 
-    let is_loading = channels_data.read().is_none() || channel_configs_data.read().is_none();
+    let is_loading = !ws_connected()
+        || channels_data.read().as_ref().map_or(true, |v| v.is_none())
+        || channel_configs_data.read().as_ref().map_or(true, |v| v.is_none());
 
     let channels_read = channels_data.read();
     let channels_status = channels_read.as_ref().and_then(|c| c.as_ref());
@@ -1038,7 +1047,7 @@ fn render_channel_card(
     } else if is_running {
         (ChipVariant::Warning, "Running")
     } else if is_configured {
-        (ChipVariant::Warning, "Configured")
+        (ChipVariant::Info, "Configured")
     } else {
         (ChipVariant::Muted, "Not configured")
     };
@@ -1049,8 +1058,10 @@ fn render_channel_card(
         "channels-card channels-card--running"
     } else if last_error.is_some() {
         "channels-card channels-card--error"
+    } else if is_configured {
+        "channels-card channels-card--configured"
     } else {
-        "channels-card"
+        "channels-card channels-card--disabled"
     };
 
     let platform = ch_type.id.clone();
@@ -1219,8 +1230,20 @@ fn render_channel_card(
                             refresh_tick += 1;
                         });
                     },
-                    class: "channels-action-btn",
-                    if is_running { "Re-configure" } else { "Enable" }
+                    class: if is_running || is_connected {
+                        "channels-action-btn"
+                    } else if is_configured {
+                        "channels-action-btn channels-action-btn--configured"
+                    } else {
+                        "channels-action-btn channels-action-btn--primary"
+                    },
+                    if is_running || is_connected {
+                        "Re-configure"
+                    } else if is_configured {
+                        "\u{2713} Enabled"
+                    } else {
+                        "Enable"
+                    }
                 }
 
                 // Test button
@@ -2169,6 +2192,19 @@ const CHANNELS_STYLES: &str = r#"
         border-color: var(--danger);
     }
 
+    .channels-card--configured {
+        border-color: var(--accent);
+        border-left: 3px solid var(--accent);
+    }
+
+    .channels-card--disabled {
+        opacity: 0.6;
+    }
+
+    .channels-card--disabled:hover {
+        opacity: 0.85;
+    }
+
     .channels-card__header {
         display: flex;
         justify-content: space-between;
@@ -2417,6 +2453,18 @@ const CHANNELS_STYLES: &str = r#"
 
     .channels-action-btn--primary:hover {
         opacity: 0.9;
+    }
+
+    .channels-action-btn--configured {
+        flex: 2;
+        background: rgba(34,197,94,0.1);
+        color: var(--success);
+        border-color: var(--success);
+        cursor: default;
+    }
+
+    .channels-action-btn--configured:hover {
+        background: rgba(34,197,94,0.15);
     }
 
     .channels-action-btn--test {

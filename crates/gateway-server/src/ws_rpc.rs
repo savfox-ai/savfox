@@ -3965,8 +3965,11 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
                 || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
                 || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
         }
+        "matrix" => {
+            saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok()
+        }
         "nostr" => nostr_configured,
-        _ => false,
+        _ => saved_channel_enabled,
     };
 
     Ok(json!({
@@ -3976,7 +3979,7 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
         "message": if is_configured {
             format!("{} is already configured", platform)
         } else {
-            format!("Please configure {} in the modal", platform)
+            format!("Please configure {} in the channel settings", platform)
         }
     }))
 }
@@ -4061,9 +4064,12 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
                 || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
                 || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
         }
+        "matrix" => {
+            saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok()
+        }
         "nostr" => nostr_configured,
         "whatsapp" => true,
-        _ => false,
+        _ => saved_channel_enabled,
     };
 
     Ok(json!({
@@ -4072,7 +4078,7 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         "message": if configured {
             format!("{platform} test passed")
         } else {
-            format!("{platform} is not configured")
+            format!("{platform} is not configured. Please add configuration in the channel settings.")
         }
     }))
 }
