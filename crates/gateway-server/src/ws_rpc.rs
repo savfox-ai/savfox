@@ -3851,11 +3851,11 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
 
     // Overlay persisted channel configs so UI can restore configured channels on page load.
     if let Ok(saved_configs) =
-        crate::channel_store::list_channel_configs(&bridge.config().savfox_home).await
+        savfox_core::config::channel_store::list_channel_configs(&bridge.config().savfox_home).await
         && let Some(channels_map) = channels.as_object_mut()
     {
         for saved in saved_configs {
-            let key = saved.id.to_ascii_lowercase();
+            let key = saved.kind.to_ascii_lowercase();
             let entry = channels_map.entry(key.clone()).or_insert_with(|| {
                 json!({
                     "configured": false,
@@ -4953,7 +4953,7 @@ async fn handle_channels_nostr_relays_set(
 // ── Channel Config Management ─────────────────────────────────────────
 
 async fn handle_channels_config_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
-    use crate::channel_store;
+    use savfox_core::config::channel_store;
     let configs = channel_store::list_channel_configs(&bridge.config().savfox_home)
         .await
         .map_err(|e| {
@@ -4966,7 +4966,7 @@ async fn handle_channels_config_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
 }
 
 async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    use crate::channel_store;
+    use savfox_core::config::channel_store;
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     if channel_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
@@ -4979,13 +4979,18 @@ async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayBridge>)
 }
 
 async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    use crate::channel_store;
-    let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-    let channel_id_owned = channel_id.to_string();
+    use savfox_core::config::channel_store;
+    let channel_kind = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+    let channel_id = params
+        .get("id")
+        .or_else(|| params.get("channel_id"))
+        .and_then(|v| v.as_str())
+        .filter(|value| !value.trim().is_empty());
+    let fallback_name = channel_id.unwrap_or(channel_kind).to_string();
     let channel_name = params
         .get("name")
         .and_then(|v| v.as_str())
-        .unwrap_or(&channel_id_owned);
+        .unwrap_or(&fallback_name);
     let config_value = params.get("config").cloned().unwrap_or_else(|| json!({}));
     let agent_id = params.get("agent_id").and_then(|v| v.as_str());
     let _enabled = params
@@ -4993,7 +4998,7 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    if channel_id.is_empty() {
+    if channel_kind.is_empty() {
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
     }
 
@@ -5013,7 +5018,8 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
 
     match channel_store::merge_channel_config(
         &bridge.config().savfox_home,
-        &channel_id,
+        &channel_kind,
+        channel_id,
         &channel_name,
         &patch,
     )
@@ -5030,7 +5036,7 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
 }
 
 async fn handle_channels_config_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
-    use crate::channel_store;
+    use savfox_core::config::channel_store;
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
 
     if channel_id.is_empty() {
@@ -5253,7 +5259,7 @@ async fn persist_detached_matrix_bridge_config(
     bridge: &Arc<GatewayBridge>,
     detached: DetachedBridgeConfig,
 ) -> Result<(), (i64, String)> {
-    use crate::channel_store;
+    use savfox_core::config::channel_store;
 
     match detached {
         DetachedBridgeConfig::Delete => {
@@ -5271,6 +5277,7 @@ async fn persist_detached_matrix_bridge_config(
             channel_store::merge_channel_config(
                 &bridge.config().savfox_home,
                 "matrix",
+                None,
                 "Matrix",
                 &patch,
             )
@@ -13514,3 +13521,5 @@ mod tests {
         );
     }
 }
+
+

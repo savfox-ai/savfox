@@ -24,7 +24,6 @@ pub mod auto_reply;
 pub mod bridge;
 pub mod bridges;
 pub mod canvas_host;
-pub(crate) mod channel_store;
 pub(crate) mod chat_attachments;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;
@@ -244,3 +243,4 @@ pub async fn run_main(
     )
     .await
 }
+

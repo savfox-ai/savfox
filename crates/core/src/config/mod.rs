@@ -45,6 +45,7 @@ use crate::windows_sandbox::WindowsSandboxLevelExt;
 
 mod constraint;
 pub mod edit;
+pub mod channel_store;
 pub mod provider_store;
 pub mod schema;
 pub mod service;
@@ -4362,3 +4363,4 @@ mod notifications_tests {
         assert_eq!(parsed.tui.notification_method, NotificationMethod::Bel);
     }
 }
+
