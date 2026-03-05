@@ -62,6 +62,8 @@ struct WsRpcInner {
     pending: RefCell<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     notification_handlers: RefCell<HashMap<String, Vec<NotificationHandler>>>,
     reconnect_delay: Cell<u32>,
+    reconnect_scheduled: Cell<bool>,
+    manual_disconnect: Cell<bool>,
     closures: RefCell<Vec<JsValue>>,
 }
 
@@ -74,6 +76,8 @@ impl WsRpc {
                 pending: RefCell::new(HashMap::new()),
                 notification_handlers: RefCell::new(HashMap::new()),
                 reconnect_delay: Cell::new(1000),
+                reconnect_scheduled: Cell::new(false),
+                manual_disconnect: Cell::new(false),
                 closures: RefCell::new(Vec::new()),
             }),
         }
@@ -114,7 +118,36 @@ impl WsRpc {
             .unwrap_or(false)
     }
 
-    pub fn connect(&self, mut connected_signal: Signal<bool>) {
+    fn schedule_reconnect(&self, mut connected_signal: Signal<bool>, reconnect_epoch: Signal<u64>) {
+        if self.inner.manual_disconnect.get() || self.inner.reconnect_scheduled.get() {
+            return;
+        }
+
+        connected_signal.set(false);
+        let delay = self.inner.reconnect_delay.get();
+        self.inner.reconnect_delay.set((delay * 2).min(30_000));
+        self.inner.reconnect_scheduled.set(true);
+
+        let sc = self.clone();
+        let reconnect = Closure::once(move || {
+            sc.inner.reconnect_scheduled.set(false);
+            sc.connect(connected_signal, reconnect_epoch);
+        });
+
+        if let Some(w) = web_sys::window() {
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
+                reconnect.as_ref().unchecked_ref(),
+                delay as i32,
+            );
+            reconnect.forget();
+        } else {
+            self.inner.reconnect_scheduled.set(false);
+        }
+    }
+
+    pub fn connect(&self, mut connected_signal: Signal<bool>, mut reconnect_epoch: Signal<u64>) {
+        self.inner.manual_disconnect.set(false);
+
         // Don't reconnect if already open or connecting.
         if let Some(ws) = self.inner.ws.borrow().as_ref() {
             let state = ws.ready_state();
@@ -139,16 +172,23 @@ impl WsRpc {
 
         let ws = match WebSocket::new(&url) {
             Ok(ws) => ws,
-            Err(_) => return,
+            Err(_) => {
+                self.schedule_reconnect(connected_signal, reconnect_epoch);
+                return;
+            }
         };
 
         self.inner.closures.borrow_mut().clear();
 
         // onopen
         let inner = self.inner.clone();
+        let mut on_open_connected = connected_signal;
+        let mut on_open_epoch = reconnect_epoch;
         let on_open = Closure::wrap(Box::new(move || {
             inner.reconnect_delay.set(1000);
-            connected_signal.set(true);
+            inner.reconnect_scheduled.set(false);
+            on_open_connected.set(true);
+            on_open_epoch += 1;
         }) as Box<dyn FnMut()>);
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         self.inner
@@ -190,29 +230,15 @@ impl WsRpc {
 
         // onclose
         let self_clone = self.clone();
+        let mut on_close_connected = connected_signal;
+        let on_close_epoch = reconnect_epoch;
         let on_close = Closure::wrap(Box::new(move || {
-            connected_signal.set(false);
+            on_close_connected.set(false);
             // Reject all pending requests.
             for (_, tx) in self_clone.inner.pending.borrow_mut().drain() {
                 let _ = tx.send(Err("Connection closed".into()));
             }
-            // Schedule reconnect with exponential backoff.
-            let delay = self_clone.inner.reconnect_delay.get();
-            self_clone
-                .inner
-                .reconnect_delay
-                .set((delay * 2).min(30_000));
-            let sc = self_clone.clone();
-            let reconnect = Closure::once(move || {
-                sc.connect(connected_signal);
-            });
-            if let Some(w) = web_sys::window() {
-                let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-                    reconnect.as_ref().unchecked_ref(),
-                    delay as i32,
-                );
-            }
-            reconnect.forget();
+            self_clone.schedule_reconnect(on_close_connected, on_close_epoch);
         }) as Box<dyn FnMut()>);
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
         self.inner
@@ -235,6 +261,8 @@ impl WsRpc {
     }
 
     pub fn disconnect(&self) {
+        self.inner.manual_disconnect.set(true);
+        self.inner.reconnect_scheduled.set(false);
         if let Some(ws) = self.inner.ws.borrow_mut().take() {
             ws.set_onopen(None);
             ws.set_onmessage(None);

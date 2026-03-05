@@ -201,6 +201,7 @@ fn install_swipe_handler(mut sidebar_open: Signal<bool>) {
 #[component]
 pub fn Layout() -> Element {
     let ws_connected = use_signal(|| false);
+    let ws_reconnect_epoch = use_signal(|| 0u64);
     let ws = use_signal(WsRpc::new);
     let mut sidebar_open = use_signal(|| true);
 
@@ -286,8 +287,10 @@ pub fn Layout() -> Element {
         cb.forget();
     });
 
+    use_context_provider(|| ws);
     use_context_provider(|| ws.read().clone());
     use_context_provider(|| ws_connected);
+    use_context_provider(|| ws_reconnect_epoch);
     use_context_provider(|| sidebar_open);
     use_context_provider(Toaster::new);
 
@@ -295,7 +298,7 @@ pub fn Layout() -> Element {
 
     use_effect(move || {
         let ws = ws.read();
-        ws.connect(ws_connected);
+        ws.connect(ws_connected, ws_reconnect_epoch);
     });
 
     // Poll for pending approvals periodically
@@ -385,6 +388,7 @@ pub fn Layout() -> Element {
     } else {
         "more-sheet"
     };
+    let route_render_epoch = ws_reconnect_epoch();
 
     let health_label = if ws_connected() {
         "Health OK"
@@ -569,7 +573,10 @@ pub fn Layout() -> Element {
                     id: "main-content",
                     class: "main-content",
                     role: "main",
-                    Outlet::<Route> {}
+                    div {
+                        key: "route-{route_render_epoch}",
+                        Outlet::<Route> {}
+                    }
                 }
             } // close app-body
 

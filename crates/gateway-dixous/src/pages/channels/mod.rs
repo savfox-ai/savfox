@@ -777,7 +777,7 @@ pub fn Channels() -> Element {
         })
         .unwrap_or_default();
 
-    let is_loading = channels_data.read().is_none();
+    let is_loading = channels_data.read().is_none() || channel_configs_data.read().is_none();
 
     let channels_read = channels_data.read();
     let channels_status = channels_read.as_ref().and_then(|c| c.as_ref());
