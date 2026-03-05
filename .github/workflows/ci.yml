@@ -156,7 +156,7 @@ jobs:
   # ─── Build release binary ──────────────────────────────────────────
   build:
     runs-on: ${{ matrix.os }}
-    needs: [fmt, clippy, test, coverage, audit, licenses, benchmark]
+    needs: [fmt, clippy, test, coverage, audit, licenses]
     strategy:
       matrix:
         include:

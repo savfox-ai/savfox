@@ -4981,12 +4981,7 @@ async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayBridge>)
 async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
     use savfox_core::config::channel_store;
     let channel_kind = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
-    let channel_id = params
-        .get("id")
-        .or_else(|| params.get("channel_id"))
-        .and_then(|v| v.as_str())
-        .filter(|value| !value.trim().is_empty());
-    let fallback_name = channel_id.unwrap_or(channel_kind).to_string();
+    let fallback_name = channel_kind.to_string();
     let channel_name = params
         .get("name")
         .and_then(|v| v.as_str())
@@ -5019,7 +5014,6 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
     match channel_store::merge_channel_config(
         &bridge.config().savfox_home,
         &channel_kind,
-        channel_id,
         &channel_name,
         &patch,
     )
@@ -5277,7 +5271,6 @@ async fn persist_detached_matrix_bridge_config(
             channel_store::merge_channel_config(
                 &bridge.config().savfox_home,
                 "matrix",
-                None,
                 "Matrix",
                 &patch,
             )

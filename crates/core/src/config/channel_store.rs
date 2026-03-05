@@ -68,9 +68,18 @@ fn normalize_channel_name(raw: &str) -> Option<String> {
     }
 }
 
+fn kind_from_id_candidate(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if let Some((prefix, _)) = trimmed.split_once('-') {
+        normalize_channel_slug(prefix).or_else(|| normalize_channel_slug(trimmed))
+    } else {
+        normalize_channel_slug(trimmed)
+    }
+}
+
 fn resolve_kind(raw_kind: &str, fallback: Option<&str>) -> String {
     normalize_channel_slug(raw_kind)
-        .or_else(|| fallback.and_then(normalize_channel_slug))
+        .or_else(|| fallback.and_then(kind_from_id_candidate))
         .unwrap_or_else(|| DEFAULT_CHANNEL_KIND.to_string())
 }
 
@@ -78,18 +87,16 @@ fn resolve_name(raw_name: &str, fallback_kind: &str) -> String {
     normalize_channel_name(raw_name).unwrap_or_else(|| fallback_kind.to_string())
 }
 
-fn resolve_id(raw_id: Option<&str>, name: &str, kind: &str) -> String {
-    raw_id
-        .and_then(normalize_channel_slug)
-        .or_else(|| normalize_channel_slug(name))
-        .unwrap_or_else(|| kind.to_string())
+fn resolve_id(name: &str, kind: &str) -> String {
+    let name_slug = normalize_channel_slug(name).unwrap_or_else(|| kind.to_string());
+    format!("{kind}-{name_slug}")
 }
 
 fn normalize_config(config: &mut ChannelConfig) {
     let kind = resolve_kind(&config.kind, Some(&config.id));
     config.kind = kind.clone();
     config.name = resolve_name(&config.name, &kind);
-    config.id = resolve_id(Some(&config.id), &config.name, &kind);
+    config.id = resolve_id(&config.name, &kind);
 }
 
 fn normalized_selector(selector: &str) -> String {
@@ -247,22 +254,15 @@ pub async fn delete_channel_config(
 pub async fn merge_channel_config(
     savfox_home: &PathBuf,
     channel_kind: &str,
-    channel_id: Option<&str>,
     channel_name: &str,
     patch: &Value,
 ) -> std::io::Result<ChannelConfig> {
-    let kind = resolve_kind(channel_kind, channel_id);
-    let requested_id = channel_id.and_then(normalize_channel_slug);
-    let existing = if let Some(id) = requested_id.as_deref() {
-        get_channel_config(savfox_home, id).await?
-    } else {
-        None
-    }
-    .or(get_channel_config(savfox_home, &kind).await?);
+    let kind = resolve_kind(channel_kind, None);
+    let existing = get_channel_config(savfox_home, &kind).await?;
     let now = chrono::Utc::now().timestamp();
 
     let mut config = existing.unwrap_or(ChannelConfig {
-        id: requested_id.clone().unwrap_or_default(),
+        id: String::new(),
         kind: kind.clone(),
         name: channel_name.to_string(),
         enabled: true,
@@ -315,8 +315,7 @@ pub async fn merge_channel_config(
     }
 
     config.name = resolve_name(&config.name, &config.kind);
-    config.id =
-        requested_id.unwrap_or_else(|| resolve_id(Some(&config.id), &config.name, &config.kind));
+    config.id = resolve_id(&config.name, &config.kind);
     if config.created_at.is_none() {
         config.created_at = Some(now);
     }
@@ -388,7 +387,7 @@ mod tests {
             .await
             .expect("lookup")
             .expect("exists");
-        assert_eq!(loaded.id, "matrix");
+        assert_eq!(loaded.id, "matrix-matrix");
         assert_eq!(loaded.kind, "matrix");
         assert_eq!(
             loaded
@@ -416,7 +415,6 @@ mod tests {
         let merged = merge_channel_config(
             &home,
             "Matrix",
-            None,
             "My Matrix Home",
             &json!({ "homeserver": "http://127.0.0.1:6006" }),
         )
@@ -424,17 +422,17 @@ mod tests {
         .expect("merge");
 
         assert_eq!(merged.kind, "matrix");
-        assert_eq!(merged.id, "my-matrix-home");
+        assert_eq!(merged.id, "matrix-my-matrix-home");
         assert_eq!(merged.name, "My Matrix Home");
 
         let by_kind = get_channel_config(&home, "matrix")
             .await
             .expect("lookup by kind")
             .expect("config should exist");
-        assert_eq!(by_kind.id, "my-matrix-home");
+        assert_eq!(by_kind.id, "matrix-my-matrix-home");
         assert_eq!(by_kind.kind, "matrix");
 
-        let by_id = get_channel_config(&home, "my-matrix-home")
+        let by_id = get_channel_config(&home, "matrix-my-matrix-home")
             .await
             .expect("lookup by id")
             .expect("config should exist");
@@ -466,7 +464,7 @@ mod tests {
             .expect("lookup")
             .expect("exists");
         assert_eq!(loaded.kind, "matrix");
-        assert_eq!(loaded.id, "matrix");
+        assert_eq!(loaded.id, "matrix-legacy-matrix");
         assert_eq!(loaded.name, "Legacy Matrix");
 
         let _ = tokio::fs::remove_dir_all(&home).await;
