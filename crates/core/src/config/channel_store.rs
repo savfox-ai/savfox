@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
+use savfox_utils_string::normalize_slug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use savfox_utils_string::normalize_slug;
 use tracing::{info, warn};
 
 const CHANNELS_SUBDIR: &str = "channels";
@@ -86,6 +86,41 @@ fn selector_matches(config: &ChannelConfig, selector: &str) -> bool {
     let id = normalized_selector(&config.id);
     let kind = normalized_selector(&config.kind);
     id == selector || kind == selector
+}
+
+fn id_matches(config: &ChannelConfig, channel_id: &str) -> bool {
+    normalized_selector(&config.id) == normalized_selector(channel_id)
+}
+
+async fn find_channel_config_path_by_id(
+    savfox_home: &PathBuf,
+    channel_id: &str,
+) -> std::io::Result<Option<PathBuf>> {
+    let dir = channels_dir(savfox_home);
+    if !dir.exists() {
+        return Ok(None);
+    }
+
+    let mut entries = tokio::fs::read_dir(&dir).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if !is_json_file(&path) {
+            continue;
+        }
+
+        let Ok(content) = tokio::fs::read_to_string(&path).await else {
+            continue;
+        };
+        let Ok(config) = parse_channel_config(&content) else {
+            continue;
+        };
+
+        if id_matches(&config, channel_id) {
+            return Ok(Some(path));
+        }
+    }
+
+    Ok(None)
 }
 
 async fn find_channel_config_path_by_selector(
@@ -178,32 +213,55 @@ pub async fn get_channel_config(
     }
 }
 
+async fn get_channel_config_by_id(
+    savfox_home: &PathBuf,
+    channel_id: &str,
+) -> std::io::Result<Option<ChannelConfig>> {
+    let Some(path) = find_channel_config_path_by_id(savfox_home, channel_id).await? else {
+        return Ok(None);
+    };
+
+    let content = tokio::fs::read_to_string(&path).await?;
+    match parse_channel_config(&content) {
+        Ok(config) => Ok(Some(config)),
+        Err(e) => {
+            warn!("Failed to parse channel config {}: {}", path.display(), e);
+            Ok(None)
+        }
+    }
+}
+
 pub async fn save_channel_config(
     savfox_home: &PathBuf,
     config: &ChannelConfig,
 ) -> std::io::Result<()> {
     ensure_channels_dir(savfox_home).await?;
 
+    let original_id = normalize_slug(&config.id);
     let mut normalized = config.clone();
     normalize_config(&mut normalized);
 
     let target_path = channels_dir(savfox_home).join(format!("{}.json", normalized.id.clone()));
-    let existing_path = if let Some(existing) =
-        find_channel_config_path_by_selector(savfox_home, &normalized.id).await?
+    let mut stale_paths = std::collections::HashSet::<PathBuf>::new();
+    if let Some(existing) = find_channel_config_path_by_id(savfox_home, &normalized.id).await?
+        && existing != target_path
     {
-        Some(existing)
-    } else {
-        find_channel_config_path_by_selector(savfox_home, &normalized.kind).await?
-    };
+        stale_paths.insert(existing);
+    }
+    if let Some(old_id) = original_id
+        && normalized_selector(&old_id) != normalized_selector(&normalized.id)
+        && let Some(previous) = find_channel_config_path_by_id(savfox_home, &old_id).await?
+        && previous != target_path
+    {
+        stale_paths.insert(previous);
+    }
 
     let content = serde_json::to_string_pretty(&normalized)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     tokio::fs::write(&target_path, content).await?;
 
-    if let Some(existing) = existing_path
-        && existing != target_path
-    {
+    for existing in stale_paths {
         if let Err(err) = tokio::fs::remove_file(&existing).await {
             warn!(
                 "Failed to remove old channel config {} after rename: {}",
@@ -234,11 +292,22 @@ pub async fn merge_channel_config(
     patch: &Value,
 ) -> std::io::Result<ChannelConfig> {
     let kind = resolve_kind(channel_kind, None);
-    let existing = get_channel_config(savfox_home, &kind).await?;
+    let lookup_id = patch
+        .get("id")
+        .and_then(|v| v.as_str())
+        .and_then(normalize_slug)
+        .or_else(|| {
+            patch
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|name| resolve_id(&resolve_name(name, &kind), &kind))
+        })
+        .unwrap_or_else(|| resolve_id(&resolve_name(channel_name, &kind), &kind));
+    let existing = get_channel_config_by_id(savfox_home, &lookup_id).await?;
     let now = chrono::Utc::now().timestamp();
 
     let mut config = existing.unwrap_or(ChannelConfig {
-        id: String::new(),
+        id: lookup_id,
         kind: kind.clone(),
         name: channel_name.to_string(),
         enabled: true,
@@ -282,13 +351,17 @@ pub async fn merge_channel_config(
         config.enabled = enabled;
     }
     config.name = resolve_name(&config.name, &config.kind);
-    config.id = resolve_id(&config.name, &config.kind);
+    let resolved_id = resolve_id(&config.name, &config.kind);
+    if config.id.trim().is_empty() {
+        config.id = resolved_id.clone();
+    }
     if config.created_at.is_none() {
         config.created_at = Some(now);
     }
     config.updated_at = Some(now);
 
     save_channel_config(savfox_home, &config).await?;
+    config.id = resolved_id;
     Ok(config)
 }
 
@@ -403,7 +476,7 @@ mod tests {
         assert_eq!(first_name, "matrix-primary-matrix.json");
 
         let second = ChannelConfig {
-            id: String::new(),
+            id: "matrix-primary-matrix".to_string(),
             kind: "matrix".to_string(),
             name: "Renamed Matrix".to_string(),
             enabled: true,
@@ -463,6 +536,48 @@ mod tests {
             .expect("lookup by id")
             .expect("config should exist");
         assert_eq!(by_id.kind, "matrix");
+
+        let _ = tokio::fs::remove_dir_all(&home).await;
+    }
+
+    #[tokio::test]
+    async fn merge_channel_allows_multiple_configs_for_same_kind() {
+        let home =
+            std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
+        let channels = home.join(CHANNELS_SUBDIR);
+
+        let first = merge_channel_config(
+            &home,
+            "Matrix",
+            "Primary Matrix",
+            &json!({ "homeserver": "http://127.0.0.1:6006", "groups": "!room-a:example.org" }),
+        )
+        .await
+        .expect("merge first");
+        let second = merge_channel_config(
+            &home,
+            "Matrix",
+            "Backup Matrix",
+            &json!({ "homeserver": "http://127.0.0.1:7007", "groups": "!room-b:example.org" }),
+        )
+        .await
+        .expect("merge second");
+
+        assert_ne!(first.id, second.id);
+
+        let files = list_json_files(&channels).await;
+        assert_eq!(files.len(), 2);
+
+        let loaded_first = get_channel_config(&home, &first.id)
+            .await
+            .expect("get first")
+            .expect("first exists");
+        let loaded_second = get_channel_config(&home, &second.id)
+            .await
+            .expect("get second")
+            .expect("second exists");
+        assert_eq!(loaded_first.kind, "matrix");
+        assert_eq!(loaded_second.kind, "matrix");
 
         let _ = tokio::fs::remove_dir_all(&home).await;
     }

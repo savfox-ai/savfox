@@ -21,7 +21,9 @@ mod approval_policy_store;
 pub mod audit;
 pub mod auth;
 pub mod auto_reply;
+#[path = "channel.rs"]
 pub mod bridge;
+#[path = "channels/mod.rs"]
 pub mod bridges;
 pub mod canvas_host;
 pub(crate) mod chat_attachments;

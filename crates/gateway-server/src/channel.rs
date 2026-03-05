@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
+use matrix_bot_sdk::client::{MatrixAuth, MatrixClient};
 use savfox_app_server_protocol::{
     AccountLoginCompletedNotification, AccountUpdatedNotification, CancelLoginAccountParams,
     CancelLoginAccountResponse, CancelLoginAccountStatus, ClientRequest, JSONRPCErrorError,
@@ -28,6 +30,7 @@ use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, broadcast, mpsc, oneshot};
 use toml::Value as TomlValue;
 use tracing::{error, info, warn};
+use url::Url;
 use uuid::Uuid;
 
 use crate::session::GatewaySessionManager;
@@ -85,6 +88,93 @@ pub(crate) struct RuntimeBridgeSecrets {
     pub(crate) slack_bot_token: Option<String>,
     pub(crate) slack_signing_secret: Option<String>,
     pub(crate) webhook_secret: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MatrixOutboundConfig {
+    id: String,
+    homeserver: String,
+    access_token: String,
+    user_id: Option<String>,
+    rooms: Vec<String>,
+}
+
+impl MatrixOutboundConfig {
+    fn from_channel_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> Option<Self> {
+        if !config.enabled || !config.kind.eq_ignore_ascii_case("matrix") {
+            return None;
+        }
+        let raw = config.config.as_object()?;
+        let access_token =
+            first_non_empty_config_string(raw, &["accessToken", "access_token", "token"])?;
+        let homeserver =
+            first_non_empty_config_string(raw, &["homeserver", "homeserver_url", "server_url"])
+                .unwrap_or_else(|| "https://matrix.org".to_string());
+        let user_id = first_non_empty_config_string(raw, &["userId", "user_id"]);
+
+        let mut rooms = Vec::new();
+        for key in ["groups", "rooms", "roomIds", "room_ids", "room_id"] {
+            if let Some(value) = raw.get(key) {
+                rooms.extend(parse_string_list(value));
+            }
+        }
+        rooms.sort_unstable();
+        rooms.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+
+        Some(Self {
+            id: config.id.clone(),
+            homeserver,
+            access_token,
+            user_id,
+            rooms,
+        })
+    }
+
+    fn matches_room(&self, room_id: &str) -> bool {
+        let room_id = room_id.trim();
+        !room_id.is_empty()
+            && self
+                .rooms
+                .iter()
+                .any(|room| room.eq_ignore_ascii_case(room_id))
+    }
+}
+
+fn first_non_empty_config_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key).and_then(|value| {
+            let text = value.as_str()?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        })
+    })
+}
+
+fn parse_string_list(value: &Value) -> Vec<String> {
+    match value {
+        Value::String(text) => text
+            .split(['\n', ','])
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Tracks an active login attempt for cancellation.
@@ -1477,39 +1567,75 @@ impl GatewayBridge {
         Ok(())
     }
 
-    /// Send a message via the Matrix Client-Server API.
+    async fn resolve_matrix_outbound_config(
+        &self,
+        room_id: &str,
+    ) -> anyhow::Result<Option<MatrixOutboundConfig>> {
+        let all_configs =
+            savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
+                .await
+                .context("failed to load channel configs")?;
+        let matrix_configs: Vec<MatrixOutboundConfig> = all_configs
+            .iter()
+            .filter_map(MatrixOutboundConfig::from_channel_config)
+            .collect();
+
+        if matrix_configs.is_empty() {
+            return Ok(None);
+        }
+
+        if let Some(config) = matrix_configs
+            .iter()
+            .find(|config| config.matches_room(room_id))
+        {
+            return Ok(Some(config.clone()));
+        }
+
+        if matrix_configs.len() == 1 {
+            return Ok(matrix_configs.into_iter().next());
+        }
+
+        if let Some(default_config) = matrix_configs.iter().find(|config| config.rooms.is_empty()) {
+            warn!(
+                room_id,
+                config_id = %default_config.id,
+                "Matrix room does not match any configured room allowlist; using default Matrix channel"
+            );
+            return Ok(Some(default_config.clone()));
+        }
+
+        let fallback = matrix_configs.first().cloned();
+        if let Some(config) = fallback.as_ref() {
+            warn!(
+                room_id,
+                config_id = %config.id,
+                "Matrix room does not match configured room allowlists; using first Matrix channel"
+            );
+        }
+        Ok(fallback)
+    }
+
+    /// Send a message via Matrix using matrix-bot-sdk.
     pub(crate) async fn send_matrix_message(
         &self,
         homeserver: &str,
         access_token: &str,
+        user_id: Option<&str>,
         room_id: &str,
         text: &str,
     ) -> anyhow::Result<()> {
-        let txn_id = uuid::Uuid::now_v7().to_string();
-        let url =
-            format!("{homeserver}/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}");
-        let body = serde_json::json!({
-            "msgtype": "m.text",
-            "body": text,
-        });
-
-        let response = self
-            .http_client
-            .put(&url)
-            .header("Authorization", format!("Bearer {access_token}"))
-            .header("Content-Type", "application/json")
-            .body(body.to_string())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.bytes().await.unwrap_or_default();
-            warn!(
-                "Matrix API error: HTTP {status}: {}",
-                String::from_utf8_lossy(&body)
-            );
-        }
+        let homeserver_url = Url::parse(homeserver)
+            .with_context(|| format!("invalid Matrix homeserver URL: {homeserver}"))?;
+        let auth = if let Some(uid) = user_id.map(str::trim).filter(|uid| !uid.is_empty()) {
+            MatrixAuth::new(access_token).with_user_id(uid.to_string())
+        } else {
+            MatrixAuth::new(access_token)
+        };
+        let client = MatrixClient::new(homeserver_url, auth);
+        client
+            .send_text(room_id, text)
+            .await
+            .with_context(|| format!("failed to send Matrix message to room {room_id}"))?;
         Ok(())
     }
 
@@ -1795,7 +1921,7 @@ impl GatewayBridge {
 
     /// Send a message to the appropriate platform via the gateway.
     /// The `channel` format is `platform:id` (e.g., `discord:12345`, `telegram:67890`).
-    /// Platform credentials are read from environment variables.
+    /// Platform credentials are read from runtime secrets, channel configs, or environment variables.
     pub(crate) async fn send_platform_message(
         &self,
         channel: &str,
@@ -1874,13 +2000,17 @@ impl GatewayBridge {
                 }
             }
             "matrix" => {
-                let homeserver = std::env::var("MATRIX_HOMESERVER")
-                    .unwrap_or_else(|_| "https://matrix.org".to_string());
-                if let Ok(token) = std::env::var("MATRIX_ACCESS_TOKEN") {
-                    self.send_matrix_message(&homeserver, &token, channel_id, text)
-                        .await?;
+                if let Some(config) = self.resolve_matrix_outbound_config(channel_id).await? {
+                    self.send_matrix_message(
+                        &config.homeserver,
+                        &config.access_token,
+                        config.user_id.as_deref(),
+                        channel_id,
+                        text,
+                    )
+                    .await?;
                 } else {
-                    warn!("Matrix access token not configured");
+                    warn!("Matrix channel not configured in channels/*.json");
                 }
             }
             "mattermost" => {

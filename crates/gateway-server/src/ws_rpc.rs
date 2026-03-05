@@ -3990,6 +3990,7 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
 async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
     let platform = params
         .get("platform")
+        .or_else(|| params.get("channel"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if platform.is_empty() {
@@ -4030,6 +4031,7 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
 async fn handle_channels_logout(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
     let platform = params
         .get("platform")
+        .or_else(|| params.get("channel"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if platform.is_empty() {
@@ -4991,11 +4993,19 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
         return Err((INVALID_REQUEST, "missing 'channel' parameter".to_string()));
     }
 
-    let patch = if config_value.is_object() {
+    let mut patch = if config_value.is_object() {
         config_value
     } else {
         json!({})
     };
+    if let Some(id) = params
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        patch["id"] = json!(id);
+    }
 
     match channel_store::merge_channel_config(
         &bridge.config().savfox_home,
@@ -5243,7 +5253,17 @@ async fn persist_detached_matrix_bridge_config(
 
     match detached {
         DetachedBridgeConfig::Delete => {
-            channel_store::delete_channel_config(&bridge.config().savfox_home, "matrix")
+            // Legacy config patch only represented one matrix bridge; map delete to that canonical ID.
+            let _ =
+                channel_store::delete_channel_config(&bridge.config().savfox_home, "matrix-matrix")
+                    .await
+                    .map_err(|e| {
+                        (
+                            INTERNAL_ERROR,
+                            format!("failed to delete matrix channel config: {e}"),
+                        )
+                    })?;
+            let _ = channel_store::delete_channel_config(&bridge.config().savfox_home, "matrix")
                 .await
                 .map_err(|e| {
                     (
