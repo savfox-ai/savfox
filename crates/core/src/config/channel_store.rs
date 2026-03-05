@@ -213,23 +213,33 @@ pub async fn save_channel_config(
     let mut normalized = config.clone();
     normalize_config(&mut normalized);
 
-    let path = if let Some(existing) =
+    let target_path = channels_dir(savfox_home).join(format!("{}.json", normalized.id.clone()));
+    let existing_path = if let Some(existing) =
         find_channel_config_path_by_selector(savfox_home, &normalized.id).await?
     {
-        existing
-    } else if let Some(existing) =
-        find_channel_config_path_by_selector(savfox_home, &normalized.kind).await?
-    {
-        existing
+        Some(existing)
     } else {
-        channels_dir(savfox_home).join(format!("{}.json", uuid::Uuid::new_v4()))
+        find_channel_config_path_by_selector(savfox_home, &normalized.kind).await?
     };
 
     let content = serde_json::to_string_pretty(&normalized)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    tokio::fs::write(&path, content).await?;
-    info!("Saved channel config: {}", path.display());
+    tokio::fs::write(&target_path, content).await?;
+
+    if let Some(existing) = existing_path
+        && existing != target_path
+    {
+        if let Err(err) = tokio::fs::remove_file(&existing).await {
+            warn!(
+                "Failed to remove old channel config {} after rename: {}",
+                existing.display(),
+                err
+            );
+        }
+    }
+
+    info!("Saved channel config: {}", target_path.display());
     Ok(())
 }
 
@@ -338,7 +348,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channel_files_use_uuid_names_and_lookup_by_kind() {
+    async fn channel_files_use_id_names_and_lookup_by_kind() {
         let home =
             std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
         let config = ChannelConfig {
@@ -363,7 +373,7 @@ mod tests {
             .and_then(|name| name.to_str())
             .unwrap_or_default()
             .to_string();
-        assert_ne!(file_name, "matrix.json");
+        assert_eq!(file_name, "matrix-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")
             .await
@@ -386,6 +396,66 @@ mod tests {
         assert!(deleted);
         let files_after = list_json_files(&channels).await;
         assert!(files_after.is_empty());
+
+        let _ = tokio::fs::remove_dir_all(&home).await;
+    }
+
+    #[tokio::test]
+    async fn save_channel_renames_file_when_generated_id_changes() {
+        let home =
+            std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
+        let channels = home.join(CHANNELS_SUBDIR);
+
+        let first = ChannelConfig {
+            id: String::new(),
+            kind: "matrix".to_string(),
+            name: "Primary Matrix".to_string(),
+            enabled: true,
+            config: json!({ "homeserver": "http://127.0.0.1:6006" }),
+            created_at: Some(1),
+            updated_at: Some(1),
+        };
+        save_channel_config(&home, &first)
+            .await
+            .expect("save first");
+
+        let mut files = list_json_files(&channels).await;
+        assert_eq!(files.len(), 1);
+        let first_name = files[0]
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(first_name, "matrix-primary-matrix.json");
+
+        let second = ChannelConfig {
+            id: String::new(),
+            kind: "matrix".to_string(),
+            name: "Renamed Matrix".to_string(),
+            enabled: true,
+            config: json!({ "homeserver": "http://127.0.0.1:6006" }),
+            created_at: Some(1),
+            updated_at: Some(2),
+        };
+        save_channel_config(&home, &second)
+            .await
+            .expect("save second");
+
+        files = list_json_files(&channels).await;
+        assert_eq!(files.len(), 1);
+        let second_name = files[0]
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(second_name, "matrix-renamed-matrix.json");
+
+        let loaded = get_channel_config(&home, "matrix")
+            .await
+            .expect("lookup by kind")
+            .expect("config should exist");
+        assert_eq!(loaded.id, "matrix-renamed-matrix");
+        assert_eq!(loaded.name, "Renamed Matrix");
 
         let _ = tokio::fs::remove_dir_all(&home).await;
     }

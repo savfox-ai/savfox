@@ -36,7 +36,7 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         .await;
 
     let provider = ModelProviderInfo {
-id: "mock".into(),
+        id: "mock".into(),
         name: "mock".into(),
         base_url: Some(format!("{}/v1", server.uri())),
         env_key: None,

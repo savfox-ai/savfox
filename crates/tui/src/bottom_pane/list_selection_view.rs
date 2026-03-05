@@ -212,7 +212,7 @@ impl ListSelectionView {
                     let wrap_indent = description.is_none().then_some(wrap_prefix_width);
                     let is_disabled = item.is_disabled || item.disabled_reason.is_some();
                     GenericDisplayRow {
-                        name: name,
+                        name,
                         display_shortcut: item.display_shortcut,
                         match_indices: None,
                         description,

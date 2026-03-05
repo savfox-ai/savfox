@@ -43,9 +43,9 @@ use crate::project_doc::{DEFAULT_PROJECT_DOC_FILENAME, LOCAL_PROJECT_DOC_FILENAM
 use crate::protocol::{AskForApproval, SandboxPolicy};
 use crate::windows_sandbox::WindowsSandboxLevelExt;
 
+pub mod channel_store;
 mod constraint;
 pub mod edit;
-pub mod channel_store;
 pub mod provider_store;
 pub mod schema;
 pub mod service;
@@ -123,7 +123,7 @@ fn merge_provider_store_model_providers(
             provider_id.clone(),
             ModelProviderInfo {
                 id: provider_id,
-                name: name,
+                name,
                 base_url: Some(base_url),
                 env_key,
                 env_key_instructions: None,
@@ -3669,7 +3669,7 @@ model_verbosity = "high"
         let savfox_home_temp_dir = TempDir::new().unwrap();
 
         let openai_chat_completions_provider = ModelProviderInfo {
-id: "openai-chat-completions".to_string(),
+            id: "openai-chat-completions".to_string(),
             name: "OpenAI using Chat Completions".to_string(),
             base_url: Some("https://api.openai.com/v1".to_string()),
             env_key: Some("OPENAI_API_KEY".to_string()),
@@ -3716,7 +3716,7 @@ id: "openai-chat-completions".to_string(),
             ..Default::default()
         };
         let zhipu_provider = ModelProviderInfo {
-id: "zhipuai-coding-plan".to_string(),
+            id: "zhipuai-coding-plan".to_string(),
             name: "Zhipu AI Coding Plan".to_string(),
             base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
             env_key: Some("ZHIPUAI_API_KEY".to_string()),
@@ -3812,7 +3812,7 @@ id: "zhipuai-coding-plan".to_string(),
             ..Default::default()
         };
         let provider = ModelProviderInfo {
-id: "acme/team".to_string(),
+            id: "acme/team".to_string(),
             name: "Acme Team".to_string(),
             base_url: Some("https://example.invalid/v1".to_string()),
             env_key: Some("ACME_API_KEY".to_string()),
@@ -3858,7 +3858,7 @@ id: "acme/team".to_string(),
         cfg.model_providers.insert(
             "zhipuai-coding-plan".to_string(),
             ModelProviderInfo {
-id: "zhipuai-coding-plan".to_string(),
+                id: "zhipuai-coding-plan".to_string(),
                 name: "Zhipu AI Coding Plan".to_string(),
                 base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
                 env_key: Some("ZHIPUAI_API_KEY".to_string()),
@@ -4363,4 +4363,3 @@ mod notifications_tests {
         assert_eq!(parsed.tui.notification_method, NotificationMethod::Bel);
     }
 }
-

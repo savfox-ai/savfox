@@ -19,8 +19,7 @@ use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::registry::LookupSpan;
 
 const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024; // 4 MiB
-const SENTRY_DSN: &str =
-    "https://16e47df1f53e9e013c69a959ecc60c0f@o4510988884377600.ingest.us.sentry.io/4510988887130113";
+const SENTRY_DSN: &str = "https://16e47df1f53e9e013c69a959ecc60c0f@o4510988884377600.ingest.us.sentry.io/4510988887130113";
 const UPLOAD_TIMEOUT_SECS: u64 = 10;
 const FEEDBACK_TAGS_TARGET: &str = "feedback_tags";
 const MAX_FEEDBACK_TAGS: usize = 64;

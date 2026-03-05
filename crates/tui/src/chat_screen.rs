@@ -4827,9 +4827,10 @@ impl ChatScreen {
 
     /// Open a popup to choose the reasoning effort (stage 2) for the given model.
     pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
-        let (selected_provider_id, selected_model_slug) = parse_provider_prefixed_model(&preset.slug)
-            .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()))
-            .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
+        let (selected_provider_id, selected_model_slug) =
+            parse_provider_prefixed_model(&preset.slug)
+                .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()))
+                .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
         let (default_effort, supported) = Self::reasoning_effort_options_for_model(
             &preset,
             selected_provider_id.as_str(),
@@ -7139,8 +7140,14 @@ fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningE
         let effort = obj
             .get("effort")
             .and_then(serde_json::Value::as_str)
-            .or_else(|| obj.get("reasoning_effort").and_then(serde_json::Value::as_str))
-            .or_else(|| obj.get("reasoningEffort").and_then(serde_json::Value::as_str))
+            .or_else(|| {
+                obj.get("reasoning_effort")
+                    .and_then(serde_json::Value::as_str)
+            })
+            .or_else(|| {
+                obj.get("reasoningEffort")
+                    .and_then(serde_json::Value::as_str)
+            })
             .and_then(|text| {
                 serde_json::from_value::<ReasoningEffortConfig>(serde_json::Value::String(
                     text.to_string(),
@@ -7197,13 +7204,14 @@ fn value_reasoning_presets(value: &serde_json::Value) -> Option<Vec<ReasoningEff
 }
 
 fn value_input_modalities(value: &serde_json::Value) -> Option<Vec<InputModality>> {
-    value.get("input_modalities").and_then(|raw| {
-        serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok()
-    }).or_else(|| {
-        value
-            .get("inputModalities")
-            .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
-    })
+    value
+        .get("input_modalities")
+        .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+        .or_else(|| {
+            value
+                .get("inputModalities")
+                .and_then(|raw| serde_json::from_value::<Vec<InputModality>>(raw.clone()).ok())
+        })
 }
 
 // Extract the first bold (Markdown) element in the form **...** from `s`.

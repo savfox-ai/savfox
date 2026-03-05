@@ -43,9 +43,8 @@ pub static OPENAI_DEFAULT_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
         model_info_with_defaults("gpt-4.1", "gpt-4.1"),
     ]
 });
-static OPENAI_BUNDLED_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| {
-    bundled_models().expect("bundled openai/models.json must deserialize")
-});
+static OPENAI_BUNDLED_MODELS: Lazy<Vec<ModelInfo>> =
+    Lazy::new(|| bundled_models().expect("bundled openai/models.json must deserialize"));
 
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
@@ -206,7 +205,9 @@ pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelI
     provider_default_base_url_entry(&canonical)?;
 
     if canonical.as_str() == "openai"
-        && let Some(model) = OPENAI_BUNDLED_MODELS.iter().find(|model| model.slug == slug)
+        && let Some(model) = OPENAI_BUNDLED_MODELS
+            .iter()
+            .find(|model| model.slug == slug)
     {
         return Some(model.clone());
     }

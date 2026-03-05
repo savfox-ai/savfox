@@ -130,11 +130,7 @@ pub async fn track_inbound_message(
         .map(|v| v.trim().is_empty())
         .unwrap_or(true)
     {
-        entry.label = derive_auto_label(
-            meta.first_message,
-            entry.subject.as_deref(),
-            meta.name,
-        );
+        entry.label = derive_auto_label(meta.first_message, entry.subject.as_deref(), meta.name);
     }
 
     entry.touch();

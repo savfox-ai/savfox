@@ -547,11 +547,7 @@ fn load_skill_metadata(skill_path: &Path) -> (Option<SkillInterface>, Option<Ski
 fn resolve_interface(interface: Option<Interface>, skill_dir: &Path) -> Option<SkillInterface> {
     let interface = interface?;
     let interface = SkillInterface {
-        name: resolve_str(
-            interface.name,
-            MAX_NAME_LEN,
-            "interface.name",
-        ),
+        name: resolve_str(interface.name, MAX_NAME_LEN, "interface.name"),
         short_description: resolve_str(
             interface.short_description,
             MAX_SHORT_DESCRIPTION_LEN,

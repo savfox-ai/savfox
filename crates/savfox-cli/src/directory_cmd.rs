@@ -272,10 +272,7 @@ fn print_peers_table(result: &Value) {
     for peer in peers {
         let channel = peer.get("channel").and_then(|v| v.as_str()).unwrap_or("-");
         let peer_id = peer.get("peer_id").and_then(|v| v.as_str()).unwrap_or("-");
-        let name = peer
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let name = peer.get("name").and_then(|v| v.as_str()).unwrap_or("-");
         let identity = peer.get("identity").and_then(|v| v.as_str()).unwrap_or("-");
         let last_seen = format_ms(peer.get("last_seen_ms"));
         println!(
@@ -341,10 +338,7 @@ fn print_group_members_table(result: &Value) {
             .get("user_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let name = member
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("-");
+        let name = member.get("name").and_then(|v| v.as_str()).unwrap_or("-");
         let sessions = member.get("sessions").and_then(|v| v.as_u64()).unwrap_or(0);
         let last_seen = format_ms(member.get("last_seen_ms"));
         println!(

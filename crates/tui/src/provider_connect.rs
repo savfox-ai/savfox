@@ -840,7 +840,9 @@ mod tests {
             Some(2)
         );
         assert_eq!(
-            parsed[0].get("supports_personality").and_then(Value::as_bool),
+            parsed[0]
+                .get("supports_personality")
+                .and_then(Value::as_bool),
             Some(true)
         );
         assert_eq!(

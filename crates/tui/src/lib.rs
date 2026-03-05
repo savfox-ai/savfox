@@ -1492,8 +1492,7 @@ trust_level = "untrusted"
             ..ConfigToml::default()
         };
 
-        let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
+        let warning = maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
         let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(
@@ -1533,8 +1532,7 @@ trust_level = "untrusted"
             ..ConfigToml::default()
         };
 
-        let warning =
-            maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
+        let warning = maybe_repair_model_from_provider_store(temp_dir.path(), &config_toml).await?;
         assert!(warning.is_some());
 
         let updated: ConfigToml = toml::from_str(&std::fs::read_to_string(

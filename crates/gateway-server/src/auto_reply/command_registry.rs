@@ -162,9 +162,7 @@ impl CommandRegistry {
                     let model = model.trim().to_string();
                     CommandResult {
                         reply: Some(format!("Model set to: {model}")),
-                        action: Some(CommandAction::SetModel {
-                            model,
-                        }),
+                        action: Some(CommandAction::SetModel { model }),
                         error: None,
                     }
                 } else {

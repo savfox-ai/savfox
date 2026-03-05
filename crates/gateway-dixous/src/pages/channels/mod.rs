@@ -568,6 +568,38 @@ fn field_value_key(channel_id: &str, field_key: &str) -> String {
     format!("{channel_id}.{field_key}")
 }
 
+fn normalize_channel_slug(raw: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in raw.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+            continue;
+        }
+
+        if ch.is_ascii_whitespace() || matches!(ch, '-' | '_' | ':' | '/' | '\\' | '.') {
+            if !out.is_empty() && !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+    }
+
+    let normalized = out.trim_matches('-');
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.to_string())
+    }
+}
+
+fn auto_channel_id(kind: &str, name: &str) -> String {
+    let kind_slug = normalize_channel_slug(kind).unwrap_or_else(|| "channel".to_string());
+    let name_slug = normalize_channel_slug(name).unwrap_or_else(|| kind_slug.clone());
+    format!("{kind_slug}-{name_slug}")
+}
+
 fn build_channel_patch(
     channel_id: &str,
     fields: &[ConfigField],
@@ -606,21 +638,31 @@ pub fn Channels() -> Element {
     let mut testing_channel = use_signal(|| Option::<String>::None);
     let mut test_result = use_signal(|| Option::<(String, bool, String)>::None);
     let mut add_channel_search = use_signal(String::new);
+    let mut add_channel_name = use_signal(String::new);
 
     let channel_types = get_channel_types();
 
     let ws_config_get = ws.clone();
+    let modal_channel_types = channel_types.clone();
     use_effect(move || {
         let modal_open = show_add_modal();
         let selected = selected_channel();
         if !modal_open {
+            add_channel_name.set(String::new());
             return;
         }
 
         let Some(channel_id) = selected else {
             config_values.write().clear();
+            add_channel_name.set(String::new());
             return;
         };
+        let default_name = modal_channel_types
+            .iter()
+            .find(|channel_type| channel_type.id == channel_id)
+            .map(|channel_type| channel_type.name.clone())
+            .unwrap_or_else(|| channel_id.clone());
+        add_channel_name.set(default_name);
 
         let ws = ws_config_get.clone();
         spawn(async move {
@@ -649,6 +691,9 @@ pub fn Channels() -> Element {
                 }
             }
 
+            if let Some(name) = saved.get("name").and_then(Value::as_str) {
+                add_channel_name.set(name.to_string());
+            }
             config_values.set(restored);
         });
     });
@@ -903,6 +948,7 @@ pub fn Channels() -> Element {
                 show_add_modal,
                 refresh_tick,
                 add_channel_search,
+                add_channel_name,
             ) }
         }
 
@@ -1619,6 +1665,7 @@ fn render_add_modal(
     mut show_add_modal: Signal<bool>,
     mut refresh_tick: Signal<u32>,
     mut add_channel_search: Signal<String>,
+    mut channel_name: Signal<String>,
 ) -> Element {
     let selected = selected_channel();
     let selected_type = channel_types
@@ -1651,6 +1698,7 @@ fn render_add_modal(
                 add_channel_search.set(String::new());
                 selected_channel.set(None);
                 config_values.write().clear();
+                channel_name.set(String::new());
                 save_msg.set(None);
             },
             div {
@@ -1670,6 +1718,7 @@ fn render_add_modal(
                             add_channel_search.set(String::new());
                             selected_channel.set(None);
                             config_values.write().clear();
+                            channel_name.set(String::new());
                             save_msg.set(None);
                         },
                         class: "channels-modal__close",
@@ -1686,6 +1735,25 @@ fn render_add_modal(
                 if let Some(ch_type) = selected_type {
                     // Configuration form
                     div { class: "channels-modal__form",
+                        {
+                            let current_name = channel_name();
+                            let id_preview = auto_channel_id(&ch_type.id, &current_name);
+                            rsx! {
+                                div { class: "channels-field",
+                                    label { class: "channels-field__label", "Name" }
+                                    input {
+                                        r#type: "text",
+                                        placeholder: "My Matrix Channel",
+                                        value: "{current_name}",
+                                        oninput: move |e| channel_name.set(e.value()),
+                                        class: "channels-field__input",
+                                    }
+                                    div { class: "channels-field__hint",
+                                        "Channel ID: {id_preview}.json"
+                                    }
+                                }
+                            }
+                        }
                         for field in ch_type.config_fields.iter() {
                             {
                                 let key = format!("{}.{}", ch_type.id, field.key);
@@ -1782,6 +1850,7 @@ fn render_add_modal(
                                 onclick: move |_| {
                                     selected_channel.set(None);
                                     config_values.write().clear();
+                                    channel_name.set(String::new());
                                 },
                                 class: "channels-action-btn",
                                 "Back"
@@ -1790,20 +1859,23 @@ fn render_add_modal(
                                 onclick: {
                                     let ws = ws.clone();
                                     let ch_id = ch_type.id.clone();
-                                    let ch_name = ch_type.name.clone();
                                     let fields = ch_type.config_fields.clone();
                                     move |_| {
                                         let ws = ws.clone();
                                         let ch_id = ch_id.clone();
-                                        let ch_name = ch_name.clone();
                                         let fields = fields.clone();
+                                        let name = channel_name().trim().to_string();
+                                        if name.is_empty() {
+                                            save_msg.set(Some("Name is required.".to_string()));
+                                            return;
+                                        }
                                         let config = config_values.read();
                                         let patch = build_channel_patch(&ch_id, &fields, &config);
                                         saving.set(true);
                                         spawn(async move {
-                                            let mut params = json!({
+                                            let params = json!({
                                                 "channel": ch_id,
-                                                "name": ch_name,
+                                                "name": name,
                                                 "config": patch,
                                             });
                                             let result = ws.call::<serde_json::Value>(
@@ -1849,11 +1921,13 @@ fn render_add_modal(
                         for ch_type in filtered_types.iter() {
                             {
                                 let ch_id = ch_type.id.clone();
+                                let ch_name = ch_type.name.clone();
                                 rsx! {
                                     button {
                                         key: "{ch_type.id}",
                                         onclick: move |_| {
                                             selected_channel.set(Some(ch_id.clone()));
+                                            channel_name.set(ch_name.clone());
                                             config_values.write().clear();
                                             save_msg.set(None);
                                             add_channel_search.set(String::new());
@@ -2471,6 +2545,12 @@ const CHANNELS_STYLES: &str = r#"
         font-weight: 500;
         color: var(--text-secondary);
         margin-bottom: 6px;
+    }
+
+    .channels-field__hint {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--text-muted);
     }
 
     .channels-field__secret-badge {

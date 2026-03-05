@@ -258,7 +258,11 @@ impl ConfigFile {
 
     fn apply(&mut self, edit: &ConfigEdit) -> anyhow::Result<bool> {
         match edit {
-            ConfigEdit::SetModel { slug, provider, effort } => {
+            ConfigEdit::SetModel {
+                slug,
+                provider,
+                effort,
+            } => {
                 let slug = slug
                     .as_deref()
                     .map(str::trim)
@@ -280,7 +284,11 @@ impl ConfigFile {
                             );
                         };
 
-                        mutated |= self.write_value(Scope::Global, &["model", "slug"], value(slug_value.clone()));
+                        mutated |= self.write_value(
+                            Scope::Global,
+                            &["model", "slug"],
+                            value(slug_value.clone()),
+                        );
 
                         mutated |= self.write_value(
                             Scope::Global,
@@ -288,7 +296,9 @@ impl ConfigFile {
                             value(provider_to_write.clone()),
                         );
                         match effort {
-                            Some(effort_value) if !matches!(effort_value, &ReasoningEffort::None) => {
+                            Some(effort_value)
+                                if !matches!(effort_value, &ReasoningEffort::None) =>
+                            {
                                 mutated |= self.write_value(
                                     Scope::Global,
                                     &["model", "reasoning_effort"],
@@ -296,10 +306,8 @@ impl ConfigFile {
                                 );
                             }
                             _ => {
-                                mutated |= self.clear(
-                                    Scope::Global,
-                                    &["model", "reasoning_effort"],
-                                );
+                                mutated |=
+                                    self.clear(Scope::Global, &["model", "reasoning_effort"]);
                             }
                         }
                     } else {
@@ -647,10 +655,7 @@ fn normalize_skill_config_path(path: &Path) -> String {
 }
 
 /// Persist edits using a blocking strategy.
-pub fn apply_blocking(
-    savfox_home: &Path,
-    edits: &[ConfigEdit],
-) -> anyhow::Result<()> {
+pub fn apply_blocking(savfox_home: &Path, edits: &[ConfigEdit]) -> anyhow::Result<()> {
     if edits.is_empty() {
         return Ok(());
     }
@@ -665,10 +670,7 @@ pub fn apply_blocking(
     }
 }
 
-fn apply_blocking_json(
-    config_path: &Path,
-    edits: &[ConfigEdit],
-) -> anyhow::Result<()> {
+fn apply_blocking_json(config_path: &Path, edits: &[ConfigEdit]) -> anyhow::Result<()> {
     let write_paths = resolve_symlink_write_paths(config_path)?;
     let serialized = match write_paths.read_path {
         Some(path) => match std::fs::read_to_string(&path) {
@@ -707,16 +709,17 @@ fn apply_blocking_json(
     Ok(())
 }
 
-fn apply_edit_to_json(
-    json: &mut JsonValue,
-    edit: &ConfigEdit,
-) -> anyhow::Result<bool> {
+fn apply_edit_to_json(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::Result<bool> {
     apply_edit_to_json_value(json, edit)
 }
 
 fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::Result<bool> {
     match edit {
-        ConfigEdit::SetModel { slug, provider, effort } => {
+        ConfigEdit::SetModel {
+            slug,
+            provider,
+            effort,
+        } => {
             let slug = slug
                 .as_deref()
                 .map(str::trim)
@@ -743,7 +746,8 @@ fn apply_edit_to_json_value(json: &mut JsonValue, edit: &ConfigEdit) -> anyhow::
                             .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
 
                         if let JsonValue::Object(model_map) = model_obj {
-                            model_map.insert("slug".to_string(), JsonValue::String(slug_value.clone()));
+                            model_map
+                                .insert("slug".to_string(), JsonValue::String(slug_value.clone()));
                             model_map.insert(
                                 "provider".to_string(),
                                 JsonValue::String(provider_to_write.clone()),
@@ -878,10 +882,7 @@ fn toml_value_to_json(value: &TomlValue) -> JsonValue {
     }
 }
 
-fn apply_blocking_toml(
-    config_path: &Path,
-    edits: &[ConfigEdit],
-) -> anyhow::Result<()> {
+fn apply_blocking_toml(config_path: &Path, edits: &[ConfigEdit]) -> anyhow::Result<()> {
     let write_paths = resolve_symlink_write_paths(config_path)?;
     let serialized = match write_paths.read_path {
         Some(path) => match std::fs::read_to_string(&path) {
@@ -920,10 +921,7 @@ fn apply_blocking_toml(
 }
 
 /// Persist edits asynchronously by offloading the blocking writer.
-pub async fn apply(
-    savfox_home: &Path,
-    edits: Vec<ConfigEdit>,
-) -> anyhow::Result<()> {
+pub async fn apply(savfox_home: &Path, edits: Vec<ConfigEdit>) -> anyhow::Result<()> {
     let savfox_home = savfox_home.to_path_buf();
     task::spawn_blocking(move || apply_blocking(&savfox_home, &edits))
         .await
@@ -1053,11 +1051,9 @@ impl ConfigEditsBuilder {
 
     /// Apply edits asynchronously via a blocking offload.
     pub async fn apply(self) -> anyhow::Result<()> {
-        task::spawn_blocking(move || {
-            apply_blocking(&self.savfox_home, &self.edits)
-        })
-        .await
-        .context("config persistence task panicked")?
+        task::spawn_blocking(move || apply_blocking(&self.savfox_home, &self.edits))
+            .await
+            .context("config persistence task panicked")?
     }
 }
 
@@ -1647,8 +1643,7 @@ foo = { command = "cmd" }
             },
         );
 
-        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
-            .expect("persist");
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)]).expect("persist");
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
@@ -1692,8 +1687,7 @@ foo = { command = "cmd" } # keep me
             },
         );
 
-        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
-            .expect("persist");
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)]).expect("persist");
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
@@ -1736,8 +1730,7 @@ foo = { command = "cmd", args = ["--flag"] } # keep me
             },
         );
 
-        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
-            .expect("persist");
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)]).expect("persist");
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");
@@ -1781,8 +1774,7 @@ foo = { command = "cmd" }
             },
         );
 
-        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)])
-            .expect("persist");
+        apply_blocking(savfox_home, &[ConfigEdit::ReplaceMcpServers(servers)]).expect("persist");
 
         let contents =
             std::fs::read_to_string(savfox_home.join(CONFIG_TOML_FILE)).expect("read config");

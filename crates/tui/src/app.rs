@@ -1954,13 +1954,12 @@ impl App {
                         value: toml_edit_value(result.base_url.clone()),
                     });
                 }
-                let model_to_persist = if parse_provider_prefixed_model(normalized_model.as_str())
-                    .is_some()
-                {
-                    normalized_model.clone()
-                } else {
-                    format!("{provider_id}/{}", normalized_model.trim())
-                };
+                let model_to_persist =
+                    if parse_provider_prefixed_model(normalized_model.as_str()).is_some() {
+                        normalized_model.clone()
+                    } else {
+                        format!("{provider_id}/{}", normalized_model.trim())
+                    };
 
                 let persist_result = ConfigEditsBuilder::new(&self.config.savfox_home)
                     .with_edits(edits)
@@ -2156,8 +2155,7 @@ impl App {
                     let feature_key = Feature::WindowsSandbox.key();
                     let elevated_key = Feature::WindowsSandboxElevated.key();
                     let elevated_enabled = matches!(mode, WindowsSandboxEnableMode::Elevated);
-                    let mut builder =
-                        ConfigEditsBuilder::new(&self.config.savfox_home);
+                    let mut builder = ConfigEditsBuilder::new(&self.config.savfox_home);
                     if elevated_enabled {
                         builder = builder.set_feature_enabled(elevated_key, true);
                     } else {
@@ -2299,8 +2297,8 @@ impl App {
                             "failed to persist personality selection"
                         );
                         self.chat_screen.add_error_message(format!(
-                                "Failed to save default personality: {err}"
-                            ));
+                            "Failed to save default personality: {err}"
+                        ));
                     }
                 }
             }
