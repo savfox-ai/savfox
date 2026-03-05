@@ -14,11 +14,16 @@ use crate::exec::ExecToolCallOutput;
 use crate::token_data::{KnownPlan, PlanType};
 use crate::truncate::{TruncationPolicy, truncate_text};
 
+/// Result type alias for Savfox operations.
 pub type Result<T> = std::result::Result<T, SavfoxError>;
 
 /// Limit UI error messages to a reasonable size while keeping useful context.
 const ERROR_MESSAGE_UI_MAX_BYTES: usize = 2 * 1024; // 2 KiB
 
+/// Errors related to sandbox execution environments.
+///
+/// These errors occur when running commands in a restricted/sandboxed environment
+/// for security purposes.
 #[derive(Error, Debug)]
 pub enum SandboxErr {
     /// Error from sandbox execution
@@ -51,8 +56,38 @@ pub enum SandboxErr {
     LandlockRestrict,
 }
 
+/// Main error type for the Savfox core library.
+///
+/// This enum represents all possible errors that can occur when interacting with
+/// the Savfox system, including network errors, authentication failures, quota issues,
+/// and internal errors.
+///
+/// # Error Categories
+///
+/// - **Transient Errors**: Can be retried (e.g., `Stream`, `ConnectionFailed`)
+/// - **Permanent Errors**: Should not be retried (e.g., `InvalidRequest`, `QuotaExceeded`)
+/// - **User Errors**: Require user action (e.g., `UsageNotIncluded`, `ContextWindowExceeded`)
+///
+/// Use [`SavfoxError::is_retryable()`] to determine if an error can be safely retried.
+///
+/// # Related Types
+///
+/// - [`savfox_protocol::protocol::SavfoxErrorInfo`]: Client-facing error information (serializable)
+/// - [`crate::error::SandboxErr`]: Sandbox-specific errors
+///
+/// # Conversions
+///
+/// `SavfoxError` can be converted to `SavfoxErrorInfo` for client responses:
+/// ```ignore
+/// use savfox_core::error::SavfoxError;
+/// use savfox_protocol::protocol::SavfoxErrorInfo;
+///
+/// let error = SavfoxError::ContextWindowExceeded;
+/// let info: SavfoxErrorInfo = error.into();
+/// ```
 #[derive(Error, Debug)]
 pub enum SavfoxError {
+    /// Turn was aborted, typically due to cancellation or internal error.
     #[error("turn aborted. Something went wrong? Hit `/feedback` to report the issue.")]
     TurnAborted,
 

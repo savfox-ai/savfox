@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
+/// Unique identifier for a Savfox session.
+///
+/// Uses UUID v7 for time-ordered, globally unique identifiers.
+/// This ensures good database index performance and natural sorting by creation time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, TS, Hash)]
 #[ts(type = "string")]
 pub struct SessionId {
@@ -14,12 +18,29 @@ pub struct SessionId {
 }
 
 impl SessionId {
+    /// Creates a new SessionId using UUID v7 (time-ordered).
+    ///
+    /// # Example
+    /// ```rust
+    /// use savfox_protocol::SessionId;
+    /// let id = SessionId::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             uuid: Uuid::now_v7(),
         }
     }
 
+    /// Parses a SessionId from a string representation.
+    ///
+    /// # Errors
+    /// Returns an error if the string is not a valid UUID.
+    ///
+    /// # Example
+    /// ```rust
+    /// use savfox_protocol::SessionId;
+    /// let id = SessionId::from_string("018e0d46-5d1f-7d2e-8c3b-4a5b6c7d8e9f").unwrap();
+    /// ```
     pub fn from_string(s: &str) -> Result<Self, uuid::Error> {
         Ok(Self {
             uuid: Uuid::parse_str(s)?,

@@ -2,6 +2,33 @@
 //!
 //! Uses a SQ (Submission Queue) / EQ (Event Queue) pattern to asynchronously communicate
 //! between user and agent.
+//!
+//! # Protocol Overview
+//!
+//! The Savfox protocol follows a request-response pattern with event streaming:
+//!
+//! 1. **Submissions** (`Submission`): Client requests sent to the agent
+//! 2. **Events** (`EventMsg`): Agent responses and status updates streamed back to client
+//!
+//! # Key Types
+//!
+//! - [`Submission`]: Request envelope containing operations
+//! - [`Op`]: Operation types (UserInput, UserTurn, Interrupt, etc.)
+//! - [`EventMsg`]: Event messages from agent to client
+//! - [`SessionId`]: Unique session identifier
+//!
+//! # Example Flow
+//!
+//! ```text
+//! Client                          Agent
+//!   |                               |
+//!   |--- Submission(UserTurn) ----->|
+//!   |                               |--- Process turn
+//!   |<-- EventMsg(TurnStarted) -----|
+//!   |<-- EventMsg(AgentMessage) ----|
+//!   |<-- EventMsg(TurnComplete) ----|
+//!   |                               |
+//! ```
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -922,19 +949,42 @@ pub enum AgentStatus {
 }
 
 /// Savfox errors that we expose to clients.
+///
+/// These error types are designed to be serializable and user-friendly,
+/// suitable for transmission to client applications.
+///
+/// # Error Categories
+///
+/// - **Resource Limits**: `ContextWindowExceeded`, `UsageLimitExceeded`, `ModelCap`
+/// - **Network Issues**: `HttpConnectionFailed`, `ResponseStreamConnectionFailed`
+/// - **System Errors**: `InternalServerError`, `SandboxError`
+/// - **Client Errors**: `Unauthorized`, `BadRequest`
+///
+/// # Conversion from SavfoxError
+///
+/// Most [`crate::error::SavfoxError`] variants can be converted to `SavfoxErrorInfo`
+/// for client consumption.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename_all = "snake_case")]
 pub enum SavfoxErrorInfo {
+    /// Model's context window was exceeded
     ContextWindowExceeded,
+    
+    /// User's usage limit was exceeded
     UsageLimitExceeded,
+    
+    /// Model capacity limit reached
     ModelCap {
         model: String,
         reset_after_seconds: Option<u64>,
     },
+    
+    /// HTTP connection failed
     HttpConnectionFailed {
         http_status_code: Option<u16>,
     },
+    
     /// Failed to connect to the response SSE stream.
     ResponseStreamConnectionFailed {
         http_status_code: Option<u16>,

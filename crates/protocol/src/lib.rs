@@ -1,3 +1,28 @@
+//! Protocol types and definitions for the Savfox AI platform.
+//!
+//! This crate contains the core protocol definitions, data types, and models
+//! used across the Savfox ecosystem for communication between different components.
+//!
+//! # Modules
+//!
+//! - [`protocol`] - Core protocol definitions and types
+//! - [`openai_models`] - OpenAI API compatible models
+//! - [`models`] - Savfox-specific model definitions
+//! - [`session_id`] - Session identification types
+//! - [`approvals`] - Approval workflow types
+//! - [`config_types`] - Configuration type definitions
+//! - [`message_history`] - Message history types
+//! - [`items`] - Protocol item definitions
+//! - [`mcp`] - Model Context Protocol types
+//! - [`custom_prompts`] - Custom prompt types
+//! - [`dynamic_tools`] - Dynamic tool definitions
+//! - [`request_user_input`] - User input request types
+//! - [`user_input`] - User input types
+//! - [`account`] - Account-related types
+//! - [`num_format`] - Number formatting utilities
+//! - [`parse_command`] - Command parsing utilities
+//! - [`plan_tool`] - Planning tool types
+
 #![allow(missing_debug_implementations)]
 
 pub mod account;
