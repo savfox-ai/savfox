@@ -493,6 +493,35 @@ fn get_channel_types() -> Vec<ChannelTypeInfo> {
                 },
             ],
         },
+        ChannelTypeInfo {
+            id: "dingtalk".into(),
+            name: "DingTalk".into(),
+            icon: "DT".into(),
+            description: "Connect to DingTalk custom robot/webhook".into(),
+            config_fields: vec![
+                ConfigField {
+                    key: "webhook_url".into(),
+                    label: "Webhook URL".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "https://oapi.dingtalk.com/robot/send?access_token=...".into(),
+                    secret: false,
+                },
+                ConfigField {
+                    key: "access_token".into(),
+                    label: "Access Token".into(),
+                    field_type: FieldType::Password,
+                    placeholder: "DingTalk robot access token".into(),
+                    secret: true,
+                },
+                ConfigField {
+                    key: "secret".into(),
+                    label: "Sign Secret".into(),
+                    field_type: FieldType::Password,
+                    placeholder: "Optional DingTalk webhook sign secret".into(),
+                    secret: true,
+                },
+            ],
+        },
     ]
 }
 

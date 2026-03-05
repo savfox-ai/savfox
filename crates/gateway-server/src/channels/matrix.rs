@@ -5,19 +5,19 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Matrix chat bridge using the Client-Server API with appservice or webhook mode.
-pub(crate) struct MatrixBridge {
+pub(crate) struct MatrixChannel {
     homeserver_url: String,
     access_token: String,
     http_client: reqwest::Client,
 }
 
-impl MatrixBridge {
+impl MatrixChannel {
     #[must_use]
     pub(crate) fn new(
         homeserver_url: String,
@@ -32,6 +32,39 @@ impl MatrixBridge {
     }
 }
 
+#[allow(clippy::print_stdout)]
+fn debug_matrix_inbound_message(room_id: &str, sender: &str, text: &str) {
+    println!("[matrix][inbound] room={room_id} sender={sender} text={text}");
+}
+
+fn parse_invite_event(event: &Value) -> Option<(String, Option<String>)> {
+    if event.get("type").and_then(|t| t.as_str()) != Some("m.room.member") {
+        return None;
+    }
+
+    let membership = event
+        .get("content")
+        .and_then(|c| c.get("membership"))
+        .and_then(|m| m.as_str())?;
+    if !membership.eq_ignore_ascii_case("invite") {
+        return None;
+    }
+
+    let room_id = event.get("room_id").and_then(|r| r.as_str())?.trim();
+    if room_id.is_empty() {
+        return None;
+    }
+
+    let invited_user_id = event
+        .get("state_key")
+        .and_then(|s| s.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    Some((room_id.to_owned(), invited_user_id))
+}
+
 fn render_error(res: &mut Response, status: StatusCode, code: &str, message: impl Into<String>) {
     res.status_code(status);
     res.render(Json(json!({
@@ -43,8 +76,9 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for MatrixBridge {
+impl Channel for MatrixChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
+        println!("Matrix bridge starting with homeserver URL: {}", self.homeserver_url);
         info!(homeserver = %self.homeserver_url, "Matrix bridge starting");
         Ok(())
     }
@@ -151,11 +185,13 @@ impl ChatBridge for MatrixBridge {
                 .and_then(|r| r.as_str())
                 .unwrap_or("")
                 .to_owned();
-            let _sender = event
+            let sender = event
                 .get("sender")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_owned();
+
+            debug_matrix_inbound_message(&room_id, &sender, body);
 
             if let Some(prompt) = body.strip_prefix("!savfox ") {
                 let prompt = prompt.trim().to_owned();
@@ -190,8 +226,18 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
     let mut action = BridgeAction::Ignore;
     let mut dedupe_key: Option<String> = None;
+    let mut rooms_to_auto_join: Vec<(String, Option<String>)> = Vec::new();
     if let Some(events) = body.get("events").and_then(|e| e.as_array()) {
         for event in events {
+            if let Some((room_id, invited_user_id)) = parse_invite_event(event) {
+                if !rooms_to_auto_join
+                    .iter()
+                    .any(|(existing_room_id, _)| existing_room_id.eq_ignore_ascii_case(&room_id))
+                {
+                    rooms_to_auto_join.push((room_id, invited_user_id));
+                }
+            }
+
             if event.get("type").and_then(|t| t.as_str()) != Some("m.room.message") {
                 continue;
             }
@@ -200,14 +246,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 continue;
             }
             let text = content.get("body").and_then(|b| b.as_str()).unwrap_or("");
+            let room_id = event.get("room_id").and_then(|r| r.as_str()).unwrap_or("");
+            let sender = event.get("sender").and_then(|s| s.as_str()).unwrap_or("");
+            debug_matrix_inbound_message(room_id, sender, text);
             if let Some(prompt) = text.strip_prefix("!savfox ").map(str::trim)
                 && !prompt.is_empty()
             {
-                let room_id = event
-                    .get("room_id")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("")
-                    .to_owned();
+                let room_id = room_id.to_owned();
                 if room_id.is_empty() {
                     break;
                 }
@@ -220,6 +265,30 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     prompt: prompt.to_owned(),
                 };
                 break;
+            }
+        }
+    }
+
+    if !rooms_to_auto_join.is_empty() {
+        match depot.obtain::<Arc<GatewayBridge>>() {
+            Ok(bridge) => {
+                let bridge = bridge.clone();
+                for (room_id, invited_user_id) in rooms_to_auto_join {
+                    if let Err(err) = bridge
+                        .auto_join_matrix_invited_room(&room_id, invited_user_id.as_deref())
+                        .await
+                    {
+                        warn!(
+                            room_id,
+                            invited_user_id = invited_user_id.as_deref().unwrap_or(""),
+                            error = %err,
+                            "Matrix invite auto-join failed"
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                warn!("Matrix invite received but gateway bridge state is unavailable");
             }
         }
     }

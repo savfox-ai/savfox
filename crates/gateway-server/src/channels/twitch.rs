@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage};
+use super::{Channel, RichMessage};
 use crate::protocol::BridgeAction;
 
 /// Twitch chat bridge using IRC over WebSocket (TMI).
@@ -10,13 +10,13 @@ use crate::protocol::BridgeAction;
 /// Twitch uses a modified IRC protocol for chat. The bridge connects to
 /// `wss://irc-ws.chat.twitch.tv:443` using OAuth credentials and listens
 /// for PRIVMSG events in configured channels.
-pub(crate) struct TwitchBridge {
-    config: TwitchBridgeConfig,
+pub(crate) struct TwitchChannel {
+    config: TwitchChannelConfig,
     http_client: reqwest::Client,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TwitchBridgeConfig {
+pub(crate) struct TwitchChannelConfig {
     pub(crate) enabled: bool,
     /// Twitch bot username.
     pub(crate) bot_username: String,
@@ -28,9 +28,9 @@ pub(crate) struct TwitchBridgeConfig {
     pub(crate) command_prefix: String,
 }
 
-impl TwitchBridge {
+impl TwitchChannel {
     #[must_use]
-    pub(crate) fn new(config: TwitchBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: TwitchChannelConfig, http_client: reqwest::Client) -> Self {
         Self {
             config,
             http_client,
@@ -94,9 +94,9 @@ impl TwitchBridge {
     }
 }
 
-impl std::fmt::Debug for TwitchBridge {
+impl std::fmt::Debug for TwitchChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TwitchBridge")
+        f.debug_struct("TwitchChannel")
             .field("bot_username", &self.config.bot_username)
             .field("channels", &self.config.channels)
             .field("enabled", &self.config.enabled)
@@ -105,7 +105,7 @@ impl std::fmt::Debug for TwitchBridge {
 }
 
 #[async_trait]
-impl ChatBridge for TwitchBridge {
+impl Channel for TwitchChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         self.validate_token().await?;
         info!(

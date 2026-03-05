@@ -5,16 +5,16 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_discord_signature};
-use crate::config::{DiscordBridgeConfig, GatewayConfig};
+use crate::config::{DiscordChannelConfig, GatewayConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Discord bot bridge that handles slash commands and interactions via webhooks.
-pub(crate) struct DiscordBridge {
-    config: DiscordBridgeConfig,
+pub(crate) struct DiscordChannel {
+    config: DiscordChannelConfig,
     http_client: reqwest::Client,
     bot_token: String,
 }
@@ -98,9 +98,9 @@ fn build_registry_prompt(command_name: &str, data: &Value) -> Option<String> {
     Some(prompt)
 }
 
-impl DiscordBridge {
+impl DiscordChannel {
     #[must_use]
-    pub(crate) fn new(config: DiscordBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: DiscordChannelConfig, http_client: reqwest::Client) -> Self {
         let bot_token = config.bot_token.clone();
         Self {
             config,
@@ -228,7 +228,7 @@ fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
 }
 
 #[async_trait]
-impl ChatBridge for DiscordBridge {
+impl Channel for DiscordChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Discord bridge initialized (webhook mode)");
         // In webhook mode, no persistent connection is needed.
@@ -388,7 +388,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let action = match DiscordBridge::parse_interaction(&body) {
+    let action = match DiscordChannel::parse_interaction(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("Discord webhook: failed to parse interaction: {err}");
@@ -477,7 +477,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 mod tests {
     use serde_json::json;
 
-    use super::DiscordBridge;
+    use super::DiscordChannel;
     use crate::protocol::BridgeAction;
 
     #[test]
@@ -490,7 +490,7 @@ mod tests {
             }
         });
 
-        let action = DiscordBridge::parse_interaction(&payload).expect("parse should succeed");
+        let action = DiscordChannel::parse_interaction(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "123");
@@ -513,7 +513,7 @@ mod tests {
             }
         });
 
-        let action = DiscordBridge::parse_interaction(&payload).expect("parse should succeed");
+        let action = DiscordChannel::parse_interaction(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "123");

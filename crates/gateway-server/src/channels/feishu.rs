@@ -5,24 +5,92 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Feishu/Lark bot bridge using the Feishu Open Platform API.
-pub(crate) struct FeishuBridge {
-    app_access_token: String,
+pub(crate) struct FeishuChannel {
+    app_access_token: Option<String>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
     http_client: reqwest::Client,
 }
 
-impl FeishuBridge {
+impl FeishuChannel {
     #[must_use]
-    pub(crate) fn new(app_access_token: String, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(
+        app_access_token: Option<String>,
+        app_id: Option<String>,
+        app_secret: Option<String>,
+        http_client: reqwest::Client,
+    ) -> Self {
         Self {
             app_access_token,
+            app_id,
+            app_secret,
             http_client,
         }
+    }
+
+    async fn resolve_access_token(&self) -> anyhow::Result<Option<String>> {
+        if let Some(token) = self
+            .app_access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(Some(token.to_string()));
+        }
+
+        let app_id = self
+            .app_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let app_secret = self
+            .app_secret
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let (Some(app_id), Some(app_secret)) = (app_id, app_secret) else {
+            return Ok(None);
+        };
+
+        let response = self
+            .http_client
+            .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "app_id": app_id,
+                "app_secret": app_secret,
+            }))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.bytes().await.unwrap_or_default();
+            anyhow::bail!(
+                "Feishu tenant access token API error: HTTP {}: {}",
+                status,
+                String::from_utf8_lossy(&body)
+            );
+        }
+        let body: Value = response.json().await?;
+        let code = body.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if code != 0 {
+            anyhow::bail!(
+                "Feishu tenant access token API failed: {}",
+                body.get("msg")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error")
+            );
+        }
+        Ok(body
+            .get("tenant_access_token")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string))
     }
 }
 
@@ -37,13 +105,18 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for FeishuBridge {
+impl Channel for FeishuChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Feishu/Lark bridge starting");
         Ok(())
     }
 
     async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
+        let Some(access_token) = self.resolve_access_token().await? else {
+            anyhow::bail!(
+                "Feishu credentials missing: provide app_access_token or app_id/app_secret"
+            );
+        };
         let url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id";
         let body = json!({
             "receive_id": channel,
@@ -53,7 +126,7 @@ impl ChatBridge for FeishuBridge {
         let response = self
             .http_client
             .post(url)
-            .header("Authorization", format!("Bearer {}", self.app_access_token))
+            .header("Authorization", format!("Bearer {access_token}"))
             .header("Content-Type", "application/json")
             .body(body.to_string())
             .send()

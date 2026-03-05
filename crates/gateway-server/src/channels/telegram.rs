@@ -5,16 +5,16 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_telegram_webhook_secret};
-use crate::config::{GatewayConfig, TelegramBridgeConfig};
+use crate::config::{GatewayConfig, TelegramChannelConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Telegram bot bridge using the Bot API with webhook mode.
-pub(crate) struct TelegramBridge {
-    config: TelegramBridgeConfig,
+pub(crate) struct TelegramChannel {
+    config: TelegramChannelConfig,
     http_client: reqwest::Client,
     bot_token: String,
 }
@@ -56,9 +56,9 @@ fn normalize_registry_command(text: &str) -> Option<String> {
     Some(prompt)
 }
 
-impl TelegramBridge {
+impl TelegramChannel {
     #[must_use]
-    pub(crate) fn new(config: TelegramBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: TelegramChannelConfig, http_client: reqwest::Client) -> Self {
         let bot_token = config.bot_token.clone();
         Self {
             config,
@@ -204,7 +204,7 @@ fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
 }
 
 #[async_trait]
-impl ChatBridge for TelegramBridge {
+impl Channel for TelegramChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Telegram bridge initialized (webhook mode)");
         // Webhook URL registration should be done via Telegram Bot API `setWebhook`.
@@ -308,7 +308,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let action = match TelegramBridge::parse_update(&body) {
+    let action = match TelegramChannel::parse_update(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("Telegram webhook: failed to parse update: {err}");
@@ -393,7 +393,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 mod tests {
     use serde_json::json;
 
-    use super::TelegramBridge;
+    use super::TelegramChannel;
     use crate::protocol::BridgeAction;
 
     #[test]
@@ -405,7 +405,7 @@ mod tests {
             }
         });
 
-        let action = TelegramBridge::parse_update(&payload).expect("parse should succeed");
+        let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "42");
@@ -424,7 +424,7 @@ mod tests {
             }
         });
 
-        let action = TelegramBridge::parse_update(&payload).expect("parse should succeed");
+        let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "42");

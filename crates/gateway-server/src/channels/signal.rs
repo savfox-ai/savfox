@@ -5,21 +5,21 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::SignalBridgeConfig;
+use crate::config::SignalChannelConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Signal bridge using signal-cli JSON-RPC interface.
-pub(crate) struct SignalBridge {
-    config: SignalBridgeConfig,
+pub(crate) struct SignalChannel {
+    config: SignalChannelConfig,
     http_client: reqwest::Client,
 }
 
-impl SignalBridge {
+impl SignalChannel {
     #[must_use]
-    pub(crate) fn new(config: SignalBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: SignalChannelConfig, http_client: reqwest::Client) -> Self {
         Self {
             config,
             http_client,
@@ -53,7 +53,7 @@ impl SignalBridge {
 }
 
 #[async_trait]
-impl ChatBridge for SignalBridge {
+impl Channel for SignalChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Signal bridge initialized (JSON-RPC mode)");
         Ok(())
@@ -138,7 +138,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let action = match SignalBridge::parse_message(&body) {
+    let action = match SignalChannel::parse_message(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("Signal webhook: failed to parse message: {err}");

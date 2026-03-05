@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage};
+use super::{Channel, RichMessage};
 use crate::protocol::BridgeAction;
 
 /// Nostr decentralized protocol bridge.
@@ -10,13 +10,13 @@ use crate::protocol::BridgeAction;
 /// Uses the NIP-04 encrypted direct messages and NIP-01 events.
 /// The bridge connects to one or more relays and listens for mentions/DMs
 /// directed at the bot's npub.
-pub(crate) struct NostrBridge {
-    config: NostrBridgeConfig,
+pub(crate) struct NostrChannel {
+    config: NostrChannelConfig,
     http_client: reqwest::Client,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct NostrBridgeConfig {
+pub(crate) struct NostrChannelConfig {
     pub(crate) enabled: bool,
     /// Bot's nsec (private key) in hex or bech32.
     pub(crate) private_key: String,
@@ -28,9 +28,9 @@ pub(crate) struct NostrBridgeConfig {
     pub(crate) respond_to_dms: bool,
 }
 
-impl NostrBridge {
+impl NostrChannel {
     #[must_use]
-    pub(crate) fn new(config: NostrBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: NostrChannelConfig, http_client: reqwest::Client) -> Self {
         Self {
             config,
             http_client,
@@ -78,9 +78,9 @@ impl NostrBridge {
     }
 }
 
-impl std::fmt::Debug for NostrBridge {
+impl std::fmt::Debug for NostrChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NostrBridge")
+        f.debug_struct("NostrChannel")
             .field("relays", &self.config.relays)
             .field("enabled", &self.config.enabled)
             .finish()
@@ -88,7 +88,7 @@ impl std::fmt::Debug for NostrBridge {
 }
 
 #[async_trait]
-impl ChatBridge for NostrBridge {
+impl Channel for NostrChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             relays = ?self.config.relays,

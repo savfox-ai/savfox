@@ -1,4 +1,5 @@
 pub(crate) mod discord;
+pub(crate) mod dingtalk;
 pub(crate) mod feishu;
 pub(crate) mod googlechat;
 pub(crate) mod imessage;
@@ -29,7 +30,7 @@ use crate::protocol::BridgeAction;
 /// Each bridge connects to an external chat platform (Discord, Telegram, Slack, etc.)
 /// and translates between the platform's message format and Savfox gateway operations.
 #[async_trait]
-pub(crate) trait ChatBridge: Send + Sync {
+pub(crate) trait Channel: Send + Sync {
     /// Initialize the bridge (connect to platform API, register commands, etc.).
     async fn start(&mut self) -> anyhow::Result<()>;
 
@@ -60,4 +61,32 @@ pub(crate) struct RichMessage {
 pub(crate) struct CodeBlock {
     pub(crate) language: String,
     pub(crate) content: String,
+}
+
+pub(crate) const CHANNEL_NAMES: &[&str] = &[
+    "discord",
+    "dingtalk",
+    "feishu",
+    "googlechat",
+    "imessage",
+    "irc",
+    "line",
+    "matrix",
+    "mattermost",
+    "msteams",
+    "nextcloud",
+    "nostr",
+    "signal",
+    "slack",
+    "telegram",
+    "tlon",
+    "twitch",
+    "webhook",
+    "whatsapp",
+    "zalo",
+];
+
+#[allow(clippy::print_stdout)]
+pub(crate) fn debug_print_channel_list() {
+    println!("[gateway][debug] Channel list: {}", CHANNEL_NAMES.join(", "));
 }

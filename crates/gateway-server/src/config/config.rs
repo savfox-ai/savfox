@@ -69,6 +69,9 @@ pub struct BridgesConfig {
     pub discord: Option<DiscordBridgeConfig>,
 
     #[serde(default)]
+    pub dingtalk: Option<DingtalkBridgeConfig>,
+
+    #[serde(default)]
     pub telegram: Option<TelegramBridgeConfig>,
 
     #[serde(default)]
@@ -175,6 +178,24 @@ pub struct DiscordBridgeConfig {
     pub application_public_key: Option<String>,
 }
 
+pub type DiscordChannelConfig = DiscordBridgeConfig;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DingtalkBridgeConfig {
+    pub enabled: bool,
+    /// DingTalk custom robot webhook URL.
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+    /// DingTalk custom robot access token (used when webhook_url is not provided).
+    #[serde(default)]
+    pub access_token: Option<String>,
+    /// DingTalk custom robot signing secret.
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+pub type DingtalkChannelConfig = DingtalkBridgeConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramBridgeConfig {
     pub enabled: bool,
@@ -183,12 +204,16 @@ pub struct TelegramBridgeConfig {
     pub webhook_secret_token: Option<String>,
 }
 
+pub type TelegramChannelConfig = TelegramBridgeConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlackBridgeConfig {
     pub enabled: bool,
     pub bot_token: String,
     pub signing_secret: String,
 }
+
+pub type SlackChannelConfig = SlackBridgeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MsTeamsBridgeConfig {
@@ -201,6 +226,8 @@ pub struct MsTeamsBridgeConfig {
     #[serde(default)]
     pub tenant_id: Option<String>,
 }
+
+pub type MsTeamsChannelConfig = MsTeamsBridgeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookBridgeConfig {
@@ -228,6 +255,8 @@ pub struct WhatsAppBridgeConfig {
     pub app_secret: Option<String>,
 }
 
+pub type WhatsAppChannelConfig = WhatsAppBridgeConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalBridgeConfig {
     pub enabled: bool,
@@ -238,6 +267,8 @@ pub struct SignalBridgeConfig {
     #[serde(default)]
     pub rpc_url: Option<String>,
 }
+
+pub type SignalChannelConfig = SignalBridgeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IMessageBridgeConfig {
@@ -250,6 +281,8 @@ pub struct IMessageBridgeConfig {
     #[serde(default)]
     pub poll_interval_secs: Option<u64>,
 }
+
+pub type IMessageChannelConfig = IMessageBridgeConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZaloBridgeConfig {
@@ -264,6 +297,8 @@ pub struct ZaloBridgeConfig {
     #[serde(default)]
     pub webhook_verify_token: Option<String>,
 }
+
+pub type ZaloChannelConfig = ZaloBridgeConfig;
 
 /// CLI arguments for `savfox gateway`.
 #[derive(Debug, Parser)]

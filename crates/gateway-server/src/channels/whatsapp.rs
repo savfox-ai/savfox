@@ -7,9 +7,9 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::{GatewayConfig, WhatsAppBridgeConfig};
+use crate::config::{GatewayConfig, WhatsAppChannelConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
@@ -27,16 +27,16 @@ fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> 
 }
 
 /// WhatsApp Business API bridge using Cloud API with webhook mode.
-pub(crate) struct WhatsAppBridge {
-    config: WhatsAppBridgeConfig,
+pub(crate) struct WhatsAppChannel {
+    config: WhatsAppChannelConfig,
     http_client: reqwest::Client,
     phone_number_id: String,
     access_token: String,
 }
 
-impl WhatsAppBridge {
+impl WhatsAppChannel {
     #[must_use]
-    pub(crate) fn new(config: WhatsAppBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: WhatsAppChannelConfig, http_client: reqwest::Client) -> Self {
         let phone_number_id = config.phone_number_id.clone();
         let access_token = config.access_token.clone();
         Self {
@@ -92,7 +92,7 @@ impl WhatsAppBridge {
 }
 
 #[async_trait]
-impl ChatBridge for WhatsAppBridge {
+impl Channel for WhatsAppChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("WhatsApp bridge initialized (webhook mode)");
         Ok(())
@@ -269,7 +269,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let action = match WhatsAppBridge::parse_webhook_payload(&body) {
+    let action = match WhatsAppChannel::parse_webhook_payload(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("WhatsApp webhook: failed to parse payload: {err}");

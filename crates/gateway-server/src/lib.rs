@@ -197,6 +197,8 @@ pub async fn run_main(
         });
     }
 
+    bridges::debug_print_channel_list();
+
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {
         "wss"

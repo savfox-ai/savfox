@@ -5,9 +5,9 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::ZaloBridgeConfig;
+use crate::config::ZaloChannelConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
@@ -18,24 +18,24 @@ const ZALO_OA_API_BASE: &str = "https://openapi.zalo.me/v3.0/oa";
 ///
 /// Receives incoming messages via webhook events from the Zalo OA platform and
 /// sends replies using the Zalo OA Customer Service Message API.
-pub(crate) struct ZaloBridge {
-    config: ZaloBridgeConfig,
+pub(crate) struct ZaloChannel {
+    config: ZaloChannelConfig,
     bridge: Arc<GatewayBridge>,
     http: reqwest::Client,
 }
 
-impl std::fmt::Debug for ZaloBridge {
+impl std::fmt::Debug for ZaloChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ZaloBridge")
+        f.debug_struct("ZaloChannel")
             .field("config", &self.config)
             .finish_non_exhaustive()
     }
 }
 
-impl ZaloBridge {
+impl ZaloChannel {
     #[must_use]
     pub(crate) fn new(
-        config: ZaloBridgeConfig,
+        config: ZaloChannelConfig,
         bridge: Arc<GatewayBridge>,
         http: reqwest::Client,
     ) -> Self {
@@ -119,7 +119,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for ZaloBridge {
+impl Channel for ZaloChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Zalo OA bridge initialized (webhook mode)");
         Ok(())
@@ -255,7 +255,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 }
             };
 
-            if !ZaloBridge::verify_signature(&cfg.app_secret, &body_bytes, &signature) {
+            if !ZaloChannel::verify_signature(&cfg.app_secret, &body_bytes, &signature) {
                 render_error(
                     res,
                     StatusCode::UNAUTHORIZED,
@@ -281,7 +281,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let action = match ZaloBridge::parse_event(&body) {
+    let action = match ZaloChannel::parse_event(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("Zalo webhook: failed to parse event: {err}");

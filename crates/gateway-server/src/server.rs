@@ -256,6 +256,7 @@ pub(crate) fn build_router(
     // Webhook endpoints for chat platform bridges.
     let webhook_router = Router::with_path("webhooks")
         .push(Router::with_path("discord").post(bridges::discord::webhook_handler))
+        .push(Router::with_path("dingtalk").post(bridges::dingtalk::webhook_handler))
         .push(Router::with_path("telegram").post(bridges::telegram::webhook_handler))
         .push(Router::with_path("slack").post(bridges::slack::webhook_handler))
         .push(Router::with_path("matrix").post(bridges::matrix::webhook_handler))
@@ -565,6 +566,7 @@ async fn channels_handler(depot: &mut Depot, res: &mut Response) {
                 "id": "discord",
                 "status": if runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok() { "configured" } else { "missing_credentials" }
             },
+            { "id": "dingtalk", "status": "available" },
             {
                 "id": "telegram",
                 "status": if runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok() { "configured" } else { "missing_credentials" }

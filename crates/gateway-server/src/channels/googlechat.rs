@@ -5,18 +5,18 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Google Chat bridge using webhook and Spaces API.
-pub(crate) struct GoogleChatBridge {
+pub(crate) struct GoogleChatChannel {
     webhook_url: Option<String>,
     http_client: reqwest::Client,
 }
 
-impl GoogleChatBridge {
+impl GoogleChatChannel {
     #[must_use]
     pub(crate) fn new(webhook_url: Option<String>, http_client: reqwest::Client) -> Self {
         Self {
@@ -37,7 +37,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for GoogleChatBridge {
+impl Channel for GoogleChatChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Google Chat bridge starting");
         Ok(())

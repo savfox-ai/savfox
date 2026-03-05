@@ -5,19 +5,19 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Mattermost chat bridge using the Mattermost REST API v4.
-pub(crate) struct MattermostBridge {
+pub(crate) struct MattermostChannel {
     server_url: String,
     access_token: String,
     http_client: reqwest::Client,
 }
 
-impl MattermostBridge {
+impl MattermostChannel {
     #[must_use]
     pub(crate) fn new(
         server_url: String,
@@ -43,7 +43,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for MattermostBridge {
+impl Channel for MattermostChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(server = %self.server_url, "Mattermost bridge starting");
         Ok(())

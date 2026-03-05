@@ -142,6 +142,96 @@ impl MatrixOutboundConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FeishuOutboundConfig {
+    app_access_token: Option<String>,
+    app_id: Option<String>,
+    app_secret: Option<String>,
+    receive_id_type: String,
+}
+
+impl FeishuOutboundConfig {
+    fn from_channel_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> Option<Self> {
+        if !config.enabled
+            || (!config.kind.eq_ignore_ascii_case("feishu")
+                && !config.kind.eq_ignore_ascii_case("lark"))
+        {
+            return None;
+        }
+
+        let raw = config.config.as_object()?;
+        let app_access_token = first_non_empty_config_string(
+            raw,
+            &[
+                "appAccessToken",
+                "app_access_token",
+                "tenant_access_token",
+                "access_token",
+                "token",
+            ],
+        );
+        let app_id = first_non_empty_config_string(raw, &["appId", "app_id"]);
+        let app_secret = first_non_empty_config_string(raw, &["appSecret", "app_secret"]);
+        if app_access_token.is_none() && (app_id.is_none() || app_secret.is_none()) {
+            return None;
+        }
+
+        let receive_id_type = first_non_empty_config_string(
+            raw,
+            &["receiveIdType", "receive_id_type", "id_type"],
+        )
+        .unwrap_or_else(|| "chat_id".to_string());
+
+        Some(Self {
+            app_access_token,
+            app_id,
+            app_secret,
+            receive_id_type,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DingtalkOutboundConfig {
+    webhook_url: Option<String>,
+    access_token: Option<String>,
+    secret: Option<String>,
+}
+
+impl DingtalkOutboundConfig {
+    fn from_channel_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> Option<Self> {
+        if !config.enabled || !config.kind.eq_ignore_ascii_case("dingtalk") {
+            return None;
+        }
+
+        let raw = config.config.as_object()?;
+        let webhook_url = first_non_empty_config_string(
+            raw,
+            &["webhook", "webhook_url", "robot_webhook", "webhookUrl"],
+        );
+        let access_token = first_non_empty_config_string(
+            raw,
+            &["access_token", "accessToken", "token", "robot_token"],
+        );
+        let secret =
+            first_non_empty_config_string(raw, &["secret", "sign_secret", "webhook_secret"]);
+
+        if webhook_url.is_none() && access_token.is_none() {
+            return None;
+        }
+
+        Some(Self {
+            webhook_url,
+            access_token,
+            secret,
+        })
+    }
+}
+
 fn first_non_empty_config_string(
     map: &serde_json::Map<String, Value>,
     keys: &[&str],
@@ -1615,6 +1705,95 @@ impl GatewayBridge {
         Ok(fallback)
     }
 
+    async fn resolve_feishu_outbound_config(&self) -> anyhow::Result<Option<FeishuOutboundConfig>> {
+        let all_configs =
+            savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
+                .await
+                .context("failed to load channel configs")?;
+        let feishu_configs: Vec<FeishuOutboundConfig> = all_configs
+            .iter()
+            .filter_map(FeishuOutboundConfig::from_channel_config)
+            .collect();
+        if feishu_configs.is_empty() {
+            return Ok(None);
+        }
+        if let Some(config) = feishu_configs
+            .iter()
+            .find(|cfg| cfg.app_access_token.as_deref().is_some_and(|token| !token.is_empty()))
+        {
+            return Ok(Some(config.clone()));
+        }
+        if let Some(config) = feishu_configs.iter().find(|cfg| {
+            cfg.app_id.as_deref().is_some_and(|value| !value.is_empty())
+                && cfg
+                    .app_secret
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty())
+        }) {
+            return Ok(Some(config.clone()));
+        }
+        Ok(feishu_configs.first().cloned())
+    }
+
+    async fn resolve_dingtalk_outbound_config(
+        &self,
+    ) -> anyhow::Result<Option<DingtalkOutboundConfig>> {
+        let all_configs =
+            savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
+                .await
+                .context("failed to load channel configs")?;
+        Ok(all_configs
+            .iter()
+            .filter_map(DingtalkOutboundConfig::from_channel_config)
+            .next())
+    }
+
+    async fn fetch_feishu_tenant_access_token(
+        &self,
+        app_id: &str,
+        app_secret: &str,
+    ) -> anyhow::Result<String> {
+        let response = self
+            .http_client
+            .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "app_id": app_id,
+                "app_secret": app_secret,
+            }))
+            .send()
+            .await
+            .context("failed to call Feishu tenant_access_token API")?;
+
+        let status = response.status();
+        let body = response.bytes().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!(
+                "Feishu tenant access token API error: HTTP {}: {}",
+                status,
+                String::from_utf8_lossy(&body)
+            );
+        }
+
+        let parsed: Value = serde_json::from_slice(&body)
+            .context("failed to parse Feishu tenant access token response")?;
+        let code = parsed.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if code != 0 {
+            let msg = parsed
+                .get("msg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown error");
+            anyhow::bail!("Feishu tenant access token API returned code {code}: {msg}");
+        }
+        let token = parsed
+            .get("tenant_access_token")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("Feishu tenant access token response missing token"))?;
+        Ok(token.to_string())
+    }
+
     /// Send a message via Matrix using matrix-bot-sdk.
     pub(crate) async fn send_matrix_message(
         &self,
@@ -1636,6 +1815,63 @@ impl GatewayBridge {
             .send_text(room_id, text)
             .await
             .with_context(|| format!("failed to send Matrix message to room {room_id}"))?;
+        Ok(())
+    }
+
+    /// Join a Matrix room when this gateway user receives an invite event.
+    pub(crate) async fn auto_join_matrix_invited_room(
+        &self,
+        room_id: &str,
+        invited_user_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let room_id = room_id.trim();
+        if room_id.is_empty() {
+            return Ok(());
+        }
+
+        let Some(config) = self.resolve_matrix_outbound_config(room_id).await? else {
+            warn!(
+                room_id,
+                "Matrix invite received but no Matrix channel config is available"
+            );
+            return Ok(());
+        };
+
+        let configured_user_id = config
+            .user_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        if let (Some(invited), Some(configured)) = (
+            invited_user_id.map(str::trim).filter(|v| !v.is_empty()),
+            configured_user_id,
+        ) && !invited.eq_ignore_ascii_case(configured)
+        {
+            return Ok(());
+        }
+
+        let homeserver_url = Url::parse(&config.homeserver).with_context(|| {
+            format!(
+                "invalid Matrix homeserver URL for config {}: {}",
+                config.id, config.homeserver
+            )
+        })?;
+        let auth = if let Some(uid) = configured_user_id {
+            MatrixAuth::new(config.access_token.clone()).with_user_id(uid.to_string())
+        } else {
+            MatrixAuth::new(config.access_token.clone())
+        };
+        let client = MatrixClient::new(homeserver_url, auth);
+        let joined_room_id = client
+            .join_room(room_id)
+            .await
+            .with_context(|| format!("failed to auto-join Matrix room {room_id}"))?;
+        info!(
+            room_id,
+            joined_room_id,
+            config_id = %config.id,
+            "Auto-joined Matrix room after invite"
+        );
         Ok(())
     }
 
@@ -1815,7 +2051,7 @@ impl GatewayBridge {
     /// Send a message via the Feishu/Lark Bot API.
     pub(crate) async fn send_feishu_message(
         &self,
-        app_access_token: &str,
+        tenant_access_token: &str,
         receive_id: &str,
         receive_id_type: &str,
         text: &str,
@@ -1832,7 +2068,7 @@ impl GatewayBridge {
         let response = self
             .http_client
             .post(&url)
-            .header("Authorization", format!("Bearer {app_access_token}"))
+            .header("Authorization", format!("Bearer {tenant_access_token}"))
             .header("Content-Type", "application/json")
             .body(body.to_string())
             .send()
@@ -1843,6 +2079,71 @@ impl GatewayBridge {
             let body = response.bytes().await.unwrap_or_default();
             warn!(
                 "Feishu API error: HTTP {status}: {}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        Ok(())
+    }
+
+    /// Send a message via DingTalk custom robot webhook.
+    ///
+    /// `webhook_or_token` accepts either a full webhook URL or an access token.
+    pub(crate) async fn send_dingtalk_message(
+        &self,
+        webhook_or_token: &str,
+        secret: Option<&str>,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let webhook_or_token = webhook_or_token.trim();
+        if webhook_or_token.is_empty() {
+            anyhow::bail!("dingtalk webhook target is empty");
+        }
+
+        let mut webhook_url = if webhook_or_token.starts_with("https://")
+            || webhook_or_token.starts_with("http://")
+        {
+            webhook_or_token.to_string()
+        } else {
+            format!("https://oapi.dingtalk.com/robot/send?access_token={webhook_or_token}")
+        };
+
+        if let Some(secret) = secret.map(str::trim).filter(|v| !v.is_empty()) {
+            use base64::Engine;
+            use hmac::{Hmac, Mac};
+            use sha2::Sha256;
+
+            let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+            let sign_content = format!("{timestamp}\n{secret}");
+            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
+            mac.update(sign_content.as_bytes());
+            let sign =
+                base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+            let sign_encoded: String =
+                url::form_urlencoded::byte_serialize(sign.as_bytes()).collect();
+            let separator = if webhook_url.contains('?') { '&' } else { '?' };
+            webhook_url =
+                format!("{webhook_url}{separator}timestamp={timestamp}&sign={sign_encoded}");
+        }
+
+        let body = serde_json::json!({
+            "msgtype": "text",
+            "text": {
+                "content": text,
+            }
+        });
+        let response = self
+            .http_client
+            .post(&webhook_url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.bytes().await.unwrap_or_default();
+            warn!(
+                "Dingtalk API error: HTTP {status}: {}",
                 String::from_utf8_lossy(&body)
             );
         }
@@ -2045,11 +2346,86 @@ impl GatewayBridge {
                 }
             }
             "feishu" | "lark" => {
-                if let Ok(token) = std::env::var("FEISHU_APP_ACCESS_TOKEN") {
-                    self.send_feishu_message(&token, channel_id, "chat_id", text)
+                let config = self.resolve_feishu_outbound_config().await?;
+                let receive_id_type = config
+                    .as_ref()
+                    .map(|cfg| cfg.receive_id_type.as_str())
+                    .unwrap_or("chat_id");
+                let token = if let Some(token) = config
+                    .as_ref()
+                    .and_then(|cfg| cfg.app_access_token.as_deref())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    Some(token.to_string())
+                } else if let (Some(app_id), Some(app_secret)) = (
+                    config
+                        .as_ref()
+                        .and_then(|cfg| cfg.app_id.as_deref())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()),
+                    config
+                        .as_ref()
+                        .and_then(|cfg| cfg.app_secret.as_deref())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()),
+                ) {
+                    match self
+                        .fetch_feishu_tenant_access_token(app_id, app_secret)
+                        .await
+                    {
+                        Ok(token) => Some(token),
+                        Err(err) => {
+                            warn!("failed to fetch Feishu tenant token from channel config: {err}");
+                            None
+                        }
+                    }
+                } else {
+                    std::env::var("FEISHU_TENANT_ACCESS_TOKEN")
+                        .ok()
+                        .or_else(|| std::env::var("FEISHU_APP_ACCESS_TOKEN").ok())
+                };
+
+                if let Some(token) = token {
+                    self.send_feishu_message(&token, channel_id, receive_id_type, text)
                         .await?;
                 } else {
-                    warn!("Feishu app access token not configured");
+                    warn!(
+                        "Feishu credentials are not configured (need tenant token or app_id/app_secret)"
+                    );
+                }
+            }
+            "dingtalk" => {
+                if channel_id.starts_with("https://") || channel_id.starts_with("http://") {
+                    self.send_dingtalk_message(
+                        channel_id,
+                        std::env::var("DINGTALK_SECRET").ok().as_deref(),
+                        text,
+                    )
+                    .await?;
+                } else {
+                    let config = self.resolve_dingtalk_outbound_config().await?;
+                    let target = config
+                        .as_ref()
+                        .and_then(|cfg| cfg.webhook_url.clone().or_else(|| cfg.access_token.clone()))
+                        .or_else(|| {
+                            std::env::var("DINGTALK_WEBHOOK_URL")
+                                .ok()
+                                .or_else(|| std::env::var("DINGTALK_ACCESS_TOKEN").ok())
+                        });
+                    let secret = config
+                        .as_ref()
+                        .and_then(|cfg| cfg.secret.clone())
+                        .or_else(|| std::env::var("DINGTALK_SECRET").ok());
+
+                    if let Some(target) = target {
+                        self.send_dingtalk_message(&target, secret.as_deref(), text)
+                            .await?;
+                    } else {
+                        warn!(
+                            "Dingtalk credentials are not configured (need webhook URL or access token)"
+                        );
+                    }
                 }
             }
             "irc" => {

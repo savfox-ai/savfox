@@ -5,18 +5,18 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// LINE Messaging API bridge.
-pub(crate) struct LineBridge {
+pub(crate) struct LineChannel {
     channel_token: String,
     http_client: reqwest::Client,
 }
 
-impl LineBridge {
+impl LineChannel {
     #[must_use]
     pub(crate) fn new(channel_token: String, http_client: reqwest::Client) -> Self {
         Self {
@@ -37,7 +37,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for LineBridge {
+impl Channel for LineChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("LINE bridge starting");
         Ok(())

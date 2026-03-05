@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage};
+use super::{Channel, RichMessage};
 use crate::protocol::BridgeAction;
 
 /// Tlon bridge for the Urbit ecosystem.
@@ -12,15 +12,15 @@ use crate::protocol::BridgeAction;
 /// Connects to a running Urbit ship via the Eyre HTTP API
 /// to send and receive messages in Tlon (formerly Landscape) channels.
 #[derive(Debug)]
-pub(crate) struct TlonBridge {
-    config: TlonBridgeConfig,
+pub(crate) struct TlonChannel {
+    config: TlonChannelConfig,
     http: reqwest::Client,
     /// Authentication cookie from Urbit.
     auth_cookie: tokio::sync::RwLock<Option<String>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TlonBridgeConfig {
+pub(crate) struct TlonChannelConfig {
     /// Urbit ship URL (e.g., "http://localhost:8080").
     pub(crate) ship_url: String,
     /// Access code for the ship (from +code in dojo).
@@ -31,8 +31,8 @@ pub(crate) struct TlonBridgeConfig {
     pub(crate) ship_name: String,
 }
 
-impl TlonBridge {
-    pub(crate) fn new(config: TlonBridgeConfig) -> Self {
+impl TlonChannel {
+    pub(crate) fn new(config: TlonChannelConfig) -> Self {
         Self {
             http: reqwest::Client::new(),
             config,
@@ -143,18 +143,18 @@ fn uuid() -> String {
     format!("{ts:x}")
 }
 
-impl std::fmt::Display for TlonBridge {
+impl std::fmt::Display for TlonChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "TlonBridge({} @ {})",
+            "TlonChannel({} @ {})",
             self.config.ship_name, self.config.ship_url
         )
     }
 }
 
 #[async_trait]
-impl ChatBridge for TlonBridge {
+impl Channel for TlonChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             "Tlon bridge starting for ship {} at {}",

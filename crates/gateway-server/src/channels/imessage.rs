@@ -7,9 +7,9 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{debug, error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::IMessageBridgeConfig;
+use crate::config::IMessageChannelConfig;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
@@ -21,8 +21,8 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 /// BlueBubbles (<https://bluebubbles.app>) exposes a local REST API on macOS that
 /// provides access to iMessage. This bridge polls for new messages and sends
 /// replies through that API.
-pub(crate) struct IMessageBridge {
-    config: IMessageBridgeConfig,
+pub(crate) struct IMessageChannel {
+    config: IMessageChannelConfig,
     http_client: reqwest::Client,
     bridge: Arc<GatewayBridge>,
     session_store: Arc<SessionStore>,
@@ -32,9 +32,9 @@ pub(crate) struct IMessageBridge {
     running: Arc<AtomicBool>,
 }
 
-impl fmt::Debug for IMessageBridge {
+impl fmt::Debug for IMessageChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IMessageBridge")
+        f.debug_struct("IMessageChannel")
             .field("config", &self.config)
             .field("last_message_ts", &self.last_message_ts)
             .field("running", &self.running)
@@ -42,10 +42,10 @@ impl fmt::Debug for IMessageBridge {
     }
 }
 
-impl IMessageBridge {
+impl IMessageChannel {
     #[must_use]
     pub(crate) fn new(
-        config: IMessageBridgeConfig,
+        config: IMessageChannelConfig,
         http_client: reqwest::Client,
         bridge: Arc<GatewayBridge>,
         session_store: Arc<SessionStore>,
@@ -255,7 +255,7 @@ impl IMessageBridge {
 }
 
 #[async_trait]
-impl ChatBridge for IMessageBridge {
+impl Channel for IMessageChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             api_url = %self.config.api_url,
@@ -378,7 +378,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
     let data = body.get("data").unwrap_or(&Value::Null);
 
-    let action = match IMessageBridge::parse_message(data) {
+    let action = match IMessageChannel::parse_message(data) {
         Ok(action) => action,
         Err(err) => {
             warn!("iMessage webhook: failed to parse message: {err}");

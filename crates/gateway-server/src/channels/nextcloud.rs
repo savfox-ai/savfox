@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage};
+use super::{Channel, RichMessage};
 use crate::protocol::BridgeAction;
 
 /// NextCloud Talk bridge.
@@ -12,14 +12,14 @@ use crate::protocol::BridgeAction;
 /// Connects to a NextCloud instance via the Talk API (OCS).
 /// Uses polling to check for new messages.
 #[derive(Debug)]
-pub(crate) struct NextCloudBridge {
-    config: NextCloudBridgeConfig,
+pub(crate) struct NextCloudChannel {
+    config: NextCloudChannelConfig,
     http: reqwest::Client,
     last_known_message_id: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct NextCloudBridgeConfig {
+pub(crate) struct NextCloudChannelConfig {
     /// NextCloud server URL (e.g., "https://cloud.example.com").
     pub(crate) server_url: String,
     /// Username for authentication.
@@ -32,8 +32,8 @@ pub(crate) struct NextCloudBridgeConfig {
     pub(crate) poll_interval_secs: u64,
 }
 
-impl NextCloudBridge {
-    pub(crate) fn new(config: NextCloudBridgeConfig) -> Self {
+impl NextCloudChannel {
+    pub(crate) fn new(config: NextCloudChannelConfig) -> Self {
         Self {
             http: reqwest::Client::new(),
             config,
@@ -133,14 +133,14 @@ impl NextCloudBridge {
     }
 }
 
-impl std::fmt::Display for NextCloudBridge {
+impl std::fmt::Display for NextCloudChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NextCloudBridge({})", self.config.server_url)
+        write!(f, "NextCloudChannel({})", self.config.server_url)
     }
 }
 
 #[async_trait]
-impl ChatBridge for NextCloudBridge {
+impl Channel for NextCloudChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             "NextCloud Talk bridge starting for {} ({} rooms)",
@@ -218,7 +218,7 @@ mod tests {
             "messageType": "comment",
         });
 
-        let action = NextCloudBridge::parse_message(&msg);
+        let action = NextCloudChannel::parse_message(&msg);
         assert!(action.is_some());
         match action.unwrap() {
             BridgeAction::StartThread { channel, prompt } => {
@@ -239,7 +239,7 @@ mod tests {
             "messageType": "system",
         });
 
-        assert!(NextCloudBridge::parse_message(&msg).is_none());
+        assert!(NextCloudChannel::parse_message(&msg).is_none());
     }
 
     #[test]
@@ -252,6 +252,6 @@ mod tests {
             "messageType": "comment",
         });
 
-        assert!(NextCloudBridge::parse_message(&msg).is_none());
+        assert!(NextCloudChannel::parse_message(&msg).is_none());
     }
 }

@@ -5,7 +5,7 @@ use salvo::prelude::*;
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::{GatewayConfig, WebhookBridgeConfig};
 use crate::protocol::BridgeAction;
@@ -21,14 +21,14 @@ use crate::session::SessionStore;
 ///   "prompt": "Explain this code..."
 /// }
 /// ```
-pub(crate) struct GenericWebhookBridge {
+pub(crate) struct GenericWebhookChannel {
     config: WebhookBridgeConfig,
     http_client: reqwest::Client,
     callback_url: Option<String>,
     secret: Option<String>,
 }
 
-impl GenericWebhookBridge {
+impl GenericWebhookChannel {
     #[must_use]
     pub(crate) fn new(config: WebhookBridgeConfig, http_client: reqwest::Client) -> Self {
         let callback_url = config.callback_url.clone();
@@ -129,7 +129,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 }
 
 #[async_trait]
-impl ChatBridge for GenericWebhookBridge {
+impl Channel for GenericWebhookChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Generic webhook bridge initialized");
         Ok(())
@@ -226,7 +226,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             );
             return;
         }
-        if !GenericWebhookBridge::verify_signature(&secret, signature, raw_body.as_ref()) {
+        if !GenericWebhookChannel::verify_signature(&secret, signature, raw_body.as_ref()) {
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -237,7 +237,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     }
 
-    let action = match GenericWebhookBridge::parse_payload(&body) {
+    let action = match GenericWebhookChannel::parse_payload(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("Generic webhook: failed to parse payload: {err}");

@@ -3730,6 +3730,7 @@ async fn handle_channels_list(_bridge: &Arc<GatewayBridge>) -> RpcResult {
     // List all supported platforms with their webhook endpoints.
     let channels = vec![
         json!({"platform": "discord", "endpoint": "/webhooks/discord", "type": "bridge"}),
+        json!({"platform": "dingtalk", "endpoint": "/webhooks/dingtalk", "type": "webhook"}),
         json!({"platform": "telegram", "endpoint": "/webhooks/telegram", "type": "bridge"}),
         json!({"platform": "slack", "endpoint": "/webhooks/slack", "type": "bridge"}),
         json!({"platform": "msteams", "endpoint": "/webhooks/msteams", "type": "bridge"}),
@@ -3832,6 +3833,12 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
         },
         "line": {
             "configured": false,
+            "running": false,
+            "connected": false,
+        },
+        "dingtalk": {
+            "configured": std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
+                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok(),
             "running": false,
             "connected": false,
         },
@@ -3998,6 +4005,14 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
     }
 
     let runtime = bridge.runtime_bridge_secrets().await;
+    let saved_channel_enabled = savfox_core::config::channel_store::get_channel_config(
+        &bridge.config().savfox_home,
+        platform,
+    )
+    .await
+    .ok()
+    .flatten()
+    .is_some_and(|cfg| cfg.enabled);
     let nostr_profile = load_nostr_profile(bridge).await;
     let nostr_configured = nostr_profile
         .get("private_key")
@@ -4012,6 +4027,15 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
         }
         "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
         "webhook" => runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok(),
+        "dingtalk" => {
+            std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
+                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok()
+        }
+        "feishu" | "lark" => {
+            saved_channel_enabled
+                || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
+                || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
+        }
         "nostr" => nostr_configured,
         _ => false,
     };
@@ -4054,7 +4078,7 @@ async fn handle_channels_logout(params: &Value, bridge: &Arc<GatewayBridge>) -> 
             let _ = save_nostr_profile(bridge, &profile).await;
         }
         "matrix" | "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line"
-        | "feishu" => {
+        | "feishu" | "dingtalk" => {
             // These platforms may not have runtime secrets yet
         }
         _ => {
@@ -4077,6 +4101,14 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }
 
     let runtime = bridge.runtime_bridge_secrets().await;
+    let saved_channel_enabled = savfox_core::config::channel_store::get_channel_config(
+        &bridge.config().savfox_home,
+        platform,
+    )
+    .await
+    .ok()
+    .flatten()
+    .is_some_and(|cfg| cfg.enabled);
     let nostr_profile = load_nostr_profile(bridge).await;
     let nostr_configured = nostr_profile
         .get("private_key")
@@ -4091,6 +4123,15 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         }
         "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
         "webhook" => runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok(),
+        "dingtalk" => {
+            std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
+                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok()
+        }
+        "feishu" | "lark" => {
+            saved_channel_enabled
+                || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
+                || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
+        }
         "nostr" => nostr_configured,
         "whatsapp" => true,
         _ => false,

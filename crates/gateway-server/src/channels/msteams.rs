@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::config::{GatewayConfig, MsTeamsBridgeConfig};
+use crate::config::{GatewayConfig, MsTeamsChannelConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
@@ -28,16 +28,16 @@ struct CachedToken {
 }
 
 /// MS Teams bot bridge using Bot Framework REST API v3.
-pub(crate) struct MsTeamsBridge {
-    config: MsTeamsBridgeConfig,
+pub(crate) struct MsTeamsChannel {
+    config: MsTeamsChannelConfig,
     http_client: reqwest::Client,
     /// Cached Bot Framework OAuth2 bearer token.
     token_cache: Arc<RwLock<Option<CachedToken>>>,
 }
 
-impl MsTeamsBridge {
+impl MsTeamsChannel {
     #[must_use]
-    pub(crate) fn new(config: MsTeamsBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: MsTeamsChannelConfig, http_client: reqwest::Client) -> Self {
         Self {
             config,
             http_client,
@@ -323,7 +323,7 @@ fn now_epoch_secs() -> u64 {
 }
 
 #[async_trait]
-impl ChatBridge for MsTeamsBridge {
+impl Channel for MsTeamsChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("MS Teams bridge initialized (Bot Framework webhook mode)");
         // Pre-warm the OAuth2 token cache.
@@ -449,7 +449,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     }
 
-    let action = match MsTeamsBridge::parse_activity(&body) {
+    let action = match MsTeamsChannel::parse_activity(&body) {
         Ok(action) => action,
         Err(err) => {
             warn!("MS Teams webhook: failed to parse activity: {err}");
@@ -567,7 +567,7 @@ mod tests {
             "text": "<at>Savfox</at> build a website",
             "conversation": {"id": "conv-123"},
         });
-        let action = MsTeamsBridge::parse_activity(&payload).unwrap();
+        let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "conv-123");
@@ -584,7 +584,7 @@ mod tests {
             "text": "<at>Savfox</at>",
             "conversation": {"id": "conv-456"},
         });
-        let action = MsTeamsBridge::parse_activity(&payload).unwrap();
+        let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         assert!(matches!(action, BridgeAction::Ignore));
     }
 
@@ -594,7 +594,7 @@ mod tests {
             "type": "invoke",
             "value": {"action": "approve:thread-1"},
         });
-        let action = MsTeamsBridge::parse_activity(&payload).unwrap();
+        let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
             BridgeAction::Approve {
                 thread_id,
@@ -613,7 +613,7 @@ mod tests {
             "type": "invoke",
             "value": {"action": "deny:thread-2"},
         });
-        let action = MsTeamsBridge::parse_activity(&payload).unwrap();
+        let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
             BridgeAction::Approve {
                 thread_id,
@@ -632,7 +632,7 @@ mod tests {
             "type": "conversationUpdate",
             "membersAdded": [],
         });
-        let action = MsTeamsBridge::parse_activity(&payload).unwrap();
+        let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         assert!(matches!(action, BridgeAction::Ignore));
     }
 

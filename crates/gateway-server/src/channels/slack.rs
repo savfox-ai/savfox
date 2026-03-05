@@ -5,16 +5,16 @@ use salvo::prelude::*;
 use serde_json::{Map, Value, json};
 use tracing::{error, info, warn};
 
-use super::{ChatBridge, RichMessage, runtime};
+use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, is_slack_timestamp_fresh};
-use crate::config::{GatewayConfig, SlackBridgeConfig};
+use crate::config::{GatewayConfig, SlackChannelConfig};
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
 
 /// Slack bridge using Events API and slash commands.
-pub(crate) struct SlackBridge {
-    config: SlackBridgeConfig,
+pub(crate) struct SlackChannel {
+    config: SlackChannelConfig,
     http_client: reqwest::Client,
     bot_token: String,
     signing_secret: String,
@@ -66,9 +66,9 @@ fn slash_command_prompt(command: &str, text: &str) -> Option<String> {
     Some(prompt)
 }
 
-impl SlackBridge {
+impl SlackChannel {
     #[must_use]
-    pub(crate) fn new(config: SlackBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: SlackChannelConfig, http_client: reqwest::Client) -> Self {
         let bot_token = config.bot_token.clone();
         let signing_secret = config.signing_secret.clone();
         Self {
@@ -280,7 +280,7 @@ fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
 }
 
 #[async_trait]
-impl ChatBridge for SlackBridge {
+impl Channel for SlackChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!("Slack bridge initialized (Events API + slash commands)");
         Ok(())
@@ -385,7 +385,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
-    let body = match SlackBridge::parse_payload_bytes(raw_body.as_ref()) {
+    let body = match SlackChannel::parse_payload_bytes(raw_body.as_ref()) {
         Ok(v) => v,
         Err(err) => {
             warn!("Slack webhook: failed to parse payload: {err}");
@@ -437,7 +437,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             );
             return;
         }
-        if !SlackBridge::verify_signature(&secret, timestamp, signature, raw_body.as_ref()) {
+        if !SlackChannel::verify_signature(&secret, timestamp, signature, raw_body.as_ref()) {
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -456,9 +456,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     let action = if body.get("command").is_some() {
-        SlackBridge::parse_slash_command(&body)
+        SlackChannel::parse_slash_command(&body)
     } else {
-        SlackBridge::parse_event(&body)
+        SlackChannel::parse_event(&body)
     };
 
     match action {
@@ -555,7 +555,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 mod tests {
     use serde_json::json;
 
-    use super::SlackBridge;
+    use super::SlackChannel;
     use crate::protocol::BridgeAction;
 
     #[test]
@@ -566,7 +566,7 @@ mod tests {
             "text": ""
         });
 
-        let action = SlackBridge::parse_slash_command(&payload).expect("parse should succeed");
+        let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "C123");
@@ -584,7 +584,7 @@ mod tests {
             "text": "/help"
         });
 
-        let action = SlackBridge::parse_slash_command(&payload).expect("parse should succeed");
+        let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
         match action {
             BridgeAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "C123");
