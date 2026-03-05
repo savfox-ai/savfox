@@ -142,96 +142,6 @@ impl MatrixOutboundConfig {
     }
 }
 
-#[derive(Debug, Clone)]
-struct FeishuOutboundConfig {
-    app_access_token: Option<String>,
-    app_id: Option<String>,
-    app_secret: Option<String>,
-    receive_id_type: String,
-}
-
-impl FeishuOutboundConfig {
-    fn from_channel_config(
-        config: &savfox_core::config::channel_store::ChannelConfig,
-    ) -> Option<Self> {
-        if !config.enabled
-            || (!config.kind.eq_ignore_ascii_case("feishu")
-                && !config.kind.eq_ignore_ascii_case("lark"))
-        {
-            return None;
-        }
-
-        let raw = config.config.as_object()?;
-        let app_access_token = first_non_empty_config_string(
-            raw,
-            &[
-                "appAccessToken",
-                "app_access_token",
-                "tenant_access_token",
-                "access_token",
-                "token",
-            ],
-        );
-        let app_id = first_non_empty_config_string(raw, &["appId", "app_id"]);
-        let app_secret = first_non_empty_config_string(raw, &["appSecret", "app_secret"]);
-        if app_access_token.is_none() && (app_id.is_none() || app_secret.is_none()) {
-            return None;
-        }
-
-        let receive_id_type = first_non_empty_config_string(
-            raw,
-            &["receiveIdType", "receive_id_type", "id_type"],
-        )
-        .unwrap_or_else(|| "chat_id".to_string());
-
-        Some(Self {
-            app_access_token,
-            app_id,
-            app_secret,
-            receive_id_type,
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-struct DingtalkOutboundConfig {
-    webhook_url: Option<String>,
-    access_token: Option<String>,
-    secret: Option<String>,
-}
-
-impl DingtalkOutboundConfig {
-    fn from_channel_config(
-        config: &savfox_core::config::channel_store::ChannelConfig,
-    ) -> Option<Self> {
-        if !config.enabled || !config.kind.eq_ignore_ascii_case("dingtalk") {
-            return None;
-        }
-
-        let raw = config.config.as_object()?;
-        let webhook_url = first_non_empty_config_string(
-            raw,
-            &["webhook", "webhook_url", "robot_webhook", "webhookUrl"],
-        );
-        let access_token = first_non_empty_config_string(
-            raw,
-            &["access_token", "accessToken", "token", "robot_token"],
-        );
-        let secret =
-            first_non_empty_config_string(raw, &["secret", "sign_secret", "webhook_secret"]);
-
-        if webhook_url.is_none() && access_token.is_none() {
-            return None;
-        }
-
-        Some(Self {
-            webhook_url,
-            access_token,
-            secret,
-        })
-    }
-}
-
 fn first_non_empty_config_string(
     map: &serde_json::Map<String, Value>,
     keys: &[&str],
@@ -1705,95 +1615,6 @@ impl GatewayBridge {
         Ok(fallback)
     }
 
-    async fn resolve_feishu_outbound_config(&self) -> anyhow::Result<Option<FeishuOutboundConfig>> {
-        let all_configs =
-            savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
-                .await
-                .context("failed to load channel configs")?;
-        let feishu_configs: Vec<FeishuOutboundConfig> = all_configs
-            .iter()
-            .filter_map(FeishuOutboundConfig::from_channel_config)
-            .collect();
-        if feishu_configs.is_empty() {
-            return Ok(None);
-        }
-        if let Some(config) = feishu_configs
-            .iter()
-            .find(|cfg| cfg.app_access_token.as_deref().is_some_and(|token| !token.is_empty()))
-        {
-            return Ok(Some(config.clone()));
-        }
-        if let Some(config) = feishu_configs.iter().find(|cfg| {
-            cfg.app_id.as_deref().is_some_and(|value| !value.is_empty())
-                && cfg
-                    .app_secret
-                    .as_deref()
-                    .is_some_and(|value| !value.is_empty())
-        }) {
-            return Ok(Some(config.clone()));
-        }
-        Ok(feishu_configs.first().cloned())
-    }
-
-    async fn resolve_dingtalk_outbound_config(
-        &self,
-    ) -> anyhow::Result<Option<DingtalkOutboundConfig>> {
-        let all_configs =
-            savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
-                .await
-                .context("failed to load channel configs")?;
-        Ok(all_configs
-            .iter()
-            .filter_map(DingtalkOutboundConfig::from_channel_config)
-            .next())
-    }
-
-    async fn fetch_feishu_tenant_access_token(
-        &self,
-        app_id: &str,
-        app_secret: &str,
-    ) -> anyhow::Result<String> {
-        let response = self
-            .http_client
-            .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
-            .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "app_id": app_id,
-                "app_secret": app_secret,
-            }))
-            .send()
-            .await
-            .context("failed to call Feishu tenant_access_token API")?;
-
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        if !status.is_success() {
-            anyhow::bail!(
-                "Feishu tenant access token API error: HTTP {}: {}",
-                status,
-                String::from_utf8_lossy(&body)
-            );
-        }
-
-        let parsed: Value = serde_json::from_slice(&body)
-            .context("failed to parse Feishu tenant access token response")?;
-        let code = parsed.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-        if code != 0 {
-            let msg = parsed
-                .get("msg")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown error");
-            anyhow::bail!("Feishu tenant access token API returned code {code}: {msg}");
-        }
-        let token = parsed
-            .get("tenant_access_token")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("Feishu tenant access token response missing token"))?;
-        Ok(token.to_string())
-    }
-
     /// Send a message via Matrix using matrix-bot-sdk.
     pub(crate) async fn send_matrix_message(
         &self,
@@ -2346,7 +2167,9 @@ impl GatewayBridge {
                 }
             }
             "feishu" | "lark" => {
-                let config = self.resolve_feishu_outbound_config().await?;
+                let config =
+                    crate::bridges::feishu::resolve_feishu_outbound_config(&self.config.savfox_home)
+                        .await?;
                 let receive_id_type = config
                     .as_ref()
                     .map(|cfg| cfg.receive_id_type.as_str())
@@ -2370,10 +2193,12 @@ impl GatewayBridge {
                         .map(str::trim)
                         .filter(|value| !value.is_empty()),
                 ) {
-                    match self
-                        .fetch_feishu_tenant_access_token(app_id, app_secret)
-                        .await
-                    {
+                    match crate::bridges::feishu::fetch_feishu_tenant_access_token(
+                        &self.http_client,
+                        app_id,
+                        app_secret,
+                    )
+                    .await {
                         Ok(token) => Some(token),
                         Err(err) => {
                             warn!("failed to fetch Feishu tenant token from channel config: {err}");
@@ -2404,7 +2229,10 @@ impl GatewayBridge {
                     )
                     .await?;
                 } else {
-                    let config = self.resolve_dingtalk_outbound_config().await?;
+                    let config = crate::bridges::dingtalk::resolve_dingtalk_outbound_config(
+                        &self.config.savfox_home,
+                    )
+                    .await?;
                     let target = config
                         .as_ref()
                         .and_then(|cfg| cfg.webhook_url.clone().or_else(|| cfg.access_token.clone()))

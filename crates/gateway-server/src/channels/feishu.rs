@@ -1,5 +1,7 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use salvo::prelude::*;
 use serde_json::{Value, json};
@@ -9,6 +11,149 @@ use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::protocol::BridgeAction;
 use crate::session::SessionStore;
+
+#[derive(Debug, Clone)]
+pub(crate) struct FeishuOutboundConfig {
+    pub(crate) app_access_token: Option<String>,
+    pub(crate) app_id: Option<String>,
+    pub(crate) app_secret: Option<String>,
+    pub(crate) receive_id_type: String,
+}
+
+impl FeishuOutboundConfig {
+    fn from_channel_config(
+        config: &savfox_core::config::channel_store::ChannelConfig,
+    ) -> Option<Self> {
+        if !config.enabled
+            || (!config.kind.eq_ignore_ascii_case("feishu")
+                && !config.kind.eq_ignore_ascii_case("lark"))
+        {
+            return None;
+        }
+
+        let raw = config.config.as_object()?;
+        let app_access_token = first_non_empty_config_string(
+            raw,
+            &[
+                "appAccessToken",
+                "app_access_token",
+                "tenant_access_token",
+                "access_token",
+                "token",
+            ],
+        );
+        let app_id = first_non_empty_config_string(raw, &["appId", "app_id"]);
+        let app_secret = first_non_empty_config_string(raw, &["appSecret", "app_secret"]);
+        if app_access_token.is_none() && (app_id.is_none() || app_secret.is_none()) {
+            return None;
+        }
+
+        let receive_id_type = first_non_empty_config_string(
+            raw,
+            &["receiveIdType", "receive_id_type", "id_type"],
+        )
+        .unwrap_or_else(|| "chat_id".to_string());
+
+        Some(Self {
+            app_access_token,
+            app_id,
+            app_secret,
+            receive_id_type,
+        })
+    }
+}
+
+fn first_non_empty_config_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key).and_then(|value| {
+            let text = value.as_str()?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        })
+    })
+}
+
+pub(crate) async fn resolve_feishu_outbound_config(
+    savfox_home: &PathBuf,
+) -> anyhow::Result<Option<FeishuOutboundConfig>> {
+    let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home)
+        .await
+        .context("failed to load channel configs")?;
+    let feishu_configs: Vec<FeishuOutboundConfig> = all_configs
+        .iter()
+        .filter_map(FeishuOutboundConfig::from_channel_config)
+        .collect();
+    if feishu_configs.is_empty() {
+        return Ok(None);
+    }
+    if let Some(config) = feishu_configs
+        .iter()
+        .find(|cfg| cfg.app_access_token.as_deref().is_some_and(|token| !token.is_empty()))
+    {
+        return Ok(Some(config.clone()));
+    }
+    if let Some(config) = feishu_configs.iter().find(|cfg| {
+        cfg.app_id.as_deref().is_some_and(|value| !value.is_empty())
+            && cfg
+                .app_secret
+                .as_deref()
+                .is_some_and(|value| !value.is_empty())
+    }) {
+        return Ok(Some(config.clone()));
+    }
+    Ok(feishu_configs.first().cloned())
+}
+
+pub(crate) async fn fetch_feishu_tenant_access_token(
+    http_client: &reqwest::Client,
+    app_id: &str,
+    app_secret: &str,
+) -> anyhow::Result<String> {
+    let response = http_client
+        .post("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .send()
+        .await
+        .context("failed to call Feishu tenant_access_token API")?;
+
+    let status = response.status();
+    let body = response.bytes().await.unwrap_or_default();
+    if !status.is_success() {
+        anyhow::bail!(
+            "Feishu tenant access token API error: HTTP {}: {}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    let parsed: Value =
+        serde_json::from_slice(&body).context("failed to parse Feishu tenant access token response")?;
+    let code = parsed.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let msg = parsed
+            .get("msg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        anyhow::bail!("Feishu tenant access token API returned code {code}: {msg}");
+    }
+    let token = parsed
+        .get("tenant_access_token")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Feishu tenant access token response missing token"))?;
+    Ok(token.to_string())
+}
 
 /// Feishu/Lark bot bridge using the Feishu Open Platform API.
 pub(crate) struct FeishuChannel {
