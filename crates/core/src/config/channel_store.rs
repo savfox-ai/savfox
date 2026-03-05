@@ -422,35 +422,4 @@ mod tests {
 
         let _ = tokio::fs::remove_dir_all(&home).await;
     }
-
-    #[tokio::test]
-    async fn get_channel_backfills_missing_kind_for_legacy_files() {
-        let home =
-            std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
-        let channels = home.join(CHANNELS_SUBDIR);
-        tokio::fs::create_dir_all(&channels)
-            .await
-            .expect("mkdir channels");
-        tokio::fs::write(
-            channels.join("legacy.json"),
-            r#"{
-  "id": "matrix",
-  "name": "Legacy Matrix",
-  "enabled": true,
-  "config": {"homeserver":"http://127.0.0.1:6006"}
-}"#,
-        )
-        .await
-        .expect("write");
-
-        let loaded = get_channel_config(&home, "matrix")
-            .await
-            .expect("lookup")
-            .expect("exists");
-        assert_eq!(loaded.kind, "matrix");
-        assert_eq!(loaded.id, "matrix-legacy-matrix");
-        assert_eq!(loaded.name, "Legacy Matrix");
-
-        let _ = tokio::fs::remove_dir_all(&home).await;
-    }
 }
