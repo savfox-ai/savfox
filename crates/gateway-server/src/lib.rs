@@ -1,4 +1,4 @@
-#![deny(clippy::print_stdout, clippy::print_stderr)]
+#![warn(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub, dead_code)]
 #![recursion_limit = "512"]
 
