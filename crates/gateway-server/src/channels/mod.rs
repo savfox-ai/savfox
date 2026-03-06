@@ -199,7 +199,8 @@ async fn start_feishu_channel(
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    use crate::channels::feishu::{FeishuChannel, FeishuChannelConfig, start_feishu_stream};
+    use crate::channels::feishu::{FeishuChannel, FeishuChannelConfig, feishu_sink};
+    use savfox_channel_feishu::start_feishu_stream;
 
     let feishu_config = FeishuChannelConfig::from_channel_config(config)
         .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
@@ -209,11 +210,11 @@ async fn start_feishu_channel(
         feishu_config
     );
     if feishu_config.stream_enabled() {
+        let sink = feishu_sink(Arc::clone(channel), Arc::clone(session_store));
         start_feishu_stream(
             &config.id,
             &feishu_config,
-            Arc::clone(channel),
-            Arc::clone(session_store),
+            sink,
         )
         .await?;
     }

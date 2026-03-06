@@ -6,7 +6,7 @@ use feishu_sdk::core::Error as FeishuSdkError;
 use feishu_sdk::event::{EventDispatcher, EventReq, EventResp};
 use salvo::prelude::*;
 use savfox_channel_feishu::{
-    FeishuActionSink, 
+    FeishuActionSink, build_feishu_event_dispatcher,
 };
 pub(crate) use savfox_channel_feishu::{
     FeishuChannel, FeishuChannelConfig, fetch_feishu_tenant_access_token,
@@ -63,7 +63,7 @@ impl FeishuActionSink for FeishuRuntimeSink {
     }
 }
 
-fn feishu_sink(
+pub(crate) fn feishu_sink(
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> Arc<dyn FeishuActionSink> {
@@ -211,7 +211,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let dispatcher = build_feishu_event_dispatcher(&config, channel, session_store).await;
+    let sink = feishu_sink(Arc::clone(&channel), Arc::clone(&session_store));
+    let dispatcher = build_feishu_event_dispatcher(&config, sink).await;
     match dispatcher.dispatch(event_req).await {
         Ok(event_resp) => {
             feishu_event_response_to_response(event_resp, res);
