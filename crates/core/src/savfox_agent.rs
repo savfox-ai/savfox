@@ -37,8 +37,7 @@ use savfox_protocol::request_user_input::{RequestUserInputArgs, RequestUserInput
 use savfox_protocol::user_input::UserInput;
 use savfox_rmcp_client::{ElicitationResponse, OAuthCredentialsStoreMode};
 use savfox_utils_readiness::{Readiness, ReadinessFlag};
-use serde_json;
-use serde_json::Value;
+use serde_json::{self, Value};
 use tokio::sync::{Mutex, RwLock, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, debug, error, field, info, info_span, instrument, trace_span, warn};

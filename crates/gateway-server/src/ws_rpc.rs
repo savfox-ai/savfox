@@ -46,8 +46,8 @@ use crate::{
 mod types;
 mod utils;
 use self::types::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, JsonRpcRequest, METHOD_NOT_FOUND,
-    PARSE_ERROR, PERMISSION_DENIED, PLUGIN_ROUTE_RATE_LIMIT_PER_MINUTE, RpcResult,
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, JsonRpcRequest, METHOD_NOT_FOUND, PARSE_ERROR,
+    PERMISSION_DENIED, PLUGIN_ROUTE_RATE_LIMIT_PER_MINUTE, RpcResult,
 };
 use self::utils::{now_ms, rpc_error, rpc_success};
 
@@ -3965,9 +3965,7 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
                 || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
                 || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
         }
-        "matrix" => {
-            saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok()
-        }
+        "matrix" => saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
         "nostr" => nostr_configured,
         _ => saved_channel_enabled,
     };
@@ -4064,9 +4062,7 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
                 || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
                 || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
         }
-        "matrix" => {
-            saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok()
-        }
+        "matrix" => saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
         "nostr" => nostr_configured,
         "whatsapp" => true,
         _ => saved_channel_enabled,
@@ -5229,7 +5225,8 @@ async fn persist_detached_matrix_bridge_config(
 
     match detached {
         DetachedBridgeConfig::Delete => {
-            // Legacy config patch only represented one matrix bridge; map delete to that canonical ID.
+            // Legacy config patch only represented one matrix bridge; map delete to that canonical
+            // ID.
             let _ =
                 channel_store::delete_channel_config(&bridge.config().savfox_home, "matrix-matrix")
                     .await

@@ -101,7 +101,7 @@ pub async fn run_main(
 ) -> IoResult<()> {
     println!("[startup] Savfox Gateway Server starting...");
     println!("[startup] Initializing logging and configuration...");
-    
+
     // Install tracing subscriber.
     let stderr_fmt = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
@@ -148,7 +148,7 @@ pub async fn run_main(
 
     let config = Arc::new(config);
     let feedback = SavfoxFeedback::new();
-    
+
     println!("[startup] Configuration loaded successfully");
     println!("[startup] Savfox home: {:?}", config.savfox_home);
 
@@ -173,7 +173,7 @@ pub async fn run_main(
         websocket_manager: (*session_mgr).clone(),
         outgoing_tx,
     }));
-    
+
     println!("[startup] Gateway bridge created");
 
     // Inject API keys from per-provider files into the runtime env-override
@@ -213,13 +213,22 @@ pub async fn run_main(
         println!("[startup] WARNING: Failed to load channel configs: {}", err);
     }
     println!("[startup] Channel configuration logging complete");
-    
+
     // Initialize and start configured channels
     println!("[startup] Initializing channel instances...");
     let channel_registry = bridges::create_channel_registry();
-    if let Err(err) = bridges::initialize_and_start_channels(&config.savfox_home, channel_registry.clone(), &bridge).await {
+    if let Err(err) = bridges::initialize_and_start_channels(
+        &config.savfox_home,
+        channel_registry.clone(),
+        &bridge,
+    )
+    .await
+    {
         warn!(error = %err, "Failed to initialize some channels");
-        println!("[startup] WARNING: Some channels failed to initialize: {}", err);
+        println!(
+            "[startup] WARNING: Some channels failed to initialize: {}",
+            err
+        );
     }
     println!("[startup] Channel initialization complete");
 

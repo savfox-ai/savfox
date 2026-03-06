@@ -57,9 +57,7 @@ pub enum CancelErr {
 /// # async fn example() {
 /// let token = CancellationToken::new();
 ///
-/// let result = async { 42 }
-///     .or_cancel(&token)
-///     .await;
+/// let result = async { 42 }.or_cancel(&token).await;
 ///
 /// assert_eq!(result, Ok(42));
 /// # }
@@ -84,9 +82,7 @@ pub trait OrCancelExt: Sized {
     /// let token = CancellationToken::new();
     /// token.cancel();
     ///
-    /// let result = async { 42 }
-    ///     .or_cancel(&token)
-    ///     .await;
+    /// let result = async { 42 }.or_cancel(&token).await;
     ///
     /// assert_eq!(result, Err(savfox_async_utils::CancelErr::Cancelled));
     /// # }

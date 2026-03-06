@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUSTFMT_NIGHTLY: nightly-2026-03-05
 
 jobs:
   # ─── Detect change scope ───────────────────────────────────────────
@@ -43,10 +44,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - id: rustfmt-toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUSTFMT_NIGHTLY }}
           components: rustfmt
-      - run: cargo +nightly fmt --all --check
+      - run: cargo +${{ steps.rustfmt-toolchain.outputs.name }} fmt --all --check
 
   # ─── Clippy lints ──────────────────────────────────────────────────
   clippy:

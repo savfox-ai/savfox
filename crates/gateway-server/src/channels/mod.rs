@@ -86,9 +86,10 @@ pub(crate) const CHANNEL_NAMES: &[&str] = &[
     "zalo",
 ];
 
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -107,60 +108,73 @@ pub(crate) async fn initialize_and_start_channels(
 ) -> anyhow::Result<()> {
     println!("[startup] Initializing channel instances...");
     info!("Initializing channel instances");
-    
+
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
-    
+
     let mut started_count = 0;
     let mut failed_count = 0;
-    
+
     for config in all_configs {
         if !config.enabled {
             continue;
         }
-        
+
         let channel_id = config.id.clone();
         let kind = config.kind.to_lowercase();
-        
-        println!("[startup] Starting channel '{}' of type '{}'...", channel_id, kind);
+
+        println!(
+            "[startup] Starting channel '{}' of type '{}'...",
+            channel_id, kind
+        );
         info!("Starting channel '{}' of type '{}'", channel_id, kind);
-        
+
         let result = match kind.as_str() {
-            "matrix" => {
-                start_matrix_channel(&config, &registry, &bridge).await
-            }
-            "discord" => {
-                start_discord_channel(&config, &registry, &bridge).await
-            }
-            "telegram" => {
-                start_telegram_channel(&config, &registry, &bridge).await
-            }
-            "slack" => {
-                start_slack_channel(&config, &registry, &bridge).await
-            }
+            "matrix" => start_matrix_channel(&config, &registry, &bridge).await,
+            "discord" => start_discord_channel(&config, &registry, &bridge).await,
+            "telegram" => start_telegram_channel(&config, &registry, &bridge).await,
+            "slack" => start_slack_channel(&config, &registry, &bridge).await,
             _ => {
-                println!("[startup]   Channel type '{}' not yet implemented for persistent connections", kind);
-                info!("Channel type '{}' not yet implemented for persistent connections", kind);
+                println!(
+                    "[startup]   Channel type '{}' not yet implemented for persistent connections",
+                    kind
+                );
+                info!(
+                    "Channel type '{}' not yet implemented for persistent connections",
+                    kind
+                );
                 continue;
             }
         };
-        
+
         match result {
             Ok(()) => {
                 started_count += 1;
-                println!("[startup]   ✓ Channel '{}' started successfully", channel_id);
+                println!(
+                    "[startup]   ✓ Channel '{}' started successfully",
+                    channel_id
+                );
                 info!("Channel '{}' started successfully", channel_id);
             }
             Err(err) => {
                 failed_count += 1;
-                println!("[startup]   ✗ Failed to start channel '{}': {}", channel_id, err);
+                println!(
+                    "[startup]   ✗ Failed to start channel '{}': {}",
+                    channel_id, err
+                );
                 warn!("Failed to start channel '{}': {}", channel_id, err);
             }
         }
     }
-    
-    println!("[startup] Channel startup complete: {} started, {} failed", started_count, failed_count);
-    info!("Channel startup complete: {} started, {} failed", started_count, failed_count);
-    
+
+    println!(
+        "[startup] Channel startup complete: {} started, {} failed",
+        started_count, failed_count
+    );
+    info!(
+        "Channel startup complete: {} started, {} failed",
+        started_count, failed_count
+    );
+
     Ok(())
 }
 
@@ -170,10 +184,12 @@ async fn start_matrix_channel(
     bridge: &Arc<GatewayBridge>,
 ) -> anyhow::Result<()> {
     use crate::bridges::matrix::MatrixChannel;
-    
-    let raw = config.config.as_object()
+
+    let raw = config
+        .config
+        .as_object()
         .ok_or_else(|| anyhow::anyhow!("Matrix channel config must be an object"))?;
-    
+
     let homeserver = raw
         .get("homeserver")
         .or_else(|| raw.get("homeserver_url"))
@@ -181,7 +197,7 @@ async fn start_matrix_channel(
         .and_then(|v| v.as_str())
         .unwrap_or("https://matrix.org")
         .to_string();
-    
+
     let access_token = raw
         .get("accessToken")
         .or_else(|| raw.get("access_token"))
@@ -189,14 +205,18 @@ async fn start_matrix_channel(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Matrix channel missing access token"))?
         .to_string();
-    
-    let mut channel = MatrixChannel::new(homeserver.clone(), access_token, bridge.http_client().clone());
-    
+
+    let mut channel = MatrixChannel::new(
+        homeserver.clone(),
+        access_token,
+        bridge.http_client().clone(),
+    );
+
     channel.start().await?;
-    
+
     let mut registry = registry.write().await;
     registry.insert(config.id.clone(), Box::new(channel));
-    
+
     Ok(())
 }
 
@@ -205,7 +225,9 @@ async fn start_discord_channel(
     _registry: &ChannelRegistry,
     _bridge: &Arc<GatewayBridge>,
 ) -> anyhow::Result<()> {
-    println!("[startup]   Discord channel persistent connection not yet implemented - using webhook mode");
+    println!(
+        "[startup]   Discord channel persistent connection not yet implemented - using webhook mode"
+    );
     Ok(())
 }
 
@@ -214,7 +236,9 @@ async fn start_telegram_channel(
     _registry: &ChannelRegistry,
     _bridge: &Arc<GatewayBridge>,
 ) -> anyhow::Result<()> {
-    println!("[startup]   Telegram channel persistent connection not yet implemented - using webhook mode");
+    println!(
+        "[startup]   Telegram channel persistent connection not yet implemented - using webhook mode"
+    );
     Ok(())
 }
 
@@ -223,52 +247,67 @@ async fn start_slack_channel(
     _registry: &ChannelRegistry,
     _bridge: &Arc<GatewayBridge>,
 ) -> anyhow::Result<()> {
-    println!("[startup]   Slack channel persistent connection not yet implemented - using webhook mode");
+    println!(
+        "[startup]   Slack channel persistent connection not yet implemented - using webhook mode"
+    );
     Ok(())
 }
 
 pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow::Result<()> {
-    println!("[startup] Loading channel configurations from {:?}...", savfox_home);
+    println!(
+        "[startup] Loading channel configurations from {:?}...",
+        savfox_home
+    );
     info!("Loading channel configurations from {:?}", savfox_home);
-    
+
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
-    
-    println!("[startup] Found {} total channel configuration(s)", all_configs.len());
+
+    println!(
+        "[startup] Found {} total channel configuration(s)",
+        all_configs.len()
+    );
     info!("Found {} total channel configuration(s)", all_configs.len());
-    
+
     if all_configs.is_empty() {
         println!("[startup] No channel configurations found");
         warn!("No channel configurations found in {:?}", savfox_home);
         return Ok(());
     }
-    
+
     let mut enabled_count = 0;
     let mut disabled_count = 0;
-    let mut by_kind: std::collections::HashMap<String, Vec<(String, bool)>> = std::collections::HashMap::new();
-    
+    let mut by_kind: std::collections::HashMap<String, Vec<(String, bool)>> =
+        std::collections::HashMap::new();
+
     for config in &all_configs {
         let configs = by_kind.entry(config.kind.clone()).or_insert_with(Vec::new);
         configs.push((config.id.clone(), config.enabled));
-        
+
         if config.enabled {
             enabled_count += 1;
         } else {
             disabled_count += 1;
         }
     }
-    
-    println!("[startup] Channel summary: {} enabled, {} disabled", enabled_count, disabled_count);
-    info!("Channel summary: {} enabled, {} disabled", enabled_count, disabled_count);
-    
+
+    println!(
+        "[startup] Channel summary: {} enabled, {} disabled",
+        enabled_count, disabled_count
+    );
+    info!(
+        "Channel summary: {} enabled, {} disabled",
+        enabled_count, disabled_count
+    );
+
     for (kind, configs) in &by_kind {
         println!("[startup] {} channel(s) of type '{}':", configs.len(), kind);
         info!("{} channel(s) of type '{}'", configs.len(), kind);
-        
+
         for (id, enabled) in configs {
             let status = if *enabled { "ENABLED" } else { "DISABLED" };
             println!("[startup]   - {} [{}]", id, status);
             info!("  - {} [{}]", id, status);
-            
+
             if *enabled && kind.eq_ignore_ascii_case("matrix") {
                 if let Err(err) = log_matrix_channel_details(savfox_home, id).await {
                     warn!("Failed to log Matrix channel details for {}: {}", id, err);
@@ -276,13 +315,13 @@ pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow
             }
         }
     }
-    
+
     Ok(())
 }
 
 async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> anyhow::Result<()> {
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
-    
+
     for config in all_configs {
         if config.id == channel_id && config.enabled && config.kind.eq_ignore_ascii_case("matrix") {
             if let Some(raw) = config.config.as_object() {
@@ -292,7 +331,7 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
                     .or_else(|| raw.get("server_url"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("https://matrix.org");
-                
+
                 let has_token = raw
                     .get("accessToken")
                     .or_else(|| raw.get("access_token"))
@@ -300,39 +339,51 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
                     .and_then(|v| v.as_str())
                     .map(|s| !s.is_empty())
                     .unwrap_or(false);
-                
+
                 let rooms: Vec<String> = raw
                     .get("rooms")
                     .or_else(|| raw.get("groups"))
                     .or_else(|| raw.get("roomIds"))
                     .or_else(|| raw.get("room_ids"))
-                    .map(|v| {
-                        match v {
-                            serde_json::Value::String(s) => s.split(['\n', ',']).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
-                            serde_json::Value::Array(arr) => arr.iter().filter_map(|item| item.as_str().map(String::from)).collect(),
-                            _ => Vec::new(),
-                        }
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => s
+                            .split(['\n', ','])
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect(),
+                        serde_json::Value::Array(arr) => arr
+                            .iter()
+                            .filter_map(|item| item.as_str().map(String::from))
+                            .collect(),
+                        _ => Vec::new(),
                     })
                     .unwrap_or_default();
-                
-                let rooms_str = if rooms.is_empty() { 
-                    "none".to_string() 
-                } else { 
-                    rooms.join(", ") 
+
+                let rooms_str = if rooms.is_empty() {
+                    "none".to_string()
+                } else {
+                    rooms.join(", ")
                 };
-                
+
                 println!("[startup]     Matrix channel details:");
                 println!("[startup]       Homeserver: {}", homeserver);
-                println!("[startup]       Access token: {}", if has_token { "configured" } else { "NOT SET" });
+                println!(
+                    "[startup]       Access token: {}",
+                    if has_token { "configured" } else { "NOT SET" }
+                );
                 println!("[startup]       Configured rooms: {}", rooms_str);
                 info!("Matrix bridge starting with homeserver URL: {}", homeserver);
                 info!("  Channel ID: {}", channel_id);
-                info!("  Access token: {}", if has_token { "configured" } else { "NOT SET" });
+                info!(
+                    "  Access token: {}",
+                    if has_token { "configured" } else { "NOT SET" }
+                );
                 info!("  Configured rooms: {}", rooms_str);
             }
             break;
         }
     }
-    
+
     Ok(())
 }

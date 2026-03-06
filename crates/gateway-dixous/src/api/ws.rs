@@ -126,9 +126,8 @@ impl WsRpc {
             }
             let promise = js_sys::Promise::new(&mut |resolve, _| {
                 if let Some(win) = web_sys::window() {
-                    let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
-                        &resolve, 100,
-                    );
+                    let _ =
+                        win.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 100);
                 }
             });
             let _ = wasm_bindgen_futures::JsFuture::from(promise).await;

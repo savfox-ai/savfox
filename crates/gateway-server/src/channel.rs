@@ -2043,7 +2043,8 @@ impl GatewayBridge {
 
     /// Send a message to the appropriate platform via the gateway.
     /// The `channel` format is `platform:id` (e.g., `discord:12345`, `telegram:67890`).
-    /// Platform credentials are read from runtime secrets, channel configs, or environment variables.
+    /// Platform credentials are read from runtime secrets, channel configs, or environment
+    /// variables.
     pub(crate) async fn send_platform_message(
         &self,
         channel: &str,

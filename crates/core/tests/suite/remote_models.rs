@@ -43,7 +43,7 @@ async fn remote_models_remote_model_uses_unified_exec() -> Result<()> {
         .await;
 
     let remote_model = ModelInfo {
-            slug: REMOTE_MODEL_SLUG.to_string(),
+        slug: REMOTE_MODEL_SLUG.to_string(),
         name: "Remote Test".to_string(),
         description: Some("A remote model that requires the test shell".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
@@ -281,7 +281,7 @@ async fn remote_models_apply_remote_base_instructions() -> Result<()> {
 
     let remote_base = "Use the remote base instructions only.";
     let remote_model = ModelInfo {
-            slug: model.to_string(),
+        slug: model.to_string(),
         name: "Parallel Remote".to_string(),
         description: Some("A remote model with custom instructions".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
@@ -709,7 +709,7 @@ async fn remote_models_hide_picker_only_models() -> Result<()> {
 
 async fn wait_for_model_available(
     manager: &Arc<ModelsManager>,
-            slug: &str,
+    slug: &str,
     config: &Config,
 ) -> ModelPreset {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -750,13 +750,13 @@ fn test_remote_model(slug: &str, visibility: ModelVisibility, priority: i32) -> 
 }
 
 fn test_remote_model_with_policy(
-            slug: &str,
+    slug: &str,
     visibility: ModelVisibility,
     priority: i32,
     truncation_policy: TruncationPolicyConfig,
 ) -> ModelInfo {
     ModelInfo {
-            slug: slug.to_string(),
+        slug: slug.to_string(),
         name: format!("{slug} display"),
         description: Some(format!("{slug} description")),
         default_reasoning_level: Some(ReasoningEffort::Medium),

@@ -970,21 +970,21 @@ pub enum AgentStatus {
 pub enum SavfoxErrorInfo {
     /// Model's context window was exceeded
     ContextWindowExceeded,
-    
+
     /// User's usage limit was exceeded
     UsageLimitExceeded,
-    
+
     /// Model capacity limit reached
     ModelCap {
         model: String,
         reset_after_seconds: Option<u64>,
     },
-    
+
     /// HTTP connection failed
     HttpConnectionFailed {
         http_status_code: Option<u16>,
     },
-    
+
     /// Failed to connect to the response SSE stream.
     ResponseStreamConnectionFailed {
         http_status_code: Option<u16>,

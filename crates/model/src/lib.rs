@@ -245,13 +245,14 @@ pub fn provider_models_from_enabled_slugs(
 
 #[cfg(test)]
 mod tests {
+    use savfox_protocol::openai_models::ReasoningEffort;
+
     use super::{
         DEFAULT_OPENAI_API_BASE_URL, OPENAI_DEFAULT_MODELS, canonical_provider_id,
         provider_default_base_url, provider_default_base_url_entry, provider_default_model_slug,
         provider_default_models, provider_model_info, provider_models_from_enabled_slugs,
         provider_registry,
     };
-    use savfox_protocol::openai_models::ReasoningEffort;
 
     #[test]
     fn canonical_provider_aliases() {

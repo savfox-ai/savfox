@@ -22,14 +22,16 @@ use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::models_manager::model_presets::{
     HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
 };
-use savfox_core::parse_provider_prefixed_model;
 use savfox_core::protocol::{
     AskForApproval, DeprecationNoticeEvent, Event, EventMsg, FinalOutput, ListSkillsResponseEvent,
     Op, SandboxPolicy, SessionSource, SkillErrorInfo, TokenUsage,
 };
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
-use savfox_core::{AuthManager, SavfoxAuth, SessionManager, built_in_model_providers};
+use savfox_core::{
+    AuthManager, SavfoxAuth, SessionManager, built_in_model_providers,
+    parse_provider_prefixed_model,
+};
 use savfox_login_oauth::{
     ServerOptions, complete_device_code_login, request_device_code, run_login_server,
 };
