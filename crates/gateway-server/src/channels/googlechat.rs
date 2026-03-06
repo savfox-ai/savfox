@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Google Chat bridge using webhook and Spaces API.
@@ -75,7 +75,7 @@ impl Channel for GoogleChatChannel {
         self.send_message(channel, &text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         let message = payload.get("message").unwrap_or(&Value::Null);
         let text = message.get("text").and_then(|t| t.as_str()).unwrap_or("");
         let space = payload
@@ -97,13 +97,13 @@ impl Channel for GoogleChatChannel {
         {
             let prompt = prompt.trim().to_owned();
             if !prompt.is_empty() {
-                return Ok(BridgeAction::StartThread {
+                return Ok(ChannelAction::StartThread {
                     channel: space,
                     prompt,
                 });
             }
         }
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }
 

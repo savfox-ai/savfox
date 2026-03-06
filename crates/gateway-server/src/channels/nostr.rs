@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 
 /// Nostr decentralized protocol bridge.
 ///
@@ -38,7 +38,7 @@ impl NostrChannel {
     }
 
     /// Parse a Nostr event payload.
-    fn parse_event(payload: &Value) -> anyhow::Result<BridgeAction> {
+    fn parse_event(payload: &Value) -> anyhow::Result<ChannelAction> {
         let kind = payload["kind"].as_u64().unwrap_or(0);
 
         match kind {
@@ -48,10 +48,10 @@ impl NostrChannel {
                 let pubkey = payload["pubkey"].as_str().unwrap_or("unknown").to_string();
 
                 if content.trim().is_empty() {
-                    return Ok(BridgeAction::Ignore);
+                    return Ok(ChannelAction::Ignore);
                 }
 
-                Ok(BridgeAction::StartThread {
+                Ok(ChannelAction::StartThread {
                     channel: pubkey,
                     prompt: content,
                 })
@@ -65,15 +65,15 @@ impl NostrChannel {
                 // For now, pass the raw content - decryption would require
                 // the secp256k1 shared secret computation.
                 if content.trim().is_empty() {
-                    return Ok(BridgeAction::Ignore);
+                    return Ok(ChannelAction::Ignore);
                 }
 
-                Ok(BridgeAction::StartThread {
+                Ok(ChannelAction::StartThread {
                     channel: format!("dm:{pubkey}"),
                     prompt: content,
                 })
             }
-            _ => Ok(BridgeAction::Ignore),
+            _ => Ok(ChannelAction::Ignore),
         }
     }
 }
@@ -114,7 +114,7 @@ impl Channel for NostrChannel {
         self.send_message(channel, &text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_event(&payload)
     }
 }

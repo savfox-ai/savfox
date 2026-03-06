@@ -13,7 +13,7 @@ External Platform          Gateway                 Agent Engine
        |                       |                         |
        |-- webhook POST ------>|                         |
        |                       |-- parse payload         |
-       |                       |-- BridgeAction          |
+       |                       |-- ChannelAction          |
        |                       |-- invoke agent -------->|
        |                       |                         |-- process turn
        |                       |<-- agent response ------|
@@ -29,7 +29,7 @@ pub trait ChatBridge: Send + Sync {
     async fn start(&mut self) -> anyhow::Result<()>;
     async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()>;
     async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()>;
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction>;
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction>;
 }
 ```
 
@@ -39,9 +39,9 @@ pub trait ChatBridge: Send + Sync {
 - **send_rich_message()** -- send structured content (code blocks, embeds,
   titles, color accents).
 - **handle_webhook()** -- parse an inbound webhook payload into a
-  `BridgeAction`.
+  `ChannelAction`.
 
-## BridgeAction variants
+## ChannelAction variants
 
 When a webhook arrives, the bridge parses it into one of these actions:
 
@@ -59,7 +59,7 @@ When a webhook arrives, the bridge parses it into one of these actions:
 1. The external platform sends an HTTP POST to `/webhooks/<platform>`.
 2. The bridge handler verifies the request signature (HMAC, Ed25519, or
    platform-specific mechanism).
-3. The payload is parsed into a `BridgeAction`.
+3. The payload is parsed into a `ChannelAction`.
 4. For `StartThread`:
    - The bridge runtime calls `track_inbound_message()` to create or update a
      session entry in the `SessionStore`.

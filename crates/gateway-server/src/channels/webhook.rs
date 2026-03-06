@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::{GatewayConfig, WebhookBridgeConfig};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Generic webhook bridge for custom integrations.
@@ -47,7 +47,7 @@ impl GenericWebhookChannel {
     }
 
     /// Parse a generic webhook payload.
-    fn parse_payload(payload: &Value) -> anyhow::Result<BridgeAction> {
+    fn parse_payload(payload: &Value) -> anyhow::Result<ChannelAction> {
         let action = payload.get("action").and_then(|a| a.as_str()).unwrap_or("");
 
         match action {
@@ -64,9 +64,9 @@ impl GenericWebhookChannel {
                     .to_owned();
 
                 if prompt.is_empty() {
-                    Ok(BridgeAction::Ignore)
+                    Ok(ChannelAction::Ignore)
                 } else {
-                    Ok(BridgeAction::StartThread { channel, prompt })
+                    Ok(ChannelAction::StartThread { channel, prompt })
                 }
             }
 
@@ -83,9 +83,9 @@ impl GenericWebhookChannel {
                     .to_owned();
 
                 if thread_id.is_empty() || message.is_empty() {
-                    Ok(BridgeAction::Ignore)
+                    Ok(ChannelAction::Ignore)
                 } else {
-                    Ok(BridgeAction::SendToThread { thread_id, message })
+                    Ok(ChannelAction::SendToThread { thread_id, message })
                 }
             }
 
@@ -101,16 +101,16 @@ impl GenericWebhookChannel {
                     .unwrap_or(false);
 
                 if thread_id.is_empty() {
-                    Ok(BridgeAction::Ignore)
+                    Ok(ChannelAction::Ignore)
                 } else {
-                    Ok(BridgeAction::Approve {
+                    Ok(ChannelAction::Approve {
                         thread_id,
                         decision,
                     })
                 }
             }
 
-            _ => Ok(BridgeAction::Ignore),
+            _ => Ok(ChannelAction::Ignore),
         }
     }
 }
@@ -169,7 +169,7 @@ impl Channel for GenericWebhookChannel {
         self.send_message(channel, &msg.text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_payload(&payload)
     }
 }
@@ -264,7 +264,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     match &action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(channel = %channel, "Webhook: starting thread with prompt: {prompt}");
             let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
                 Ok(bridge) => bridge.clone(),
@@ -304,19 +304,19 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::SendToThread {
+        ChannelAction::SendToThread {
             thread_id,
             message: _,
         } => {
             info!(thread_id = %thread_id, "Webhook: sending message to thread");
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "Webhook: approval response");
         }
-        BridgeAction::Ignore => {}
+        ChannelAction::Ignore => {}
     }
 
     res.render(Text::Json(

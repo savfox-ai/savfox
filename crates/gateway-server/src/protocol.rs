@@ -138,5 +138,3 @@ pub struct ConnectionPolicy {
     #[serde(default)]
     pub tick_interval_ms: Option<u64>,
 }
-
-pub use savfox_core::channel::ChannelAction as BridgeAction;

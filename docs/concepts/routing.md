@@ -10,7 +10,7 @@ describes the routing logic, session key construction, and rule-based routing.
 Inbound message
   |
   v
-Bridge parses payload -> BridgeAction
+Bridge parses payload -> ChannelAction
   |
   v
 Session key construction (agent + channel + group + peer)
@@ -120,9 +120,9 @@ Channels use a `platform:identifier` format:
 
 ## Bridge action routing
 
-Each bridge parses its platform-specific payload into a `BridgeAction`:
+Each bridge parses its platform-specific payload into a `ChannelAction`:
 
-| BridgeAction     | Description                                          |
+| ChannelAction     | Description                                          |
 |------------------|------------------------------------------------------|
 | `StartThread`    | Create a new agent thread with the user's prompt     |
 | `SendToThread`   | Route a message to an existing thread                |

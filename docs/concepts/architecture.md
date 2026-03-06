@@ -89,7 +89,7 @@ are dispatched as `GatewayMessage` variants (the legacy protocol envelope).
 A "bridge" connects a chat platform to the gateway. Each bridge:
 
 1. Receives inbound webhooks at `/webhooks/<platform>`.
-2. Parses the platform-specific payload into a `BridgeAction`:
+2. Parses the platform-specific payload into a `ChannelAction`:
    - `StartThread` -- create a new agent thread with the user's prompt.
    - `SendToThread` -- route a message to an existing thread.
    - `Approve` -- respond to an exec approval request.

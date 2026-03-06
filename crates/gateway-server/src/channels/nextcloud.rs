@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 
 /// NextCloud Talk bridge.
 ///
@@ -111,8 +111,8 @@ impl NextCloudChannel {
         Ok(())
     }
 
-    /// Parse a NextCloud Talk message into a BridgeAction.
-    fn parse_message(msg: &Value) -> Option<BridgeAction> {
+    /// Parse a NextCloud Talk message into a ChannelAction.
+    fn parse_message(msg: &Value) -> Option<ChannelAction> {
         let message_type = msg["messageType"].as_str().unwrap_or("comment");
         if message_type != "comment" {
             return None; // Skip system messages
@@ -126,7 +126,7 @@ impl NextCloudChannel {
         let actor_id = msg["actorId"].as_str().unwrap_or("unknown");
         let room_token = msg["token"].as_str().unwrap_or("unknown");
 
-        Some(BridgeAction::StartThread {
+        Some(ChannelAction::StartThread {
             channel: format!("nextcloud:{room_token}:{actor_id}"),
             prompt: text.to_string(),
         })
@@ -193,12 +193,12 @@ impl Channel for NextCloudChannel {
         self.send_message(channel, &formatted).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         // NextCloud Talk can send webhook notifications for new messages
         if let Some(action) = Self::parse_message(&payload) {
             Ok(action)
         } else {
-            Ok(BridgeAction::Ignore)
+            Ok(ChannelAction::Ignore)
         }
     }
 }
@@ -221,7 +221,7 @@ mod tests {
         let action = NextCloudChannel::parse_message(&msg);
         assert!(action.is_some());
         match action.unwrap() {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "nextcloud:abc123:user1");
                 assert_eq!(prompt, "Hello bot!");
             }

@@ -10,7 +10,7 @@ use tracing::{error, info, warn};
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::{GatewayConfig, WhatsAppChannelConfig};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
@@ -47,8 +47,8 @@ impl WhatsAppChannel {
         }
     }
 
-    /// Parse a WhatsApp webhook payload into a `BridgeAction`.
-    fn parse_webhook_payload(payload: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse a WhatsApp webhook payload into a `ChannelAction`.
+    fn parse_webhook_payload(payload: &Value) -> anyhow::Result<ChannelAction> {
         let entry = payload
             .get("entry")
             .and_then(|e| e.as_array())
@@ -78,7 +78,7 @@ impl WhatsAppChannel {
                         .unwrap_or("");
 
                     if !text.is_empty() {
-                        return Ok(BridgeAction::StartThread {
+                        return Ok(ChannelAction::StartThread {
                             channel: from.to_string(),
                             prompt: text.to_owned(),
                         });
@@ -87,7 +87,7 @@ impl WhatsAppChannel {
             }
         }
 
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }
 
@@ -149,7 +149,7 @@ impl Channel for WhatsAppChannel {
         self.send_message(channel, &text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_webhook_payload(&payload)
     }
 }
@@ -284,7 +284,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(from = %channel, "WhatsApp: starting thread with prompt");
 
             let message_id = body
@@ -346,13 +346,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "WhatsApp: approval response");
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {}
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {}
     }
 
     res.status_code(StatusCode::OK);

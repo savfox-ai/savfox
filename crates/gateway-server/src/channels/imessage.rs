@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::IMessageChannelConfig;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Default polling interval for fetching new messages (in seconds).
@@ -96,21 +96,21 @@ impl IMessageChannel {
         Ok(messages)
     }
 
-    /// Parse a BlueBubbles message object into a `BridgeAction`.
-    fn parse_message(message: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse a BlueBubbles message object into a `ChannelAction`.
+    fn parse_message(message: &Value) -> anyhow::Result<ChannelAction> {
         // Skip messages sent by us (isFromMe == true).
         let is_from_me = message
             .get("isFromMe")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if is_from_me {
-            return Ok(BridgeAction::Ignore);
+            return Ok(ChannelAction::Ignore);
         }
 
         let text = message.get("text").and_then(|t| t.as_str()).unwrap_or("");
 
         if text.is_empty() {
-            return Ok(BridgeAction::Ignore);
+            return Ok(ChannelAction::Ignore);
         }
 
         // Use the chat GUID as the channel identifier (e.g. "iMessage;-;+1234567890").
@@ -123,10 +123,10 @@ impl IMessageChannel {
             .unwrap_or_default();
 
         if channel.is_empty() {
-            return Ok(BridgeAction::Ignore);
+            return Ok(ChannelAction::Ignore);
         }
 
-        Ok(BridgeAction::StartThread {
+        Ok(ChannelAction::StartThread {
             channel: channel.to_owned(),
             prompt: text.to_owned(),
         })
@@ -220,7 +220,7 @@ impl IMessageChannel {
                         }
                     };
 
-                    if let BridgeAction::StartThread { channel, prompt } = action {
+                    if let ChannelAction::StartThread { channel, prompt } = action {
                         let guid = msg
                             .get("guid")
                             .and_then(|g| g.as_str())
@@ -319,7 +319,7 @@ impl Channel for IMessageChannel {
         self.send_message(channel, &text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         // BlueBubbles can be configured to send webhook callbacks on new messages.
         // The payload wraps the message in a "data" field for new-message events.
         let event_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -331,7 +331,7 @@ impl Channel for IMessageChannel {
             }
             _ => {
                 debug!(event_type = %event_type, "iMessage webhook: ignoring event");
-                Ok(BridgeAction::Ignore)
+                Ok(ChannelAction::Ignore)
             }
         }
     }
@@ -393,7 +393,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(chat = %channel, "iMessage: starting thread from webhook");
 
             let guid = data
@@ -445,13 +445,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "iMessage: approval response");
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {}
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {}
     }
 
     res.status_code(StatusCode::OK);

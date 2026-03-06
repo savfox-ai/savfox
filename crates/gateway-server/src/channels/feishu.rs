@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::runtime;
 use crate::bridge::GatewayBridge;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 struct FeishuRuntimeSink {
@@ -29,7 +29,7 @@ struct FeishuRuntimeSink {
 impl FeishuActionSink for FeishuRuntimeSink {
     async fn handle_action(
         &self,
-        action: BridgeAction,
+        action: ChannelAction,
         event_id: Option<&str>,
         message_id: Option<&str>,
     ) {
@@ -42,7 +42,7 @@ impl FeishuActionSink for FeishuRuntimeSink {
             return;
         }
 
-        if let BridgeAction::StartThread { channel, prompt } = action {
+        if let ChannelAction::StartThread { channel, prompt } = action {
             let bridge = Arc::clone(&self.bridge);
             let session_store = Arc::clone(&self.session_store);
             tokio::spawn(async move {

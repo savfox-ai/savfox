@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::{GatewayConfig, MsTeamsChannelConfig};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Bot Framework OAuth2 token endpoint.
@@ -189,8 +189,8 @@ impl MsTeamsChannel {
         Ok(())
     }
 
-    /// Parse an incoming Bot Framework activity into a `BridgeAction`.
-    fn parse_activity(payload: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse an incoming Bot Framework activity into a `ChannelAction`.
+    fn parse_activity(payload: &Value) -> anyhow::Result<ChannelAction> {
         let activity_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match activity_type {
@@ -208,9 +208,9 @@ impl MsTeamsChannel {
                     .to_owned();
 
                 if prompt.is_empty() {
-                    Ok(BridgeAction::Ignore)
+                    Ok(ChannelAction::Ignore)
                 } else {
-                    Ok(BridgeAction::StartThread {
+                    Ok(ChannelAction::StartThread {
                         channel: conversation_id,
                         prompt,
                     })
@@ -226,20 +226,20 @@ impl MsTeamsChannel {
                     .unwrap_or("");
 
                 if let Some(thread_id) = action_type.strip_prefix("approve:") {
-                    Ok(BridgeAction::Approve {
+                    Ok(ChannelAction::Approve {
                         thread_id: thread_id.to_owned(),
                         decision: true,
                     })
                 } else if let Some(thread_id) = action_type.strip_prefix("deny:") {
-                    Ok(BridgeAction::Approve {
+                    Ok(ChannelAction::Approve {
                         thread_id: thread_id.to_owned(),
                         decision: false,
                     })
                 } else {
-                    Ok(BridgeAction::Ignore)
+                    Ok(ChannelAction::Ignore)
                 }
             }
-            _ => Ok(BridgeAction::Ignore),
+            _ => Ok(ChannelAction::Ignore),
         }
     }
 }
@@ -357,7 +357,7 @@ impl Channel for MsTeamsChannel {
         Ok(())
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_activity(&payload)
     }
 }
@@ -464,7 +464,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(conversation_id = %channel, "MS Teams: starting thread with prompt: {prompt}");
 
             let activity_id = body
@@ -525,14 +525,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "MS Teams: approval response");
             res.status_code(StatusCode::OK);
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {
             res.status_code(StatusCode::OK);
         }
     }
@@ -569,7 +569,7 @@ mod tests {
         });
         let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "conv-123");
                 assert_eq!(prompt, "build a website");
             }
@@ -585,7 +585,7 @@ mod tests {
             "conversation": {"id": "conv-456"},
         });
         let action = MsTeamsChannel::parse_activity(&payload).unwrap();
-        assert!(matches!(action, BridgeAction::Ignore));
+        assert!(matches!(action, ChannelAction::Ignore));
     }
 
     #[test]
@@ -596,7 +596,7 @@ mod tests {
         });
         let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
-            BridgeAction::Approve {
+            ChannelAction::Approve {
                 thread_id,
                 decision,
             } => {
@@ -615,7 +615,7 @@ mod tests {
         });
         let action = MsTeamsChannel::parse_activity(&payload).unwrap();
         match action {
-            BridgeAction::Approve {
+            ChannelAction::Approve {
                 thread_id,
                 decision,
             } => {
@@ -633,7 +633,7 @@ mod tests {
             "membersAdded": [],
         });
         let action = MsTeamsChannel::parse_activity(&payload).unwrap();
-        assert!(matches!(action, BridgeAction::Ignore));
+        assert!(matches!(action, ChannelAction::Ignore));
     }
 
     #[test]

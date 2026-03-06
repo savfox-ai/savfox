@@ -9,7 +9,7 @@ use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, is_slack_timestamp_fresh};
 use crate::config::{GatewayConfig, SlackChannelConfig};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Slack bridge using Events API and slash commands.
@@ -89,13 +89,13 @@ impl SlackChannel {
         crate::bridge::verify_slack_signature(signing_secret, timestamp, signature, body)
     }
 
-    /// Parse a Slack event or slash command payload into a `BridgeAction`.
-    fn parse_event(payload: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse a Slack event or slash command payload into a `ChannelAction`.
+    fn parse_event(payload: &Value) -> anyhow::Result<ChannelAction> {
         let event_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match event_type {
             // URL verification challenge.
-            "url_verification" => Ok(BridgeAction::Ignore),
+            "url_verification" => Ok(ChannelAction::Ignore),
 
             // Event callback.
             "event_callback" => {
@@ -124,26 +124,26 @@ impl SlackChannel {
                             .to_owned();
 
                         if prompt.is_empty() {
-                            Ok(BridgeAction::Ignore)
+                            Ok(ChannelAction::Ignore)
                         } else if let Some(command_prompt) = normalize_command_prompt(&prompt) {
-                            Ok(BridgeAction::StartThread {
+                            Ok(ChannelAction::StartThread {
                                 channel,
                                 prompt: command_prompt,
                             })
                         } else {
-                            Ok(BridgeAction::StartThread { channel, prompt })
+                            Ok(ChannelAction::StartThread { channel, prompt })
                         }
                     }
-                    _ => Ok(BridgeAction::Ignore),
+                    _ => Ok(ChannelAction::Ignore),
                 }
             }
 
-            _ => Ok(BridgeAction::Ignore),
+            _ => Ok(ChannelAction::Ignore),
         }
     }
 
     /// Parse a slash command form payload.
-    fn parse_slash_command(payload: &Value) -> anyhow::Result<BridgeAction> {
+    fn parse_slash_command(payload: &Value) -> anyhow::Result<ChannelAction> {
         let command = payload
             .get("command")
             .and_then(|c| c.as_str())
@@ -157,9 +157,9 @@ impl SlackChannel {
             .to_owned();
 
         if let Some(prompt) = slash_command_prompt(command, text) {
-            Ok(BridgeAction::StartThread { channel, prompt })
+            Ok(ChannelAction::StartThread { channel, prompt })
         } else {
-            Ok(BridgeAction::Ignore)
+            Ok(ChannelAction::Ignore)
         }
     }
 
@@ -359,7 +359,7 @@ impl Channel for SlackChannel {
         Ok(())
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         // Check if this is a slash command (has "command" field) or an event.
         if payload.get("command").is_some() {
             Self::parse_slash_command(&payload)
@@ -462,7 +462,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        Ok(BridgeAction::StartThread { channel, prompt }) => {
+        Ok(ChannelAction::StartThread { channel, prompt }) => {
             info!(channel = %channel, "Slack: starting thread with prompt: {prompt}");
             let dedupe_key = body
                 .get("event")
@@ -529,14 +529,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        Ok(BridgeAction::Approve {
+        Ok(ChannelAction::Approve {
             thread_id,
             decision,
         }) => {
             info!(thread_id = %thread_id, decision = %decision, "Slack: approval response");
             res.status_code(StatusCode::OK);
         }
-        Ok(BridgeAction::Ignore | BridgeAction::SendToThread { .. }) => {
+        Ok(ChannelAction::Ignore | ChannelAction::SendToThread { .. }) => {
             res.status_code(StatusCode::OK);
         }
         Err(err) => {
@@ -556,7 +556,7 @@ mod tests {
     use serde_json::json;
 
     use super::SlackChannel;
-    use crate::protocol::BridgeAction;
+    use crate::protocol::ChannelAction;
 
     #[test]
     fn slash_command_supports_native_registry_command() {
@@ -568,7 +568,7 @@ mod tests {
 
         let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
         match action {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "C123");
                 assert_eq!(prompt, "/status");
             }
@@ -586,7 +586,7 @@ mod tests {
 
         let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
         match action {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "C123");
                 assert_eq!(prompt, "/help");
             }

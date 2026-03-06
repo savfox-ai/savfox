@@ -8,7 +8,7 @@ use tracing::info;
 
 use super::runtime;
 use crate::bridge::GatewayBridge;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 fn render_error(res: &mut Response, status: StatusCode, code: &str, message: impl Into<String>) {
@@ -53,7 +53,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    if let BridgeAction::StartThread { channel, prompt } = parse_start_thread_action(&body) {
+    if let ChannelAction::StartThread { channel, prompt } = parse_start_thread_action(&body) {
         let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
             Ok(bridge) => bridge.clone(),
             Err(_) => {

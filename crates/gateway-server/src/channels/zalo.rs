@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
 use crate::config::ZaloChannelConfig;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Zalo OA (Official Account) API base URL.
@@ -46,8 +46,8 @@ impl ZaloChannel {
         }
     }
 
-    /// Parse a Zalo OA webhook event payload into a `BridgeAction`.
-    fn parse_event(payload: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse a Zalo OA webhook event payload into a `ChannelAction`.
+    fn parse_event(payload: &Value) -> anyhow::Result<ChannelAction> {
         let event_name = payload
             .get("event_name")
             .and_then(|e| e.as_str())
@@ -55,7 +55,7 @@ impl ZaloChannel {
 
         // Only handle user-sent text messages.
         if event_name != "user_send_text" {
-            return Ok(BridgeAction::Ignore);
+            return Ok(ChannelAction::Ignore);
         }
 
         let sender_id = payload
@@ -75,9 +75,9 @@ impl ZaloChannel {
         if let Some(prompt) = text.strip_prefix("/savfox ") {
             let prompt = prompt.trim().to_owned();
             if prompt.is_empty() {
-                return Ok(BridgeAction::Ignore);
+                return Ok(ChannelAction::Ignore);
             }
-            return Ok(BridgeAction::StartThread {
+            return Ok(ChannelAction::StartThread {
                 channel: sender_id,
                 prompt,
             });
@@ -85,10 +85,10 @@ impl ZaloChannel {
 
         // Bare `/savfox` with no arguments.
         if text == "/savfox" {
-            return Ok(BridgeAction::Ignore);
+            return Ok(ChannelAction::Ignore);
         }
 
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 
     /// Verify the webhook signature using HMAC-SHA256 with the app secret.
@@ -218,7 +218,7 @@ impl Channel for ZaloChannel {
         Ok(())
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_event(&payload)
     }
 }
@@ -296,7 +296,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(user_id = %channel, "Zalo: starting thread with prompt: {prompt}");
             let event_key = body
                 .get("message")
@@ -353,13 +353,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "Zalo: approval response");
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {}
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {}
     }
 
     // Zalo expects 200 OK for all webhook responses.

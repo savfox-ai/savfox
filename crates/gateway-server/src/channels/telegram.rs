@@ -9,7 +9,7 @@ use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_telegram_webhook_secret};
 use crate::config::{GatewayConfig, TelegramChannelConfig};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// Telegram bot bridge using the Bot API with webhook mode.
@@ -67,8 +67,8 @@ impl TelegramChannel {
         }
     }
 
-    /// Parse a Telegram Update payload into a `BridgeAction`.
-    fn parse_update(payload: &Value) -> anyhow::Result<BridgeAction> {
+    /// Parse a Telegram Update payload into a `ChannelAction`.
+    fn parse_update(payload: &Value) -> anyhow::Result<ChannelAction> {
         let message = payload.get("message").unwrap_or(&Value::Null);
         let text = message.get("text").and_then(|t| t.as_str()).unwrap_or("");
 
@@ -83,16 +83,16 @@ impl TelegramChannel {
             if command == "savfox" {
                 let prompt = args.trim().to_string();
                 if prompt.is_empty() {
-                    return Ok(BridgeAction::Ignore);
+                    return Ok(ChannelAction::Ignore);
                 }
-                return Ok(BridgeAction::StartThread {
+                return Ok(ChannelAction::StartThread {
                     channel: chat_id,
                     prompt,
                 });
             }
 
             if let Some(prompt) = normalize_registry_command(text) {
-                return Ok(BridgeAction::StartThread {
+                return Ok(ChannelAction::StartThread {
                     channel: chat_id,
                     prompt,
                 });
@@ -104,20 +104,20 @@ impl TelegramChannel {
             let data = callback.get("data").and_then(|d| d.as_str()).unwrap_or("");
 
             if let Some(thread_id) = data.strip_prefix("approve:") {
-                return Ok(BridgeAction::Approve {
+                return Ok(ChannelAction::Approve {
                     thread_id: thread_id.to_owned(),
                     decision: true,
                 });
             }
             if let Some(thread_id) = data.strip_prefix("deny:") {
-                return Ok(BridgeAction::Approve {
+                return Ok(ChannelAction::Approve {
                     thread_id: thread_id.to_owned(),
                     decision: false,
                 });
             }
         }
 
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }
 
@@ -259,7 +259,7 @@ impl Channel for TelegramChannel {
         Ok(())
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_update(&payload)
     }
 }
@@ -323,7 +323,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(chat_id = %channel, "Telegram: starting thread with prompt: {prompt}");
             let update_id = body
                 .get("update_id")
@@ -376,13 +376,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "Telegram: approval response");
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {}
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {}
     }
 
     // Telegram expects 200 OK for all webhook responses.
@@ -394,7 +394,7 @@ mod tests {
     use serde_json::json;
 
     use super::TelegramChannel;
-    use crate::protocol::BridgeAction;
+    use crate::protocol::ChannelAction;
 
     #[test]
     fn supports_commands_alias_surface() {
@@ -407,7 +407,7 @@ mod tests {
 
         let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
         match action {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "42");
                 assert_eq!(prompt, "/commands");
             }
@@ -426,7 +426,7 @@ mod tests {
 
         let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
         match action {
-            BridgeAction::StartThread { channel, prompt } => {
+            ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "42");
                 assert_eq!(prompt, "summarize this");
             }

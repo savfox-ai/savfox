@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 
 /// Tlon bridge for the Urbit ecosystem.
 ///
@@ -192,7 +192,7 @@ impl Channel for TlonChannel {
         self.send_message(channel, &formatted).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         // Parse incoming Urbit graph-store update
         let nodes = payload
             .get("graph-update")
@@ -225,7 +225,7 @@ impl Channel for TlonChannel {
                             continue;
                         }
 
-                        return Ok(BridgeAction::StartThread {
+                        return Ok(ChannelAction::StartThread {
                             channel: format!("tlon:{author}"),
                             prompt: text,
                         });
@@ -234,6 +234,6 @@ impl Channel for TlonChannel {
             }
         }
 
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }

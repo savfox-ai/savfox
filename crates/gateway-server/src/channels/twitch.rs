@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage};
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 
 /// Twitch chat bridge using IRC over WebSocket (TMI).
 ///
@@ -38,7 +38,7 @@ impl TwitchChannel {
     }
 
     /// Parse a Twitch IRC-style webhook payload.
-    fn parse_message(payload: &Value) -> anyhow::Result<BridgeAction> {
+    fn parse_message(payload: &Value) -> anyhow::Result<ChannelAction> {
         let msg_type = payload["type"].as_str().unwrap_or("");
 
         match msg_type {
@@ -48,10 +48,10 @@ impl TwitchChannel {
                 let user = payload["user"].as_str().unwrap_or("unknown").to_string();
 
                 if text.trim().is_empty() {
-                    return Ok(BridgeAction::Ignore);
+                    return Ok(ChannelAction::Ignore);
                 }
 
-                Ok(BridgeAction::StartThread {
+                Ok(ChannelAction::StartThread {
                     channel: format!("twitch:{channel}"),
                     prompt: text,
                 })
@@ -62,15 +62,15 @@ impl TwitchChannel {
                 let user = payload["user"].as_str().unwrap_or("unknown").to_string();
 
                 if text.trim().is_empty() {
-                    return Ok(BridgeAction::Ignore);
+                    return Ok(ChannelAction::Ignore);
                 }
 
-                Ok(BridgeAction::StartThread {
+                Ok(ChannelAction::StartThread {
                     channel: format!("whisper:{user}"),
                     prompt: text,
                 })
             }
-            _ => Ok(BridgeAction::Ignore),
+            _ => Ok(ChannelAction::Ignore),
         }
     }
 
@@ -150,7 +150,7 @@ impl Channel for TwitchChannel {
         self.send_message(channel, &text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         Self::parse_message(&payload)
     }
 }

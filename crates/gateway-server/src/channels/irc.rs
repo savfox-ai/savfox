@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// IRC bridge via an HTTP relay service.
@@ -71,7 +71,7 @@ impl Channel for IrcChannel {
         self.send_message(channel, &msg.text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         let message = payload
             .get("message")
             .and_then(|m| m.as_str())
@@ -90,13 +90,13 @@ impl Channel for IrcChannel {
         if let Some(prompt) = message.strip_prefix("!savfox ") {
             let prompt = prompt.trim().to_owned();
             if !prompt.is_empty() {
-                return Ok(BridgeAction::StartThread {
+                return Ok(ChannelAction::StartThread {
                     channel: channel_name,
                     prompt,
                 });
             }
         }
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }
 

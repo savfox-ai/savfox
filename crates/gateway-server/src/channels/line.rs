@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::bridge::GatewayBridge;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 /// LINE Messaging API bridge.
@@ -72,7 +72,7 @@ impl Channel for LineChannel {
         self.send_message(channel, &msg.text).await
     }
 
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<BridgeAction> {
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
         let events = payload
             .get("events")
             .and_then(|e| e.as_array())
@@ -104,14 +104,14 @@ impl Channel for LineChannel {
             if let Some(prompt) = text.strip_prefix("/savfox ") {
                 let prompt = prompt.trim().to_owned();
                 if !prompt.is_empty() {
-                    return Ok(BridgeAction::StartThread {
+                    return Ok(ChannelAction::StartThread {
                         channel: reply_token,
                         prompt,
                     });
                 }
             }
         }
-        Ok(BridgeAction::Ignore)
+        Ok(ChannelAction::Ignore)
     }
 }
 

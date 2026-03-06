@@ -11,7 +11,7 @@ use super::runtime;
 use crate::auto_reply::CommandRegistry;
 use crate::bridge::{GatewayBridge, verify_discord_signature};
 use crate::config::GatewayConfig;
-use crate::protocol::BridgeAction;
+use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 fn build_registry_prompt(command_name: &str, data: &Value) -> Option<String> {
@@ -140,7 +140,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        BridgeAction::StartThread { channel, prompt } => {
+        ChannelAction::StartThread { channel, prompt } => {
             info!(channel = %channel, "Discord: starting thread with prompt: {prompt}");
             let interaction_id = body
                 .get("id")
@@ -194,14 +194,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .await;
             });
         }
-        BridgeAction::Approve {
+        ChannelAction::Approve {
             thread_id,
             decision,
         } => {
             info!(thread_id = %thread_id, decision = %decision, "Discord: approval response");
             res.render(Text::Json(json!({"type": 6}).to_string()));
         }
-        BridgeAction::Ignore | BridgeAction::SendToThread { .. } => {
+        ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {
             res.render(Text::Json(json!({"type": 1}).to_string()));
         }
     }
