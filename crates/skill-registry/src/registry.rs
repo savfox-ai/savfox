@@ -199,6 +199,6 @@ mod tests {
     async fn registry_creation() {
         let tmp = TempDir::new().unwrap();
         let registry = SkillRegistry::new(tmp.path());
-        assert!(registry.skills_dir().exists() || true);
+        assert!(registry.skills_dir().exists());
     }
 }

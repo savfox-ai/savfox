@@ -20,7 +20,7 @@ impl AuthProvider for DummyAuth {
 
 fn provider(base_url: &str) -> Provider {
     Provider {
-        slug: "test".to_string(),
+        id: "test".to_string(),
         name: "test".to_string(),
         base_url: base_url.to_string(),
         query_params: None,
@@ -44,7 +44,7 @@ async fn models_client_hits_models_endpoint() {
 
     let response = ModelsResponse {
         models: vec![ModelInfo {
-            slug: "gpt-test".to_string(),
+            id: "gpt-test".to_string(),
             name: "gpt-test".to_string(),
             description: Some("desc".to_string()),
             default_reasoning_level: Some(ReasoningEffort::Medium),

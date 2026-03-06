@@ -54,7 +54,7 @@ impl AuthProvider for NoAuth {
 
 fn provider(name: &str, wire: WireApi) -> Provider {
     Provider {
-        slug: name.to_string(),
+        id: name.to_string(),
         name: name.to_string(),
         base_url: "https://example.com/v1".to_string(),
         query_params: None,

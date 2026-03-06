@@ -226,7 +226,7 @@ mod tests {
 
     fn provider() -> Provider {
         Provider {
-            slug: "anthropic".to_string(),
+            id: "anthropic".to_string(),
             name: "anthropic".to_string(),
             base_url: "https://api.anthropic.com".to_string(),
             query_params: None,

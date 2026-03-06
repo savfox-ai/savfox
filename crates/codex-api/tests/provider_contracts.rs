@@ -28,7 +28,7 @@ fn retry_config() -> RetryConfig {
 
 fn openai_provider() -> Provider {
     Provider {
-        slug: "openai".to_string(),
+        id: "openai".to_string(),
         name: "openai".to_string(),
         base_url: "https://api.openai.com/v1".to_string(),
         query_params: None,
@@ -41,7 +41,7 @@ fn openai_provider() -> Provider {
 
 fn chat_provider() -> Provider {
     Provider {
-        slug: "openai".to_string(),
+        id: "openai".to_string(),
         name: "openai".to_string(),
         base_url: "https://api.openai.com/v1".to_string(),
         query_params: None,
@@ -54,7 +54,7 @@ fn chat_provider() -> Provider {
 
 fn anthropic_provider() -> Provider {
     Provider {
-        slug: "anthropic".to_string(),
+        id: "anthropic".to_string(),
         name: "anthropic".to_string(),
         base_url: "https://api.anthropic.com".to_string(),
         query_params: None,
@@ -255,7 +255,7 @@ mod request_format {
     #[test]
     fn responses_request_azure_defaults_store_true() {
         let azure = Provider {
-            slug: "azure".to_string(),
+            id: "azure".to_string(),
             name: "azure".to_string(),
             base_url: "https://example.openai.azure.com/v1".to_string(),
             query_params: None,
@@ -1003,7 +1003,7 @@ mod provider_config {
     #[test]
     fn azure_detection_by_name() {
         let p = Provider {
-            slug: "azure".to_string(),
+            id: "azure".to_string(),
             name: "azure".to_string(),
             base_url: "https://example.com".to_string(),
             query_params: None,
@@ -1018,7 +1018,7 @@ mod provider_config {
     #[test]
     fn azure_detection_by_url() {
         let p = Provider {
-            slug: "custom".to_string(),
+            id: "custom".to_string(),
             name: "custom".to_string(),
             base_url: "https://foo.openai.azure.com/openai".to_string(),
             query_params: None,
@@ -1048,7 +1048,7 @@ mod provider_config {
     #[test]
     fn websocket_url_http_becomes_ws() {
         let p = Provider {
-            slug: "local".to_string(),
+            id: "local".to_string(),
             name: "local".to_string(),
             base_url: "http://localhost:8080/v1".to_string(),
             query_params: None,
