@@ -13,6 +13,7 @@ mod apply_patch;
 pub mod auth;
 pub mod auth_profiles;
 pub mod bash;
+pub mod channel;
 mod client;
 mod client_common;
 mod compact_remote;

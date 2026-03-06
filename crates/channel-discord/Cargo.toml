@@ -1,0 +1,21 @@
+[package]
+name = "savfox-channel-discord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "savfox_channel_discord"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+savfox-core = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

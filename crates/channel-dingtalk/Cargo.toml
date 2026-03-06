@@ -1,0 +1,26 @@
+[package]
+name = "savfox-channel-dingtalk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "savfox_channel_dingtalk"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+hmac = { workspace = true }
+reqwest = { workspace = true }
+savfox-core = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }

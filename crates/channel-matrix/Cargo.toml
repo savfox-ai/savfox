@@ -1,0 +1,22 @@
+[package]
+name = "savfox-channel-matrix"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "savfox_channel_matrix"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+savfox-core = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }

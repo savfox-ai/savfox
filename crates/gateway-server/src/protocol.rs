@@ -139,15 +139,4 @@ pub struct ConnectionPolicy {
     pub tick_interval_ms: Option<u64>,
 }
 
-/// Actions that can result from processing an incoming bridge webhook.
-#[derive(Debug, Clone)]
-pub enum BridgeAction {
-    /// Start a new agent thread with the given prompt.
-    StartThread { channel: String, prompt: String },
-    /// Send a message to an existing thread.
-    SendToThread { thread_id: String, message: String },
-    /// Respond to an approval request.
-    Approve { thread_id: String, decision: bool },
-    /// No action needed (e.g., unrelated webhook event).
-    Ignore,
-}
+pub use savfox_core::channel::ChannelAction as BridgeAction;
