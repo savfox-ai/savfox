@@ -21,11 +21,11 @@ mod approval_policy_store;
 pub mod audit;
 pub mod auth;
 pub mod auto_reply;
+pub mod canvas_host;
 #[path = "channel.rs"]
 pub mod channel;
 #[path = "channels/mod.rs"]
 pub mod channels;
-pub mod canvas_host;
 pub(crate) mod chat_attachments;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;
@@ -85,7 +85,7 @@ mod ws_rpc;
 pub use config::{GatewayCommand, GatewaySubcommand};
 
 use crate::auth::GatewayAuth;
-use crate::channel::{BridgeOutgoing, GatewayChannel, GatewayBridgeArgs};
+use crate::channel::{BridgeOutgoing, GatewayBridgeArgs, GatewayChannel};
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
 use crate::session::{GatewaySessionManager, SessionStore};
@@ -100,6 +100,8 @@ pub async fn run_main(
 ) -> IoResult<()> {
     println!("[startup] Savfox Gateway Server starting...");
     println!("[startup] Initializing logging and configuration...");
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     // Install tracing subscriber.
     let stderr_fmt = tracing_subscriber::fmt::layer()
