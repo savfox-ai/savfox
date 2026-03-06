@@ -32,8 +32,8 @@ pub struct GatewayConfig {
     pub tls_key: Option<String>,
 
     /// Channel configuration for chat platforms.
-    #[serde(default)]
-    pub bridges: ChannelsConfig,
+    #[serde(default, alias = "bridges")]
+    pub channels: ChannelsConfig,
 
     /// Response footer rendering configuration.
     #[serde(default)]
@@ -48,7 +48,7 @@ impl Default for GatewayConfig {
             token: None,
             tls_cert: None,
             tls_key: None,
-            bridges: ChannelsConfig::default(),
+            channels: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
         }
     }
@@ -178,7 +178,7 @@ pub struct DiscordChannelConfig {
     pub application_public_key: Option<String>,
 }
 
-pub type DiscordChannelConfig = DiscordChannelConfig;
+pub type DiscordBridgeConfig = DiscordChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DingtalkChannelConfig {
@@ -194,7 +194,7 @@ pub struct DingtalkChannelConfig {
     pub secret: Option<String>,
 }
 
-pub type DingtalkChannelConfig = DingtalkChannelConfig;
+pub type DingtalkBridgeConfig = DingtalkChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramChannelConfig {
@@ -204,7 +204,7 @@ pub struct TelegramChannelConfig {
     pub webhook_secret_token: Option<String>,
 }
 
-pub type TelegramChannelConfig = TelegramChannelConfig;
+pub type TelegramBridgeConfig = TelegramChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlackChannelConfig {
@@ -213,7 +213,7 @@ pub struct SlackChannelConfig {
     pub signing_secret: String,
 }
 
-pub type SlackChannelConfig = SlackChannelConfig;
+pub type SlackBridgeConfig = SlackChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MsTeamsChannelConfig {
@@ -227,7 +227,7 @@ pub struct MsTeamsChannelConfig {
     pub tenant_id: Option<String>,
 }
 
-pub type MsTeamsChannelConfig = MsTeamsChannelConfig;
+pub type MsTeamsBridgeConfig = MsTeamsChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookChannelConfig {
@@ -239,6 +239,8 @@ pub struct WebhookChannelConfig {
     #[serde(default)]
     pub secret: Option<String>,
 }
+
+pub type WebhookBridgeConfig = WebhookChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatsAppChannelConfig {
@@ -255,7 +257,7 @@ pub struct WhatsAppChannelConfig {
     pub app_secret: Option<String>,
 }
 
-pub type WhatsAppChannelConfig = WhatsAppChannelConfig;
+pub type WhatsAppBridgeConfig = WhatsAppChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalChannelConfig {
@@ -268,7 +270,7 @@ pub struct SignalChannelConfig {
     pub rpc_url: Option<String>,
 }
 
-pub type SignalChannelConfig = SignalChannelConfig;
+pub type SignalBridgeConfig = SignalChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IMessageChannelConfig {
@@ -282,7 +284,7 @@ pub struct IMessageChannelConfig {
     pub poll_interval_secs: Option<u64>,
 }
 
-pub type IMessageChannelConfig = IMessageChannelConfig;
+pub type IMessageBridgeConfig = IMessageChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZaloChannelConfig {
@@ -298,7 +300,7 @@ pub struct ZaloChannelConfig {
     pub webhook_verify_token: Option<String>,
 }
 
-pub type ZaloChannelConfig = ZaloChannelConfig;
+pub type ZaloBridgeConfig = ZaloChannelConfig;
 
 /// CLI arguments for `savfox gateway`.
 #[derive(Debug, Parser)]
@@ -494,7 +496,7 @@ impl GatewayCommand {
             token: self.token,
             tls_cert: self.tls_cert,
             tls_key: self.tls_key,
-            bridges: ChannelsConfig::default(),
+            channels: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
         }
     }

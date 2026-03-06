@@ -323,8 +323,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(chat_id = %channel, "Telegram: starting thread with prompt: {prompt}");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(chat_id = %channel_id, "Telegram: starting thread with prompt: {prompt}");
             let update_id = body
                 .get("update_id")
                 .and_then(|v| v.as_i64())
@@ -334,7 +337,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("Telegram webhook: missing gateway channel state: {err:?}");
@@ -365,10 +368,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "telegram",
-                    channel,
+                    channel_id,
                     prompt,
                     name,
                     Some(meta),

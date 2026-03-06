@@ -42,15 +42,19 @@ impl FeishuActionSink for FeishuRuntimeSink {
             return;
         }
 
-        if let ChannelAction::StartThread { channel, prompt } = action {
-            let channel = Arc::clone(&self.channel);
+        if let ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } = action
+        {
+            let gateway_channel = Arc::clone(&self.channel);
             let session_store = Arc::clone(&self.session_store);
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "feishu",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                 )

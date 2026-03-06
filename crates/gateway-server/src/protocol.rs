@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use savfox_core::channel::ChannelAction;
+
 /// Current protocol version.
 pub const PROTOCOL_VERSION: u32 = 1;
 

@@ -499,10 +499,10 @@ async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
         }
     };
 
-    let channel = body.get("channel").and_then(|c| c.as_str()).unwrap_or("");
+    let channel_id = body.get("channel").and_then(|c| c.as_str()).unwrap_or("");
     let text = body.get("text").and_then(|t| t.as_str()).unwrap_or("");
 
-    if channel.is_empty() || text.is_empty() {
+    if channel_id.is_empty() || text.is_empty() {
         res.status_code(StatusCode::BAD_REQUEST);
         res.render(Text::Json(
             json!({"error": "both 'channel' and 'text' are required"}).to_string(),
@@ -511,7 +511,7 @@ async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
     }
 
     match channel
-        .send_platform_message(channel, text, None, None, None)
+        .send_platform_message(channel_id, text, None, None, None)
         .await
     {
         Ok(()) => {
@@ -884,21 +884,52 @@ fn json_path_str<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
     cur.as_str()
 }
 
+fn json_path_str_any<'a>(value: &'a Value, paths: &[&[&str]]) -> Option<&'a str> {
+    paths.iter().find_map(|path| json_path_str(value, path))
+}
+
 fn runtime_channel_secrets_from_config(config: &Value) -> RuntimeBridgeSecrets {
     RuntimeBridgeSecrets {
-        discord_bot_token: json_path_str(config, &["gateway", "channels", "discord", "bot_token"])
-            .map(ToOwned::to_owned),
-        telegram_bot_token: json_path_str(config, &["gateway", "channels", "telegram", "bot_token"])
-            .map(ToOwned::to_owned),
-        slack_bot_token: json_path_str(config, &["gateway", "channels", "slack", "bot_token"])
-            .map(ToOwned::to_owned),
-        slack_signing_secret: json_path_str(
+        discord_bot_token: json_path_str_any(
             config,
-            &["gateway", "channels", "slack", "signing_secret"],
+            &[
+                &["gateway", "channels", "discord", "bot_token"],
+                &["gateway", "bridges", "discord", "bot_token"],
+            ],
         )
         .map(ToOwned::to_owned),
-        webhook_secret: json_path_str(config, &["gateway", "channels", "webhook", "secret"])
-            .map(ToOwned::to_owned),
+        telegram_bot_token: json_path_str_any(
+            config,
+            &[
+                &["gateway", "channels", "telegram", "bot_token"],
+                &["gateway", "bridges", "telegram", "bot_token"],
+            ],
+        )
+        .map(ToOwned::to_owned),
+        slack_bot_token: json_path_str_any(
+            config,
+            &[
+                &["gateway", "channels", "slack", "bot_token"],
+                &["gateway", "bridges", "slack", "bot_token"],
+            ],
+        )
+        .map(ToOwned::to_owned),
+        slack_signing_secret: json_path_str_any(
+            config,
+            &[
+                &["gateway", "channels", "slack", "signing_secret"],
+                &["gateway", "bridges", "slack", "signing_secret"],
+            ],
+        )
+        .map(ToOwned::to_owned),
+        webhook_secret: json_path_str_any(
+            config,
+            &[
+                &["gateway", "channels", "webhook", "secret"],
+                &["gateway", "bridges", "webhook", "secret"],
+            ],
+        )
+        .map(ToOwned::to_owned),
     }
 }
 

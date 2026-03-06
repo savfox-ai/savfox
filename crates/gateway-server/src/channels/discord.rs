@@ -140,8 +140,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(channel = %channel, "Discord: starting thread with prompt: {prompt}");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(channel = %channel_id, "Discord: starting thread with prompt: {prompt}");
             let interaction_id = body
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -151,7 +154,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("Discord webhook: missing gateway channel state: {err:?}");
@@ -183,10 +186,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             let start_meta = to_runtime_start_meta(parse_start_meta(&body));
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "discord",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                     Some(start_meta),

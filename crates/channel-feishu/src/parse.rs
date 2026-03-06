@@ -20,7 +20,7 @@ pub fn parse_text_command(text: &str) -> Option<String> {
     }
 }
 
-pub fn extract_bridge_action(message_event: &FeishuMessageEvent) -> Option<ChannelAction> {
+pub fn extract_channel_action(message_event: &FeishuMessageEvent) -> Option<ChannelAction> {
     let message = &message_event.message;
     if message.message_type.as_deref() != Some("text") {
         return None;

@@ -296,8 +296,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(user_id = %channel, "Zalo: starting thread with prompt: {prompt}");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(user_id = %channel_id, "Zalo: starting thread with prompt: {prompt}");
             let event_key = body
                 .get("message")
                 .and_then(|m| m.get("msg_id"))
@@ -314,7 +317,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned);
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("Zalo webhook: missing gateway channel state: {err:?}");
@@ -343,10 +346,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "zalo",
-                    channel,
+                    channel_id,
                     prompt,
                     name,
                 )

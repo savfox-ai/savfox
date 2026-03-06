@@ -284,8 +284,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(from = %channel, "WhatsApp: starting thread with prompt");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(from = %channel_id, "WhatsApp: starting thread with prompt");
 
             let message_id = body
                 .get("entry")
@@ -307,7 +310,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("WhatsApp webhook: missing gateway channel state: {err:?}");
@@ -336,10 +339,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "whatsapp",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                 )

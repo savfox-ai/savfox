@@ -264,9 +264,12 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     match &action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(channel = %channel, "Webhook: starting thread with prompt: {prompt}");
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(channel = %channel_id, "Webhook: starting thread with prompt: {prompt}");
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(_) => {
                     render_error(
@@ -290,14 +293,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     return;
                 }
             };
-            let channel = channel.clone();
+            let channel_id = channel_id.clone();
             let prompt = prompt.clone();
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "webhook",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                 )

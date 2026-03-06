@@ -152,7 +152,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     if !channel.is_empty() && !prompt.is_empty() {
-        let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
             Ok(channel) => channel.clone(),
             Err(_) => {
                 render_error(
@@ -178,7 +178,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         };
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline(
-                channel,
+                gateway_channel,
                 session_store,
                 "googlechat",
                 channel,

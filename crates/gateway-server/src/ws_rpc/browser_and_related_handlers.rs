@@ -1206,34 +1206,34 @@ async fn handle_skills_registry_uninstall(params: &Value, channel: &GatewayChann
 // ─── DM Policy handlers ────────────────────────────────────────────────────
 
 async fn handle_dm_policy_get(params: &Value, channel: &GatewayChannel) -> RpcResult {
-    let channel = params["channel"].as_str().unwrap_or("default");
+    let channel_id = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&channel.config().savfox_home);
     store.load().await;
-    let policy = store.get_policy(channel).await;
+    let policy = store.get_policy(channel_id).await;
     Ok(serde_json::to_value(policy).unwrap_or_default())
 }
 
 async fn handle_dm_policy_set(params: &Value, channel: &GatewayChannel) -> RpcResult {
-    let channel = params["channel"].as_str().unwrap_or("default");
+    let channel_id = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&channel.config().savfox_home);
     store.load().await;
     let policy: crate::dm_policy::ChannelDmPolicy =
         serde_json::from_value(params.clone()).unwrap_or_default();
-    store.set_policy(channel.to_string(), policy).await;
+    store.set_policy(channel_id.to_string(), policy).await;
     store.save().await.map_err(|e| (INTERNAL_ERROR, e))?;
-    Ok(json!({ "channel": channel, "status": "updated" }))
+    Ok(json!({ "channel": channel_id, "status": "updated" }))
 }
 
 async fn handle_dm_allowlist_get(params: &Value, channel: &GatewayChannel) -> RpcResult {
-    let channel = params["channel"].as_str().unwrap_or("default");
+    let channel_id = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&channel.config().savfox_home);
     store.load().await;
-    let policy = store.get_policy(channel).await;
-    Ok(json!({ "channel": channel, "allowlist": policy.allowlist }))
+    let policy = store.get_policy(channel_id).await;
+    Ok(json!({ "channel": channel_id, "allowlist": policy.allowlist }))
 }
 
 async fn handle_dm_allowlist_set(params: &Value, channel: &GatewayChannel) -> RpcResult {
-    let channel = params["channel"].as_str().unwrap_or("default");
+    let channel_id = params["channel"].as_str().unwrap_or("default");
     let entries = params["entries"]
         .as_array()
         .ok_or((INVALID_PARAMS, "missing entries array".to_string()))?;
@@ -1241,11 +1241,11 @@ async fn handle_dm_allowlist_set(params: &Value, channel: &GatewayChannel) -> Rp
     store.load().await;
     for entry in entries {
         if let Some(sender) = entry.as_str() {
-            store.allow_sender(channel, sender.to_string()).await;
+            store.allow_sender(channel_id, sender.to_string()).await;
         }
     }
     store.save().await.map_err(|e| (INTERNAL_ERROR, e))?;
-    Ok(json!({ "channel": channel, "status": "updated" }))
+    Ok(json!({ "channel": channel_id, "status": "updated" }))
 }
 
 // ─── Provider Health handler ────────────────────────────────────────────────
@@ -2764,13 +2764,13 @@ async fn handle_browser_extension_relay_start(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
-    let channel = params
+    let relay_channel = params
         .get("channel")
         .and_then(|v| v.as_str())
         .unwrap_or("default")
         .trim()
         .to_string();
-    if channel.is_empty() {
+    if relay_channel.is_empty() {
         return Err((INVALID_PARAMS, "relay channel cannot be empty".to_string()));
     }
 
@@ -2778,7 +2778,7 @@ async fn handle_browser_extension_relay_start(
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
 
-    let expr = browser_extension_relay_bootstrap_expr(&channel)?;
+    let expr = browser_extension_relay_bootstrap_expr(&relay_channel)?;
     let result =
         with_browser_timeout(timeout_ms, "start extension relay", page.evaluate(&expr)).await?;
     let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
@@ -2793,7 +2793,7 @@ async fn handle_browser_extension_relay_start(
         "status": "ok",
         "profile": profile,
         "target_id": page.target_id(),
-        "channel": channel,
+        "channel": relay_channel,
     }))
 }
 

@@ -9,4 +9,4 @@ pub use config::{
     load_feishu_channel_config, resolve_feishu_outbound_config,
 };
 pub use inbound::{FeishuActionSink, build_feishu_event_dispatcher, start_feishu_stream};
-pub use parse::{extract_bridge_action, parse_text_command};
+pub use parse::{extract_channel_action, parse_text_command};

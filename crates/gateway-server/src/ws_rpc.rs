@@ -3606,10 +3606,10 @@ async fn handle_events_list() -> RpcResult {
 // ── Send / Wake / Channels ──────────────────────────────────────────────────
 
 async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
-    let channel = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+    let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
-    if channel.is_empty() || text.is_empty() {
+    if channel_id.is_empty() || text.is_empty() {
         return Err((
             INVALID_REQUEST,
             "missing 'channel' or 'text' parameter".to_string(),
@@ -3617,7 +3617,7 @@ async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult
     }
 
     match channel
-        .send_platform_message(channel, text, None, None, None)
+        .send_platform_message(channel_id, text, None, None, None)
         .await
     {
         Ok(()) => Ok(json!({ "status": "sent" })),

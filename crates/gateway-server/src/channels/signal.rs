@@ -153,8 +153,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(from = %channel, "Signal: starting thread with prompt");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(from = %channel_id, "Signal: starting thread with prompt");
 
             let timestamp = body
                 .get("envelope")
@@ -167,7 +170,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("Signal webhook: missing gateway channel state: {err:?}");
@@ -196,10 +199,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "signal",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                 )

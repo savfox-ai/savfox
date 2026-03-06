@@ -464,8 +464,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(conversation_id = %channel, "MS Teams: starting thread with prompt: {prompt}");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(conversation_id = %channel_id, "MS Teams: starting thread with prompt: {prompt}");
 
             let activity_id = body
                 .get("id")
@@ -476,7 +479,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("MS Teams webhook: missing gateway channel state: {err:?}");
@@ -508,14 +511,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .get("serviceUrl")
                 .and_then(|v| v.as_str())
                 .unwrap_or(BOT_FRAMEWORK_API);
-            let outbound_channel = format!("{service_url}|{channel}");
+            let outbound_channel = format!("{service_url}|{channel_id}");
 
             // Respond 200 OK immediately; process asynchronously.
             res.status_code(StatusCode::OK);
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "msteams",
                     outbound_channel,

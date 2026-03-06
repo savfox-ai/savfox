@@ -885,14 +885,14 @@ async fn resolve_linked_identity(
 }
 
 async fn resolve_routed_agent(
-    channel: &GatewayChannel,
+    gateway_channel: &GatewayChannel,
     session_store: &Arc<SessionStore>,
     platform: &str,
-    channel: &str,
+    channel_id: &str,
     name: Option<&str>,
     meta: &StartThreadMeta,
 ) -> String {
-    let rules = load_routing_rules(&channel.config().savfox_home).await;
+    let rules = load_routing_rules(&gateway_channel.config().savfox_home).await;
     let router = AgentRouter::new(rules, "default".to_string());
 
     let mut role_values = Vec::new();
@@ -907,7 +907,7 @@ async fn resolve_routed_agent(
 
     let routing_ctx = RoutingContext {
         channel: platform.to_string(),
-        channel_id: Some(channel.to_string()),
+        channel_id: Some(channel_id.to_string()),
         sender_id: meta
             .peer_id
             .clone()
@@ -950,18 +950,18 @@ pub(crate) async fn should_drop_duplicate(event_key: Option<String>) -> bool {
 }
 
 pub(crate) async fn spawn_start_thread_pipeline(
-    channel: Arc<GatewayChannel>,
+    gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
-    channel: String,
+    channel_id: String,
     prompt: String,
     name: Option<String>,
 ) {
     spawn_start_thread_pipeline_with_meta(
-        channel,
+        gateway_channel,
         session_store,
         platform,
-        channel,
+        channel_id,
         prompt,
         name,
         None,
@@ -970,10 +970,10 @@ pub(crate) async fn spawn_start_thread_pipeline(
 }
 
 pub(crate) async fn spawn_start_thread_pipeline_with_meta(
-    channel: Arc<GatewayChannel>,
+    gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
-    channel: String,
+    channel_id: String,
     prompt: String,
     name: Option<String>,
     meta: Option<StartThreadMeta>,
@@ -985,17 +985,25 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         parsed.cleaned_text.trim().to_string()
     };
     if cleaned_prompt.is_empty() {
-        let outbound_channel = format!("{platform}:{channel}");
+        let outbound_channel = format!("{platform}:{channel_id}");
         let msg = "Savfox: message is empty after parsing directives.";
-        let _ = send_with_retry(&channel, &outbound_channel, msg, Some(1), None, None).await;
+        let _ = send_with_retry(
+            &gateway_channel,
+            &outbound_channel,
+            msg,
+            Some(1),
+            None,
+            None,
+        )
+        .await;
         return;
     }
 
-    let outbound_channel = format!("{platform}:{channel}");
+    let outbound_channel = format!("{platform}:{channel_id}");
     record_channel_event(&outbound_channel).await;
     let start_meta = meta.unwrap_or_default();
     let linked_identity = resolve_linked_identity(
-        &channel.config().savfox_home,
+        &gateway_channel.config().savfox_home,
         &session_store,
         platform,
         start_meta.peer_id.as_deref(),
@@ -1003,10 +1011,10 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     )
     .await;
     let routed_agent = resolve_routed_agent(
-        &channel,
+        &gateway_channel,
         &session_store,
         platform,
-        &channel,
+        &channel_id,
         name.as_deref(),
         &start_meta,
     )
@@ -1015,7 +1023,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         scope
     } else {
         configured_dm_scope(
-            &channel.config().savfox_home,
+            &gateway_channel.config().savfox_home,
             &routed_agent,
             &outbound_channel,
         )
@@ -1027,7 +1035,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         InboundSessionMeta {
             agent_id: &routed_agent,
             platform,
-            channel_id: &channel,
+            channel_id: &channel_id,
             peer_id: start_meta.peer_id.as_deref(),
             identity: linked_identity.as_deref(),
             group_id: start_meta.group_id.as_deref(),
@@ -1047,7 +1055,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         "info",
         "channel/runtime",
         format!(
-            "start_thread platform={platform} channel={channel} session_id={}",
+            "start_thread platform={platform} channel={channel_id} session_id={}",
             tracked.session_id
         ),
     )
@@ -1070,7 +1078,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 .peer_id
                 .clone()
                 .or_else(|| name.clone())
-                .unwrap_or_else(|| format!("{platform}:{channel}")),
+                .unwrap_or_else(|| format!("{platform}:{channel_id}")),
             channel_id: outbound_channel.clone(),
             session_id: Some(tracked.session_id.clone()),
             is_authorized: true,
@@ -1086,7 +1094,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
             let response = command_result_message(&result, "Command executed.");
             if let Err(err) = send_with_retry(
-                &channel,
+                &gateway_channel,
                 &outbound_channel,
                 &response,
                 None,
@@ -1118,9 +1126,9 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .map(|d| d.value.clone());
     let (effective_model, model_profile) = if let Some(raw_model) = model_directive {
         let parsed_target = parse_model_target(&raw_model);
-        let candidates: Vec<String> = channel
+        let candidates: Vec<String> = gateway_channel
             .session_manager()
-            .list_models(channel.config(), RefreshStrategy::Offline)
+            .list_models(gateway_channel.config(), RefreshStrategy::Offline)
             .await
             .into_iter()
             .map(|m| m.id)
@@ -1137,7 +1145,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .unwrap_or("unknown")
         .to_string();
     let tone_suffix = configured_channel_tone_suffix(
-        &channel.config().savfox_home,
+        &gateway_channel.config().savfox_home,
         &routed_agent,
         &outbound_channel,
     )
@@ -1153,7 +1161,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         )
         .await;
     }
-    match channel
+    match gateway_channel
         .invoke_agent_text_in_session_with_metadata(
             &effective_prompt,
             &effective_model,
@@ -1178,7 +1186,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
             maybe_auto_memory_flush(
                 &session_store,
-                &channel.config().savfox_home,
+                &gateway_channel.config().savfox_home,
                 &tracked.session_id,
                 tracked.total_tokens,
                 input_tokens,
@@ -1202,7 +1210,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 result.reply.clone()
             };
             if let Some(path) = result.rollout_path {
-                let session_file = session_file_to_store_value(&channel.config().savfox_home, &path);
+                let session_file =
+                    session_file_to_store_value(&gateway_channel.config().savfox_home, &path);
                 let thread_id = result.session_id;
                 let session_id = tracked.session_id.clone();
                 let _ = session_store
@@ -1215,7 +1224,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     .await;
             }
             if let Err(err) = send_with_retry(
-                &channel,
+                &gateway_channel,
                 &outbound_channel,
                 &reply,
                 None,
@@ -1251,7 +1260,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         Err(err) => {
             let fallback = format!("Savfox agent error: {err}");
             if let Err(send_err) = send_with_retry(
-                &channel,
+                &gateway_channel,
                 &outbound_channel,
                 &fallback,
                 None,
@@ -1325,23 +1334,23 @@ async fn record_send_metrics(channel: &str, success: bool, latency_ms: u64) {
 }
 
 async fn write_dead_letter(
-    channel: &GatewayChannel,
+    gateway_channel: &GatewayChannel,
     policy_cfg: &SendPolicyConfig,
-    channel: &str,
+    channel_id: &str,
     text: &str,
     error: &str,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
     attempts: usize,
 ) {
-    let dir = policy_cfg.dead_letter_path(&channel.config().savfox_home);
+    let dir = policy_cfg.dead_letter_path(&gateway_channel.config().savfox_home);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
         return;
     }
     let file_name = format!("{}-{}.json", now_epoch_ms(), uuid::Uuid::now_v7());
     let payload = json!({
         "timestamp_ms": now_epoch_ms(),
-        "channel": channel,
+        "channel": channel_id,
         "thread_id": thread_id,
         "reply_target": reply_target,
         "attempts": attempts,
@@ -1354,15 +1363,15 @@ async fn write_dead_letter(
 }
 
 async fn send_with_retry(
-    channel: &GatewayChannel,
-    channel: &str,
+    gateway_channel: &GatewayChannel,
+    channel_id: &str,
     text: &str,
     attempt_override: Option<usize>,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
 ) -> anyhow::Result<()> {
-    let policy_cfg = SendPolicyConfig::load(&channel.config().savfox_home).await;
-    let policy = policy_cfg.resolve(channel);
+    let policy_cfg = SendPolicyConfig::load(&gateway_channel.config().savfox_home).await;
+    let policy = policy_cfg.resolve(channel_id);
     let max_attempts = attempt_override.unwrap_or(policy.retry_count).max(1);
     let timeout = Duration::from_millis(policy.timeout_ms.max(1));
     let base_backoff = policy.backoff_ms.max(1);
@@ -1370,7 +1379,7 @@ async fn send_with_retry(
     let chunk_texts: Vec<String> = if policy.auto_chunk {
         chunk_message_for_channel(
             text,
-            channel,
+            channel_id,
             chunk_max_override,
             policy.chunk_overlap_chars,
         )
@@ -1381,7 +1390,7 @@ async fn send_with_retry(
         vec![text.to_string()]
     };
 
-    let thread_key = thread_tracking_key(channel, thread_id, reply_target);
+    let thread_key = thread_tracking_key(channel_id, thread_id, reply_target);
     let include_first_threading = match policy.threading {
         ThreadingPolicy::Off => false,
         ThreadingPolicy::All => true,
@@ -1410,8 +1419,8 @@ async fn send_with_retry(
             let started = Instant::now();
             let send_result = tokio::time::timeout(
                 timeout,
-                channel.send_platform_message_with_context(
-                    channel,
+                gateway_channel.send_platform_message_with_context(
+                    channel_id,
                     chunk_text,
                     None,
                     None,
@@ -1425,7 +1434,7 @@ async fn send_with_retry(
             match send_result {
                 Ok(Ok(())) => {
                     let latency_ms = started.elapsed().as_millis() as u64;
-                    record_send_metrics(channel, true, latency_ms).await;
+                    record_send_metrics(channel_id, true, latency_ms).await;
                     if policy.threading == ThreadingPolicy::First
                         && include_threading
                         && let Some(key) = thread_key.as_ref()
@@ -1436,7 +1445,7 @@ async fn send_with_retry(
                 }
                 Ok(Err(err)) => {
                     let latency_ms = started.elapsed().as_millis() as u64;
-                    record_send_metrics(channel, false, latency_ms).await;
+                    record_send_metrics(channel_id, false, latency_ms).await;
                     if attempt >= max_attempts {
                         let chunk_error = if chunk_texts.len() > 1 {
                             format!(
@@ -1448,9 +1457,9 @@ async fn send_with_retry(
                             err.to_string()
                         };
                         write_dead_letter(
-                            channel,
+                            gateway_channel,
                             &policy_cfg,
-                            channel,
+                            channel_id,
                             chunk_text,
                             &chunk_error,
                             scoped_thread_id,
@@ -1463,7 +1472,7 @@ async fn send_with_retry(
                 }
                 Err(_) => {
                     let latency_ms = started.elapsed().as_millis() as u64;
-                    record_send_metrics(channel, false, latency_ms).await;
+                    record_send_metrics(channel_id, false, latency_ms).await;
                     if attempt >= max_attempts {
                         let err = anyhow::anyhow!("send timeout after {}ms", policy.timeout_ms);
                         let chunk_error = if chunk_texts.len() > 1 {
@@ -1476,9 +1485,9 @@ async fn send_with_retry(
                             err.to_string()
                         };
                         write_dead_letter(
-                            channel,
+                            gateway_channel,
                             &policy_cfg,
-                            channel,
+                            channel_id,
                             chunk_text,
                             &chunk_error,
                             scoped_thread_id,

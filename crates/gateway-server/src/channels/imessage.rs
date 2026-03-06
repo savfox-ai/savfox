@@ -135,7 +135,7 @@ impl IMessageChannel {
     /// Spawn the polling loop that checks BlueBubbles for new messages.
     fn spawn_poll_loop(&self) {
         let http_client = self.http_client.clone();
-        let channel = self.channel.clone();
+        let gateway_channel = self.channel.clone();
         let session_store = self.session_store.clone();
         let last_ts = self.last_message_ts.clone();
         let running = self.running.clone();
@@ -220,7 +220,11 @@ impl IMessageChannel {
                         }
                     };
 
-                    if let ChannelAction::StartThread { channel, prompt } = action {
+                    if let ChannelAction::StartThread {
+                        channel: channel_id,
+                        prompt,
+                    } = action
+                    {
                         let guid = msg
                             .get("guid")
                             .and_then(|g| g.as_str())
@@ -230,16 +234,16 @@ impl IMessageChannel {
                             continue;
                         }
 
-                        info!(channel = %channel, "iMessage: starting thread from polled message");
+                        info!(channel = %channel_id, "iMessage: starting thread from polled message");
 
-                        let channel = channel.clone();
+                        let gateway_channel = gateway_channel.clone();
                         let session_store = session_store.clone();
                         tokio::spawn(async move {
                             runtime::spawn_start_thread_pipeline(
-                                channel,
+                                gateway_channel,
                                 session_store,
                                 "imessage",
-                                channel,
+                                channel_id,
                                 prompt,
                                 None,
                             )
@@ -393,8 +397,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        ChannelAction::StartThread { channel, prompt } => {
-            info!(chat = %channel, "iMessage: starting thread from webhook");
+        ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        } => {
+            info!(chat = %channel_id, "iMessage: starting thread from webhook");
 
             let guid = data
                 .get("guid")
@@ -406,7 +413,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("iMessage webhook: missing gateway channel state: {err:?}");
@@ -435,10 +442,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "imessage",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                 )

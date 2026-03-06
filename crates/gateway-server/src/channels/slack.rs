@@ -462,8 +462,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
 
     match action {
-        Ok(ChannelAction::StartThread { channel, prompt }) => {
-            info!(channel = %channel, "Slack: starting thread with prompt: {prompt}");
+        Ok(ChannelAction::StartThread {
+            channel: channel_id,
+            prompt,
+        }) => {
+            info!(channel = %channel_id, "Slack: starting thread with prompt: {prompt}");
             let dedupe_key = body
                 .get("event")
                 .and_then(|e| e.get("event_ts"))
@@ -479,7 +482,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(channel) => channel.clone(),
                 Err(err) => {
                     warn!("Slack webhook: missing gateway channel state: {err:?}");
@@ -518,10 +521,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             let start_meta = parse_start_meta(&body);
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    channel,
+                    gateway_channel,
                     session_store,
                     "slack",
-                    channel,
+                    channel_id,
                     prompt,
                     None,
                     Some(start_meta),

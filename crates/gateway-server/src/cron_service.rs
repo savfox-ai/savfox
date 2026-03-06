@@ -487,9 +487,9 @@ impl CronService {
                 )
             };
 
-            if let Some(channel) = &job.delivery.channel {
+            if let Some(channel_id) = &job.delivery.channel {
                 if let Err(err) = channel
-                    .send_platform_message(channel, &message, None, None, None)
+                    .send_platform_message(channel_id, &message, None, None, None)
                     .await
                 {
                     warn!(job_id = %job.id, "failed to deliver cron result: {err}");
