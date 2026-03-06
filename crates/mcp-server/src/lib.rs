@@ -20,7 +20,7 @@ pub(crate) mod message_processor;
 mod outgoing_message;
 mod patch_approval;
 #[path = "agent_tool_config.rs"]
-mod savfox_tool_config;
+mod _tool_Config;
 #[path = "agent_tool_runner.rs"]
 mod savfox_tool_runner;
 
@@ -28,7 +28,7 @@ pub use crate::exec_approval::{ExecApprovalElicitRequestParams, ExecApprovalResp
 use crate::message_processor::MessageProcessor;
 use crate::outgoing_message::{OutgoingJsonRpcMessage, OutgoingMessage, OutgoingMessageSender};
 pub use crate::patch_approval::{PatchApprovalElicitRequestParams, PatchApprovalResponse};
-pub use crate::savfox_tool_config::{SavfoxToolCallParam, SavfoxToolCallReplyParam};
+pub use crate::_tool_Config::{SavfoxToolCallParam, SavfoxToolCallReplyParam};
 
 /// Size of the bounded channels used to communicate between tasks. The value
 /// is a balance between throughput and memory usage – 128 messages should be

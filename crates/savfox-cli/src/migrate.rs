@@ -143,20 +143,20 @@ struct SavfoxConfig {
     model: Option<String>,
 
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    model_providers: HashMap<String, SavfoxProviderConfig>,
+    model_providers: HashMap<String, ProviderConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    gateway: Option<SavfoxGatewayConfig>,
+    gateway: Option<GatewayConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    skills: Option<SavfoxSkillsConfig>,
+    skills: Option<SkillsConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    memory: Option<SavfoxMemoryConfig>,
+    memory: Option<MemoryConfig>,
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxProviderConfig {
+struct ProviderConfig {
     name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -170,7 +170,7 @@ struct SavfoxProviderConfig {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxGatewayConfig {
+struct GatewayConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<String>,
 
@@ -181,32 +181,32 @@ struct SavfoxGatewayConfig {
     token: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    channels: Option<SavfoxBridgesConfig>,
+    channels: Option<ChannelsConfig>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
-struct SavfoxBridgesConfig {
+struct ChannelsConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
-    discord: Option<SavfoxDiscordBridge>,
+    discord: Option<DiscordChannel>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    telegram: Option<SavfoxTelegramBridge>,
+    telegram: Option<TelegramChannel>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    slack: Option<SavfoxSlackBridge>,
+    slack: Option<SlackChannel>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    webhook: Option<SavfoxWebhookBridge>,
+    webhook: Option<WebhookChannel>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    msteams: Option<SavfoxMsTeamsBridge>,
+    msteams: Option<MsTeamsChannel>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    whatsapp: Option<SavfoxWhatsAppBridge>,
+    whatsapp: Option<WhatsAppChannel>,
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxDiscordBridge {
+struct DiscordChannel {
     enabled: bool,
     bot_token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -214,20 +214,20 @@ struct SavfoxDiscordBridge {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxTelegramBridge {
+struct TelegramChannel {
     enabled: bool,
     bot_token: String,
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxSlackBridge {
+struct SlackChannel {
     enabled: bool,
     bot_token: String,
     signing_secret: String,
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxWebhookBridge {
+struct WebhookChannel {
     enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     callback_url: Option<String>,
@@ -236,7 +236,7 @@ struct SavfoxWebhookBridge {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxMsTeamsBridge {
+struct MsTeamsChannel {
     enabled: bool,
     app_id: String,
     app_password: String,
@@ -245,7 +245,7 @@ struct SavfoxMsTeamsBridge {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxWhatsAppBridge {
+struct WhatsAppChannel {
     enabled: bool,
     phone_number_id: String,
     access_token: String,
@@ -254,7 +254,7 @@ struct SavfoxWhatsAppBridge {
 }
 
 #[derive(Debug, Default, serde::Serialize)]
-struct SavfoxSkillsConfig {
+struct SkillsConfig {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     config: Vec<SavfoxSkillEntry>,
 }
@@ -266,7 +266,7 @@ struct SavfoxSkillEntry {
 }
 
 #[derive(Debug, serde::Serialize)]
-struct SavfoxMemoryConfig {
+struct MemoryConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     enabled: Option<bool>,
 
@@ -376,7 +376,7 @@ fn convert_config(source: OpenClawConfig, report: &mut MigrationReport) -> Savfo
         if let Some(ref mut gw) = savfox.gateway {
             gw.channels = Some(channels);
         } else {
-            savfox.gateway = Some(SavfoxGatewayConfig {
+            savfox.gateway = Some(GatewayConfig {
                 host: None,
                 port: None,
                 token: None,
@@ -403,7 +403,7 @@ fn convert_config(source: OpenClawConfig, report: &mut MigrationReport) -> Savfo
 
 fn convert_provider(
     provider: &OpenClawProviderConfig,
-    providers: &mut HashMap<String, SavfoxProviderConfig>,
+    providers: &mut HashMap<String, ProviderConfig>,
     report: &mut MigrationReport,
 ) {
     let name = match &provider.name {
@@ -430,7 +430,7 @@ fn convert_provider(
 
     let wire_api = infer_wire_api(&name);
 
-    let savfox_provider = SavfoxProviderConfig {
+    let savfox_provider = ProviderConfig {
         name: name.clone(),
         base_url: provider.base_url.clone(),
         env_key,
@@ -472,8 +472,8 @@ fn infer_wire_api(name: &str) -> Option<String> {
 fn convert_server_to_gateway(
     server: &OpenClawServerConfig,
     report: &mut MigrationReport,
-) -> SavfoxGatewayConfig {
-    let mut gateway = SavfoxGatewayConfig {
+) -> GatewayConfig {
+    let mut gateway = GatewayConfig {
         host: None,
         port: None,
         token: None,
@@ -501,8 +501,8 @@ fn convert_server_to_gateway(
 fn convert_channels(
     channels: &[OpenClawChannelConfig],
     report: &mut MigrationReport,
-) -> SavfoxBridgesConfig {
-    let mut channels = SavfoxBridgesConfig::default();
+) -> ChannelsConfig {
+    let mut channels = ChannelsConfig::default();
 
     for channel in channels {
         let channel_type = match &channel.channel_type {
@@ -538,7 +538,7 @@ fn convert_channels(
                     );
                 }
 
-                channels.discord = Some(SavfoxDiscordBridge {
+                channels.discord = Some(DiscordChannel {
                     enabled,
                     bot_token,
                     application_id,
@@ -557,7 +557,7 @@ fn convert_channels(
                     );
                 }
 
-                channels.telegram = Some(SavfoxTelegramBridge { enabled, bot_token });
+                channels.telegram = Some(TelegramChannel { enabled, bot_token });
                 report.add_converted("channels[telegram] -> [gateway.channels.telegram]");
             }
             "slack" => {
@@ -583,7 +583,7 @@ fn convert_channels(
                     );
                 }
 
-                channels.slack = Some(SavfoxSlackBridge {
+                channels.slack = Some(SlackChannel {
                     enabled,
                     bot_token,
                     signing_secret,
@@ -595,7 +595,7 @@ fn convert_channels(
                     .or_else(|| extract_string(&channel.config, "url"));
                 let secret = extract_string(&channel.config, "secret");
 
-                channels.webhook = Some(SavfoxWebhookBridge {
+                channels.webhook = Some(WebhookChannel {
                     enabled,
                     callback_url,
                     secret,
@@ -625,7 +625,7 @@ fn convert_channels(
                     );
                 }
 
-                channels.msteams = Some(SavfoxMsTeamsBridge {
+                channels.msteams = Some(MsTeamsChannel {
                     enabled,
                     app_id,
                     app_password,
@@ -651,7 +651,7 @@ fn convert_channels(
                     );
                 }
 
-                channels.whatsapp = Some(SavfoxWhatsAppBridge {
+                channels.whatsapp = Some(WhatsAppChannel {
                     enabled,
                     phone_number_id,
                     access_token,
@@ -671,7 +671,7 @@ fn convert_channels(
 fn convert_skills(
     skills: &[OpenClawSkillConfig],
     report: &mut MigrationReport,
-) -> SavfoxSkillsConfig {
+) -> SkillsConfig {
     let mut entries = Vec::new();
 
     for skill in skills {
@@ -700,14 +700,14 @@ fn convert_skills(
         ));
     }
 
-    SavfoxSkillsConfig { config: entries }
+    SkillsConfig { config: entries }
 }
 
 fn convert_memory(
     memory: &OpenClawMemoryConfig,
     report: &mut MigrationReport,
-) -> SavfoxMemoryConfig {
-    let mut out = SavfoxMemoryConfig {
+) -> MemoryConfig {
+    let mut out = MemoryConfig {
         enabled: None,
         budget_kb: None,
     };
@@ -882,10 +882,10 @@ pub async fn run_migrate(cmd: MigrateCommand) -> anyhow::Result<()> {
 
     // Convert.
     let mut report = MigrationReport::default();
-    let savfox_config = convert_config(source_config, &mut report);
+    let _Config = convert_config(source_config, &mut report);
 
     // Serialize.
-    let serialized = serialize_config(&savfox_config, cmd.format)?;
+    let serialized = serialize_config(&_Config, cmd.format)?;
 
     // Determine output path.
     let output_dir = cmd
@@ -1185,7 +1185,7 @@ server:
     fn serialize_to_toml_produces_valid_toml() {
         let config = SavfoxConfig {
             model: Some("gpt-4.1".to_string()),
-            gateway: Some(SavfoxGatewayConfig {
+            gateway: Some(GatewayConfig {
                 host: None,
                 port: Some(9090),
                 token: Some("secret".to_string()),

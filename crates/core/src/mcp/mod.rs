@@ -75,7 +75,7 @@ fn savfox_apps_mcp_url(base_url: &str) -> String {
     }
 }
 
-fn savfox_apps_mcp_server_config(config: &Config, auth: Option<&SavfoxAuth>) -> McpServerConfig {
+fn _apps_mcp_server_Config(config: &Config, auth: Option<&SavfoxAuth>) -> McpServerConfig {
     let bearer_token_env_var = savfox_apps_mcp_bearer_token_env_var();
     let http_headers = if bearer_token_env_var.is_some() {
         None
@@ -110,7 +110,7 @@ pub(crate) fn with_savfox_apps_mcp(
     if connectors_enabled {
         servers.insert(
             SAVFOX_APPS_MCP_SERVER_NAME.to_string(),
-            savfox_apps_mcp_server_config(config, auth),
+            _apps_mcp_server_Config(config, auth),
         );
     } else {
         servers.remove(SAVFOX_APPS_MCP_SERVER_NAME);

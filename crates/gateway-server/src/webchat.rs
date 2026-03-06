@@ -557,7 +557,7 @@ pub(crate) async fn widget_js_handler(req: &mut Request, res: &mut Response) {
   window.__savfoxWebChat = true;
 
   var ORIGIN = "{origin}";
-  var CFG = window.SAVFOX_WEBCHAT_CONFIG || {{}};
+  var CFG = window._WEBCHAT_Config || {{}};
   var BRAND_NAME = CFG.name || "Savfox Chat";
   var BRAND_AVATAR = CFG.avatar || "\u{{1F4AC}}";
   var PRIMARY_COLOR = CFG.primaryColor || "#2563eb";
