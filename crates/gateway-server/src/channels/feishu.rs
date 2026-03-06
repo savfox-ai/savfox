@@ -6,8 +6,7 @@ use feishu_sdk::core::Error as FeishuSdkError;
 use feishu_sdk::event::{EventDispatcher, EventReq, EventResp};
 use salvo::prelude::*;
 use savfox_channel_feishu::{
-    FeishuActionSink, build_feishu_event_dispatcher as build_dispatcher_inner,
-    start_feishu_stream as start_stream_inner,
+    FeishuActionSink, 
 };
 pub(crate) use savfox_channel_feishu::{
     FeishuChannel, FeishuChannelConfig, fetch_feishu_tenant_access_token,
@@ -72,23 +71,6 @@ fn feishu_sink(
         channel,
         session_store,
     })
-}
-
-async fn build_feishu_event_dispatcher(
-    config: &FeishuChannelConfig,
-    channel: Arc<GatewayChannel>,
-    session_store: Arc<SessionStore>,
-) -> Arc<EventDispatcher> {
-    build_dispatcher_inner(config, feishu_sink(channel, session_store)).await
-}
-
-pub(crate) async fn start_feishu_stream(
-    channel_id: &str,
-    config: &FeishuChannelConfig,
-    channel: Arc<GatewayChannel>,
-    session_store: Arc<SessionStore>,
-) -> anyhow::Result<()> {
-    start_stream_inner(channel_id, config, feishu_sink(channel, session_store)).await
 }
 
 fn render_error(res: &mut Response, status: StatusCode, code: &str, message: impl Into<String>) {
