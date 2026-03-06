@@ -30,7 +30,6 @@ pub(crate) mod chat_attachments;
 pub(crate) mod chat_sanitize;
 pub(crate) mod chat_session;
 pub mod compaction;
-pub mod compat;
 pub mod config;
 pub mod cron_service;
 mod daemon;

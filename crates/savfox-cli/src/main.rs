@@ -38,7 +38,6 @@ mod docker_cmd;
 mod doctor;
 mod mcp_cmd;
 mod memory_cmd;
-mod migrate;
 mod plugins_cmd;
 mod security_cmd;
 mod send;
@@ -59,7 +58,6 @@ use savfox_core::terminal::TerminalName;
 
 use crate::doctor::DoctorCommand;
 use crate::mcp_cmd::McpCli;
-use crate::migrate::MigrateCommand;
 use crate::send::SendCommand;
 use crate::wizard::WizardCommand;
 
@@ -168,9 +166,6 @@ enum Subcommand {
 
     /// Interactive setup wizard.
     Wizard(WizardCommand),
-
-    /// Migrate configuration from an OpenClaw (TypeScript) installation.
-    Migrate(MigrateCommand),
 
     /// List, inspect, and export gateway sessions.
     Sessions(sessions_cmd::SessionsCommand),
@@ -801,9 +796,6 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         }
         Some(Subcommand::Wizard(cmd)) => {
             wizard::run_wizard(cmd).await?;
-        }
-        Some(Subcommand::Migrate(cmd)) => {
-            migrate::run_migrate(cmd).await?;
         }
         Some(Subcommand::Sessions(cmd)) => {
             let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
