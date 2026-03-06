@@ -6,11 +6,11 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Google Chat bridge using webhook and Spaces API.
+/// Google Chat channel using webhook and Spaces API.
 pub(crate) struct GoogleChatChannel {
     webhook_url: Option<String>,
     http_client: reqwest::Client,
@@ -39,7 +39,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 #[async_trait]
 impl Channel for GoogleChatChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Google Chat bridge starting");
+        info!("Google Chat channel starting");
         Ok(())
     }
 
@@ -152,14 +152,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     if !channel.is_empty() && !prompt.is_empty() {
-        let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(bridge) => bridge.clone(),
+        let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            Ok(channel) => channel.clone(),
             Err(_) => {
                 render_error(
                     res,
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "state_unavailable",
-                    "gateway bridge state unavailable",
+                    "gateway channel state unavailable",
                 );
                 return;
             }
@@ -178,7 +178,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         };
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline(
-                bridge,
+                channel,
                 session_store,
                 "googlechat",
                 channel,

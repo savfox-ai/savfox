@@ -28,7 +28,7 @@ pub(crate) use savfox_core::channel::{Channel, RichMessage};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
 pub(crate) type ChannelRegistry = Arc<RwLock<HashMap<String, Box<dyn Channel>>>>;
@@ -40,7 +40,7 @@ pub(crate) fn create_channel_registry() -> ChannelRegistry {
 pub(crate) async fn initialize_and_start_channels(
     savfox_home: &PathBuf,
     registry: ChannelRegistry,
-    bridge: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     println!("[startup] Initializing channel instances...");
@@ -66,12 +66,12 @@ pub(crate) async fn initialize_and_start_channels(
         info!("Starting channel '{}' of type '{}'", channel_id, kind);
 
         let result = match kind.as_str() {
-            "matrix" => start_matrix_channel(&config, &registry, &bridge).await,
-            "discord" => start_discord_channel(&config, &registry, &bridge).await,
-            "telegram" => start_telegram_channel(&config, &registry, &bridge).await,
-            "slack" => start_slack_channel(&config, &registry, &bridge).await,
+            "matrix" => start_matrix_channel(&config, &registry, &channel).await,
+            "discord" => start_discord_channel(&config, &registry, &channel).await,
+            "telegram" => start_telegram_channel(&config, &registry, &channel).await,
+            "slack" => start_slack_channel(&config, &registry, &channel).await,
             "feishu" | "lark" => {
-                start_feishu_channel(&config, &registry, bridge, session_store).await
+                start_feishu_channel(&config, &registry, channel, session_store).await
             }
             _ => {
                 println!(
@@ -121,9 +121,9 @@ pub(crate) async fn initialize_and_start_channels(
 async fn start_matrix_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
-    bridge: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
-    use crate::bridges::matrix::MatrixChannel;
+    use crate::channels::matrix::MatrixChannel;
 
     let raw = config
         .config
@@ -149,7 +149,7 @@ async fn start_matrix_channel(
     let mut channel = MatrixChannel::new(
         homeserver.clone(),
         access_token,
-        bridge.http_client().clone(),
+        channel.http_client().clone(),
     );
 
     channel.start().await?;
@@ -163,7 +163,7 @@ async fn start_matrix_channel(
 async fn start_discord_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayChannel>,
+    _channel: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Discord channel persistent connection not yet implemented - using webhook mode"
@@ -174,7 +174,7 @@ async fn start_discord_channel(
 async fn start_telegram_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayChannel>,
+    _channel: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Telegram channel persistent connection not yet implemented - using webhook mode"
@@ -185,7 +185,7 @@ async fn start_telegram_channel(
 async fn start_slack_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayChannel>,
+    _channel: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Slack channel persistent connection not yet implemented - using webhook mode"
@@ -196,10 +196,10 @@ async fn start_slack_channel(
 async fn start_feishu_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
-    bridge: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    use crate::bridges::feishu::{FeishuChannel, FeishuChannelConfig, start_feishu_stream};
+    use crate::channels::feishu::{FeishuChannel, FeishuChannelConfig, start_feishu_stream};
 
     let feishu_config = FeishuChannelConfig::from_channel_config(config)
         .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
@@ -212,13 +212,13 @@ async fn start_feishu_channel(
         start_feishu_stream(
             &config.id,
             &feishu_config,
-            Arc::clone(bridge),
+            Arc::clone(channel),
             Arc::clone(session_store),
         )
         .await?;
     }
 
-    let mut channel = FeishuChannel::new(feishu_config, bridge.http_client().clone());
+    let mut channel = FeishuChannel::new(feishu_config, channel.http_client().clone());
     channel.start().await?;
 
     let mut registry = registry.write().await;
@@ -347,7 +347,7 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
                     if has_token { "configured" } else { "NOT SET" }
                 );
                 println!("[startup]       Configured rooms: {}", rooms_str);
-                info!("Matrix bridge starting with homeserver URL: {}", homeserver);
+                info!("Matrix channel starting with homeserver URL: {}", homeserver);
                 info!("  Channel ID: {}", channel_id);
                 info!(
                     "  Access token: {}",

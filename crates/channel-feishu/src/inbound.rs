@@ -15,7 +15,7 @@ use savfox_core::channel::ChannelAction;
 use tracing::{info, warn};
 
 use crate::config::{FeishuChannelConfig, build_feishu_sdk_config, default_stream_locale};
-use crate::parse::extract_bridge_action;
+use crate::parse::extract_channel_action;
 
 #[async_trait]
 pub trait FeishuActionSink: Send + Sync {
@@ -49,7 +49,7 @@ impl FeishuEventHandler for SavfoxFeishuEventHandler {
             let message_event: FeishuMessageEvent = serde_json::from_value(payload)
                 .map_err(|e| FeishuSdkError::InvalidEventFormat(e.to_string()))?;
 
-            if let Some(action) = extract_bridge_action(&message_event) {
+            if let Some(action) = extract_channel_action(&message_event) {
                 self.sink
                     .handle_action(
                         action,
@@ -116,9 +116,9 @@ pub async fn start_feishu_stream(
 
     let channel_id = channel_id.to_string();
     tokio::spawn(async move {
-        info!(channel_id = %channel_id, "Feishu/Lark stream bridge starting");
+        info!(channel_id = %channel_id, "Feishu/Lark stream channel starting");
         if let Err(err) = stream_client.start().await {
-            warn!(channel_id = %channel_id, error = %err, "Feishu/Lark stream bridge stopped");
+            warn!(channel_id = %channel_id, error = %err, "Feishu/Lark stream channel stopped");
         }
     });
     Ok(())

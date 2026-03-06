@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 use super::{Channel, RichMessage};
 use crate::protocol::ChannelAction;
 
-/// NextCloud Talk bridge.
+/// NextCloud Talk channel.
 ///
 /// Connects to a NextCloud instance via the Talk API (OCS).
 /// Uses polling to check for new messages.
@@ -143,7 +143,7 @@ impl std::fmt::Display for NextCloudChannel {
 impl Channel for NextCloudChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
-            "NextCloud Talk bridge starting for {} ({} rooms)",
+            "NextCloud Talk channel starting for {} ({} rooms)",
             self.config.server_url,
             self.config.rooms.len()
         );
@@ -157,10 +157,10 @@ impl Channel for NextCloudChannel {
             .await?;
 
         if resp.status().is_success() {
-            info!("NextCloud Talk bridge connected successfully");
+            info!("NextCloud Talk channel connected successfully");
         } else {
             let status = resp.status();
-            warn!("NextCloud Talk bridge connection check returned {status}");
+            warn!("NextCloud Talk channel connection check returned {status}");
         }
 
         Ok(())

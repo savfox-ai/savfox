@@ -7,12 +7,12 @@ use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayChannel, verify_telegram_webhook_secret};
+use crate::channel::{GatewayChannel, verify_telegram_webhook_secret};
 use crate::config::{GatewayConfig, TelegramChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Telegram bot bridge using the Bot API with webhook mode.
+/// Telegram bot channel using the Bot API with webhook mode.
 pub(crate) struct TelegramChannel {
     config: TelegramChannelConfig,
     http_client: reqwest::Client,
@@ -206,7 +206,7 @@ fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
 #[async_trait]
 impl Channel for TelegramChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Telegram bridge initialized (webhook mode)");
+        info!("Telegram channel initialized (webhook mode)");
         // Webhook URL registration should be done via Telegram Bot API `setWebhook`.
         Ok(())
     }
@@ -271,7 +271,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .obtain::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
-            cfg.bridges
+            cfg.channels
                 .telegram
                 .as_ref()
                 .and_then(|b| b.webhook_secret_token.clone())
@@ -334,15 +334,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("Telegram webhook: missing gateway bridge state: {err:?}");
+                    warn!("Telegram webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -365,7 +365,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    bridge,
+                    channel,
                     session_store,
                     "telegram",
                     channel,

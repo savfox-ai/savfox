@@ -39,7 +39,7 @@ const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
 const INTERNAL_ERROR_CODE: i64 = -32603;
 const METHOD_NOT_FOUND_ERROR_CODE: i64 = -32601;
 
-/// Outgoing message from the bridge to a WebSocket client.
+/// Outgoing message from the channel to a WebSocket client.
 #[derive(Debug, Clone)]
 pub(crate) enum BridgeOutgoing {
     Response {
@@ -75,8 +75,8 @@ pub(crate) struct GatewayChannel {
     outgoing_tx: mpsc::Sender<BridgeOutgoing>,
     /// HTTP client for outbound platform API calls.
     http_client: reqwest::Client,
-    /// Runtime bridge credentials hot-reloaded from config patch/apply.
-    runtime_bridge_secrets: Arc<RwLock<RuntimeBridgeSecrets>>,
+    /// Runtime channel credentials hot-reloaded from config patch/apply.
+    runtime_channel_secrets: Arc<RwLock<RuntimeBridgeSecrets>>,
     /// Active login attempt (browser OAuth or device code).
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
 }
@@ -241,7 +241,7 @@ impl GatewayChannel {
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             outgoing_tx: args.outgoing_tx,
             http_client,
-            runtime_bridge_secrets: Arc::new(RwLock::new(RuntimeBridgeSecrets::default())),
+            runtime_channel_secrets: Arc::new(RwLock::new(RuntimeBridgeSecrets::default())),
             active_login: Arc::new(Mutex::new(None)),
         }
     }
@@ -2010,11 +2010,11 @@ impl GatewayChannel {
         Ok(())
     }
 
-    /// Send a message via an IRC bridge HTTP API.
-    /// IRC doesn't have a native HTTP API, so this calls a local IRC bridge service.
+    /// Send a message via an IRC channel HTTP API.
+    /// IRC doesn't have a native HTTP API, so this calls a local IRC channel service.
     pub(crate) async fn send_irc_message(
         &self,
-        bridge_url: &str,
+        channel_url: &str,
         channel_name: &str,
         text: &str,
     ) -> anyhow::Result<()> {
@@ -2023,7 +2023,7 @@ impl GatewayChannel {
             "message": text,
         });
 
-        let url = format!("{bridge_url}/send");
+        let url = format!("{channel_url}/send");
         let response = self
             .http_client
             .post(&url)
@@ -2036,7 +2036,7 @@ impl GatewayChannel {
             let status = response.status();
             let body = response.bytes().await.unwrap_or_default();
             warn!(
-                "IRC bridge error: HTTP {status}: {}",
+                "IRC channel error: HTTP {status}: {}",
                 String::from_utf8_lossy(&body)
             );
         }
@@ -2078,7 +2078,7 @@ impl GatewayChannel {
         session_id: Option<&str>,
         reply_target: Option<&str>,
     ) -> anyhow::Result<()> {
-        let runtime = self.runtime_bridge_secrets.read().await.clone();
+        let runtime = self.runtime_channel_secrets.read().await.clone();
         let (platform, channel_id) = channel.split_once(':').unwrap_or(("webhook", channel));
 
         match platform {
@@ -2170,7 +2170,7 @@ impl GatewayChannel {
                 }
             }
             "feishu" | "lark" => {
-                let config = crate::bridges::feishu::resolve_feishu_outbound_config(
+                let config = crate::channels::feishu::resolve_feishu_outbound_config(
                     &self.config.savfox_home,
                 )
                 .await?;
@@ -2197,7 +2197,7 @@ impl GatewayChannel {
                         .map(str::trim)
                         .filter(|value| !value.is_empty()),
                 ) {
-                    match crate::bridges::feishu::fetch_feishu_tenant_access_token(
+                    match crate::channels::feishu::fetch_feishu_tenant_access_token(
                         &self.http_client,
                         config
                             .as_ref()
@@ -2242,7 +2242,7 @@ impl GatewayChannel {
                     )
                     .await?;
                 } else {
-                    let config = crate::bridges::dingtalk::resolve_dingtalk_outbound_config(
+                    let config = crate::channels::dingtalk::resolve_dingtalk_outbound_config(
                         &self.config.savfox_home,
                     )
                     .await?;
@@ -2272,9 +2272,9 @@ impl GatewayChannel {
                 }
             }
             "irc" => {
-                let bridge_url = std::env::var("IRC_BRIDGE_URL")
+                let channel_url = std::env::var("IRC_BRIDGE_URL")
                     .unwrap_or_else(|_| "http://127.0.0.1:6667".to_string());
-                self.send_irc_message(&bridge_url, channel_id, text).await?;
+                self.send_irc_message(&channel_url, channel_id, text).await?;
             }
             "zalo" => {
                 if let Ok(token) = std::env::var("ZALO_OA_ACCESS_TOKEN") {
@@ -2315,16 +2315,16 @@ impl GatewayChannel {
         &self.config
     }
 
-    /// Replace runtime bridge credentials from a hot config update.
-    pub(crate) async fn set_runtime_bridge_secrets(&self, secrets: RuntimeBridgeSecrets) {
-        let mut lock = self.runtime_bridge_secrets.write().await;
+    /// Replace runtime channel credentials from a hot config update.
+    pub(crate) async fn set_runtime_channel_secrets(&self, secrets: RuntimeBridgeSecrets) {
+        let mut lock = self.runtime_channel_secrets.write().await;
         *lock = secrets;
     }
 
-    /// Snapshot current runtime bridge credentials.
+    /// Snapshot current runtime channel credentials.
     #[must_use]
-    pub(crate) async fn runtime_bridge_secrets(&self) -> RuntimeBridgeSecrets {
-        self.runtime_bridge_secrets.read().await.clone()
+    pub(crate) async fn runtime_channel_secrets(&self) -> RuntimeBridgeSecrets {
+        self.runtime_channel_secrets.read().await.clone()
     }
 
     /// Invoke the agent with a text prompt and return the response text.

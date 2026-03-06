@@ -22,7 +22,7 @@ WhatsApp.
 ## Step 2: Configure the gateway
 
 ```toml
-[gateway.bridges.whatsapp]
+[gateway.channels.whatsapp]
 enabled = true
 phone_number_id = "YOUR_PHONE_NUMBER_ID"
 access_token = "YOUR_PERMANENT_ACCESS_TOKEN"
@@ -68,7 +68,7 @@ POST https://graph.facebook.com/v17.0/{phone_number_id}/messages
 - WhatsApp requires a 24-hour messaging window for user-initiated conversations.
 - Template messages are required for business-initiated conversations outside
   the 24-hour window.
-- Media attachments are not currently supported by the bridge.
+- Media attachments are not currently supported by the channel.
 
 ## Troubleshooting
 

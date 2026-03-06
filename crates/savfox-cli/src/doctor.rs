@@ -256,7 +256,7 @@ fn check_dependencies(summary: &mut DoctorSummary) {
             label: "signal-cli",
             candidates: &["signal-cli"],
             required: false,
-            purpose: "Signal bridge",
+            purpose: "Signal channel",
         },
         BinCheck {
             label: "chrome",

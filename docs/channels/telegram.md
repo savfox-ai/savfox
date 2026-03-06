@@ -17,10 +17,10 @@ bot.
 
 ## Step 2: Configure the gateway
 
-Add the Telegram bridge to `config.toml`:
+Add the Telegram channel to `config.toml`:
 
 ```toml
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "123456789:ABCdefGhIjKlMnOpQrStUvWxYz"
 # webhook_secret_token = "optional-secret-for-verification"

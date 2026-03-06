@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::{GatewayChannel, RuntimeBridgeSecrets};
+use crate::channel::{GatewayChannel, RuntimeBridgeSecrets};
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -25,7 +25,7 @@ use crate::session::{GatewaySessionManager, SessionStore, build_history_payload}
 use crate::skills_api::{self, SkillsApiState};
 use crate::ws::ws_handler;
 use crate::{
-    bridges, exec_approval, hooks, log_store, pairing_store, routing, static_assets, tools_invoke,
+    channels, exec_approval, hooks, log_store, pairing_store, routing, static_assets, tools_invoke,
     webchat,
 };
 
@@ -142,7 +142,7 @@ async fn get_agent_run(run_id: &str) -> Option<AgentRunRecord> {
 pub(crate) fn build_router(
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     config: &GatewayConfig,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
@@ -155,7 +155,7 @@ pub(crate) fn build_router(
     let state_router = Router::new()
         .hoop(affix_state::inject(auth.clone()))
         .hoop(affix_state::inject(session_mgr.clone()))
-        .hoop(affix_state::inject(bridge.clone()))
+        .hoop(affix_state::inject(channel.clone()))
         .hoop(affix_state::inject(gateway_config))
         .hoop(affix_state::inject(session_store))
         .hoop(affix_state::inject(cron_service))
@@ -253,24 +253,24 @@ pub(crate) fn build_router(
         .push(Router::with_path("plugins/<plugin_id>").post(plugin_route_handler))
         .push(Router::with_path("plugins/<plugin_id>/<**plugin_route>").post(plugin_route_handler));
 
-    // Webhook endpoints for chat platform bridges.
+    // Webhook endpoints for chat platform channels.
     let webhook_router = Router::with_path("webhooks")
-        .push(Router::with_path("discord").post(bridges::discord::webhook_handler))
-        .push(Router::with_path("dingtalk").post(bridges::dingtalk::webhook_handler))
-        .push(Router::with_path("telegram").post(bridges::telegram::webhook_handler))
-        .push(Router::with_path("slack").post(bridges::slack::webhook_handler))
-        .push(Router::with_path("matrix").post(bridges::matrix::webhook_handler))
-        .push(Router::with_path("msteams").post(bridges::msteams::webhook_handler))
-        .push(Router::with_path("mattermost").post(bridges::mattermost::webhook_handler))
-        .push(Router::with_path("googlechat").post(bridges::googlechat::webhook_handler))
-        .push(Router::with_path("line").post(bridges::line::webhook_handler))
-        .push(Router::with_path("feishu").post(bridges::feishu::webhook_handler))
-        .push(Router::with_path("irc").post(bridges::irc::webhook_handler))
-        .push(Router::with_path("webhook").post(bridges::webhook::webhook_handler))
-        .push(Router::with_path("whatsapp").get(bridges::whatsapp::webhook_verification_handler))
-        .push(Router::with_path("whatsapp").post(bridges::whatsapp::webhook_handler))
-        .push(Router::with_path("signal").post(bridges::signal::webhook_handler))
-        .push(Router::with_path("zalo").post(bridges::zalo::webhook_handler));
+        .push(Router::with_path("discord").post(channels::discord::webhook_handler))
+        .push(Router::with_path("dingtalk").post(channels::dingtalk::webhook_handler))
+        .push(Router::with_path("telegram").post(channels::telegram::webhook_handler))
+        .push(Router::with_path("slack").post(channels::slack::webhook_handler))
+        .push(Router::with_path("matrix").post(channels::matrix::webhook_handler))
+        .push(Router::with_path("msteams").post(channels::msteams::webhook_handler))
+        .push(Router::with_path("mattermost").post(channels::mattermost::webhook_handler))
+        .push(Router::with_path("googlechat").post(channels::googlechat::webhook_handler))
+        .push(Router::with_path("line").post(channels::line::webhook_handler))
+        .push(Router::with_path("feishu").post(channels::feishu::webhook_handler))
+        .push(Router::with_path("irc").post(channels::irc::webhook_handler))
+        .push(Router::with_path("webhook").post(channels::webhook::webhook_handler))
+        .push(Router::with_path("whatsapp").get(channels::whatsapp::webhook_verification_handler))
+        .push(Router::with_path("whatsapp").post(channels::whatsapp::webhook_handler))
+        .push(Router::with_path("signal").post(channels::signal::webhook_handler))
+        .push(Router::with_path("zalo").post(channels::zalo::webhook_handler));
 
     router = router.push(webhook_router);
 
@@ -298,17 +298,17 @@ pub(crate) async fn start_server(
     config: &GatewayConfig,
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     savfox_home: PathBuf,
 ) -> std::io::Result<()> {
-    bridges::runtime::set_response_footer_config(config.response_footer.clone());
+    channels::runtime::set_response_footer_config(config.response_footer.clone());
 
     let router = build_router(
         auth,
         session_mgr,
-        bridge,
+        channel,
         config,
         session_store,
         cron_service,
@@ -348,7 +348,7 @@ async fn status_handler(depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -358,10 +358,10 @@ async fn status_handler(depot: &mut Depot, res: &mut Response) {
 
     let count = session_mgr.session_count().await;
     let session_ids = session_mgr.session_ids().await;
-    let audit_summary = crate::security_audit::run_audit(&bridge.config().savfox_home)
+    let audit_summary = crate::security_audit::run_audit(&channel.config().savfox_home)
         .await
         .summary;
-    let plugins = plugin::discover_snapshot(&bridge.config().savfox_home)
+    let plugins = plugin::discover_snapshot(&channel.config().savfox_home)
         .await
         .unwrap_or_default();
     let plugin_routes = plugin::describe_http_routes(&plugins, PLUGIN_ROUTE_RATE_LIMIT_PER_MINUTE);
@@ -407,7 +407,7 @@ async fn config_handler(depot: &mut Depot, res: &mut Response) {
     let body = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "connected_clients": count,
-        "bridges": {
+        "channels": {
             "discord": "configured",
             "telegram": "configured",
             "slack": "configured",
@@ -480,7 +480,7 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
 /// Accepts JSON body: `{"channel": "discord:12345", "text": "Hello!"}`
 #[handler]
 async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -510,7 +510,7 @@ async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
         return;
     }
 
-    match bridge
+    match channel
         .send_platform_message(channel, text, None, None, None)
         .await
     {
@@ -551,7 +551,7 @@ async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
 /// `GET /api/channels`  - List configured channel integrations.
 #[handler]
 async fn channels_handler(depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -559,7 +559,7 @@ async fn channels_handler(depot: &mut Depot, res: &mut Response) {
         }
     };
 
-    let runtime = bridge.runtime_bridge_secrets().await;
+    let runtime = channel.runtime_channel_secrets().await;
     let body = json!({
         "channels": [
             {
@@ -692,8 +692,8 @@ fn merge_json_patch(target: &mut Value, patch: &Value) {
     }
 }
 
-fn config_toml_path(bridge: &GatewayChannel) -> std::path::PathBuf {
-    bridge.config().savfox_home.join("config.toml")
+fn config_toml_path(channel: &GatewayChannel) -> std::path::PathBuf {
+    channel.config().savfox_home.join("config.toml")
 }
 
 async fn read_config_json(path: &std::path::Path) -> Result<Value, String> {
@@ -884,20 +884,20 @@ fn json_path_str<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
     cur.as_str()
 }
 
-fn runtime_bridge_secrets_from_config(config: &Value) -> RuntimeBridgeSecrets {
+fn runtime_channel_secrets_from_config(config: &Value) -> RuntimeBridgeSecrets {
     RuntimeBridgeSecrets {
-        discord_bot_token: json_path_str(config, &["gateway", "bridges", "discord", "bot_token"])
+        discord_bot_token: json_path_str(config, &["gateway", "channels", "discord", "bot_token"])
             .map(ToOwned::to_owned),
-        telegram_bot_token: json_path_str(config, &["gateway", "bridges", "telegram", "bot_token"])
+        telegram_bot_token: json_path_str(config, &["gateway", "channels", "telegram", "bot_token"])
             .map(ToOwned::to_owned),
-        slack_bot_token: json_path_str(config, &["gateway", "bridges", "slack", "bot_token"])
+        slack_bot_token: json_path_str(config, &["gateway", "channels", "slack", "bot_token"])
             .map(ToOwned::to_owned),
         slack_signing_secret: json_path_str(
             config,
-            &["gateway", "bridges", "slack", "signing_secret"],
+            &["gateway", "channels", "slack", "signing_secret"],
         )
         .map(ToOwned::to_owned),
-        webhook_secret: json_path_str(config, &["gateway", "bridges", "webhook", "secret"])
+        webhook_secret: json_path_str(config, &["gateway", "channels", "webhook", "secret"])
             .map(ToOwned::to_owned),
     }
 }
@@ -918,8 +918,8 @@ fn count_runtime_secrets(secrets: &RuntimeBridgeSecrets) -> usize {
 /// `POST /api/config/patch`  - Merge-patch the gateway configuration.
 #[handler]
 async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(bridge) => bridge.clone(),
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
             return;
@@ -946,7 +946,7 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         .and_then(|v| v.as_str())
         .unwrap_or("(no note)");
 
-    let path = config_toml_path(&bridge);
+    let path = config_toml_path(&channel);
     let mut current = match read_config_json(&path).await {
         Ok(v) => v,
         Err(err) => {
@@ -962,9 +962,9 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let runtime_secrets = runtime_bridge_secrets_from_config(&current);
+    let runtime_secrets = runtime_channel_secrets_from_config(&current);
     let runtime_updates = count_runtime_secrets(&runtime_secrets);
-    bridge.set_runtime_bridge_secrets(runtime_secrets).await;
+    channel.set_runtime_channel_secrets(runtime_secrets).await;
 
     res.render(Text::Json(
         json!({
@@ -981,8 +981,8 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 /// `POST /api/config/apply`  - Replace the gateway configuration entirely.
 #[handler]
 async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(bridge) => bridge.clone(),
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
             return;
@@ -1017,16 +1017,16 @@ async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let path = config_toml_path(&bridge);
+    let path = config_toml_path(&channel);
     if let Err(err) = write_config_json(&path, &new_config).await {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(json!({"error": err}).to_string()));
         return;
     }
 
-    let runtime_secrets = runtime_bridge_secrets_from_config(&new_config);
+    let runtime_secrets = runtime_channel_secrets_from_config(&new_config);
     let runtime_updates = count_runtime_secrets(&runtime_secrets);
-    bridge.set_runtime_bridge_secrets(runtime_secrets).await;
+    channel.set_runtime_channel_secrets(runtime_secrets).await;
 
     res.render(Text::Json(
         json!({
@@ -1087,7 +1087,7 @@ async fn restart_handler(req: &mut Request, res: &mut Response) {
 /// Body: `{"session_id": "...", "message": "...", "model": "...", "system": "..."}`
 #[handler]
 async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1147,7 +1147,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
     .await;
 
     // Spawn the agent invocation in the background.
-    let bridge_clone = bridge.clone();
+    let channel_clone = channel.clone();
     let session_store_clone = session_store.clone();
     let message_owned = message.to_owned();
     let model_owned = model.to_owned();
@@ -1155,7 +1155,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let run_id_clone = run_id.clone();
 
     tokio::spawn(async move {
-        match bridge_clone
+        match channel_clone
             .invoke_agent_text_in_session_with_metadata(
                 &message_owned,
                 &model_owned,
@@ -1167,7 +1167,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
                 let provider = provider_from_model(&model_owned);
                 persist_chat_session_metadata(
                     session_store_clone.as_ref(),
-                    &bridge_clone.config().savfox_home,
+                    &channel_clone.config().savfox_home,
                     &result.session_id,
                     &result.session_id,
                     &model_owned,
@@ -1305,15 +1305,15 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(bridge) => bridge.clone(),
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
             return;
         }
     };
 
-    let payload = build_history_payload(&session_id, limit, None, &session_store, &bridge).await;
+    let payload = build_history_payload(&session_id, limit, None, &session_store, &channel).await;
     res.render(Text::Json(payload.to_string()));
 }
 
@@ -1337,8 +1337,8 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(bridge) => bridge.clone(),
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
             return;
@@ -1357,7 +1357,7 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         resolve_abort_candidate_ids(session_store.as_ref(), Some(thread_id), Some(session_id))
             .await;
     if let Some(aborted_thread_id) =
-        abort_first_active_candidate(bridge.as_ref(), &candidates).await
+        abort_first_active_candidate(channel.as_ref(), &candidates).await
     {
         res.render(Text::Json(
             json!({
@@ -1371,7 +1371,7 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let aborted_count = abort_all_active_threads(bridge.as_ref()).await;
+    let aborted_count = abort_all_active_threads(channel.as_ref()).await;
 
     res.render(Text::Json(
         json!({
@@ -1412,7 +1412,7 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1420,7 +1420,7 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         }
     };
 
-    let plugins = match plugin::discover_snapshot(&bridge.config().savfox_home).await {
+    let plugins = match plugin::discover_snapshot(&channel.config().savfox_home).await {
         Ok(plugins) => plugins,
         Err(err) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

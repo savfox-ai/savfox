@@ -8,7 +8,7 @@ use sha2::Sha256;
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::{GatewayConfig, WhatsAppChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -26,7 +26,7 @@ fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> 
     computed == expected
 }
 
-/// WhatsApp Business API bridge using Cloud API with webhook mode.
+/// WhatsApp Business API channel using Cloud API with webhook mode.
 pub(crate) struct WhatsAppChannel {
     config: WhatsAppChannelConfig,
     http_client: reqwest::Client,
@@ -94,7 +94,7 @@ impl WhatsAppChannel {
 #[async_trait]
 impl Channel for WhatsAppChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("WhatsApp bridge initialized (webhook mode)");
+        info!("WhatsApp channel initialized (webhook mode)");
         Ok(())
     }
 
@@ -178,7 +178,7 @@ pub(crate) async fn webhook_verification_handler(
         .obtain::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
-            cfg.bridges
+            cfg.channels
                 .whatsapp
                 .as_ref()
                 .and_then(|b| b.verify_token.clone())
@@ -216,7 +216,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .obtain::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
-            cfg.bridges
+            cfg.channels
                 .whatsapp
                 .as_ref()
                 .and_then(|b| b.app_secret.clone())
@@ -307,15 +307,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("WhatsApp webhook: missing gateway bridge state: {err:?}");
+                    warn!("WhatsApp webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge unavailable",
+                        "gateway channel unavailable",
                     );
                     return;
                 }
@@ -336,7 +336,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "whatsapp",
                     channel,

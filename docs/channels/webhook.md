@@ -1,6 +1,6 @@
 ﻿# Generic Webhook Channel Setup
 
-The generic webhook bridge allows integration with any platform that can send
+The generic webhook channel allows integration with any platform that can send
 and receive HTTP POST requests.
 
 ## Prerequisites
@@ -11,7 +11,7 @@ and receive HTTP POST requests.
 ## Configuration
 
 ```toml
-[gateway.bridges.webhook]
+[gateway.channels.webhook]
 enabled = true
 callback_url = "https://your-service.example.com/savfox-events"
 secret = "your-shared-hmac-secret"
@@ -21,7 +21,7 @@ secret = "your-shared-hmac-secret"
 
 | Field          | Type            | Required | Description                          |
 |----------------|-----------------|----------|--------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the webhook bridge            |
+| `enabled`      | `bool`          | Yes      | Enable the webhook channel            |
 | `callback_url` | `Option<String>`| No       | URL for outbound event delivery      |
 | `secret`       | `Option<String>`| No       | HMAC-SHA256 shared secret            |
 

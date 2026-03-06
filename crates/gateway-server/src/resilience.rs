@@ -133,7 +133,7 @@ impl CircuitBreaker {
     }
 }
 
-/// Auto-reconnect wrapper for bridge connections
+/// Auto-reconnect wrapper for channel connections
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReconnectPolicy {
     pub enabled: bool,

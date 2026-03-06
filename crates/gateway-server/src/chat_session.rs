@@ -4,7 +4,7 @@ use std::path::Path;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{Op, TokenUsage};
 
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::session::{SessionStore, session_file_to_store_value};
 
 pub(crate) fn validate_uuid_v7_session_id(raw: Option<&str>) -> Result<Option<String>, String> {
@@ -122,12 +122,12 @@ pub(crate) async fn resolve_abort_candidate_ids(
 }
 
 pub(crate) async fn abort_first_active_candidate(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     candidates: &[String],
 ) -> Option<String> {
     for candidate in candidates {
         if let Ok(thread_id) = SessionId::from_string(candidate)
-            && let Ok(thread) = bridge.session_manager().get_session(thread_id).await
+            && let Ok(thread) = channel.session_manager().get_session(thread_id).await
         {
             let _ = thread.submit(Op::Interrupt).await;
             return Some(candidate.clone());
@@ -137,11 +137,11 @@ pub(crate) async fn abort_first_active_candidate(
     None
 }
 
-pub(crate) async fn abort_all_active_threads(bridge: &GatewayChannel) -> u32 {
-    let thread_ids = bridge.session_manager().list_session_ids().await;
+pub(crate) async fn abort_all_active_threads(channel: &GatewayChannel) -> u32 {
+    let thread_ids = channel.session_manager().list_session_ids().await;
     let mut aborted = 0u32;
     for thread_id in &thread_ids {
-        if let Ok(thread) = bridge.session_manager().get_session(*thread_id).await
+        if let Ok(thread) = channel.session_manager().get_session(*thread_id).await
             && thread.submit(Op::Interrupt).await.is_ok()
         {
             aborted += 1;

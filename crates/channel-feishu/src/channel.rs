@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::config::{FeishuChannelConfig, fetch_feishu_tenant_access_token};
-use crate::parse::extract_bridge_action;
+use crate::parse::extract_channel_action;
 
 #[derive(Debug)]
 pub struct FeishuChannel {
@@ -66,7 +66,7 @@ impl Channel for FeishuChannel {
         info!(
             base_url = %self.config.base_url,
             inbound_mode = ?self.config.inbound_mode,
-            "Feishu/Lark bridge starting"
+            "Feishu/Lark channel starting"
         );
         Ok(())
     }
@@ -124,6 +124,6 @@ impl Channel for FeishuChannel {
             Ok(event) => event,
             Err(_) => return Ok(ChannelAction::Ignore),
         };
-        Ok(extract_bridge_action(&message_event).unwrap_or(ChannelAction::Ignore))
+        Ok(extract_channel_action(&message_event).unwrap_or(ChannelAction::Ignore))
     }
 }

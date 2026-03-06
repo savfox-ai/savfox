@@ -47,7 +47,7 @@ Twitch has strict rate limits for chat messages:
 - Moderators: 100 messages per 30 seconds
 - Verified bots: Higher limits
 
-The bridge respects these limits automatically.
+The channel respects these limits automatically.
 
 ## Commands
 

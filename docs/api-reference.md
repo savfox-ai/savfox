@@ -634,9 +634,9 @@ List all supported chat platforms with their webhook endpoints.
 - **Response**:
   ```json
   { "channels": [
-    {"platform":"discord","endpoint":"/webhooks/discord","type":"bridge"},
-    {"platform":"telegram","endpoint":"/webhooks/telegram","type":"bridge"},
-    {"platform":"slack","endpoint":"/webhooks/slack","type":"bridge"},
+    {"platform":"discord","endpoint":"/webhooks/discord","type":"channel"},
+    {"platform":"telegram","endpoint":"/webhooks/telegram","type":"channel"},
+    {"platform":"slack","endpoint":"/webhooks/slack","type":"channel"},
     {"platform":"webhook","endpoint":"/webhooks/webhook","type":"generic"}
   ] }
   ```
@@ -670,7 +670,7 @@ Get detailed connection status for all configured channels.
 
 ### `channels.login`
 
-Log in to a channel bridge (check if configured).
+Log in to a channel channel (check if configured).
 
 - **Scope**: Write
 - **Params**: `{ "platform": "discord" }`
@@ -678,7 +678,7 @@ Log in to a channel bridge (check if configured).
 
 ### `channels.logout`
 
-Log out from a channel bridge (clear runtime credentials).
+Log out from a channel channel (clear runtime credentials).
 
 - **Scope**: Write
 - **Params**: `{ "platform": "discord" }`

@@ -25,12 +25,12 @@ relays = [
 
 ## How It Works
 
-The Nostr bridge connects to configured relays via WebSocket:
+The Nostr channel connects to configured relays via WebSocket:
 
 - **Kind 1** (Text Notes): Public posts mentioning the bot's pubkey
 - **Kind 4** (Encrypted DMs): Private messages to the bot
 
-The bridge subscribes to events that mention the bot and responds inline.
+The channel subscribes to events that mention the bot and responds inline.
 
 ## Features
 

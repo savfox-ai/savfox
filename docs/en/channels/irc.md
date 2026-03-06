@@ -74,4 +74,4 @@ nickserv_password = "${IRC_NICKSERV_PASSWORD}"
 - **Cannot connect**: Check server, port, and TLS settings
 - **Nickname in use**: Choose a different nickname or register it
 - **Not receiving messages**: Ensure the bot has joined the channel
-- **Disconnecting**: The bridge auto-reconnects with exponential backoff
+- **Disconnecting**: The channel auto-reconnects with exponential backoff

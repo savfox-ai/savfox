@@ -1,6 +1,6 @@
 ﻿# Agent Routing
 
-When a message arrives through a chat bridge or API, the gateway must determine
+When a message arrives through a chat channel or API, the gateway must determine
 which agent should handle it and which session context to use. This document
 describes the routing logic, session key construction, and rule-based routing.
 
@@ -10,7 +10,7 @@ describes the routing logic, session key construction, and rule-based routing.
 Inbound message
   |
   v
-Bridge parses payload -> ChannelAction
+Channel parses payload -> ChannelAction
   |
   v
 Session key construction (agent + channel + group + peer)
@@ -22,7 +22,7 @@ SessionStore lookup (get_or_create)
 Agent invocation (ThreadManager)
   |
   v
-Response sent back through bridge
+Response sent back through channel
 ```
 
 ## Session key construction
@@ -68,7 +68,7 @@ Runtime DM scope can be overridden in `{savfox_home}/dm-scope.json`:
 ```
 
 Resolution order is:
-1. Explicit inbound override (bridge-provided `dm_scope`)
+1. Explicit inbound override (channel-provided `dm_scope`)
 2. Exact channel override (`platform:channel`)
 3. Platform override (`platform`)
 4. Agent override (`agents.<agent_id>`)
@@ -118,9 +118,9 @@ Channels use a `platform:identifier` format:
 | Matrix     | `matrix:!abcdef:matrix.org`      |
 | Webhook    | `webhook:my-integration`         |
 
-## Bridge action routing
+## Channel action routing
 
-Each bridge parses its platform-specific payload into a `ChannelAction`:
+Each channel parses its platform-specific payload into a `ChannelAction`:
 
 | ChannelAction     | Description                                          |
 |------------------|------------------------------------------------------|
@@ -131,9 +131,9 @@ Each bridge parses its platform-specific payload into a `ChannelAction`:
 
 ### StartThread flow
 
-1. The bridge runtime (`bridges/runtime.rs`) receives a `StartThread` action.
+1. The channel runtime (`channels/runtime.rs`) receives a `StartThread` action.
 2. It calls `track_inbound_message()` to create or update a session entry.
-3. The agent is invoked via `bridge.invoke_agent_text_with_metadata()`.
+3. The agent is invoked via `channel.invoke_agent_text_with_metadata()`.
 4. The response is sent back through the platform API.
 5. On failure, the runtime retries up to 3 times before logging a warning.
 
@@ -218,6 +218,6 @@ display name as an already linked identity, it can be auto-attached.
 
 ## Deduplication
 
-The bridge runtime maintains a deduplication cache with a 10-minute TTL. If the
+The channel runtime maintains a deduplication cache with a 10-minute TTL. If the
 same event key arrives within the TTL window, the duplicate is dropped. This
 prevents double-processing when platforms retry webhook deliveries.

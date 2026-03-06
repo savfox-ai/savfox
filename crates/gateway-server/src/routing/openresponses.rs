@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 
 // ─── Request types ───────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -331,7 +331,7 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
     if body.stream {
         handle_streaming(
             res,
-            bridge,
+            channel,
             response_id,
             created_at,
             model,
@@ -342,7 +342,7 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
     } else {
         handle_non_streaming(
             res,
-            bridge,
+            channel,
             response_id,
             created_at,
             model,
@@ -399,14 +399,14 @@ fn try_parse_function_call(reply: &str) -> Option<(String, String)> {
 /// Non-streaming: return full response as JSON.
 async fn handle_non_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     response_id: String,
     created_at: u64,
     model: String,
     prompt: String,
     has_tools: bool,
 ) {
-    let reply = match bridge.invoke_agent_text(&prompt, &model).await {
+    let reply = match channel.invoke_agent_text(&prompt, &model).await {
         Ok(text) => text,
         Err(err) => {
             warn!("agent invocation failed: {err}");
@@ -497,7 +497,7 @@ async fn handle_non_streaming(
 /// Streaming: send SSE events.
 async fn handle_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     response_id: String,
     _created_at: u64,
     model: String,
@@ -525,7 +525,7 @@ async fn handle_streaming(
             )))
             .await;
 
-        match bridge.invoke_agent_text(&prompt, &m).await {
+        match channel.invoke_agent_text(&prompt, &m).await {
             Ok(text) => {
                 // Check if the reply looks like a function call.
                 let fn_call = if has_tools {

@@ -16,12 +16,12 @@ pub(crate) use savfox_channel_feishu::{
 use serde_json::{Value, json};
 
 use super::runtime;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
 struct FeishuRuntimeSink {
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 }
 
@@ -43,11 +43,11 @@ impl FeishuActionSink for FeishuRuntimeSink {
         }
 
         if let ChannelAction::StartThread { channel, prompt } = action {
-            let bridge = Arc::clone(&self.bridge);
+            let channel = Arc::clone(&self.channel);
             let session_store = Arc::clone(&self.session_store);
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "feishu",
                     channel,
@@ -61,30 +61,30 @@ impl FeishuActionSink for FeishuRuntimeSink {
 }
 
 fn feishu_sink(
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> Arc<dyn FeishuActionSink> {
     Arc::new(FeishuRuntimeSink {
-        bridge,
+        channel,
         session_store,
     })
 }
 
 async fn build_feishu_event_dispatcher(
     config: &FeishuChannelConfig,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> Arc<EventDispatcher> {
-    build_dispatcher_inner(config, feishu_sink(bridge, session_store)).await
+    build_dispatcher_inner(config, feishu_sink(channel, session_store)).await
 }
 
 pub(crate) async fn start_feishu_stream(
     channel_id: &str,
     config: &FeishuChannelConfig,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    start_stream_inner(channel_id, config, feishu_sink(bridge, session_store)).await
+    start_stream_inner(channel_id, config, feishu_sink(channel, session_store)).await
 }
 
 fn render_error(res: &mut Response, status: StatusCode, code: &str, message: impl Into<String>) {
@@ -165,14 +165,14 @@ fn feishu_event_response_to_response(event_resp: EventResp, res: &mut Response) 
 
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(bridge) => bridge.clone(),
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
         Err(_) => {
             render_error(
                 res,
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "state_unavailable",
-                "gateway bridge state unavailable",
+                "gateway channel state unavailable",
             );
             return;
         }
@@ -190,7 +190,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let config = match load_feishu_channel_config(&bridge.config().savfox_home).await {
+    let config = match load_feishu_channel_config(&channel.config().savfox_home).await {
         Ok(Some(config)) => config,
         Ok(None) => {
             render_error(
@@ -225,7 +225,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let dispatcher = build_feishu_event_dispatcher(&config, bridge, session_store).await;
+    let dispatcher = build_feishu_event_dispatcher(&config, channel, session_store).await;
     match dispatcher.dispatch(event_req).await {
         Ok(event_resp) => {
             feishu_event_response_to_response(event_resp, res);

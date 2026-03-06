@@ -44,7 +44,7 @@ default_value = "safe"
 
 | Kind | Description |
 |------|-------------|
-| `channel` | Chat bridge (Discord, Slack, etc.) |
+| `channel` | Chat channel (Discord, Slack, etc.) |
 | `tool` | Agent tool |
 | `provider` | LLM provider |
 | `memory` | Memory storage backend (exclusive slot) |
@@ -73,7 +73,7 @@ impl Plugin for MyPlugin {
     fn register_channel(&self) -> Vec<PluginChannelDefinition> {
         vec![PluginChannelDefinition {
             name: "discord".to_string(),
-            description: "Bridge events from Discord".to_string(),
+            description: "Channel events from Discord".to_string(),
             platforms: vec!["discord".to_string()],
         }]
     }

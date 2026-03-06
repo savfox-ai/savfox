@@ -96,10 +96,10 @@ pub(crate) struct GatewayMetrics {
     pub agent_invocations_failed: AtomicU64,
     /// Approximate LLM tokens consumed across all agent runs.
     pub agent_tokens_consumed: AtomicU64,
-    /// Messages received from chat-platform bridges.
-    pub bridge_messages_in: AtomicU64,
-    /// Messages sent out to chat-platform bridges.
-    pub bridge_messages_out: AtomicU64,
+    /// Messages received from chat-platform channels.
+    pub channel_messages_in: AtomicU64,
+    /// Messages sent out to chat-platform channels.
+    pub channel_messages_out: AtomicU64,
     /// Number of tracked sessions.
     pub session_count: AtomicU64,
 }
@@ -115,8 +115,8 @@ impl GatewayMetrics {
             agent_invocations_total: AtomicU64::new(0),
             agent_invocations_failed: AtomicU64::new(0),
             agent_tokens_consumed: AtomicU64::new(0),
-            bridge_messages_in: AtomicU64::new(0),
-            bridge_messages_out: AtomicU64::new(0),
+            channel_messages_in: AtomicU64::new(0),
+            channel_messages_out: AtomicU64::new(0),
             session_count: AtomicU64::new(0),
         }
     }
@@ -166,14 +166,14 @@ impl GatewayMetrics {
             .fetch_add(tokens, Ordering::Relaxed);
     }
 
-    /// Record an inbound bridge message.
-    pub fn inc_bridge_messages_in(&self) {
-        self.bridge_messages_in.fetch_add(1, Ordering::Relaxed);
+    /// Record an inbound channel message.
+    pub fn inc_channel_messages_in(&self) {
+        self.channel_messages_in.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Record an outbound bridge message.
-    pub fn inc_bridge_messages_out(&self) {
-        self.bridge_messages_out.fetch_add(1, Ordering::Relaxed);
+    /// Record an outbound channel message.
+    pub fn inc_channel_messages_out(&self) {
+        self.channel_messages_out.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Set the current session count gauge.
@@ -193,8 +193,8 @@ impl GatewayMetrics {
             "agent_invocations_total": self.agent_invocations_total.load(Ordering::Relaxed),
             "agent_invocations_failed": self.agent_invocations_failed.load(Ordering::Relaxed),
             "agent_tokens_consumed": self.agent_tokens_consumed.load(Ordering::Relaxed),
-            "bridge_messages_in": self.bridge_messages_in.load(Ordering::Relaxed),
-            "bridge_messages_out": self.bridge_messages_out.load(Ordering::Relaxed),
+            "channel_messages_in": self.channel_messages_in.load(Ordering::Relaxed),
+            "channel_messages_out": self.channel_messages_out.load(Ordering::Relaxed),
             "session_count": self.session_count.load(Ordering::Relaxed),
         })
     }

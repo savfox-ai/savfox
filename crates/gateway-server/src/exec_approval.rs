@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::session::GatewaySessionManager;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -216,7 +216,7 @@ fn format_approval_message(request: &ExecApprovalRequest) -> String {
 
 /// Forward an approval request to configured chat channels.
 pub(crate) async fn forward_approval_to_chat(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     session_mgr: &GatewaySessionManager,
     request: &ExecApprovalRequest,
     config: &ApprovalForwardingConfig,
@@ -248,7 +248,7 @@ pub(crate) async fn forward_approval_to_chat(
     // Forward to explicit targets.
     if config.mode == "targets" || config.mode == "both" {
         for target in &config.targets {
-            if let Err(err) = bridge
+            if let Err(err) = channel
                 .send_platform_message(target, &message, None, None, None)
                 .await
             {
@@ -280,7 +280,7 @@ pub(crate) async fn forward_approval_to_chat(
 
 /// Notify chat channels that an approval was resolved.
 pub(crate) async fn notify_approval_resolved(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     session_mgr: &GatewaySessionManager,
     resolution: &ExecApprovalResolution,
     config: &ApprovalForwardingConfig,
@@ -306,7 +306,7 @@ pub(crate) async fn notify_approval_resolved(
     // Notify targets.
     if config.mode == "targets" || config.mode == "both" {
         for target in &config.targets {
-            let _ = bridge
+            let _ = channel
                 .send_platform_message(target, &message, None, None, None)
                 .await;
         }
@@ -335,7 +335,7 @@ pub(crate) async fn approval_request_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -385,14 +385,14 @@ pub(crate) async fn approval_request_handler(
         request.expires_at_ms = now_ms + 300_000;
     }
 
-    if let Err(err) = persist_pending_approval(&bridge.config().savfox_home, &request).await {
+    if let Err(err) = persist_pending_approval(&channel.config().savfox_home, &request).await {
         warn!("failed to persist approval request {}: {}", request.id, err);
     }
 
     // Load forwarding config from env vars.
     let config = load_forwarding_config();
 
-    forward_approval_to_chat(&bridge, &session_mgr, &request, &config).await;
+    forward_approval_to_chat(&channel, &session_mgr, &request, &config).await;
 
     info!(approval_id = %request.id, "exec approval request received");
     res.render(Json(json!({
@@ -408,7 +408,7 @@ pub(crate) async fn approval_resolve_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -442,7 +442,7 @@ pub(crate) async fn approval_resolve_handler(
         }
     };
     let resolved_pending =
-        match persist_resolved_approval(&bridge.config().savfox_home, &resolution).await {
+        match persist_resolved_approval(&channel.config().savfox_home, &resolution).await {
             Ok(found) => found,
             Err(err) => {
                 warn!(
@@ -455,7 +455,7 @@ pub(crate) async fn approval_resolve_handler(
 
     let config = load_forwarding_config();
 
-    notify_approval_resolved(&bridge, &session_mgr, &resolution, &config).await;
+    notify_approval_resolved(&channel, &session_mgr, &resolution, &config).await;
 
     info!(
         approval_id = %resolution.id,
@@ -473,7 +473,7 @@ pub(crate) async fn approval_resolve_handler(
 /// `GET /api/exec/approvals`  - List pending approval requests.
 #[handler]
 pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -481,7 +481,7 @@ pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response
         }
     };
 
-    match list_pending_approvals(&bridge.config().savfox_home).await {
+    match list_pending_approvals(&channel.config().savfox_home).await {
         Ok(approvals) => {
             let count = approvals.len();
             res.render(Json(json!({

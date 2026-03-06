@@ -1,8 +1,8 @@
-//! Mock bridge tests for verifying message flow.
+//! Mock channel tests for verifying message flow.
 
 use serde_json::json;
 
-/// A mock bridge message for testing the message pipeline.
+/// A mock channel message for testing the message pipeline.
 #[derive(Debug, Clone)]
 struct MockMessage {
     channel: String,

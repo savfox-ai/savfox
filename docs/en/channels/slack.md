@@ -1,6 +1,6 @@
-﻿# Slack Bridge
+﻿# Slack Channel
 
-The Slack bridge connects Savfox to a Slack workspace, letting users interact with the AI agent from Slack channels, threads, and DMs.
+The Slack channel connects Savfox to a Slack workspace, letting users interact with the AI agent from Slack channels, threads, and DMs.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ Navigate to **OAuth & Permissions** in the sidebar and add these **Bot Token Sco
 1. Go to **Event Subscriptions** and toggle it on.
 2. Set the **Request URL** to your gateway's Slack webhook endpoint:
    ```
-   https://your-domain.com/bridges/slack/webhook
+   https://your-domain.com/channels/slack/webhook
    ```
 3. Slack will send a challenge request to verify the URL. The gateway handles this automatically.
 4. Under **Subscribe to bot events**, add:
@@ -55,10 +55,10 @@ The signing secret is used to verify that incoming webhook requests genuinely co
 
 ## Step 6: Configure Savfox
 
-Add the Slack bridge to `~/.savfox/config.toml`:
+Add the Slack channel to `~/.savfox/config.toml`:
 
 ```toml
-[gateway.bridges.slack]
+[gateway.channels.slack]
 enabled = true
 bot_token = "xoxb-1234567890-1234567890123-abcdefghijklmnopqrstuvwx"
 signing_secret = "abc123def456ghi789jkl012mno345pq"

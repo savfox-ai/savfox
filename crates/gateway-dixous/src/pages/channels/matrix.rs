@@ -48,7 +48,7 @@ pub fn MatrixChannel() -> Element {
                         span { class: "channel-icon", dangerous_inner_html: crate::utils::icons::ICON_MATRIX }
                         "Matrix"
                     }
-                    p { class: "channels-toolbar__subtitle", "Homeserver connection and bridge status." }
+                    p { class: "channels-toolbar__subtitle", "Homeserver connection and channel status." }
                 }
             }
 

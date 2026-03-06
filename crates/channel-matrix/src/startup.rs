@@ -37,7 +37,7 @@ pub async fn log_configured_matrix_startup(savfox_home: &PathBuf) -> anyhow::Res
         info!(
             channel_id = %config.id,
             homeserver = %homeserver,
-            "Matrix bridge starting with homeserver URL: {homeserver}"
+            "Matrix channel starting with homeserver URL: {homeserver}"
         );
     }
     Ok(())

@@ -17,7 +17,7 @@ Savfox is a modular AI coding agent built as a Rust workspace with 50+ crates. T
         (codex-api)       (gateway-server)
               |                 |
      OpenAI / Anthropic   +----+----+
-     Ollama / Groq / ...  | Bridges |
+     Ollama / Groq / ...  | Channels |
                           +---------+
                           Discord, Telegram,
                           Slack, Matrix, ...
@@ -56,16 +56,16 @@ The gateway exposes Savfox over HTTP and WebSocket for remote access:
 
 Built on **Salvo** (v0.89), a Rust async HTTP framework.
 
-## Chat Bridges
+## Chat Channels
 
-Bridges connect external messaging platforms to the gateway. Each bridge:
+Channels connect external messaging platforms to the gateway. Each channel:
 
 1. Receives messages from the platform (via webhook or polling).
 2. Routes them to the session manager, which finds or creates a session.
 3. Forwards the message to the core agent.
 4. Sends the agent's response back to the platform.
 
-Supported bridges: Discord, Telegram, Slack, Matrix, Mattermost, Google Chat, Line, Feishu, IRC, Signal, WhatsApp, Webhook.
+Supported channels: Discord, Telegram, Slack, Matrix, Mattermost, Google Chat, Line, Feishu, IRC, Signal, WhatsApp, Webhook.
 
 ## Tool System
 
@@ -100,7 +100,7 @@ A 4-layer Markdown memory system provides persistent context across sessions. Se
 
 ## Data Flow
 
-1. User sends a message (CLI, TUI, gateway WebSocket, or chat bridge).
+1. User sends a message (CLI, TUI, gateway WebSocket, or chat channel).
 2. The message reaches the core engine's ThreadManager.
 3. ThreadManager builds the LLM request with system prompt, memory context, and message history.
 4. The request streams to the configured LLM provider.

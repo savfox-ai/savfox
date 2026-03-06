@@ -19,7 +19,7 @@ pub enum TokenScope {
     Operator,
     /// Read-only: can subscribe to thread events but cannot start threads or approve.
     Viewer,
-    /// Chat bridge scope: limited to bridge-initiated operations.
+    /// Chat channel scope: limited to channel-initiated operations.
     Chat,
 
     // ── Fine-grained scopes ─────────────────────────────────────────

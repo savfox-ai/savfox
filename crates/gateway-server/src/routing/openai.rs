@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::chat_session::{
     persist_chat_session_metadata, provider_from_model, validate_uuid_v7_session_id,
 };
@@ -336,7 +336,7 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -344,7 +344,7 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
         }
     };
 
-    let models = bridge.list_models().await;
+    let models = channel.list_models().await;
     let created = unix_timestamp();
 
     let data: Vec<ModelObject> = models
@@ -417,7 +417,7 @@ pub(crate) async fn chat_completions_handler(
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -451,7 +451,7 @@ pub(crate) async fn chat_completions_handler(
         println!("DEBUG: body.handle_streaming");
         handle_streaming(
             res,
-            bridge,
+            channel,
             session_store,
             completion_id,
             created,
@@ -464,7 +464,7 @@ pub(crate) async fn chat_completions_handler(
         println!("DEBUG: body.handle_non_streaming");
         handle_non_streaming(
             res,
-            bridge,
+            channel,
             session_store,
             completion_id,
             created,
@@ -479,7 +479,7 @@ pub(crate) async fn chat_completions_handler(
 /// Non-streaming response: sends the full agent reply as a single JSON object.
 async fn handle_non_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     completion_id: String,
     created: u64,
@@ -487,8 +487,8 @@ async fn handle_non_streaming(
     prompt: String,
     session_id: Option<String>,
 ) {
-    // Route through the bridge to the agent.
-    let result = match bridge
+    // Route through the channel to the agent.
+    let result = match channel
         .invoke_agent_text_in_session_with_metadata(&prompt, &model, session_id.as_deref())
         .await
     {
@@ -507,7 +507,7 @@ async fn handle_non_streaming(
     let provider = provider_from_model(&model);
     persist_chat_session_metadata(
         session_store.as_ref(),
-        &bridge.config().savfox_home,
+        &channel.config().savfox_home,
         &result.session_id,
         &result.session_id,
         &model,
@@ -551,7 +551,7 @@ async fn handle_non_streaming(
 /// Streaming response: sends SSE chunks as they become available.
 async fn handle_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     completion_id: String,
     created: u64,
@@ -586,7 +586,7 @@ async fn handle_streaming(
     let m = model.clone();
     let sid = session_id.clone();
     let session_store_for_task = session_store.clone();
-    let savfox_home = bridge.config().savfox_home.clone();
+    let savfox_home = channel.config().savfox_home.clone();
     tokio::spawn(async move {
         // First chunk: role announcement.
         let first_chunk = ChatCompletionChunk {
@@ -656,7 +656,7 @@ async fn handle_streaming(
         };
 
         // Stream reply deltas from the agent as they arrive.
-        match bridge
+        match channel
             .invoke_agent_text_in_session_stream(&prompt, &m, sid.as_deref(), emit_delta)
             .await
         {

@@ -34,10 +34,10 @@ pub struct CodeBlock {
     pub content: String,
 }
 
-/// Trait for chat platform bridge adapters.
+/// Trait for chat platform channel adapters.
 #[async_trait]
 pub trait Channel: Send + Sync {
-    /// Initialize the bridge (connect to platform API, register commands, etc.).
+    /// Initialize the channel (connect to platform API, register commands, etc.).
     async fn start(&mut self) -> anyhow::Result<()>;
 
     /// Send a plain text message to a chat channel.

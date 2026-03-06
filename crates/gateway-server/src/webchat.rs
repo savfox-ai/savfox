@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -276,7 +276,7 @@ pub(crate) async fn create_session_handler(
 /// and returns the agent's reply.
 #[handler]
 pub(crate) async fn send_message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -382,8 +382,8 @@ pub(crate) async fn send_message_handler(req: &mut Request, depot: &mut Depot, r
         }
     }
 
-    // Route through the bridge to the agent.
-    let reply_text = match bridge.invoke_agent_text(&body.message, "default").await {
+    // Route through the channel to the agent.
+    let reply_text = match channel.invoke_agent_text(&body.message, "default").await {
         Ok(text) => text,
         Err(err) => {
             warn!(session_id = %body.session_id, "webchat agent invocation failed: {err}");

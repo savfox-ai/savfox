@@ -24,7 +24,7 @@ impl DiscordChannel {
 #[async_trait]
 impl Channel for DiscordChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Discord bridge initialized (webhook mode)");
+        info!("Discord channel initialized (webhook mode)");
         Ok(())
     }
 

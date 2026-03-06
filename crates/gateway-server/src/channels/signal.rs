@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::SignalChannelConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Signal bridge using signal-cli JSON-RPC interface.
+/// Signal channel using signal-cli JSON-RPC interface.
 pub(crate) struct SignalChannel {
     config: SignalChannelConfig,
     http_client: reqwest::Client,
@@ -55,7 +55,7 @@ impl SignalChannel {
 #[async_trait]
 impl Channel for SignalChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Signal bridge initialized (JSON-RPC mode)");
+        info!("Signal channel initialized (JSON-RPC mode)");
         Ok(())
     }
 
@@ -167,15 +167,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("Signal webhook: missing gateway bridge state: {err:?}");
+                    warn!("Signal webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge unavailable",
+                        "gateway channel unavailable",
                     );
                     return;
                 }
@@ -196,7 +196,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "signal",
                     channel,

@@ -14,7 +14,7 @@ use crate::auto_reply::directives::{
     DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
 };
 use crate::auto_reply::{CommandAction, CommandContext, CommandRegistry};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::compaction::{CompactionConfig, CompactionService};
 use crate::config::ResponseFooterConfig;
 use crate::identity_links::{
@@ -508,7 +508,7 @@ async fn maybe_auto_memory_flush(
             );
             log_store::append_log(
                 "info",
-                "bridge/runtime",
+                "channel/runtime",
                 format!(
                     "memory flush persisted: session_id={session_id}, bytes={bytes}, tokens_saved={tokens_saved}"
                 ),
@@ -522,7 +522,7 @@ async fn maybe_auto_memory_flush(
             );
             log_store::append_log(
                 "warn",
-                "bridge/runtime",
+                "channel/runtime",
                 format!("memory flush persist failed: session_id={session_id}, err={err}"),
             )
             .await;
@@ -885,14 +885,14 @@ async fn resolve_linked_identity(
 }
 
 async fn resolve_routed_agent(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     session_store: &Arc<SessionStore>,
     platform: &str,
     channel: &str,
     name: Option<&str>,
     meta: &StartThreadMeta,
 ) -> String {
-    let rules = load_routing_rules(&bridge.config().savfox_home).await;
+    let rules = load_routing_rules(&channel.config().savfox_home).await;
     let router = AgentRouter::new(rules, "default".to_string());
 
     let mut role_values = Vec::new();
@@ -950,7 +950,7 @@ pub(crate) async fn should_drop_duplicate(event_key: Option<String>) -> bool {
 }
 
 pub(crate) async fn spawn_start_thread_pipeline(
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
     channel: String,
@@ -958,7 +958,7 @@ pub(crate) async fn spawn_start_thread_pipeline(
     name: Option<String>,
 ) {
     spawn_start_thread_pipeline_with_meta(
-        bridge,
+        channel,
         session_store,
         platform,
         channel,
@@ -970,7 +970,7 @@ pub(crate) async fn spawn_start_thread_pipeline(
 }
 
 pub(crate) async fn spawn_start_thread_pipeline_with_meta(
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
     channel: String,
@@ -987,7 +987,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     if cleaned_prompt.is_empty() {
         let outbound_channel = format!("{platform}:{channel}");
         let msg = "Savfox: message is empty after parsing directives.";
-        let _ = send_with_retry(&bridge, &outbound_channel, msg, Some(1), None, None).await;
+        let _ = send_with_retry(&channel, &outbound_channel, msg, Some(1), None, None).await;
         return;
     }
 
@@ -995,7 +995,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     record_channel_event(&outbound_channel).await;
     let start_meta = meta.unwrap_or_default();
     let linked_identity = resolve_linked_identity(
-        &bridge.config().savfox_home,
+        &channel.config().savfox_home,
         &session_store,
         platform,
         start_meta.peer_id.as_deref(),
@@ -1003,7 +1003,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     )
     .await;
     let routed_agent = resolve_routed_agent(
-        &bridge,
+        &channel,
         &session_store,
         platform,
         &channel,
@@ -1015,7 +1015,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         scope
     } else {
         configured_dm_scope(
-            &bridge.config().savfox_home,
+            &channel.config().savfox_home,
             &routed_agent,
             &outbound_channel,
         )
@@ -1045,7 +1045,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     .await;
     log_store::append_log(
         "info",
-        "bridge/runtime",
+        "channel/runtime",
         format!(
             "start_thread platform={platform} channel={channel} session_id={}",
             tracked.session_id
@@ -1086,7 +1086,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
             let response = command_result_message(&result, "Command executed.");
             if let Err(err) = send_with_retry(
-                &bridge,
+                &channel,
                 &outbound_channel,
                 &response,
                 None,
@@ -1097,11 +1097,11 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             {
                 warn!(
                     channel = %outbound_channel,
-                    "bridge runtime: failed to send command reply: {err}"
+                    "channel runtime: failed to send command reply: {err}"
                 );
                 log_store::append_log(
                     "warn",
-                    "bridge/runtime",
+                    "channel/runtime",
                     format!("send command reply failed: channel={outbound_channel}, err={err}"),
                 )
                 .await;
@@ -1118,9 +1118,9 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .map(|d| d.value.clone());
     let (effective_model, model_profile) = if let Some(raw_model) = model_directive {
         let parsed_target = parse_model_target(&raw_model);
-        let candidates: Vec<String> = bridge
+        let candidates: Vec<String> = channel
             .session_manager()
-            .list_models(bridge.config(), RefreshStrategy::Offline)
+            .list_models(channel.config(), RefreshStrategy::Offline)
             .await
             .into_iter()
             .map(|m| m.id)
@@ -1137,7 +1137,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .unwrap_or("unknown")
         .to_string();
     let tone_suffix = configured_channel_tone_suffix(
-        &bridge.config().savfox_home,
+        &channel.config().savfox_home,
         &routed_agent,
         &outbound_channel,
     )
@@ -1146,14 +1146,14 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     if tone_suffix.is_some() {
         log_store::append_log(
             "info",
-            "bridge/runtime",
+            "channel/runtime",
             format!(
                 "channel tone override applied: channel={outbound_channel}, agent={routed_agent}"
             ),
         )
         .await;
     }
-    match bridge
+    match channel
         .invoke_agent_text_in_session_with_metadata(
             &effective_prompt,
             &effective_model,
@@ -1178,7 +1178,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 
             maybe_auto_memory_flush(
                 &session_store,
-                &bridge.config().savfox_home,
+                &channel.config().savfox_home,
                 &tracked.session_id,
                 tracked.total_tokens,
                 input_tokens,
@@ -1202,7 +1202,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 result.reply.clone()
             };
             if let Some(path) = result.rollout_path {
-                let session_file = session_file_to_store_value(&bridge.config().savfox_home, &path);
+                let session_file = session_file_to_store_value(&channel.config().savfox_home, &path);
                 let thread_id = result.session_id;
                 let session_id = tracked.session_id.clone();
                 let _ = session_store
@@ -1215,7 +1215,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     .await;
             }
             if let Err(err) = send_with_retry(
-                &bridge,
+                &channel,
                 &outbound_channel,
                 &reply,
                 None,
@@ -1226,11 +1226,11 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             {
                 warn!(
                     channel = %outbound_channel,
-                    "bridge runtime: failed to send agent reply after retries: {err}"
+                    "channel runtime: failed to send agent reply after retries: {err}"
                 );
                 log_store::append_log(
                     "warn",
-                    "bridge/runtime",
+                    "channel/runtime",
                     format!(
                         "send reply failed after retries: channel={outbound_channel}, err={err}"
                     ),
@@ -1239,7 +1239,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             } else {
                 log_store::append_log(
                     "info",
-                    "bridge/runtime",
+                    "channel/runtime",
                     format!(
                         "reply sent: channel={outbound_channel}, bytes={}",
                         reply.len()
@@ -1251,7 +1251,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         Err(err) => {
             let fallback = format!("Savfox agent error: {err}");
             if let Err(send_err) = send_with_retry(
-                &bridge,
+                &channel,
                 &outbound_channel,
                 &fallback,
                 None,
@@ -1262,11 +1262,11 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             {
                 warn!(
                     channel = %outbound_channel,
-                    "bridge runtime: failed to send error reply: {send_err}"
+                    "channel runtime: failed to send error reply: {send_err}"
                 );
                 log_store::append_log(
                     "warn",
-                    "bridge/runtime",
+                    "channel/runtime",
                     format!("send fallback failed: channel={outbound_channel}, err={send_err}"),
                 )
                 .await;
@@ -1325,7 +1325,7 @@ async fn record_send_metrics(channel: &str, success: bool, latency_ms: u64) {
 }
 
 async fn write_dead_letter(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     policy_cfg: &SendPolicyConfig,
     channel: &str,
     text: &str,
@@ -1334,7 +1334,7 @@ async fn write_dead_letter(
     reply_target: Option<&str>,
     attempts: usize,
 ) {
-    let dir = policy_cfg.dead_letter_path(&bridge.config().savfox_home);
+    let dir = policy_cfg.dead_letter_path(&channel.config().savfox_home);
     if tokio::fs::create_dir_all(&dir).await.is_err() {
         return;
     }
@@ -1354,14 +1354,14 @@ async fn write_dead_letter(
 }
 
 async fn send_with_retry(
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
     channel: &str,
     text: &str,
     attempt_override: Option<usize>,
     thread_id: Option<&str>,
     reply_target: Option<&str>,
 ) -> anyhow::Result<()> {
-    let policy_cfg = SendPolicyConfig::load(&bridge.config().savfox_home).await;
+    let policy_cfg = SendPolicyConfig::load(&channel.config().savfox_home).await;
     let policy = policy_cfg.resolve(channel);
     let max_attempts = attempt_override.unwrap_or(policy.retry_count).max(1);
     let timeout = Duration::from_millis(policy.timeout_ms.max(1));
@@ -1410,7 +1410,7 @@ async fn send_with_retry(
             let started = Instant::now();
             let send_result = tokio::time::timeout(
                 timeout,
-                bridge.send_platform_message_with_context(
+                channel.send_platform_message_with_context(
                     channel,
                     chunk_text,
                     None,
@@ -1448,7 +1448,7 @@ async fn send_with_retry(
                             err.to_string()
                         };
                         write_dead_letter(
-                            bridge,
+                            channel,
                             &policy_cfg,
                             channel,
                             chunk_text,
@@ -1476,7 +1476,7 @@ async fn send_with_retry(
                             err.to_string()
                         };
                         write_dead_letter(
-                            bridge,
+                            channel,
                             &policy_cfg,
                             channel,
                             chunk_text,

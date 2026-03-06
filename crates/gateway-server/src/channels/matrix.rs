@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::runtime;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
@@ -40,10 +40,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
     if !parsed.rooms_to_auto_join.is_empty() {
         match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(bridge) => {
-                let bridge = bridge.clone();
+            Ok(channel) => {
+                let channel = channel.clone();
                 for (room_id, invited_user_id) in parsed.rooms_to_auto_join {
-                    if let Err(err) = bridge
+                    if let Err(err) = channel
                         .auto_join_matrix_invited_room(&room_id, invited_user_id.as_deref())
                         .await
                     {
@@ -57,7 +57,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 }
             }
             Err(_) => {
-                warn!("Matrix invite received but gateway bridge state is unavailable");
+                warn!("Matrix invite received but gateway channel state is unavailable");
             }
         }
     }
@@ -69,14 +69,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     if let ChannelAction::StartThread { channel, prompt } = parsed.action {
-        let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(bridge) => bridge.clone(),
+        let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            Ok(channel) => channel.clone(),
             Err(_) => {
                 render_error(
                     res,
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "state_unavailable",
-                    "gateway bridge state unavailable",
+                    "gateway channel state unavailable",
                 );
                 return;
             }
@@ -95,7 +95,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         };
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline(
-                bridge,
+                channel,
                 session_store,
                 "matrix",
                 channel,

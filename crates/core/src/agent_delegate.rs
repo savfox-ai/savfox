@@ -120,19 +120,19 @@ pub(crate) async fn run_savfox_session_one_shot(
     })
     .await?;
 
-    // Bridge events so we can observe completion and shut down automatically.
-    let (tx_bridge, rx_bridge) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
+    // Channel events so we can observe completion and shut down automatically.
+    let (tx_channel, rx_channel) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
     let ops_tx = io.tx_sub.clone();
     let agent_status = io.agent_status.clone();
     let session = Arc::clone(&io.session);
-    let io_for_bridge = io;
+    let io_for_channel = io;
     tokio::spawn(async move {
-        while let Ok(event) = io_for_bridge.next_event().await {
+        while let Ok(event) = io_for_channel.next_event().await {
             let should_shutdown = matches!(
                 event.msg,
                 EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_)
             );
-            let _ = tx_bridge.send(event).await;
+            let _ = tx_channel.send(event).await;
             if should_shutdown {
                 let _ = ops_tx
                     .send(Submission {
@@ -154,7 +154,7 @@ pub(crate) async fn run_savfox_session_one_shot(
 
     Ok(Savfox {
         next_id: AtomicU64::new(0),
-        rx_event: rx_bridge,
+        rx_event: rx_channel,
         tx_sub: tx_closed,
         agent_status,
         session,

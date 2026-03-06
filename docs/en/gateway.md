@@ -131,7 +131,7 @@ savfox gateway devices revoke <ID>
 
 ### Channels
 
-Manage chat bridge channel integrations:
+Manage chat channel channel integrations:
 
 ```bash
 savfox gateway channels
@@ -147,24 +147,24 @@ savfox gateway nodes
 
 ## Chat Platform Bridges
 
-The gateway can bridge conversations to external chat platforms. Configure bridges in your `config.toml`:
+The gateway can channel conversations to external chat platforms. Configure channels in your `config.toml`:
 
 ```toml
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "your-discord-bot-token"
 
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "your-telegram-bot-token"
 webhook_secret_token = "optional-telegram-secret-token"
 
-[gateway.bridges.slack]
+[gateway.channels.slack]
 enabled = true
 bot_token = "xoxb-your-slack-bot-token"
 signing_secret = "your-signing-secret"
 
-[gateway.bridges.webhook]
+[gateway.channels.webhook]
 enabled = true
 secret = "shared-webhook-hmac-secret"
 ```
@@ -173,18 +173,18 @@ secret = "shared-webhook-hmac-secret"
 
 | Platform | Config Key | Required Fields |
 |----------|-----------|-----------------|
-| Discord | `bridges.discord` | `bot_token` |
-| Telegram | `bridges.telegram` | `bot_token` |
-| Slack | `bridges.slack` | `bot_token`, `signing_secret` |
-| Matrix | `bridges.matrix` | Server URL, credentials |
-| Mattermost | `bridges.mattermost` | Server URL, token |
-| Google Chat | `bridges.google_chat` | Service account |
-| Line | `bridges.line` | Channel token |
-| Feishu | `bridges.feishu` | App credentials |
-| IRC | `bridges.irc` | Server, channel, nick |
-| Webhook | `bridges.webhook` | URL/`secret` (recommended) |
+| Discord | `channels.discord` | `bot_token` |
+| Telegram | `channels.telegram` | `bot_token` |
+| Slack | `channels.slack` | `bot_token`, `signing_secret` |
+| Matrix | `channels.matrix` | Server URL, credentials |
+| Mattermost | `channels.mattermost` | Server URL, token |
+| Google Chat | `channels.google_chat` | Service account |
+| Line | `channels.line` | Channel token |
+| Feishu | `channels.feishu` | App credentials |
+| IRC | `channels.irc` | Server, channel, nick |
+| Webhook | `channels.webhook` | URL/`secret` (recommended) |
 
-Each bridge routes messages bidirectionally between the chat platform and the Savfox agent.
+Each channel routes messages bidirectionally between the chat platform and the Savfox agent.
 
 ### Webhook Security
 

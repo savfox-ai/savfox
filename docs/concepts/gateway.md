@@ -2,7 +2,7 @@
 
 The Savfox gateway server is a persistent, multi-protocol hub that exposes the
 Savfox AI engine over WebSocket, REST, and chat-platform webhooks. It runs as
-a long-lived process and manages sessions, bridges, and background services on
+a long-lived process and manages sessions, channels, and background services on
 behalf of connected clients.
 
 ## High-level component map
@@ -30,7 +30,7 @@ file serving. TLS is supported via PEM certificate and key paths in
 
 ## GatewayChannel
 
-`GatewayChannel` is the central message router (`crates/gateway-server/src/bridge.rs`).
+`GatewayChannel` is the central message router (`crates/gateway-server/src/channel.rs`).
 It owns:
 
 - **ThreadManager** -- creates, resumes, and controls agent threads.
@@ -51,7 +51,7 @@ one or more `TokenScope` values.
 |--------------------|----------------------------------------------|
 | `Operator`         | Full access (implies all sub-scopes)         |
 | `Viewer`           | Read-only (implies `OperatorRead`)           |
-| `Chat`             | Chat-bridge-only operations                  |
+| `Chat`             | Chat-channel-only operations                  |
 | `OperatorRead`     | Read sessions, config, logs, usage           |
 | `OperatorWrite`    | Start threads, send messages, modify config  |
 | `OperatorAdmin`    | Token management, plugin control             |

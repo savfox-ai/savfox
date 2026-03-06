@@ -1,14 +1,14 @@
 ﻿# Gateway Configuration Reference
 
 The Savfox gateway server is configured through a combination of CLI flags,
-the `[gateway]` section in `config.toml`, and environment variables for bridge
+the `[gateway]` section in `config.toml`, and environment variables for channel
 credentials.
 
 ## Configuration sources (precedence order)
 
 1. **CLI flags** (highest) -- `savfox gateway --port 8080 --token abc`
 2. **config.toml `[gateway]` section** -- persistent file configuration
-3. **Environment variables** -- for bridge credentials and secrets
+3. **Environment variables** -- for channel credentials and secrets
 4. **Defaults** (lowest) -- built-in defaults
 
 ## CLI flags
@@ -39,52 +39,52 @@ port = 18881
 # tls_cert = "/path/to/cert.pem"
 # tls_key = "/path/to/key.pem"
 
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "your-discord-bot-token"
 # application_id = "123456789"
 # application_public_key = "hex-encoded-ed25519-public-key"
 
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "123456:ABCdefGhIjKlMnOpQrStUvWxYz"
 # webhook_secret_token = "optional-secret"
 
-[gateway.bridges.slack]
+[gateway.channels.slack]
 enabled = true
 bot_token = "xoxb-your-slack-bot-token"
 signing_secret = "your-signing-secret"
 
-[gateway.bridges.msteams]
+[gateway.channels.msteams]
 enabled = true
 app_id = "your-microsoft-app-id"
 app_password = "your-microsoft-app-password"
 # tenant_id = "optional-tenant-id"
 
-[gateway.bridges.webhook]
+[gateway.channels.webhook]
 enabled = true
 # callback_url = "https://example.com/webhook"
 # secret = "shared-hmac-secret"
 
-[gateway.bridges.whatsapp]
+[gateway.channels.whatsapp]
 enabled = true
 phone_number_id = "your-phone-number-id"
 access_token = "your-whatsapp-access-token"
 # verify_token = "webhook-verify-token"
 # app_secret = "webhook-signature-secret"
 
-[gateway.bridges.signal]
+[gateway.channels.signal]
 enabled = true
 # phone_number = "+1234567890"
 # rpc_url = "http://localhost:8080/api/v1/rpc"
 
-[gateway.bridges.imessage]
+[gateway.channels.imessage]
 enabled = true
 api_url = "http://localhost:1234"
 password = "bluebubbles-server-password"
 # poll_interval_secs = 5
 
-[gateway.bridges.zalo]
+[gateway.channels.zalo]
 enabled = true
 app_id = "your-zalo-app-id"
 app_secret = "your-zalo-app-secret"
@@ -103,82 +103,82 @@ access_token = "your-zalo-access-token"
 | `token`    | `Option<String>`| `None` (auto) | Static bearer token                  |
 | `tls_cert` | `Option<String>`| `None`        | PEM certificate path                 |
 | `tls_key`  | `Option<String>`| `None`        | PEM private key path                 |
-| `bridges`  | `BridgesConfig` | `{}`          | Chat platform bridge configurations  |
+| `channels`  | `ChannelsConfig` | `{}`          | Chat platform channel configurations  |
 
-### `[gateway.bridges.discord]`
+### `[gateway.channels.discord]`
 
 | Field                    | Type            | Required | Description                    |
 |--------------------------|-----------------|----------|--------------------------------|
-| `enabled`                | `bool`          | Yes      | Enable the Discord bridge      |
+| `enabled`                | `bool`          | Yes      | Enable the Discord channel      |
 | `bot_token`              | `String`        | Yes      | Discord bot token              |
 | `application_id`         | `Option<String>`| No       | Discord application ID         |
 | `application_public_key` | `Option<String>`| No       | Ed25519 public key for signature verification |
 
-### `[gateway.bridges.telegram]`
+### `[gateway.channels.telegram]`
 
 | Field                  | Type            | Required | Description                      |
 |------------------------|-----------------|----------|----------------------------------|
-| `enabled`              | `bool`          | Yes      | Enable the Telegram bridge       |
+| `enabled`              | `bool`          | Yes      | Enable the Telegram channel       |
 | `bot_token`            | `String`        | Yes      | Telegram Bot API token           |
 | `webhook_secret_token` | `Option<String>`| No       | Secret for webhook verification  |
 
-### `[gateway.bridges.slack]`
+### `[gateway.channels.slack]`
 
 | Field            | Type     | Required | Description                          |
 |------------------|----------|----------|--------------------------------------|
-| `enabled`        | `bool`   | Yes      | Enable the Slack bridge              |
+| `enabled`        | `bool`   | Yes      | Enable the Slack channel              |
 | `bot_token`      | `String` | Yes      | Slack bot OAuth token (`xoxb-...`)   |
 | `signing_secret` | `String` | Yes      | Slack app signing secret             |
 
-### `[gateway.bridges.msteams]`
+### `[gateway.channels.msteams]`
 
 | Field          | Type            | Required | Description                        |
 |----------------|-----------------|----------|------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the MS Teams bridge         |
+| `enabled`      | `bool`          | Yes      | Enable the MS Teams channel         |
 | `app_id`       | `String`        | Yes      | Microsoft Bot registration App ID  |
 | `app_password` | `String`        | Yes      | Microsoft App Password (secret)    |
 | `tenant_id`    | `Option<String>`| No       | Tenant ID for single-tenant bots   |
 
-### `[gateway.bridges.webhook]`
+### `[gateway.channels.webhook]`
 
 | Field          | Type            | Required | Description                          |
 |----------------|-----------------|----------|--------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the generic webhook bridge    |
+| `enabled`      | `bool`          | Yes      | Enable the generic webhook channel    |
 | `callback_url` | `Option<String>`| No       | URL for outbound events              |
 | `secret`       | `Option<String>`| No       | HMAC-SHA256 shared secret            |
 
-### `[gateway.bridges.whatsapp]`
+### `[gateway.channels.whatsapp]`
 
 | Field             | Type            | Required | Description                       |
 |-------------------|-----------------|----------|-----------------------------------|
-| `enabled`         | `bool`          | Yes      | Enable the WhatsApp bridge        |
+| `enabled`         | `bool`          | Yes      | Enable the WhatsApp channel        |
 | `phone_number_id` | `String`       | Yes      | WhatsApp Business phone number ID |
 | `access_token`    | `String`        | Yes      | WhatsApp Business access token    |
 | `verify_token`    | `Option<String>`| No       | Webhook verification token        |
 | `app_secret`      | `Option<String>`| No       | App secret for signature verification |
 
-### `[gateway.bridges.signal]`
+### `[gateway.channels.signal]`
 
 | Field          | Type            | Required | Description                        |
 |----------------|-----------------|----------|------------------------------------|
-| `enabled`      | `bool`          | Yes      | Enable the Signal bridge           |
+| `enabled`      | `bool`          | Yes      | Enable the Signal channel           |
 | `phone_number` | `Option<String>`| No       | Signal account phone number        |
 | `rpc_url`      | `Option<String>`| No       | signal-cli JSON-RPC URL            |
 
-### `[gateway.bridges.imessage]`
+### `[gateway.channels.imessage]`
 
 | Field                | Type            | Required | Description                    |
 |----------------------|-----------------|----------|--------------------------------|
-| `enabled`            | `bool`          | Yes      | Enable the iMessage bridge     |
+| `enabled`            | `bool`          | Yes      | Enable the iMessage channel     |
 | `api_url`            | `String`        | Yes      | BlueBubbles server URL         |
 | `password`           | `String`        | Yes      | BlueBubbles server password    |
 | `poll_interval_secs` | `Option<u64>`   | No       | Polling interval (default: 5s) |
 
-### `[gateway.bridges.zalo]`
+### `[gateway.channels.zalo]`
 
 | Field                  | Type            | Required | Description                     |
 |------------------------|-----------------|----------|---------------------------------|
-| `enabled`              | `bool`          | Yes      | Enable the Zalo OA bridge       |
+| `enabled`              | `bool`          | Yes      | Enable the Zalo OA channel       |
 | `app_id`               | `String`        | Yes      | Zalo OA App ID                  |
 | `app_secret`           | `String`        | Yes      | App secret for signature checks |
 | `access_token`         | `String`        | Yes      | OA access token                 |
@@ -186,10 +186,10 @@ access_token = "your-zalo-access-token"
 
 ## Environment variables
 
-Bridge credentials can also be set via environment variables. These are used as
+Channel credentials can also be set via environment variables. These are used as
 fallbacks when config.toml values are not present:
 
-| Variable                      | Bridge      | Description                    |
+| Variable                      | Channel      | Description                    |
 |-------------------------------|-------------|--------------------------------|
 | `DISCORD_BOT_TOKEN`          | Discord     | Bot token                      |
 | `TELEGRAM_BOT_TOKEN`         | Telegram    | Bot API token                  |
@@ -202,7 +202,7 @@ fallbacks when config.toml values are not present:
 | `TEAMS_WEBHOOK_URL`          | MS Teams    | Webhook URL                    |
 | `LINE_CHANNEL_TOKEN`         | LINE        | Channel access token           |
 | `FEISHU_APP_ACCESS_TOKEN`    | Feishu/Lark | App access token               |
-| `IRC_BRIDGE_URL`             | IRC         | Bridge HTTP URL (default: `http://127.0.0.1:6667`) |
+| `IRC_BRIDGE_URL`             | IRC         | Channel HTTP URL (default: `http://127.0.0.1:6667`) |
 | `ZALO_OA_ACCESS_TOKEN`       | Zalo        | OA access token                |
 
 ## Runtime configuration updates
@@ -219,7 +219,7 @@ curl -X POST http://localhost:18881/api/config/patch \
   -d '{
     "config": {
       "gateway": {
-        "bridges": {
+        "channels": {
           "discord": {
             "bot_token": "new-token"
           }
@@ -249,7 +249,7 @@ curl -X POST http://localhost:18881/api/config/apply \
   "params": {
     "config": {
       "gateway": {
-        "bridges": {
+        "channels": {
           "telegram": {
             "bot_token": "new-token"
           }
@@ -260,7 +260,7 @@ curl -X POST http://localhost:18881/api/config/apply \
 }
 ```
 
-Runtime updates to bridge credentials are hot-reloaded without requiring a
+Runtime updates to channel credentials are hot-reloaded without requiring a
 gateway restart. The config.toml file is updated on disk for persistence.
 
 ## TLS configuration

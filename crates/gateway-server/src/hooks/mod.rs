@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 
 pub(crate) mod event_bus;
 pub(crate) mod llm_hook;
@@ -45,7 +45,7 @@ pub(crate) async fn wake_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -69,7 +69,7 @@ pub(crate) async fn wake_handler(req: &mut Request, depot: &mut Depot, res: &mut
 
     info!(agent = agent, "hook: wake received");
 
-    match bridge.invoke_agent_text(message, agent).await {
+    match channel.invoke_agent_text(message, agent).await {
         Ok(reply) => {
             res.render(Text::Json(
                 json!({"status": "ok", "response": reply}).to_string(),
@@ -92,7 +92,7 @@ pub(crate) async fn agent_hook_handler(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -127,7 +127,7 @@ pub(crate) async fn agent_hook_handler(req: &mut Request, depot: &mut Depot, res
 
     info!(agent = agent, "hook: agent message received");
 
-    match bridge.invoke_agent_text(message, agent).await {
+    match channel.invoke_agent_text(message, agent).await {
         Ok(reply) => {
             res.render(Text::Json(
                 json!({"status": "ok", "response": reply}).to_string(),
@@ -152,7 +152,7 @@ pub(crate) async fn custom_hook_handler(req: &mut Request, depot: &mut Depot, re
 
     let mapping_id = req.param::<String>("mapping_id").unwrap_or_default();
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -184,7 +184,7 @@ pub(crate) async fn custom_hook_handler(req: &mut Request, depot: &mut Depot, re
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    match bridge.invoke_agent_text(&message, agent).await {
+    match channel.invoke_agent_text(&message, agent).await {
         Ok(reply) => {
             res.render(Text::Json(
                 json!({

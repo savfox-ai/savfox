@@ -31,9 +31,9 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub tls_key: Option<String>,
 
-    /// Bridge configuration for chat platforms.
+    /// Channel configuration for chat platforms.
     #[serde(default)]
-    pub bridges: BridgesConfig,
+    pub bridges: ChannelsConfig,
 
     /// Response footer rendering configuration.
     #[serde(default)]
@@ -48,7 +48,7 @@ impl Default for GatewayConfig {
             token: None,
             tls_cert: None,
             tls_key: None,
-            bridges: BridgesConfig::default(),
+            bridges: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
         }
     }
@@ -64,36 +64,36 @@ fn default_port() -> u16 {
 
 /// Chat-platform bridge configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BridgesConfig {
+pub struct ChannelsConfig {
     #[serde(default)]
-    pub discord: Option<DiscordBridgeConfig>,
+    pub discord: Option<DiscordChannelConfig>,
 
     #[serde(default)]
-    pub dingtalk: Option<DingtalkBridgeConfig>,
+    pub dingtalk: Option<DingtalkChannelConfig>,
 
     #[serde(default)]
-    pub telegram: Option<TelegramBridgeConfig>,
+    pub telegram: Option<TelegramChannelConfig>,
 
     #[serde(default)]
-    pub slack: Option<SlackBridgeConfig>,
+    pub slack: Option<SlackChannelConfig>,
 
     #[serde(default)]
-    pub msteams: Option<MsTeamsBridgeConfig>,
+    pub msteams: Option<MsTeamsChannelConfig>,
 
     #[serde(default)]
-    pub webhook: Option<WebhookBridgeConfig>,
+    pub webhook: Option<WebhookChannelConfig>,
 
     #[serde(default)]
-    pub whatsapp: Option<WhatsAppBridgeConfig>,
+    pub whatsapp: Option<WhatsAppChannelConfig>,
 
     #[serde(default)]
-    pub signal: Option<SignalBridgeConfig>,
+    pub signal: Option<SignalChannelConfig>,
 
     #[serde(default)]
-    pub imessage: Option<IMessageBridgeConfig>,
+    pub imessage: Option<IMessageChannelConfig>,
 
     #[serde(default)]
-    pub zalo: Option<ZaloBridgeConfig>,
+    pub zalo: Option<ZaloChannelConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,7 +169,7 @@ fn default_response_footer_channel_max_length() -> HashMap<String, usize> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscordBridgeConfig {
+pub struct DiscordChannelConfig {
     pub enabled: bool,
     pub bot_token: String,
     #[serde(default)]
@@ -178,10 +178,10 @@ pub struct DiscordBridgeConfig {
     pub application_public_key: Option<String>,
 }
 
-pub type DiscordChannelConfig = DiscordBridgeConfig;
+pub type DiscordChannelConfig = DiscordChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DingtalkBridgeConfig {
+pub struct DingtalkChannelConfig {
     pub enabled: bool,
     /// DingTalk custom robot webhook URL.
     #[serde(default)]
@@ -194,29 +194,29 @@ pub struct DingtalkBridgeConfig {
     pub secret: Option<String>,
 }
 
-pub type DingtalkChannelConfig = DingtalkBridgeConfig;
+pub type DingtalkChannelConfig = DingtalkChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelegramBridgeConfig {
+pub struct TelegramChannelConfig {
     pub enabled: bool,
     pub bot_token: String,
     #[serde(default)]
     pub webhook_secret_token: Option<String>,
 }
 
-pub type TelegramChannelConfig = TelegramBridgeConfig;
+pub type TelegramChannelConfig = TelegramChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SlackBridgeConfig {
+pub struct SlackChannelConfig {
     pub enabled: bool,
     pub bot_token: String,
     pub signing_secret: String,
 }
 
-pub type SlackChannelConfig = SlackBridgeConfig;
+pub type SlackChannelConfig = SlackChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MsTeamsBridgeConfig {
+pub struct MsTeamsChannelConfig {
     pub enabled: bool,
     /// Microsoft App ID (Bot registration).
     pub app_id: String,
@@ -227,10 +227,10 @@ pub struct MsTeamsBridgeConfig {
     pub tenant_id: Option<String>,
 }
 
-pub type MsTeamsChannelConfig = MsTeamsBridgeConfig;
+pub type MsTeamsChannelConfig = MsTeamsChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebhookBridgeConfig {
+pub struct WebhookChannelConfig {
     pub enabled: bool,
     /// URL to send outbound events to.
     #[serde(default)]
@@ -241,7 +241,7 @@ pub struct WebhookBridgeConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WhatsAppBridgeConfig {
+pub struct WhatsAppChannelConfig {
     pub enabled: bool,
     /// WhatsApp Business Phone Number ID.
     pub phone_number_id: String,
@@ -255,10 +255,10 @@ pub struct WhatsAppBridgeConfig {
     pub app_secret: Option<String>,
 }
 
-pub type WhatsAppChannelConfig = WhatsAppBridgeConfig;
+pub type WhatsAppChannelConfig = WhatsAppChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignalBridgeConfig {
+pub struct SignalChannelConfig {
     pub enabled: bool,
     /// Signal phone number (account identifier).
     #[serde(default)]
@@ -268,10 +268,10 @@ pub struct SignalBridgeConfig {
     pub rpc_url: Option<String>,
 }
 
-pub type SignalChannelConfig = SignalBridgeConfig;
+pub type SignalChannelConfig = SignalChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IMessageBridgeConfig {
+pub struct IMessageChannelConfig {
     pub enabled: bool,
     /// BlueBubbles server URL (e.g. "http://localhost:1234").
     pub api_url: String,
@@ -282,10 +282,10 @@ pub struct IMessageBridgeConfig {
     pub poll_interval_secs: Option<u64>,
 }
 
-pub type IMessageChannelConfig = IMessageBridgeConfig;
+pub type IMessageChannelConfig = IMessageChannelConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ZaloBridgeConfig {
+pub struct ZaloChannelConfig {
     pub enabled: bool,
     /// Zalo OA App ID.
     pub app_id: String,
@@ -298,7 +298,7 @@ pub struct ZaloBridgeConfig {
     pub webhook_verify_token: Option<String>,
 }
 
-pub type ZaloChannelConfig = ZaloBridgeConfig;
+pub type ZaloChannelConfig = ZaloChannelConfig;
 
 /// CLI arguments for `savfox gateway`.
 #[derive(Debug, Parser)]
@@ -494,7 +494,7 @@ impl GatewayCommand {
             token: self.token,
             tls_cert: self.tls_cert,
             tls_key: self.tls_key,
-            bridges: BridgesConfig::default(),
+            bridges: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
         }
     }

@@ -41,7 +41,7 @@ Unsigned or invalid requests receive `401` and are dropped.
 
 ### 3. Message Normalization
 
-Each bridge normalizes the platform-specific message format into a common internal structure containing:
+Each channel normalizes the platform-specific message format into a common internal structure containing:
 
 - `text` -- The message content.
 - `sender` -- User identifier on the platform.
@@ -82,13 +82,13 @@ If the conversation history exceeds the model's context window, the ThreadManage
 
 ### 7. Response Delivery
 
-The agent's final text response is routed back through the bridge:
+The agent's final text response is routed back through the channel:
 
-1. The session manager identifies which bridge and channel the response should go to (from the session's `channel` and delivery context fields).
-2. The bridge formats the response for the target platform (Markdown to Slack mrkdwn, Discord embeds, etc.).
-3. The bridge sends the response via the platform's API.
+1. The session manager identifies which channel and channel the response should go to (from the session's `channel` and delivery context fields).
+2. The channel formats the response for the target platform (Markdown to Slack mrkdwn, Discord embeds, etc.).
+3. The channel sends the response via the platform's API.
 
-For long responses, bridges may split the text into multiple messages to respect platform character limits.
+For long responses, channels may split the text into multiple messages to respect platform character limits.
 
 ## WebSocket Clients
 
@@ -117,4 +117,4 @@ Approvals can also be managed via `savfox gateway approvals` from the CLI.
 
 ## Multi-Channel Sessions
 
-A session can span multiple bridges. If a user starts a conversation on Discord and later continues on Telegram (using the same agent and scoping), the session's `channel` and `last_channel` fields track the migration. Message history is preserved.
+A session can span multiple channels. If a user starts a conversation on Discord and later continues on Telegram (using the same agent and scoping), the session's `channel` and `last_channel` fields track the migration. Message history is preserved.

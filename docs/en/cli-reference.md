@@ -108,7 +108,7 @@ See [Gateway](gateway.md) for full details.
 | `models` | List available LLM models |
 | `approvals {list\|approve\|deny}` | Manage execution approvals |
 | `devices {list\|pair\|revoke}` | Manage device pairing |
-| `channels` | Manage chat bridge channels |
+| `channels` | Manage chat channels |
 | `nodes` | Manage connected nodes |
 
 ### `mcp-server`
@@ -201,7 +201,7 @@ savfox completion powershell > savfox.ps1
 
 ### `acp`
 
-Run ACP bridge over stdio, backed by gateway WS-RPC.
+Run ACP channel over stdio, backed by gateway WS-RPC.
 
 ```bash
 savfox acp --gateway-url http://127.0.0.1:18881 --token "$SAVFOX_TOKEN"

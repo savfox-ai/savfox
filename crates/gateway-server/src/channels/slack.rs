@@ -7,12 +7,12 @@ use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayChannel, is_slack_timestamp_fresh};
+use crate::channel::{GatewayChannel, is_slack_timestamp_fresh};
 use crate::config::{GatewayConfig, SlackChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Slack bridge using Events API and slash commands.
+/// Slack channel using Events API and slash commands.
 pub(crate) struct SlackChannel {
     config: SlackChannelConfig,
     http_client: reqwest::Client,
@@ -86,7 +86,7 @@ impl SlackChannel {
         signature: &str,
         body: &[u8],
     ) -> bool {
-        crate::bridge::verify_slack_signature(signing_secret, timestamp, signature, body)
+        crate::channel::verify_slack_signature(signing_secret, timestamp, signature, body)
     }
 
     /// Parse a Slack event or slash command payload into a `ChannelAction`.
@@ -282,7 +282,7 @@ fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
 #[async_trait]
 impl Channel for SlackChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Slack bridge initialized (Events API + slash commands)");
+        info!("Slack channel initialized (Events API + slash commands)");
         Ok(())
     }
 
@@ -402,7 +402,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let signing_secret = depot
         .obtain::<Arc<GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.bridges.slack.as_ref().map(|b| b.signing_secret.clone()))
+        .and_then(|cfg| cfg.channels.slack.as_ref().map(|b| b.signing_secret.clone()))
         .or_else(|| std::env::var("SLACK_SIGNING_SECRET").ok());
     if let Some(secret) = signing_secret {
         let signature = req
@@ -479,15 +479,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("Slack webhook: missing gateway bridge state: {err:?}");
+                    warn!("Slack webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -518,7 +518,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             let start_meta = parse_start_meta(&body);
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    bridge,
+                    channel,
                     session_store,
                     "slack",
                     channel,

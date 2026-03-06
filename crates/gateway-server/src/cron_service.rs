@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn};
 
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 
 // ─── Schedule Types ────────────────────────────────────────────────────────
 
@@ -325,7 +325,7 @@ impl CronService {
     }
 
     /// Start the background timer loop. Returns a handle for shutdown.
-    pub(crate) fn start(self: &Arc<Self>, bridge: Arc<GatewayChannel>) -> mpsc::Sender<()> {
+    pub(crate) fn start(self: &Arc<Self>, channel: Arc<GatewayChannel>) -> mpsc::Sender<()> {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let service = Arc::clone(self);
 
@@ -337,7 +337,7 @@ impl CronService {
 
                 tokio::select! {
                     _ = tokio::time::sleep(sleep_dur) => {
-                        service.on_timer(&bridge).await;
+                        service.on_timer(&channel).await;
                     }
                     _ = shutdown_rx.recv() => {
                         info!("cron service shutting down");
@@ -374,7 +374,7 @@ impl CronService {
     }
 
     /// Timer callback  - find and execute due jobs.
-    async fn on_timer(&self, bridge: &Arc<GatewayChannel>) {
+    async fn on_timer(&self, channel: &Arc<GatewayChannel>) {
         let now = now_epoch_ms();
         let due_jobs: Vec<CronJob>;
 
@@ -390,18 +390,18 @@ impl CronService {
         }
 
         for job in due_jobs {
-            self.execute_job(&job, bridge).await;
+            self.execute_job(&job, channel).await;
         }
     }
 
     /// Execute a single job.
-    async fn execute_job(&self, job: &CronJob, bridge: &Arc<GatewayChannel>) {
+    async fn execute_job(&self, job: &CronJob, channel: &Arc<GatewayChannel>) {
         let start_ms = now_epoch_ms();
         info!(job_id = %job.id, job_name = %job.name, "executing cron job");
 
         let result = tokio::time::timeout(
             Duration::from_secs(600), // 10 minute timeout
-            self.execute_payload(&job.payload, bridge),
+            self.execute_payload(&job.payload, channel),
         )
         .await;
 
@@ -488,7 +488,7 @@ impl CronService {
             };
 
             if let Some(channel) = &job.delivery.channel {
-                if let Err(err) = bridge
+                if let Err(err) = channel
                     .send_platform_message(channel, &message, None, None, None)
                     .await
                 {
@@ -502,12 +502,12 @@ impl CronService {
     async fn execute_payload(
         &self,
         payload: &CronPayload,
-        bridge: &Arc<GatewayChannel>,
+        channel: &Arc<GatewayChannel>,
     ) -> Result<Option<String>, String> {
         match payload {
             CronPayload::SystemEvent { text } => {
                 // Inject text into the main agent session.
-                match bridge.invoke_agent_text(text, "default").await {
+                match channel.invoke_agent_text(text, "default").await {
                     Ok(reply) => {
                         let preview = if reply.len() > 200 {
                             format!("{}...", &reply[..200])
@@ -525,7 +525,7 @@ impl CronService {
                 timeout_secs: _,
             } => {
                 let agent = model.as_deref().unwrap_or("default");
-                match bridge.invoke_agent_text(message, agent).await {
+                match channel.invoke_agent_text(message, agent).await {
                     Ok(reply) => {
                         let preview = if reply.len() > 200 {
                             format!("{}...", &reply[..200])
@@ -702,7 +702,7 @@ impl CronService {
     pub(crate) async fn run_job(
         &self,
         id: &str,
-        bridge: &Arc<GatewayChannel>,
+        channel: &Arc<GatewayChannel>,
     ) -> Result<(), String> {
         let job = {
             let jobs = self.jobs.read().await;
@@ -710,7 +710,7 @@ impl CronService {
         };
 
         let job = job.ok_or_else(|| format!("job '{id}' not found"))?;
-        self.execute_job(&job, bridge).await;
+        self.execute_job(&job, channel).await;
         Ok(())
     }
 

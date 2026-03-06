@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::{GatewayConfig, MsTeamsChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -27,7 +27,7 @@ struct CachedToken {
     expires_at: u64,
 }
 
-/// MS Teams bot bridge using Bot Framework REST API v3.
+/// MS Teams bot channel using Bot Framework REST API v3.
 pub(crate) struct MsTeamsChannel {
     config: MsTeamsChannelConfig,
     http_client: reqwest::Client,
@@ -325,7 +325,7 @@ fn now_epoch_secs() -> u64 {
 #[async_trait]
 impl Channel for MsTeamsChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("MS Teams bridge initialized (Bot Framework webhook mode)");
+        info!("MS Teams channel initialized (Bot Framework webhook mode)");
         // Pre-warm the OAuth2 token cache.
         match self.get_access_token().await {
             Ok(_) => info!("MS Teams: Bot Framework token acquired"),
@@ -411,7 +411,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let app_password = depot
         .obtain::<Arc<GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.bridges.msteams.as_ref().map(|b| b.app_password.clone()))
+        .and_then(|cfg| cfg.channels.msteams.as_ref().map(|b| b.app_password.clone()))
         .or_else(|| std::env::var("MSTEAMS_APP_PASSWORD").ok());
     if let Some(secret) = app_password {
         let auth_header = req
@@ -437,7 +437,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
         if !hmac_signature.is_empty()
-            && !crate::bridge::verify_webhook_hmac(&secret, hmac_signature, raw_body.as_ref())
+            && !crate::channel::verify_webhook_hmac(&secret, hmac_signature, raw_body.as_ref())
         {
             render_error(
                 res,
@@ -476,15 +476,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("MS Teams webhook: missing gateway bridge state: {err:?}");
+                    warn!("MS Teams webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -515,7 +515,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "msteams",
                     outbound_channel,

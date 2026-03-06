@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use super::runtime;
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayChannel, verify_discord_signature};
+use crate::channel::{GatewayChannel, verify_discord_signature};
 use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -82,7 +82,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .obtain::<Arc<GatewayConfig>>()
         .ok()
         .and_then(|cfg| {
-            cfg.bridges
+            cfg.channels
                 .discord
                 .as_ref()
                 .and_then(|b| b.application_public_key.clone())
@@ -151,15 +151,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("Discord webhook: missing gateway bridge state: {err:?}");
+                    warn!("Discord webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -183,7 +183,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             let start_meta = to_runtime_start_meta(parse_start_meta(&body));
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
-                    bridge,
+                    channel,
                     session_store,
                     "discord",
                     channel,

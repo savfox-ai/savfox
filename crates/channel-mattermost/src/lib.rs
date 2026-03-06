@@ -44,7 +44,7 @@ pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
 #[async_trait]
 impl Channel for MattermostChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!(server = %self.server_url, "Mattermost bridge starting");
+        info!(server = %self.server_url, "Mattermost channel starting");
         Ok(())
     }
 

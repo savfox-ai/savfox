@@ -75,7 +75,7 @@ Some plugin kinds have exclusive slots — only one plugin of that kind can be a
 
 | Kind | Description |
 |------|-------------|
-| `channel` | Chat bridge (Discord, Slack, etc.) |
+| `channel` | Chat channel (Discord, Slack, etc.) |
 | `tool` | Agent tool |
 | `provider` | LLM provider |
 | `memory` | Memory storage backend |

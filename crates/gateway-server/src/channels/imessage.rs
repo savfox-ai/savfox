@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use tracing::{debug, error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::IMessageChannelConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -16,15 +16,15 @@ use crate::session::SessionStore;
 /// Default polling interval for fetching new messages (in seconds).
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 
-/// iMessage bridge using the BlueBubbles REST API.
+/// iMessage channel using the BlueBubbles REST API.
 ///
 /// BlueBubbles (<https://bluebubbles.app>) exposes a local REST API on macOS that
-/// provides access to iMessage. This bridge polls for new messages and sends
+/// provides access to iMessage. This channel polls for new messages and sends
 /// replies through that API.
 pub(crate) struct IMessageChannel {
     config: IMessageChannelConfig,
     http_client: reqwest::Client,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     /// Tracks the most recent message timestamp (epoch ms) to avoid re-processing.
     last_message_ts: Arc<AtomicI64>,
@@ -47,13 +47,13 @@ impl IMessageChannel {
     pub(crate) fn new(
         config: IMessageChannelConfig,
         http_client: reqwest::Client,
-        bridge: Arc<GatewayChannel>,
+        channel: Arc<GatewayChannel>,
         session_store: Arc<SessionStore>,
     ) -> Self {
         Self {
             config,
             http_client,
-            bridge,
+            channel,
             session_store,
             last_message_ts: Arc::new(AtomicI64::new(0)),
             running: Arc::new(AtomicBool::new(false)),
@@ -135,7 +135,7 @@ impl IMessageChannel {
     /// Spawn the polling loop that checks BlueBubbles for new messages.
     fn spawn_poll_loop(&self) {
         let http_client = self.http_client.clone();
-        let bridge = self.bridge.clone();
+        let channel = self.channel.clone();
         let session_store = self.session_store.clone();
         let last_ts = self.last_message_ts.clone();
         let running = self.running.clone();
@@ -232,11 +232,11 @@ impl IMessageChannel {
 
                         info!(channel = %channel, "iMessage: starting thread from polled message");
 
-                        let bridge = bridge.clone();
+                        let channel = channel.clone();
                         let session_store = session_store.clone();
                         tokio::spawn(async move {
                             runtime::spawn_start_thread_pipeline(
-                                bridge,
+                                channel,
                                 session_store,
                                 "imessage",
                                 channel,
@@ -259,11 +259,11 @@ impl Channel for IMessageChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             api_url = %self.config.api_url,
-            "iMessage bridge initialized (BlueBubbles polling mode)"
+            "iMessage channel initialized (BlueBubbles polling mode)"
         );
 
         // Seed the high-water mark with the current server time so we only process
-        // messages that arrive after the bridge starts.
+        // messages that arrive after the channel starts.
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -406,15 +406,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("iMessage webhook: missing gateway bridge state: {err:?}");
+                    warn!("iMessage webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -435,7 +435,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "imessage",
                     channel,

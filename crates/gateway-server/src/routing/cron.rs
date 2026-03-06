@@ -231,7 +231,7 @@ pub async fn cron_run_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
             "status": "ok",
             "job_id": job_id,
             "run_id": uuid::Uuid::now_v7().to_string(),
-            "message": "cron job triggered (placeholder - requires bridge)",
+            "message": "cron job triggered (placeholder - requires channel)",
         })
         .to_string(),
     ));

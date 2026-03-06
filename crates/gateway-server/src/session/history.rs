@@ -10,7 +10,7 @@ use savfox_protocol::protocol::{EventMsg, RolloutItem};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::session::{SessionEntry, SessionStore};
 
 pub(crate) async fn build_history_payload(
@@ -18,7 +18,7 @@ pub(crate) async fn build_history_payload(
     limit: usize,
     source_channel: Option<&str>,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
 ) -> Value {
     let entry = match session_store.get(session_ref).await {
         Some(v) => Some(v),
@@ -30,7 +30,7 @@ pub(crate) async fn build_history_payload(
         .map(|v| v.session_id.clone())
         .unwrap_or_else(|| session_ref.to_owned());
 
-    let savfox_home = &bridge.config().savfox_home;
+    let savfox_home = &channel.config().savfox_home;
     let rollout_path = match resolve_rollout_path(savfox_home, session_ref, entry.as_ref()).await {
         Ok(v) => v,
         Err(err) => {
@@ -369,13 +369,13 @@ pub(crate) fn derive_session_label_from_messages(messages: &[Value]) -> Option<S
 pub(crate) async fn derive_session_label_from_history(
     session_ref: &str,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
 ) -> Option<String> {
     let entry = match session_store.get(session_ref).await {
         Some(v) => Some(v),
         None => session_store.get_by_session_id(session_ref).await,
     };
-    let savfox_home = &bridge.config().savfox_home;
+    let savfox_home = &channel.config().savfox_home;
     let rollout_path = resolve_rollout_path(savfox_home, session_ref, entry.as_ref())
         .await
         .ok()

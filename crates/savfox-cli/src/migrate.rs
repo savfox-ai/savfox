@@ -181,7 +181,7 @@ struct SavfoxGatewayConfig {
     token: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    bridges: Option<SavfoxBridgesConfig>,
+    channels: Option<SavfoxBridgesConfig>,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -370,17 +370,17 @@ fn convert_config(source: OpenClawConfig, report: &mut MigrationReport) -> Savfo
         savfox.gateway = Some(gateway);
     }
 
-    // -- Channels -> Gateway bridges --
+    // -- Channels -> Gateway channels --
     if let Some(ref channels) = source.channels {
-        let bridges = convert_channels(channels, report);
+        let channels = convert_channels(channels, report);
         if let Some(ref mut gw) = savfox.gateway {
-            gw.bridges = Some(bridges);
+            gw.channels = Some(channels);
         } else {
             savfox.gateway = Some(SavfoxGatewayConfig {
                 host: None,
                 port: None,
                 token: None,
-                bridges: Some(bridges),
+                channels: Some(channels),
             });
         }
     }
@@ -477,7 +477,7 @@ fn convert_server_to_gateway(
         host: None,
         port: None,
         token: None,
-        bridges: None,
+        channels: None,
     };
 
     if let Some(port) = server.port {
@@ -502,7 +502,7 @@ fn convert_channels(
     channels: &[OpenClawChannelConfig],
     report: &mut MigrationReport,
 ) -> SavfoxBridgesConfig {
-    let mut bridges = SavfoxBridgesConfig::default();
+    let mut channels = SavfoxBridgesConfig::default();
 
     for channel in channels {
         let channel_type = match &channel.channel_type {
@@ -531,34 +531,34 @@ fn convert_channels(
 
                 if bot_token.is_empty() {
                     report.add_warning(
-                        "Discord channel: missing bot_token; bridge will need manual configuration",
+                        "Discord channel: missing bot_token; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "Discord channel: Set the bot_token field in [gateway.bridges.discord]",
+                        "Discord channel: Set the bot_token field in [gateway.channels.discord]",
                     );
                 }
 
-                bridges.discord = Some(SavfoxDiscordBridge {
+                channels.discord = Some(SavfoxDiscordBridge {
                     enabled,
                     bot_token,
                     application_id,
                 });
-                report.add_converted("channels[discord] -> [gateway.bridges.discord]");
+                report.add_converted("channels[discord] -> [gateway.channels.discord]");
             }
             "telegram" => {
                 let bot_token = extract_string(&channel.config, "bot_token").unwrap_or_default();
 
                 if bot_token.is_empty() {
                     report.add_warning(
-                        "Telegram channel: missing bot_token; bridge will need manual configuration",
+                        "Telegram channel: missing bot_token; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "Telegram channel: Set the bot_token field in [gateway.bridges.telegram]",
+                        "Telegram channel: Set the bot_token field in [gateway.channels.telegram]",
                     );
                 }
 
-                bridges.telegram = Some(SavfoxTelegramBridge { enabled, bot_token });
-                report.add_converted("channels[telegram] -> [gateway.bridges.telegram]");
+                channels.telegram = Some(SavfoxTelegramBridge { enabled, bot_token });
+                report.add_converted("channels[telegram] -> [gateway.channels.telegram]");
             }
             "slack" => {
                 let bot_token = extract_string(&channel.config, "bot_token").unwrap_or_default();
@@ -568,39 +568,39 @@ fn convert_channels(
 
                 if bot_token.is_empty() {
                     report.add_warning(
-                        "Slack channel: missing bot_token; bridge will need manual configuration",
+                        "Slack channel: missing bot_token; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "Slack channel: Set the bot_token field in [gateway.bridges.slack]",
+                        "Slack channel: Set the bot_token field in [gateway.channels.slack]",
                     );
                 }
                 if signing_secret.is_empty() {
                     report.add_warning(
-                        "Slack channel: missing signing_secret; bridge will need manual configuration",
+                        "Slack channel: missing signing_secret; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "Slack channel: Set the signing_secret field in [gateway.bridges.slack]",
+                        "Slack channel: Set the signing_secret field in [gateway.channels.slack]",
                     );
                 }
 
-                bridges.slack = Some(SavfoxSlackBridge {
+                channels.slack = Some(SavfoxSlackBridge {
                     enabled,
                     bot_token,
                     signing_secret,
                 });
-                report.add_converted("channels[slack] -> [gateway.bridges.slack]");
+                report.add_converted("channels[slack] -> [gateway.channels.slack]");
             }
             "webhook" => {
                 let callback_url = extract_string(&channel.config, "callback_url")
                     .or_else(|| extract_string(&channel.config, "url"));
                 let secret = extract_string(&channel.config, "secret");
 
-                bridges.webhook = Some(SavfoxWebhookBridge {
+                channels.webhook = Some(SavfoxWebhookBridge {
                     enabled,
                     callback_url,
                     secret,
                 });
-                report.add_converted("channels[webhook] -> [gateway.bridges.webhook]");
+                report.add_converted("channels[webhook] -> [gateway.channels.webhook]");
             }
             "msteams" => {
                 let app_id = extract_string(&channel.config, "app_id").unwrap_or_default();
@@ -610,28 +610,28 @@ fn convert_channels(
 
                 if app_id.is_empty() {
                     report.add_warning(
-                        "MS Teams channel: missing app_id; bridge will need manual configuration",
+                        "MS Teams channel: missing app_id; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "MS Teams channel: Set the app_id field in [gateway.bridges.msteams]",
+                        "MS Teams channel: Set the app_id field in [gateway.channels.msteams]",
                     );
                 }
                 if app_password.is_empty() {
                     report.add_warning(
-                        "MS Teams channel: missing app_password; bridge will need manual configuration",
+                        "MS Teams channel: missing app_password; channel will need manual configuration",
                     );
                     report.add_manual_step(
-                        "MS Teams channel: Set the app_password field in [gateway.bridges.msteams]",
+                        "MS Teams channel: Set the app_password field in [gateway.channels.msteams]",
                     );
                 }
 
-                bridges.msteams = Some(SavfoxMsTeamsBridge {
+                channels.msteams = Some(SavfoxMsTeamsBridge {
                     enabled,
                     app_id,
                     app_password,
                     tenant_id,
                 });
-                report.add_converted("channels[msteams] -> [gateway.bridges.msteams]");
+                report.add_converted("channels[msteams] -> [gateway.channels.msteams]");
             }
             "whatsapp" => {
                 let phone_number_id =
@@ -642,22 +642,22 @@ fn convert_channels(
 
                 if phone_number_id.is_empty() {
                     report.add_warning(
-                        "WhatsApp channel: missing phone_number_id; bridge will need manual configuration",
+                        "WhatsApp channel: missing phone_number_id; channel will need manual configuration",
                     );
                 }
                 if access_token.is_empty() {
                     report.add_warning(
-                        "WhatsApp channel: missing access_token; bridge will need manual configuration",
+                        "WhatsApp channel: missing access_token; channel will need manual configuration",
                     );
                 }
 
-                bridges.whatsapp = Some(SavfoxWhatsAppBridge {
+                channels.whatsapp = Some(SavfoxWhatsAppBridge {
                     enabled,
                     phone_number_id,
                     access_token,
                     verify_token,
                 });
-                report.add_converted("channels[whatsapp] -> [gateway.bridges.whatsapp]");
+                report.add_converted("channels[whatsapp] -> [gateway.channels.whatsapp]");
             }
             _ => {
                 // Already handled by the KNOWN_CHANNEL_TYPES check above.
@@ -665,7 +665,7 @@ fn convert_channels(
         }
     }
 
-    bridges
+    channels
 }
 
 fn convert_skills(
@@ -1049,8 +1049,8 @@ server:
         let mut report = MigrationReport::default();
         let result = convert_config(source, &mut report);
 
-        let bridges = result.gateway.unwrap().bridges.unwrap();
-        let discord = bridges.discord.unwrap();
+        let channels = result.gateway.unwrap().channels.unwrap();
+        let discord = channels.discord.unwrap();
         assert!(discord.enabled);
         assert_eq!(discord.bot_token, "discord-tok");
         assert_eq!(discord.application_id.as_deref(), Some("app-123"));
@@ -1189,7 +1189,7 @@ server:
                 host: None,
                 port: Some(9090),
                 token: Some("secret".to_string()),
-                bridges: None,
+                channels: None,
             }),
             ..Default::default()
         };

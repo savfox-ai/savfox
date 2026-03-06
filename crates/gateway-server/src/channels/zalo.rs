@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::ZaloChannelConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -14,13 +14,13 @@ use crate::session::SessionStore;
 /// Zalo OA (Official Account) API base URL.
 const ZALO_OA_API_BASE: &str = "https://openapi.zalo.me/v3.0/oa";
 
-/// Zalo OA bridge using webhook mode.
+/// Zalo OA channel using webhook mode.
 ///
 /// Receives incoming messages via webhook events from the Zalo OA platform and
 /// sends replies using the Zalo OA Customer Service Message API.
 pub(crate) struct ZaloChannel {
     config: ZaloChannelConfig,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     http: reqwest::Client,
 }
 
@@ -36,12 +36,12 @@ impl ZaloChannel {
     #[must_use]
     pub(crate) fn new(
         config: ZaloChannelConfig,
-        bridge: Arc<GatewayChannel>,
+        channel: Arc<GatewayChannel>,
         http: reqwest::Client,
     ) -> Self {
         Self {
             config,
-            bridge,
+            channel,
             http,
         }
     }
@@ -121,7 +121,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 #[async_trait]
 impl Channel for ZaloChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Zalo OA bridge initialized (webhook mode)");
+        info!("Zalo OA channel initialized (webhook mode)");
         Ok(())
     }
 
@@ -230,7 +230,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let config = depot
         .obtain::<Arc<crate::config::GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.bridges.zalo.as_ref().cloned());
+        .and_then(|cfg| cfg.channels.zalo.as_ref().cloned());
 
     if let Some(ref cfg) = config {
         let signature = req
@@ -314,15 +314,15 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned);
 
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(err) => {
-                    warn!("Zalo webhook: missing gateway bridge state: {err:?}");
+                    warn!("Zalo webhook: missing gateway channel state: {err:?}");
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -343,7 +343,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "zalo",
                     channel,

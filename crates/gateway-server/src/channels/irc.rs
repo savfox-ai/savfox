@@ -6,23 +6,23 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// IRC bridge via an HTTP relay service.
-/// IRC doesn't have a native HTTP API, so this communicates with a local bridge
+/// IRC channel via an HTTP relay service.
+/// IRC doesn't have a native HTTP API, so this communicates with a local channel
 /// service (e.g., IRC-to-HTTP relay) that exposes REST endpoints.
 pub(crate) struct IrcChannel {
-    bridge_url: String,
+    channel_url: String,
     http_client: reqwest::Client,
 }
 
 impl IrcChannel {
     #[must_use]
-    pub(crate) fn new(bridge_url: String, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(channel_url: String, http_client: reqwest::Client) -> Self {
         Self {
-            bridge_url,
+            channel_url,
             http_client,
         }
     }
@@ -41,12 +41,12 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 #[async_trait]
 impl Channel for IrcChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!(bridge_url = %self.bridge_url, "IRC bridge starting");
+        info!(channel_url = %self.channel_url, "IRC channel starting");
         Ok(())
     }
 
     async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
-        let url = format!("{}/send", self.bridge_url);
+        let url = format!("{}/send", self.channel_url);
         let body = json!({ "channel": channel, "message": message });
         let response = self
             .http_client
@@ -59,7 +59,7 @@ impl Channel for IrcChannel {
             let status = response.status();
             let body = response.bytes().await.unwrap_or_default();
             warn!(
-                "IRC bridge send error: HTTP {status}: {}",
+                "IRC channel send error: HTTP {status}: {}",
                 String::from_utf8_lossy(&body)
             );
         }
@@ -151,14 +151,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     if !channel.is_empty() && !prompt.is_empty() {
-        let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(bridge) => bridge.clone(),
+        let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+            Ok(channel) => channel.clone(),
             Err(_) => {
                 render_error(
                     res,
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "state_unavailable",
-                    "gateway bridge state unavailable",
+                    "gateway channel state unavailable",
                 );
                 return;
             }
@@ -177,7 +177,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         };
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline(
-                bridge,
+                channel,
                 session_store,
                 "irc",
                 channel,

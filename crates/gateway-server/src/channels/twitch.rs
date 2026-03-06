@@ -5,9 +5,9 @@ use tracing::{info, warn};
 use super::{Channel, RichMessage};
 use crate::protocol::ChannelAction;
 
-/// Twitch chat bridge using IRC over WebSocket (TMI).
+/// Twitch chat channel using IRC over WebSocket (TMI).
 ///
-/// Twitch uses a modified IRC protocol for chat. The bridge connects to
+/// Twitch uses a modified IRC protocol for chat. The channel connects to
 /// `wss://irc-ws.chat.twitch.tv:443` using OAuth credentials and listens
 /// for PRIVMSG events in configured channels.
 pub(crate) struct TwitchChannel {
@@ -111,7 +111,7 @@ impl Channel for TwitchChannel {
         info!(
             bot = %self.config.bot_username,
             channels = ?self.config.channels,
-            "Twitch bridge initialized"
+            "Twitch channel initialized"
         );
         Ok(())
     }

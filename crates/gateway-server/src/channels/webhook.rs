@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::config::{GatewayConfig, WebhookBridgeConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Generic webhook bridge for custom integrations.
+/// Generic webhook channel for custom integrations.
 ///
 /// Accepts JSON payloads in a simple format:
 /// ```json
@@ -43,7 +43,7 @@ impl GenericWebhookChannel {
 
     /// Verify HMAC-SHA256 signature if a secret is configured.
     fn verify_signature(secret: &str, signature: &str, body: &[u8]) -> bool {
-        crate::bridge::verify_webhook_hmac(secret, signature, body)
+        crate::channel::verify_webhook_hmac(secret, signature, body)
     }
 
     /// Parse a generic webhook payload.
@@ -131,7 +131,7 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
 #[async_trait]
 impl Channel for GenericWebhookChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Generic webhook bridge initialized");
+        info!("Generic webhook channel initialized");
         Ok(())
     }
 
@@ -207,7 +207,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let configured_secret = depot
         .obtain::<Arc<GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.bridges.webhook.as_ref().and_then(|b| b.secret.clone()))
+        .and_then(|cfg| cfg.channels.webhook.as_ref().and_then(|b| b.secret.clone()))
         .or_else(|| std::env::var("WEBHOOK_SIGNING_SECRET").ok());
     if let Some(secret) = configured_secret {
         let signature = req
@@ -266,14 +266,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     match &action {
         ChannelAction::StartThread { channel, prompt } => {
             info!(channel = %channel, "Webhook: starting thread with prompt: {prompt}");
-            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
-                Ok(bridge) => bridge.clone(),
+            let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+                Ok(channel) => channel.clone(),
                 Err(_) => {
                     render_error(
                         res,
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "state_unavailable",
-                        "gateway bridge state unavailable",
+                        "gateway channel state unavailable",
                     );
                     return;
                 }
@@ -294,7 +294,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             let prompt = prompt.clone();
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline(
-                    bridge,
+                    channel,
                     session_store,
                     "webhook",
                     channel,

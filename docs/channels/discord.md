@@ -23,10 +23,10 @@ commands and direct messages in any Discord server.
 
 ## Step 3: Configure the gateway
 
-Add the Discord bridge configuration to your `config.toml`:
+Add the Discord channel configuration to your `config.toml`:
 
 ```toml
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "YOUR_DISCORD_BOT_TOKEN"
 application_id = "YOUR_APPLICATION_ID"

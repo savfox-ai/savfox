@@ -71,7 +71,7 @@ Idle --> Thinking --> Executing --> Idle
                  \--> Error
 ```
 
-Status can be queried per-thread through the gateway bridge.
+Status can be queried per-thread through the gateway channel.
 
 ## Agent control
 
@@ -143,7 +143,7 @@ enforced through:
 
 ## Routing
 
-When a chat message arrives through a bridge (Discord, Telegram, etc.), the
+When a chat message arrives through a channel (Discord, Telegram, etc.), the
 gateway routes it to the appropriate agent thread using session keys:
 
 1. A session key is built from the agent ID, channel, group, and peer.

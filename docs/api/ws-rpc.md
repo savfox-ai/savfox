@@ -440,7 +440,7 @@ Get detailed channel status.
 
 ### `channels.login`
 
-Login to a channel bridge.
+Login to a channel.
 
 - **Scope**: Write
 - **Params**: `{ "channel": "discord", "credentials": {...} }`
@@ -448,7 +448,7 @@ Login to a channel bridge.
 
 ### `channels.logout`
 
-Logout from a channel bridge.
+Logout from a channel.
 
 - **Scope**: Write
 - **Params**: `{ "channel": "discord" }`

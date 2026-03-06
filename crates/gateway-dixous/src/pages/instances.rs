@@ -109,7 +109,7 @@ fn render_instance_card(entry: &PresenceEntry, now: u64) -> Element {
     let mode_color = match mode.as_str() {
         "cli" | "dashboard" => "var(--accent)",
         "gateway" => "var(--success)",
-        "bridge" => "var(--warning)",
+        "channel" => "var(--warning)",
         _ => "var(--text-secondary)",
     };
 

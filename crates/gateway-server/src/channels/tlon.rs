@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 use super::{Channel, RichMessage};
 use crate::protocol::ChannelAction;
 
-/// Tlon bridge for the Urbit ecosystem.
+/// Tlon channel for the Urbit ecosystem.
 ///
 /// Connects to a running Urbit ship via the Eyre HTTP API
 /// to send and receive messages in Tlon (formerly Landscape) channels.
@@ -157,7 +157,7 @@ impl std::fmt::Display for TlonChannel {
 impl Channel for TlonChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
-            "Tlon bridge starting for ship {} at {}",
+            "Tlon channel starting for ship {} at {}",
             self.config.ship_name, self.config.ship_url
         );
 
@@ -165,7 +165,7 @@ impl Channel for TlonChannel {
         *self.auth_cookie.write().await = Some(cookie);
 
         info!(
-            "Tlon bridge authenticated, monitoring {} channels",
+            "Tlon channel authenticated, monitoring {} channels",
             self.config.channels.len()
         );
 

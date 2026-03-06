@@ -94,7 +94,7 @@ pub struct SessionSender {
 pub struct SessionEntry {
     /// Unique session identifier (UUID v7).
     pub session_id: String,
-    /// Optional routing identifier used by bridge/webhook session tracking.
+    /// Optional routing identifier used by channel/webhook session tracking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_id: Option<String>,
     /// Last update timestamp (epoch milliseconds).
@@ -634,7 +634,7 @@ impl SessionStore {
         self.get(session_id).await
     }
 
-    /// Find a session by routing id (non-UUID bridge/webhook routing key).
+    /// Find a session by routing id (non-UUID channel/webhook routing key).
     pub async fn get_by_routing_id(&self, routing_id: &str) -> Option<SessionEntry> {
         let routing_id = routing_id.trim();
         if routing_id.is_empty() {

@@ -1,6 +1,6 @@
-﻿# Discord Bridge
+﻿# Discord Channel
 
-The Discord bridge connects Savfox to a Discord server, allowing users to chat with the AI agent directly from Discord channels and DMs.
+The Discord channel connects Savfox to a Discord server, allowing users to chat with the AI agent directly from Discord channels and DMs.
 
 ## Prerequisites
 
@@ -35,10 +35,10 @@ On the Bot settings page:
 
 ## Step 4: Configure Savfox
 
-Add the Discord bridge to your `~/.savfox/config.toml`:
+Add the Discord channel to your `~/.savfox/config.toml`:
 
 ```toml
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 ```
@@ -46,7 +46,7 @@ bot_token = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.XXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXX
 Alternatively, set the token via an environment variable to avoid storing it in the config file:
 
 ```toml
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "$DISCORD_BOT_TOKEN"
 ```

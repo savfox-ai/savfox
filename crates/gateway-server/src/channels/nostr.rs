@@ -5,10 +5,10 @@ use tracing::{info, warn};
 use super::{Channel, RichMessage};
 use crate::protocol::ChannelAction;
 
-/// Nostr decentralized protocol bridge.
+/// Nostr decentralized protocol channel.
 ///
 /// Uses the NIP-04 encrypted direct messages and NIP-01 events.
-/// The bridge connects to one or more relays and listens for mentions/DMs
+/// The channel connects to one or more relays and listens for mentions/DMs
 /// directed at the bot's npub.
 pub(crate) struct NostrChannel {
     config: NostrChannelConfig,
@@ -92,7 +92,7 @@ impl Channel for NostrChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         info!(
             relays = ?self.config.relays,
-            "Nostr bridge initialized"
+            "Nostr channel initialized"
         );
         Ok(())
     }

@@ -48,7 +48,7 @@ pub fn IMessageChannel() -> Element {
                         span { class: "channel-icon", dangerous_inner_html: crate::utils::icons::ICON_MESSAGE_SQUARE }
                         "iMessage"
                     }
-                    p { class: "channels-toolbar__subtitle", "macOS bridge status and channel configuration." }
+                    p { class: "channels-toolbar__subtitle", "macOS channel status and channel configuration." }
                 }
             }
 

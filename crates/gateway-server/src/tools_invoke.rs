@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 
 /// Request body for `POST /tools/invoke`.
 #[derive(Debug, Deserialize)]
@@ -92,7 +92,7 @@ pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, r
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -103,7 +103,7 @@ pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, r
     // Build a prompt that forces the agent to invoke the requested tool.
     let prompt = build_tool_prompt(&body.tool, body.action.as_deref(), &body.arguments);
 
-    match bridge.invoke_agent_text(&prompt, "default").await {
+    match channel.invoke_agent_text(&prompt, "default").await {
         Ok(output) => {
             // Try to parse the output as JSON for a cleaner response.
             let parsed = serde_json::from_str::<Value>(&output).unwrap_or_else(|_| {

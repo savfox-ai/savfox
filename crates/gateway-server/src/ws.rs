@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayChannel;
+use crate::channel::GatewayChannel;
 use crate::cron_service::CronService;
 use crate::protocol::GatewayMessage;
 use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
@@ -36,7 +36,7 @@ pub(crate) async fn ws_handler(
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
-    let bridge = depot
+    let channel = depot
         .obtain::<Arc<GatewayChannel>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
@@ -60,7 +60,7 @@ pub(crate) async fn ws_handler(
                 ws,
                 auth,
                 session_mgr,
-                bridge,
+                channel,
                 session_store,
                 cron_service,
                 query_token,
@@ -74,7 +74,7 @@ async fn handle_ws_connection(
     mut ws: WebSocket,
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayChannel>,
+    channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     query_token: Option<String>,
@@ -242,7 +242,7 @@ async fn handle_ws_connection(
                             &session_id_str,
                             &auth,
                             &session_mgr,
-                            &bridge,
+                            &channel,
                             &session_store,
                             &cron_service,
                             &rpc_token_info,
@@ -271,7 +271,7 @@ async fn handle_ws_connection(
                     &session_id_str,
                     gateway_msg,
                     &session_mgr,
-                    &bridge,
+                    &channel,
                 ).await;
             }
         }
@@ -287,7 +287,7 @@ async fn handle_client_message(
     session_id: &str,
     msg: GatewayMessage,
     session_mgr: &GatewaySessionManager,
-    bridge: &GatewayChannel,
+    channel: &GatewayChannel,
 ) {
     match msg {
         GatewayMessage::Request { id, method, params } => {
@@ -296,7 +296,7 @@ async fn handle_client_message(
                 method,
                 params,
             };
-            bridge.process_request(session_id, request).await;
+            channel.process_request(session_id, request).await;
         }
 
         GatewayMessage::Response {
@@ -306,7 +306,7 @@ async fn handle_client_message(
             error: _,
         } => {
             let result = payload.unwrap_or(Value::Null);
-            bridge
+            channel
                 .process_client_response(RequestId::String(id), result)
                 .await;
         }
@@ -316,7 +316,7 @@ async fn handle_client_message(
             approved,
         } => {
             let result = serde_json::json!({ "approved": approved });
-            bridge
+            channel
                 .process_client_response(RequestId::String(request_id), result)
                 .await;
         }

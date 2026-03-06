@@ -1,6 +1,6 @@
 ﻿# Signal Channel Setup
 
-Connect Savfox to Signal using the signal-cli bridge, allowing users to interact
+Connect Savfox to Signal using the signal-cli channel, allowing users to interact
 with the agent via Signal messages.
 
 ## Prerequisites
@@ -38,7 +38,7 @@ signal-cli -u +1234567890 jsonRpc --http 127.0.0.1:8080
 ## Step 3: Configure the gateway
 
 ```toml
-[gateway.bridges.signal]
+[gateway.channels.signal]
 enabled = true
 phone_number = "+1234567890"
 rpc_url = "http://127.0.0.1:8080/api/v1/rpc"
@@ -56,16 +56,16 @@ The exact mechanism depends on your signal-cli version and configuration.
 
 ## Usage
 
-Send a message to the registered Signal number. The bridge processes incoming
+Send a message to the registered Signal number. The channel processes incoming
 messages and routes them to the Savfox agent. Replies are sent back via the
 signal-cli JSON-RPC API.
 
 ## Limitations
 
-- Signal does not support official bot accounts or business APIs. This bridge
+- Signal does not support official bot accounts or business APIs. This channel
   uses signal-cli as an unofficial client.
 - Group messaging support depends on signal-cli configuration.
-- signal-cli must remain running for the bridge to function.
+- signal-cli must remain running for the channel to function.
 
 ## Troubleshooting
 

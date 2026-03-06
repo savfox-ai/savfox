@@ -22,7 +22,7 @@
 - [Overview](gateway.md)
 - [Protocol](gateway/protocol.md)
 - [REST API](gateway/api.md)
-- [Bridge Architecture](gateway/bridge.md)
+- [Channel Architecture](gateway/channel.md)
 - [MCP Server](mcp-server.md)
 
 # Channels

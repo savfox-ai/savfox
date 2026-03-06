@@ -22,9 +22,9 @@ pub mod audit;
 pub mod auth;
 pub mod auto_reply;
 #[path = "channel.rs"]
-pub mod bridge;
+pub mod channel;
 #[path = "channels/mod.rs"]
-pub mod bridges;
+pub mod channels;
 pub mod canvas_host;
 pub(crate) mod chat_attachments;
 pub(crate) mod chat_sanitize;
@@ -86,7 +86,7 @@ mod ws_rpc;
 pub use config::{GatewayCommand, GatewaySubcommand};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::{BridgeOutgoing, GatewayChannel, GatewayBridgeArgs};
+use crate::channel::{BridgeOutgoing, GatewayChannel, GatewayBridgeArgs};
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
 use crate::session::{GatewaySessionManager, SessionStore};
@@ -161,10 +161,10 @@ pub async fn run_main(
     let auth = Arc::new(GatewayAuth::single_token(token.clone()));
     let session_mgr = Arc::new(GatewaySessionManager::new());
 
-    // Create the bridge outgoing channel.
+    // Create the channel outgoing channel.
     let (outgoing_tx, _outgoing_rx) = mpsc::channel::<BridgeOutgoing>(128);
 
-    let bridge = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
+    let channel = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
         config: Arc::clone(&config),
         cli_overrides: Vec::new(),
         cloud_requirements,
@@ -174,11 +174,11 @@ pub async fn run_main(
         outgoing_tx,
     }));
 
-    println!("[startup] Gateway bridge created");
+    println!("[startup] Gateway channel created");
 
     // Inject API keys from per-provider files into the runtime env-override
     // map so the core engine can authenticate without a restart.
-    ws_rpc::inject_all_provider_auth(&bridge).await;
+    ws_rpc::inject_all_provider_auth(&channel).await;
 
     // Initialize the persistent session store.
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
@@ -188,7 +188,7 @@ pub async fn run_main(
     // Initialize and start the cron background service.
     let cron_service = Arc::new(CronService::from_home(&config.savfox_home));
     cron_service.init().await;
-    let _cron_shutdown = cron_service.start(Arc::clone(&bridge));
+    let _cron_shutdown = cron_service.start(Arc::clone(&channel));
     info!("cron service started");
     println!("[startup] Cron service started");
 
@@ -208,7 +208,7 @@ pub async fn run_main(
     }
 
     println!("[startup] Loading and logging channel configurations...");
-    if let Err(err) = bridges::log_all_configured_channels(&config.savfox_home).await {
+    if let Err(err) = channels::log_all_configured_channels(&config.savfox_home).await {
         warn!(error = %err, "Failed to load channel configs for startup logging");
         println!("[startup] WARNING: Failed to load channel configs: {}", err);
     }
@@ -216,11 +216,11 @@ pub async fn run_main(
 
     // Initialize and start configured channels
     println!("[startup] Initializing channel instances...");
-    let channel_registry = bridges::create_channel_registry();
-    if let Err(err) = bridges::initialize_and_start_channels(
+    let channel_registry = channels::create_channel_registry();
+    if let Err(err) = channels::initialize_and_start_channels(
         &config.savfox_home,
         channel_registry.clone(),
-        &bridge,
+        &channel,
         &session_store,
     )
     .await
@@ -274,7 +274,7 @@ pub async fn run_main(
         &gateway_config,
         auth,
         session_mgr,
-        bridge,
+        channel,
         session_store,
         cron_service,
         config.savfox_home.clone(),

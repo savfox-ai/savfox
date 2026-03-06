@@ -18,8 +18,8 @@ pub(crate) struct MaintenanceConfig {
     pub(crate) interval: Duration,
     /// Whether to prune expired sessions.
     pub(crate) prune_sessions: bool,
-    /// Whether to check bridge health.
-    pub(crate) check_bridges: bool,
+    /// Whether to check channel health.
+    pub(crate) check_channels: bool,
     /// Whether to compact log store.
     pub(crate) compact_logs: bool,
     /// Maximum age for completed sessions before pruning.
@@ -31,7 +31,7 @@ impl Default for MaintenanceConfig {
         Self {
             interval: Duration::from_secs(300), // 5 minutes
             prune_sessions: true,
-            check_bridges: true,
+            check_channels: true,
             compact_logs: true,
             session_max_age: Duration::from_secs(7 * 24 * 3600), // 7 days
         }
@@ -43,10 +43,10 @@ impl Default for MaintenanceConfig {
 pub(crate) struct MaintenanceReport {
     /// Number of sessions pruned.
     pub(crate) sessions_pruned: usize,
-    /// Number of bridges checked.
-    pub(crate) bridges_checked: usize,
-    /// Number of bridges that are unhealthy.
-    pub(crate) bridges_unhealthy: usize,
+    /// Number of channels checked.
+    pub(crate) channels_checked: usize,
+    /// Number of channels that are unhealthy.
+    pub(crate) channels_unhealthy: usize,
     /// Whether log compaction ran.
     pub(crate) logs_compacted: bool,
     /// Errors encountered.
@@ -119,12 +119,12 @@ impl MaintenanceService {
             report.sessions_pruned = self.session_store.prune().await;
         }
 
-        // 2. Check bridge health.
-        if self.config.check_bridges {
-            // Bridge health checking would iterate registered bridges
+        // 2. Check channel health.
+        if self.config.check_channels {
+            // Channel health checking would iterate registered channels
             // and call a health_check method on each.
             // For now, this is a placeholder.
-            report.bridges_checked = 0;
+            report.channels_checked = 0;
         }
 
         // 3. Compact logs.
