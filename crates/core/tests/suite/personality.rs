@@ -581,7 +581,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
     let default_personality_message = "Default from remote template";
     let friendly_personality_message = "Friendly variant";
     let remote_model = ModelInfo {
-            slug: remote_slug.to_string(),,
+            slug: remote_slug.to_string(),
         name: "Remote default personality test".to_string(),
         description: Some("Remote model with default personality template".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
@@ -836,7 +836,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
 
 async fn wait_for_model_available(
     manager: &Arc<ModelsManager>,
-            slug: &str,,
+            slug: &str,
     config: &savfox_core::config::Config,
 ) {
     let deadline = Instant::now() + Duration::from_secs(2);

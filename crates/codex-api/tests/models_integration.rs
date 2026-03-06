@@ -44,7 +44,7 @@ async fn models_client_hits_models_endpoint() {
 
     let response = ModelsResponse {
         models: vec![ModelInfo {
-            id: "gpt-test".to_string(),
+            slug: "gpt-test".to_string(),
             name: "gpt-test".to_string(),
             description: Some("desc".to_string()),
             default_reasoning_level: Some(ReasoningEffort::Medium),

@@ -308,7 +308,7 @@ struct ModelsCache {
 
 fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
     ModelInfo {
-            slug: slug.to_string(),,
+            slug: slug.to_string(),
         name: "Remote Test".to_string(),
         description: Some("remote model".to_string()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
