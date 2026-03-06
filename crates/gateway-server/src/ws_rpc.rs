@@ -3668,7 +3668,7 @@ async fn handle_channels_list(_bridge: &Arc<GatewayBridge>) -> RpcResult {
         json!({"platform": "mattermost", "endpoint": "/webhooks/mattermost", "type": "webhook"}),
         json!({"platform": "googlechat", "endpoint": "/webhooks/googlechat", "type": "webhook"}),
         json!({"platform": "line", "endpoint": "/webhooks/line", "type": "webhook"}),
-        json!({"platform": "feishu", "endpoint": "/webhooks/feishu", "type": "webhook"}),
+        json!({"platform": "feishu", "endpoint": "/webhooks/feishu", "type": "bridge"}),
         json!({"platform": "irc", "endpoint": "/webhooks/irc", "type": "webhook"}),
         json!({"platform": "nostr", "endpoint": "/webhooks/nostr", "type": "bridge"}),
         json!({"platform": "zalo", "endpoint": "/webhooks/zalo", "type": "webhook"}),

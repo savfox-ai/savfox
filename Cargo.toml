@@ -327,7 +327,8 @@ wiremock = "0.6"
 x509-parser = "0.18"
 zeroize = "1.8.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-scraper = "0.22"
+scraper = "0.25.0"
+feishu-sdk = { path = "../../palpo-im/feishu-sdk", features = ["websocket"] }
 
 # WASM dependencies for gateway-dixous
 dioxus = { version = "0.7", default-features = false, features = ["web", "router", "lib", "launch", "logger"] }

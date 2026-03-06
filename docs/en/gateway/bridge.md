@@ -43,7 +43,7 @@ pub trait ChatBridge: Send + Sync {
 | Mattermost | WebSocket | Personal Access Token |
 | Google Chat | HTTPS (Webhook) | Service Account |
 | Line | HTTPS (Messaging API) | Channel Access Token |
-| Feishu/Lark | HTTPS (Bot API) | App ID + Secret |
+| Feishu/Lark | HTTPS (Bot API) + Webhook/Stream events | App ID + Secret |
 | IRC | TCP | SASL / NickServ |
 | WhatsApp | HTTPS (Business API) | Access Token |
 | Signal | HTTPS (signal-cli-rest) | Phone Number |

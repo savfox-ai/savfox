@@ -221,6 +221,7 @@ pub async fn run_main(
         &config.savfox_home,
         channel_registry.clone(),
         &bridge,
+        &session_store,
     )
     .await
     {

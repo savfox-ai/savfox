@@ -30,6 +30,7 @@ savfox-utils-json-to-toml = { workspace = true }
 savfox-skill-registry = { workspace = true }
 savfox-browser-automation = { workspace = true }
 savfox-memory = { workspace = true }
+feishu-sdk = { workspace = true }
 chrono = { workspace = true }
 cron = { workspace = true }
 dirs = { workspace = true }

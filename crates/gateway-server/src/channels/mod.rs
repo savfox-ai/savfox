@@ -94,6 +94,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::bridge::GatewayBridge;
+use crate::session::SessionStore;
 
 pub(crate) type ChannelRegistry = Arc<RwLock<HashMap<String, Box<dyn Channel>>>>;
 
@@ -105,6 +106,7 @@ pub(crate) async fn initialize_and_start_channels(
     savfox_home: &PathBuf,
     registry: ChannelRegistry,
     bridge: &Arc<GatewayBridge>,
+    session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     println!("[startup] Initializing channel instances...");
     info!("Initializing channel instances");
@@ -133,6 +135,9 @@ pub(crate) async fn initialize_and_start_channels(
             "discord" => start_discord_channel(&config, &registry, &bridge).await,
             "telegram" => start_telegram_channel(&config, &registry, &bridge).await,
             "slack" => start_slack_channel(&config, &registry, &bridge).await,
+            "feishu" | "lark" => {
+                start_feishu_channel(&config, &registry, bridge, session_store).await
+            }
             _ => {
                 println!(
                     "[startup]   Channel type '{}' not yet implemented for persistent connections",
@@ -250,6 +255,36 @@ async fn start_slack_channel(
     println!(
         "[startup]   Slack channel persistent connection not yet implemented - using webhook mode"
     );
+    Ok(())
+}
+
+async fn start_feishu_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    registry: &ChannelRegistry,
+    bridge: &Arc<GatewayBridge>,
+    session_store: &Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    use crate::bridges::feishu::{FeishuChannel, FeishuChannelConfig, start_feishu_stream};
+
+    let feishu_config = FeishuChannelConfig::from_channel_config(config)
+        .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
+
+    if feishu_config.stream_enabled() {
+        start_feishu_stream(
+            &config.id,
+            &feishu_config,
+            Arc::clone(bridge),
+            Arc::clone(session_store),
+        )
+        .await?;
+    }
+
+    let mut channel = FeishuChannel::new(feishu_config, bridge.http_client().clone());
+    channel.start().await?;
+
+    let mut registry = registry.write().await;
+    registry.insert(config.id.clone(), Box::new(channel));
+
     Ok(())
 }
 

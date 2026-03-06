@@ -19,7 +19,9 @@ app_id = "${FEISHU_APP_ID}"
 app_secret = "${FEISHU_APP_SECRET}"
 verification_token = "${FEISHU_VERIFICATION_TOKEN}"
 encrypt_key = "${FEISHU_ENCRYPT_KEY}"
-webhook_path = "/hooks/feishu"
+event_mode = "webhook" # or "stream"
+webhook_path = "/webhooks/feishu"
+receive_id_type = "chat_id"
 ```
 
 ## Setup
@@ -27,17 +29,18 @@ webhook_path = "/hooks/feishu"
 1. Go to [Feishu Open Platform](https://open.feishu.cn/)
 2. Create a custom app
 3. Enable the **Bot** capability
-4. Set the event subscription URL
-5. Add required permissions: `im:message`, `im:message.create`
+4. Choose **Webhook** or **Stream** event delivery mode
+5. If using webhook mode, set the request URL to `/webhooks/feishu`
+6. If using stream mode, keep `app_id` + `app_secret` configured so Savfox can open the long-lived stream connection at startup
+7. Add required permissions: `im:message`, `im:message.create`
 
 ## Features
 
 | Feature | Support |
 |---------|---------|
-| Text messages | Full |
-| Rich text | Send |
-| Interactive cards | Send |
-| Images | Receive + Send |
+| Webhook challenge / signature / decrypt | Full |
+| Stream event subscription | Full |
+| Text message trigger | `/savfox ...` |
 | Group messages | Full |
 | 1:1 messages | Full |
-| @mention trigger | Full |
+| Rich text / cards / images | Basic send only |

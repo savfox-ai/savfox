@@ -1872,13 +1872,15 @@ impl GatewayBridge {
     /// Send a message via the Feishu/Lark Bot API.
     pub(crate) async fn send_feishu_message(
         &self,
+        base_url: &str,
         tenant_access_token: &str,
         receive_id: &str,
         receive_id_type: &str,
         text: &str,
     ) -> anyhow::Result<()> {
         let url = format!(
-            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}"
+            "{}/open-apis/im/v1/messages?receive_id_type={receive_id_type}",
+            base_url.trim_end_matches('/')
         );
         let body = serde_json::json!({
             "receive_id": receive_id,
@@ -2197,6 +2199,10 @@ impl GatewayBridge {
                 ) {
                     match crate::bridges::feishu::fetch_feishu_tenant_access_token(
                         &self.http_client,
+                        config
+                            .as_ref()
+                            .map(|cfg| cfg.base_url.as_str())
+                            .unwrap_or("https://open.feishu.cn"),
                         app_id,
                         app_secret,
                     )
@@ -2215,7 +2221,11 @@ impl GatewayBridge {
                 };
 
                 if let Some(token) = token {
-                    self.send_feishu_message(&token, channel_id, receive_id_type, text)
+                    let base_url = config
+                        .as_ref()
+                        .map(|cfg| cfg.base_url.as_str())
+                        .unwrap_or("https://open.feishu.cn");
+                    self.send_feishu_message(base_url, &token, channel_id, receive_id_type, text)
                         .await?;
                 } else {
                     warn!(
