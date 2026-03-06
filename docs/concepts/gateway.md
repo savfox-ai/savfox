@@ -17,7 +17,7 @@ behalf of connected clients.
                              |
                   +----------+----------+
                   |                     |
-           Bridge Runtime         Web UI (SPA)
+           Channel Runtime         Web UI (SPA)
            (Discord, Telegram,    rust-embed WASM
             Slack, Matrix, ...)   at /web/dist/
 ```
@@ -28,9 +28,9 @@ The gateway uses Salvo v0.89 for HTTP routing, WebSocket upgrade, and static
 file serving. TLS is supported via PEM certificate and key paths in
 `config.toml`.
 
-## GatewayBridge
+## GatewayChannel
 
-`GatewayBridge` is the central message router (`crates/gateway-server/src/bridge.rs`).
+`GatewayChannel` is the central message router (`crates/gateway-server/src/bridge.rs`).
 It owns:
 
 - **ThreadManager** -- creates, resumes, and controls agent threads.

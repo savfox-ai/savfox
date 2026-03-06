@@ -28,7 +28,7 @@ pub(crate) use savfox_core::channel::{Channel, RichMessage};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::session::SessionStore;
 
 pub(crate) type ChannelRegistry = Arc<RwLock<HashMap<String, Box<dyn Channel>>>>;
@@ -40,7 +40,7 @@ pub(crate) fn create_channel_registry() -> ChannelRegistry {
 pub(crate) async fn initialize_and_start_channels(
     savfox_home: &PathBuf,
     registry: ChannelRegistry,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     println!("[startup] Initializing channel instances...");
@@ -121,7 +121,7 @@ pub(crate) async fn initialize_and_start_channels(
 async fn start_matrix_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     use crate::bridges::matrix::MatrixChannel;
 
@@ -163,7 +163,7 @@ async fn start_matrix_channel(
 async fn start_discord_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayBridge>,
+    _bridge: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Discord channel persistent connection not yet implemented - using webhook mode"
@@ -174,7 +174,7 @@ async fn start_discord_channel(
 async fn start_telegram_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayBridge>,
+    _bridge: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Telegram channel persistent connection not yet implemented - using webhook mode"
@@ -185,7 +185,7 @@ async fn start_telegram_channel(
 async fn start_slack_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
-    _bridge: &Arc<GatewayBridge>,
+    _bridge: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
     println!(
         "[startup]   Slack channel persistent connection not yet implemented - using webhook mode"
@@ -196,7 +196,7 @@ async fn start_slack_channel(
 async fn start_feishu_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     use crate::bridges::feishu::{FeishuChannel, FeishuChannelConfig, start_feishu_stream};

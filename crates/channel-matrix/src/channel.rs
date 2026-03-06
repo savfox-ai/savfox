@@ -27,10 +27,10 @@ impl MatrixChannel {
 impl Channel for MatrixChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
         println!(
-            "Matrix bridge starting with homeserver URL: {}",
+            "Matrix channel starting with homeserver URL: {}",
             self.homeserver_url
         );
-        info!(homeserver = %self.homeserver_url, "Matrix bridge starting");
+        info!(homeserver = %self.homeserver_url, "Matrix channel starting");
         Ok(())
     }
 

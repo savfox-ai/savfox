@@ -86,7 +86,7 @@ mod ws_rpc;
 pub use config::{GatewayCommand, GatewaySubcommand};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::{BridgeOutgoing, GatewayBridge, GatewayBridgeArgs};
+use crate::bridge::{BridgeOutgoing, GatewayChannel, GatewayBridgeArgs};
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
 use crate::session::{GatewaySessionManager, SessionStore};
@@ -164,7 +164,7 @@ pub async fn run_main(
     // Create the bridge outgoing channel.
     let (outgoing_tx, _outgoing_rx) = mpsc::channel::<BridgeOutgoing>(128);
 
-    let bridge = Arc::new(GatewayBridge::new(GatewayBridgeArgs {
+    let bridge = Arc::new(GatewayChannel::new(GatewayBridgeArgs {
         config: Arc::clone(&config),
         cli_overrides: Vec::new(),
         cloud_requirements,

@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayBridge, is_slack_timestamp_fresh};
+use crate::bridge::{GatewayChannel, is_slack_timestamp_fresh};
 use crate::config::{GatewayConfig, SlackChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -479,7 +479,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("Slack webhook: missing gateway bridge state: {err:?}");

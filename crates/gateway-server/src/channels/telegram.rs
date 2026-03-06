@@ -7,7 +7,7 @@ use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayBridge, verify_telegram_webhook_secret};
+use crate::bridge::{GatewayChannel, verify_telegram_webhook_secret};
 use crate::config::{GatewayConfig, TelegramChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -334,7 +334,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("Telegram webhook: missing gateway bridge state: {err:?}");

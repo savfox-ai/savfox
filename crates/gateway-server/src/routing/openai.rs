@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::chat_session::{
     persist_chat_session_metadata, provider_from_model, validate_uuid_v7_session_id,
 };
@@ -336,7 +336,7 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -417,7 +417,7 @@ pub(crate) async fn chat_completions_handler(
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -479,7 +479,7 @@ pub(crate) async fn chat_completions_handler(
 /// Non-streaming response: sends the full agent reply as a single JSON object.
 async fn handle_non_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     completion_id: String,
     created: u64,
@@ -551,7 +551,7 @@ async fn handle_non_streaming(
 /// Streaming response: sends SSE chunks as they become available.
 async fn handle_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     completion_id: String,
     created: u64,

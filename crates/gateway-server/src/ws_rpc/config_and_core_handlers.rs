@@ -1108,7 +1108,7 @@ async fn handle_cron_remove(params: &Value, cron_service: &Arc<CronService>) -> 
 async fn handle_cron_run(
     params: &Value,
     cron_service: &Arc<CronService>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
@@ -1283,7 +1283,7 @@ async fn handle_node_describe(params: &Value) -> RpcResult {
 async fn handle_node_tool_alias(
     method: &str,
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let node_id = params
         .get("node_id")
@@ -1325,7 +1325,7 @@ async fn handle_node_tool_alias(
     handle_node_invoke(&Value::Object(merged), bridge).await
 }
 
-async fn handle_node_invoke(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_node_invoke(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     let method_raw = params.get("method").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() || method_raw.is_empty() {
@@ -1429,7 +1429,7 @@ async fn handle_node_invoke_result(params: &Value) -> RpcResult {
     }
 }
 
-async fn handle_node_event(params: &Value, _bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_node_event(params: &Value, _bridge: &Arc<GatewayChannel>) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     let event_type = params
         .get("type")
@@ -1459,7 +1459,7 @@ async fn handle_node_event(params: &Value, _bridge: &Arc<GatewayBridge>) -> RpcR
     }))
 }
 
-async fn handle_node_rename(params: &Value, _bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_node_rename(params: &Value, _bridge: &Arc<GatewayChannel>) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() || name.is_empty() {
@@ -1633,7 +1633,7 @@ async fn handle_device_token_revoke(params: &Value) -> RpcResult {
 
 // ── TTS (text-to-speech) ────────────────────────────────────────────────────
 
-async fn handle_tts_status(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tts_status(bridge: &Arc<GatewayChannel>) -> RpcResult {
     tts_service::status(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
@@ -1643,7 +1643,7 @@ async fn handle_tts_providers() -> RpcResult {
     Ok(json!({ "providers": tts_service::providers() }))
 }
 
-async fn handle_tts_enable(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tts_enable(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let provider = params.get("provider").and_then(|v| v.as_str());
     let voice = params.get("voice").and_then(|v| v.as_str());
     let model = params.get("model").and_then(|v| v.as_str());
@@ -1652,13 +1652,13 @@ async fn handle_tts_enable(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_tts_disable(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tts_disable(bridge: &Arc<GatewayChannel>) -> RpcResult {
     tts_service::disable(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_tts_convert(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tts_convert(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
     if text.is_empty() {
         return Err((INVALID_REQUEST, "missing 'text' parameter".to_string()));
@@ -1668,7 +1668,7 @@ async fn handle_tts_convert(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_tts_set_provider(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tts_set_provider(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let provider = params
         .get("provider")
         .and_then(|v| v.as_str())
@@ -1685,19 +1685,19 @@ async fn handle_tts_set_provider(params: &Value, bridge: &Arc<GatewayBridge>) ->
 
 // ── Skills ──────────────────────────────────────────────────────────────────
 
-async fn handle_skills_status(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_skills_status(bridge: &Arc<GatewayChannel>) -> RpcResult {
     skills_store::status(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_skills_bins(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_skills_bins(bridge: &Arc<GatewayChannel>) -> RpcResult {
     skills_store::bins(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_skills_install(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_skills_install(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     if name.is_empty() {
         return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
@@ -1708,7 +1708,7 @@ async fn handle_skills_install(params: &Value, bridge: &Arc<GatewayBridge>) -> R
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_skills_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_skills_update(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
     let enabled = params.get("enabled").and_then(|v| v.as_bool());
     let disabled_reason = params.get("disabled_reason").and_then(|v| v.as_str());
@@ -1722,7 +1722,7 @@ async fn handle_skills_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     .map_err(|err| (INVALID_REQUEST, err))
 }
 
-async fn handle_skills_set_env(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_skills_set_env(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let key = params.get("key").and_then(|v| v.as_str()).unwrap_or("");
     let value = params.get("value").and_then(|v| v.as_str()).unwrap_or("");
     if key.is_empty() {
@@ -1738,7 +1738,7 @@ async fn handle_skills_set_env(params: &Value, bridge: &Arc<GatewayBridge>) -> R
 
 // ── Exec approvals ──────────────────────────────────────────────────────────
 
-async fn handle_exec_approvals_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_exec_approvals_get(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let approvals = list_pending_approvals(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, format!("failed to load approvals: {err}")))?;
@@ -1759,7 +1759,7 @@ async fn handle_exec_approvals_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
     }))
 }
 
-async fn handle_exec_approvals_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_exec_approvals_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let mode = params
         .get("mode")
         .and_then(|v| v.as_str())
@@ -1769,7 +1769,7 @@ async fn handle_exec_approvals_set(params: &Value, bridge: &Arc<GatewayBridge>) 
         .map_err(|err| (INVALID_REQUEST, err))
 }
 
-async fn handle_exec_approvals_node_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_exec_approvals_node_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'node_id' parameter".to_string()));
@@ -1779,7 +1779,7 @@ async fn handle_exec_approvals_node_get(params: &Value, bridge: &Arc<GatewayBrid
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_exec_approvals_node_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_exec_approvals_node_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'node_id' parameter".to_string()));
@@ -1800,7 +1800,7 @@ async fn handle_exec_approvals_node_set(params: &Value, bridge: &Arc<GatewayBrid
 
 async fn handle_exec_approval_request(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
 ) -> RpcResult {
     let command = params.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -1867,7 +1867,7 @@ async fn handle_exec_approval_request(
 
 async fn handle_exec_approval_resolve(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
 ) -> RpcResult {
     let request_id = params
@@ -2133,7 +2133,7 @@ fn heartbeat_agent_from_params(params: &Value) -> String {
         .to_string()
 }
 
-async fn load_heartbeat_settings(bridge: &GatewayBridge) -> HeartbeatSettingsDocument {
+async fn load_heartbeat_settings(bridge: &GatewayChannel) -> HeartbeatSettingsDocument {
     let path = heartbeat_config_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -2142,7 +2142,7 @@ async fn load_heartbeat_settings(bridge: &GatewayBridge) -> HeartbeatSettingsDoc
 }
 
 async fn save_heartbeat_settings(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     settings: &HeartbeatSettingsDocument,
 ) -> Result<(), String> {
     let path = heartbeat_config_path(bridge);
@@ -2154,7 +2154,7 @@ async fn save_heartbeat_settings(
 }
 
 async fn heartbeat_settings_for_agent(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     agent_id: &str,
 ) -> AgentHeartbeatSettings {
     let settings = load_heartbeat_settings(bridge).await;
@@ -2185,7 +2185,7 @@ async fn handle_last_heartbeat(params: &Value) -> RpcResult {
     }))
 }
 
-async fn handle_set_heartbeats(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_set_heartbeats(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = heartbeat_agent_from_params(params);
     let enabled = params
         .get("enabled")
@@ -2256,7 +2256,7 @@ async fn handle_system_presence(
 
 async fn handle_system_event(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     cron_service: &Arc<CronService>,
 ) -> RpcResult {
@@ -2386,7 +2386,7 @@ fn schedule_heartbeat_flush(
     agent_id: String,
     delay_ms: u64,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     cron_service: Arc<CronService>,
 ) {
     tokio::spawn(async move {
@@ -2441,7 +2441,7 @@ async fn broadcast_heartbeat_event(
 async fn trigger_heartbeat_cron_jobs(
     agent_id: &str,
     settings: &AgentHeartbeatSettings,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     cron_service: &Arc<CronService>,
 ) {
     for job_id in &settings.cron_job_ids {
@@ -2457,7 +2457,7 @@ async fn trigger_heartbeat_cron_jobs(
 
 // ── Models (per-provider store) ─────────────────────────────────────────
 
-fn models_dir(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn models_dir(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("models")
 }
 
@@ -2608,7 +2608,7 @@ fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str)
 }
 
 /// Load a provider file, auto-detecting v1 (bare array) vs v2 (object).
-async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> ProviderFile {
+async fn load_provider_file(bridge: &GatewayChannel, provider_id: &str) -> ProviderFile {
     let path = models_dir(bridge).join(format!("{provider_id}.json"));
     let Ok(data) = tokio::fs::read_to_string(&path).await else {
         return ProviderFile {
@@ -2650,7 +2650,7 @@ async fn load_provider_file(bridge: &GatewayBridge, provider_id: &str) -> Provid
 
 /// Save a v2 provider file. Creates the `models/` dir on first write.
 async fn save_provider_file(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     provider_id: &str,
     file: &ProviderFile,
 ) -> Result<(), String> {
@@ -2703,7 +2703,7 @@ fn inject_provider_auth(file: &ProviderFile) {
 
 /// Read all `models/*.json` files and inject their auth into the runtime
 /// env-override map. Called once at gateway startup.
-pub(crate) async fn inject_all_provider_auth(bridge: &GatewayBridge) {
+pub(crate) async fn inject_all_provider_auth(bridge: &GatewayChannel) {
     let dir = models_dir(bridge);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
         return;
@@ -2855,7 +2855,7 @@ fn model_test_is_openai_platform_base_url(base_url: &str) -> bool {
     normalized == "https://api.openai.com" || normalized == "https://api.openai.com/v1"
 }
 
-fn model_test_chatgpt_codex_base_url(bridge: &Arc<GatewayBridge>) -> String {
+fn model_test_chatgpt_codex_base_url(bridge: &Arc<GatewayChannel>) -> String {
     let base = bridge
         .config()
         .chatgpt_base_url
@@ -2870,7 +2870,7 @@ fn model_test_chatgpt_codex_base_url(bridge: &Arc<GatewayBridge>) -> String {
 
 async fn model_test_apply_openai_auth_fallback(
     request: &mut RemoteModelsRequest,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) {
     if request.provider != "openai" || request.api_key.is_some() {
         return;
@@ -3035,7 +3035,7 @@ fn model_test_parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<V
     parsed
 }
 
-async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_test(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     use savfox_core::models_manager::manager::RefreshStrategy;
 
     if let Some(model_id) = params
@@ -3108,12 +3108,12 @@ async fn handle_models_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
 }
 
 /// Load models for a single provider (thin wrapper over `load_provider_file`).
-async fn load_provider_models(bridge: &GatewayBridge, provider_id: &str) -> Vec<Value> {
+async fn load_provider_models(bridge: &GatewayChannel, provider_id: &str) -> Vec<Value> {
     load_provider_file(bridge, provider_id).await.models
 }
 
 /// Load all models from all `models/*.json` files, merged into a flat HashMap keyed by model ID.
-async fn load_all_provider_models(bridge: &GatewayBridge) -> HashMap<String, Value> {
+async fn load_all_provider_models(bridge: &GatewayChannel) -> HashMap<String, Value> {
     let mut out = HashMap::new();
     let dir = models_dir(bridge);
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
@@ -3144,7 +3144,7 @@ async fn load_all_provider_models(bridge: &GatewayBridge) -> HashMap<String, Val
 
 /// Save models array to `models/{provider_id}.json`. Preserves existing auth.
 async fn save_provider_models(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     provider_id: &str,
     models: &[Value],
 ) -> Result<(), String> {
@@ -3153,7 +3153,7 @@ async fn save_provider_models(
     save_provider_file(bridge, provider_id, &file).await
 }
 
-async fn handle_models_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_list(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     if let Some(mut request) = model_test_resolve_remote_request(params)? {
         model_test_apply_openai_auth_fallback(&mut request, bridge).await;
         let response = model_test_fetch_remote_models(&request).await?;
@@ -3198,7 +3198,7 @@ async fn handle_models_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
     Ok(json!({ "models": models }))
 }
 
-async fn handle_models_add(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_add(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let provider = params
         .get("provider")
         .and_then(|v| v.as_str())
@@ -3263,7 +3263,7 @@ async fn handle_models_add(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
     Ok(json!({ "id": id, "status": "added" }))
 }
 
-async fn handle_models_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_update(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
@@ -3314,7 +3314,7 @@ async fn handle_models_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "id": id, "status": "updated" }))
 }
 
-async fn handle_models_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
@@ -3331,7 +3331,7 @@ async fn handle_models_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "id": id, "status": "deleted" }))
 }
 
-async fn handle_models_setdefault(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_setdefault(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
@@ -3365,7 +3365,7 @@ async fn handle_models_setdefault(params: &Value, bridge: &Arc<GatewayBridge>) -
     Ok(json!({ "id": id, "status": "default_set" }))
 }
 
-async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_models_import(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let provider_id = params
         .get("provider_id")
         .and_then(|v| v.as_str())
@@ -3561,7 +3561,7 @@ async fn handle_models_import(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 
-async fn handle_tools_invoke(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_tools_invoke(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let tool = params.get("tool").and_then(|v| v.as_str()).unwrap_or("");
     let action = params.get("action").and_then(|v| v.as_str());
     let arguments = params

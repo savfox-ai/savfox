@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use tracing::{debug, error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::config::IMessageChannelConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -24,7 +24,7 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 pub(crate) struct IMessageChannel {
     config: IMessageChannelConfig,
     http_client: reqwest::Client,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     /// Tracks the most recent message timestamp (epoch ms) to avoid re-processing.
     last_message_ts: Arc<AtomicI64>,
@@ -47,7 +47,7 @@ impl IMessageChannel {
     pub(crate) fn new(
         config: IMessageChannelConfig,
         http_client: reqwest::Client,
-        bridge: Arc<GatewayBridge>,
+        bridge: Arc<GatewayChannel>,
         session_store: Arc<SessionStore>,
     ) -> Self {
         Self {
@@ -406,7 +406,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("iMessage webhook: missing gateway bridge state: {err:?}");

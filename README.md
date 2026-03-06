@@ -12,7 +12,7 @@ Savfox is an AI assistant. It connects to LLM providers (OpenAI, Ollama, LM Stud
 - **Interactive TUI** — Chat with an AI agent in a rich terminal interface with markdown rendering, diff preview, and approval workflows
 - **Non-interactive CLI** — Run one-shot tasks with `savfox exec`, pipe results, and integrate into scripts
 - **Gateway Server** — Remote HTTP/WebSocket access with OpenAI-compatible API, session management, and cron scheduling
-- **Chat Bridges** — Connect to Discord, Telegram, Slack, Matrix, Mattermost, Google Chat, Line, Feishu, IRC, and Webhook
+- **Chat Channels** — Connect to Discord, Telegram, Slack, Matrix, Mattermost, Google Chat, Line, Feishu, IRC, and Webhook
 - **Multi-layer Sandbox** — Platform-native sandboxing (macOS Seatbelt, Linux Landlock, Windows restricted token) plus configurable approval policies
 - **MCP Support** — Run as an MCP server for integration with Claude Desktop and other MCP clients, or connect to external MCP servers as tools
 - **Session Management** — Resume, fork, and archive conversations across sessions

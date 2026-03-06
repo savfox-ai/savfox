@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use super::runtime;
 use crate::auto_reply::CommandRegistry;
-use crate::bridge::{GatewayBridge, verify_discord_signature};
+use crate::bridge::{GatewayChannel, verify_discord_signature};
 use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -151,7 +151,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("Discord webhook: missing gateway bridge state: {err:?}");

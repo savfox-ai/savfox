@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::session::GatewaySessionManager;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -216,7 +216,7 @@ fn format_approval_message(request: &ExecApprovalRequest) -> String {
 
 /// Forward an approval request to configured chat channels.
 pub(crate) async fn forward_approval_to_chat(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     session_mgr: &GatewaySessionManager,
     request: &ExecApprovalRequest,
     config: &ApprovalForwardingConfig,
@@ -280,7 +280,7 @@ pub(crate) async fn forward_approval_to_chat(
 
 /// Notify chat channels that an approval was resolved.
 pub(crate) async fn notify_approval_resolved(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     session_mgr: &GatewaySessionManager,
     resolution: &ExecApprovalResolution,
     config: &ApprovalForwardingConfig,
@@ -335,7 +335,7 @@ pub(crate) async fn approval_request_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -408,7 +408,7 @@ pub(crate) async fn approval_resolve_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -473,7 +473,7 @@ pub(crate) async fn approval_resolve_handler(
 /// `GET /api/exec/approvals`  - List pending approval requests.
 #[handler]
 pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

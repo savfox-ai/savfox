@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn};
 
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 
 // ─── Schedule Types ────────────────────────────────────────────────────────
 
@@ -325,7 +325,7 @@ impl CronService {
     }
 
     /// Start the background timer loop. Returns a handle for shutdown.
-    pub(crate) fn start(self: &Arc<Self>, bridge: Arc<GatewayBridge>) -> mpsc::Sender<()> {
+    pub(crate) fn start(self: &Arc<Self>, bridge: Arc<GatewayChannel>) -> mpsc::Sender<()> {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
         let service = Arc::clone(self);
 
@@ -374,7 +374,7 @@ impl CronService {
     }
 
     /// Timer callback  - find and execute due jobs.
-    async fn on_timer(&self, bridge: &Arc<GatewayBridge>) {
+    async fn on_timer(&self, bridge: &Arc<GatewayChannel>) {
         let now = now_epoch_ms();
         let due_jobs: Vec<CronJob>;
 
@@ -395,7 +395,7 @@ impl CronService {
     }
 
     /// Execute a single job.
-    async fn execute_job(&self, job: &CronJob, bridge: &Arc<GatewayBridge>) {
+    async fn execute_job(&self, job: &CronJob, bridge: &Arc<GatewayChannel>) {
         let start_ms = now_epoch_ms();
         info!(job_id = %job.id, job_name = %job.name, "executing cron job");
 
@@ -502,7 +502,7 @@ impl CronService {
     async fn execute_payload(
         &self,
         payload: &CronPayload,
-        bridge: &Arc<GatewayBridge>,
+        bridge: &Arc<GatewayChannel>,
     ) -> Result<Option<String>, String> {
         match payload {
             CronPayload::SystemEvent { text } => {
@@ -702,7 +702,7 @@ impl CronService {
     pub(crate) async fn run_job(
         &self,
         id: &str,
-        bridge: &Arc<GatewayBridge>,
+        bridge: &Arc<GatewayChannel>,
     ) -> Result<(), String> {
         let job = {
             let jobs = self.jobs.read().await;

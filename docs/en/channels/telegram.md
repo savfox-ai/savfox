@@ -1,6 +1,6 @@
-﻿# Telegram Bridge
+﻿# Telegram channel
 
-The Telegram bridge connects Savfox to a Telegram bot, allowing users to chat with the AI agent from any Telegram client.
+The Telegram channel connects Savfox to a Telegram bot, allowing users to chat with the AI agent from any Telegram client.
 
 ## Prerequisites
 
@@ -34,10 +34,10 @@ To allow the bot to read all messages in groups (not just commands and mentions)
 
 ## Step 3: Configure Savfox
 
-Add the Telegram bridge to your `~/.savfox/config.toml`:
+Add the Telegram channel to your `~/.savfox/config.toml`:
 
 ```toml
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
 ```
@@ -45,7 +45,7 @@ bot_token = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
 For additional security, set a webhook secret token. Telegram sends this in the `x-telegram-bot-api-secret-token` header so the gateway can verify requests originate from Telegram:
 
 ```toml
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
 webhook_secret_token = "my-random-secret-string"
@@ -58,7 +58,7 @@ If your gateway is publicly accessible, Telegram needs to know where to send upd
 ```bash
 curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://your-domain.com/bridges/telegram/webhook"}'
+  -d '{"url": "https://your-domain.com/channels/telegram/webhook"}'
 ```
 
 For local development, use a tunnel service (e.g., ngrok, Cloudflare Tunnel) to expose your gateway.

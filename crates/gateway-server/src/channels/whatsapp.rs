@@ -8,7 +8,7 @@ use sha2::Sha256;
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::config::{GatewayConfig, WhatsAppChannelConfig};
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -307,7 +307,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 return;
             }
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("WhatsApp webhook: missing gateway bridge state: {err:?}");

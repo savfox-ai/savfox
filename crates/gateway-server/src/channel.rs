@@ -59,7 +59,7 @@ pub(crate) enum BridgeOutgoing {
 
 /// Handles bidirectional message routing between gateway WebSocket clients
 /// and the Savfox core engine (SessionManager).
-pub(crate) struct GatewayBridge {
+pub(crate) struct GatewayChannel {
     auth_manager: Arc<AuthManager>,
     session_manager: Arc<SessionManager>,
     config: Arc<Config>,
@@ -191,7 +191,7 @@ pub(crate) struct AgentInvocationResult {
     pub(crate) last_token_usage: Option<savfox_protocol::protocol::TokenUsage>,
 }
 
-/// Arguments needed to construct a `GatewayBridge`.
+/// Arguments needed to construct a `GatewayChannel`.
 pub(crate) struct GatewayBridgeArgs {
     pub(crate) config: Arc<Config>,
     pub(crate) cli_overrides: Vec<(String, TomlValue)>,
@@ -202,7 +202,7 @@ pub(crate) struct GatewayBridgeArgs {
     pub(crate) outgoing_tx: mpsc::Sender<BridgeOutgoing>,
 }
 
-impl GatewayBridge {
+impl GatewayChannel {
     pub(crate) fn new(args: GatewayBridgeArgs) -> Self {
         let auth_manager = AuthManager::shared(
             args.config.savfox_home.clone(),

@@ -8,7 +8,7 @@ use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::handlers::parse_arguments;
 use crate::tools::registry::{ToolHandler, ToolKind};
 
-/// WhatsApp actions tool for message reactions via the WhatsApp Bridge API.
+/// WhatsApp actions tool for message reactions via the WhatsApp Channel API.
 pub struct WhatsAppActionsHandler;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);

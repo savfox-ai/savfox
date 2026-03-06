@@ -14,7 +14,7 @@ use crate::auto_reply::directives::{
     DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
 };
 use crate::auto_reply::{CommandAction, CommandContext, CommandRegistry};
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::compaction::{CompactionConfig, CompactionService};
 use crate::config::ResponseFooterConfig;
 use crate::identity_links::{
@@ -885,7 +885,7 @@ async fn resolve_linked_identity(
 }
 
 async fn resolve_routed_agent(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     session_store: &Arc<SessionStore>,
     platform: &str,
     channel: &str,
@@ -950,7 +950,7 @@ pub(crate) async fn should_drop_duplicate(event_key: Option<String>) -> bool {
 }
 
 pub(crate) async fn spawn_start_thread_pipeline(
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
     channel: String,
@@ -970,7 +970,7 @@ pub(crate) async fn spawn_start_thread_pipeline(
 }
 
 pub(crate) async fn spawn_start_thread_pipeline_with_meta(
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     platform: &'static str,
     channel: String,
@@ -1325,7 +1325,7 @@ async fn record_send_metrics(channel: &str, success: bool, latency_ms: u64) {
 }
 
 async fn write_dead_letter(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     policy_cfg: &SendPolicyConfig,
     channel: &str,
     text: &str,
@@ -1354,7 +1354,7 @@ async fn write_dead_letter(
 }
 
 async fn send_with_retry(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     channel: &str,
     text: &str,
     attempt_override: Option<usize>,

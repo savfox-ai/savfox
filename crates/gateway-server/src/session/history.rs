@@ -10,7 +10,7 @@ use savfox_protocol::protocol::{EventMsg, RolloutItem};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::session::{SessionEntry, SessionStore};
 
 pub(crate) async fn build_history_payload(
@@ -18,7 +18,7 @@ pub(crate) async fn build_history_payload(
     limit: usize,
     source_channel: Option<&str>,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> Value {
     let entry = match session_store.get(session_ref).await {
         Some(v) => Some(v),
@@ -369,7 +369,7 @@ pub(crate) fn derive_session_label_from_messages(messages: &[Value]) -> Option<S
 pub(crate) async fn derive_session_label_from_history(
     session_ref: &str,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> Option<String> {
     let entry = match session_store.get(session_ref).await {
         Some(v) => Some(v),

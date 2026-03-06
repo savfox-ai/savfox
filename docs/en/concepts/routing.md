@@ -1,6 +1,6 @@
 ﻿# Message Routing
 
-This document describes how messages flow from external chat bridges through the gateway to the agent and back.
+This document describes how messages flow from external chat channels through the gateway to the agent and back.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This document describes how messages flow from external chat bridges through the
 User Message          Agent Response
      |                     ^
      v                     |
-  Bridge                Bridge
+  Channel                Channel
   (Discord, Telegram,   (sends reply back
    Slack, etc.)          to platform)
      |                     ^
@@ -109,12 +109,12 @@ The gateway applies token-bucket rate limiting per authentication token. Request
 When the agent wants to execute a command that requires approval:
 
 1. The agent emits an approval request.
-2. The gateway forwards it to the originating bridge (shown as an interactive prompt in Discord, Telegram, etc.).
+2. The gateway forwards it to the originating channel (shown as an interactive prompt in Discord, Telegram, etc.).
 3. The user approves or denies.
 4. The resolution is routed back to the agent, which proceeds or aborts.
 
 Approvals can also be managed via `savfox gateway approvals` from the CLI.
 
-## Multi-Bridge Sessions
+## Multi-Channel Sessions
 
 A session can span multiple bridges. If a user starts a conversation on Discord and later continues on Telegram (using the same agent and scoping), the session's `channel` and `last_channel` fields track the migration. Message history is preserved.

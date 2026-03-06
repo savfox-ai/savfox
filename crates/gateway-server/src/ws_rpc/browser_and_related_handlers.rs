@@ -71,11 +71,11 @@ fn browser_runtime_store() -> &'static Mutex<BrowserRuntimeStore> {
     STORE.get_or_init(|| Mutex::new(BrowserRuntimeStore::default()))
 }
 
-fn browser_profiles_path(bridge: &GatewayBridge) -> PathBuf {
+fn browser_profiles_path(bridge: &GatewayChannel) -> PathBuf {
     bridge.config().savfox_home.join("browser-profiles.json")
 }
 
-fn browser_profile_default_dir(bridge: &GatewayBridge, profile: &str) -> PathBuf {
+fn browser_profile_default_dir(bridge: &GatewayChannel, profile: &str) -> PathBuf {
     bridge
         .config()
         .savfox_home
@@ -84,7 +84,7 @@ fn browser_profile_default_dir(bridge: &GatewayBridge, profile: &str) -> PathBuf
         .join(profile)
 }
 
-async fn load_browser_profiles_config(bridge: &GatewayBridge) -> BrowserProfilesConfig {
+async fn load_browser_profiles_config(bridge: &GatewayChannel) -> BrowserProfilesConfig {
     let path = browser_profiles_path(bridge);
     match tokio::fs::read_to_string(&path).await {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
@@ -93,7 +93,7 @@ async fn load_browser_profiles_config(bridge: &GatewayBridge) -> BrowserProfiles
 }
 
 async fn save_browser_profiles_config(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     cfg: &BrowserProfilesConfig,
 ) -> Result<(), (i64, String)> {
     let path = browser_profiles_path(bridge);
@@ -201,7 +201,7 @@ fn browser_profile_settings_from_params(
 }
 
 fn browser_launch_options_for_profile(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     profile: &str,
     settings: &BrowserProfileSettings,
 ) -> BrowserLaunchOptions {
@@ -247,7 +247,7 @@ async fn browser_session_browser(profile: &str) -> Result<Arc<Browser>, (i64, St
 }
 
 async fn ensure_browser_session_for_profile(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     profile: &str,
     settings: &BrowserProfileSettings,
 ) -> Result<(), (i64, String)> {
@@ -380,7 +380,7 @@ fn is_xpath_selector(selector: &str) -> Option<&str> {
 
 async fn resolve_browser_profile(
     params: &Value,
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
 ) -> Result<(String, BrowserProfileSettings), (i64, String)> {
     let cfg = load_browser_profiles_config(bridge).await;
     let profile = selected_profile_name(params, &cfg)?;
@@ -388,7 +388,7 @@ async fn resolve_browser_profile(
     Ok((profile, settings))
 }
 
-async fn handle_browser_request(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_request(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
     if url.is_empty() {
         return Err((INVALID_PARAMS, "missing 'url' parameter".to_string()));
@@ -610,7 +610,7 @@ async fn handle_browser_request_direct(params: &Value) -> RpcResult {
 
 // ── Wizard ──────────────────────────────────────────────────────────────────
 
-async fn handle_wizard_start(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_wizard_start(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let wizard_type = params
         .get("type")
         .and_then(|v| v.as_str())
@@ -620,7 +620,7 @@ async fn handle_wizard_start(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_wizard_next(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_wizard_next(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let wizard_id = params
         .get("wizard_id")
         .and_then(|v| v.as_str())
@@ -634,7 +634,7 @@ async fn handle_wizard_next(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
         .map_err(|err| (INVALID_REQUEST, err))
 }
 
-async fn handle_wizard_cancel(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_wizard_cancel(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let wizard_id = params
         .get("wizard_id")
         .and_then(|v| v.as_str())
@@ -644,7 +644,7 @@ async fn handle_wizard_cancel(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         .map_err(|err| (INVALID_REQUEST, err))
 }
 
-async fn handle_wizard_status(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_wizard_status(bridge: &Arc<GatewayChannel>) -> RpcResult {
     wizard_store::status(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
@@ -652,7 +652,7 @@ async fn handle_wizard_status(bridge: &Arc<GatewayBridge>) -> RpcResult {
 
 // ── Misc ────────────────────────────────────────────────────────────────────
 
-async fn handle_talk_mode(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_talk_mode(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let mode = params
         .get("mode")
         .and_then(|v| v.as_str())
@@ -662,13 +662,13 @@ async fn handle_talk_mode(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRes
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_voicewake_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_voicewake_get(bridge: &Arc<GatewayChannel>) -> RpcResult {
     voice_store::get_voicewake(&bridge.config().savfox_home)
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_voicewake_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_voicewake_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let enabled = params
         .get("enabled")
         .and_then(|v| v.as_bool())
@@ -682,7 +682,7 @@ async fn handle_voicewake_set(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_update_run(_bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_update_run(_bridge: &Arc<GatewayChannel>) -> RpcResult {
     Ok(json!({
         "status": "checking",
         "current_version": env!("CARGO_PKG_VERSION"),
@@ -692,7 +692,7 @@ async fn handle_update_run(_bridge: &Arc<GatewayBridge>) -> RpcResult {
 
 // ── Memory (Markdown 4-layer system) ────────────────────────────────────────
 
-fn memory_home(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn memory_home(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.clone()
 }
 
@@ -700,7 +700,7 @@ fn memory_project_root() -> Option<std::path::PathBuf> {
     savfox_core::git_info::get_git_repo_root(&std::env::current_dir().unwrap_or_default())
 }
 
-async fn handle_memory_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_list(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let home = memory_home(bridge);
     let pr = memory_project_root();
     let layer_filter = params.get("layer").and_then(|v| v.as_str());
@@ -743,7 +743,7 @@ async fn handle_memory_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcR
     Ok(json!({ "entries": items, "count": items.len() }))
 }
 
-async fn handle_memory_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let slug = params
         .get("slug")
         .and_then(|v| v.as_str())
@@ -784,7 +784,7 @@ async fn handle_memory_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
     Err((INVALID_REQUEST, format!("memory entry '{slug}' not found")))
 }
 
-async fn handle_memory_create(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_create(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let layer_str = params
         .get("layer")
         .and_then(|v| v.as_str())
@@ -864,7 +864,7 @@ async fn handle_memory_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "status": "created", "slug": slug, "layer": layer_str }))
 }
 
-async fn handle_memory_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_update(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let slug = params
         .get("slug")
         .and_then(|v| v.as_str())
@@ -922,7 +922,7 @@ async fn handle_memory_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "status": "updated", "slug": slug }))
 }
 
-async fn handle_memory_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let slug = params
         .get("slug")
         .and_then(|v| v.as_str())
@@ -953,7 +953,7 @@ async fn handle_memory_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Err((INVALID_REQUEST, format!("entry '{slug}' not found")))
 }
 
-async fn handle_memory_search(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_search(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
     let layer_filter = params.get("layer").and_then(|v| v.as_str());
@@ -993,7 +993,7 @@ async fn handle_memory_search(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "results": items, "count": items.len() }))
 }
 
-async fn handle_memory_promote(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_promote(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let slug = params
         .get("slug")
         .and_then(|v| v.as_str())
@@ -1077,7 +1077,7 @@ async fn handle_memory_promote(params: &Value, bridge: &Arc<GatewayBridge>) -> R
     }))
 }
 
-async fn handle_memory_layers(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_memory_layers(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let home = memory_home(bridge);
     let pr = memory_project_root();
     let dirs = savfox_core::md_memory::layer_dirs(&home, pr.as_deref(), "default");
@@ -1098,14 +1098,14 @@ async fn handle_memory_layers(bridge: &Arc<GatewayBridge>) -> RpcResult {
 
 // ─── Webhook handlers ───────────────────────────────────────────────────────
 
-async fn handle_webhooks_list(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_list(bridge: &GatewayChannel) -> RpcResult {
     let store = crate::webhooks::WebhookStore::new(&bridge.config().savfox_home);
     store.load().await;
     let hooks = store.list().await;
     Ok(json!({ "webhooks": hooks }))
 }
 
-async fn handle_webhooks_get(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_get(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
@@ -1117,7 +1117,7 @@ async fn handle_webhooks_get(params: &Value, bridge: &GatewayBridge) -> RpcResul
     }
 }
 
-async fn handle_webhooks_create(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_create(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let config: crate::webhooks::WebhookConfig = serde_json::from_value(params.clone())
         .map_err(|e| (INVALID_PARAMS, format!("invalid webhook config: {e}")))?;
     let store = crate::webhooks::WebhookStore::new(&bridge.config().savfox_home);
@@ -1129,7 +1129,7 @@ async fn handle_webhooks_create(params: &Value, bridge: &GatewayBridge) -> RpcRe
     Ok(json!({ "id": hook.id, "status": "created" }))
 }
 
-async fn handle_webhooks_update(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_update(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
@@ -1142,7 +1142,7 @@ async fn handle_webhooks_update(params: &Value, bridge: &GatewayBridge) -> RpcRe
     Ok(json!({ "id": id, "status": "updated" }))
 }
 
-async fn handle_webhooks_delete(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_delete(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
@@ -1152,7 +1152,7 @@ async fn handle_webhooks_delete(params: &Value, bridge: &GatewayBridge) -> RpcRe
     Ok(json!({ "id": id, "status": "deleted" }))
 }
 
-async fn handle_webhooks_test(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_webhooks_test(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
@@ -1164,7 +1164,7 @@ async fn handle_webhooks_test(params: &Value, bridge: &GatewayBridge) -> RpcResu
 
 // ─── Skill Registry handlers ────────────────────────────────────────────────
 
-async fn handle_skills_registry_search(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_skills_registry_search(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let query = params["query"].as_str().unwrap_or("");
     let registry = crate::skill_registry::SkillRegistry::new(&bridge.config().savfox_home, None);
     let results = registry
@@ -1174,7 +1174,7 @@ async fn handle_skills_registry_search(params: &Value, bridge: &GatewayBridge) -
     Ok(json!({ "skills": results }))
 }
 
-async fn handle_skills_registry_install(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_skills_registry_install(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let name = params["name"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
@@ -1191,7 +1191,7 @@ async fn handle_skills_registry_install(params: &Value, bridge: &GatewayBridge) 
     Ok(json!({ "name": name, "status": "installed" }))
 }
 
-async fn handle_skills_registry_uninstall(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_skills_registry_uninstall(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let name = params["name"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
@@ -1205,7 +1205,7 @@ async fn handle_skills_registry_uninstall(params: &Value, bridge: &GatewayBridge
 
 // ─── DM Policy handlers ────────────────────────────────────────────────────
 
-async fn handle_dm_policy_get(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_policy_get(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let channel = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&bridge.config().savfox_home);
     store.load().await;
@@ -1213,7 +1213,7 @@ async fn handle_dm_policy_get(params: &Value, bridge: &GatewayBridge) -> RpcResu
     Ok(serde_json::to_value(policy).unwrap_or_default())
 }
 
-async fn handle_dm_policy_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_policy_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let channel = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&bridge.config().savfox_home);
     store.load().await;
@@ -1224,7 +1224,7 @@ async fn handle_dm_policy_set(params: &Value, bridge: &GatewayBridge) -> RpcResu
     Ok(json!({ "channel": channel, "status": "updated" }))
 }
 
-async fn handle_dm_allowlist_get(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_allowlist_get(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let channel = params["channel"].as_str().unwrap_or("default");
     let store = crate::dm_policy::DmPolicyStore::new(&bridge.config().savfox_home);
     store.load().await;
@@ -1232,7 +1232,7 @@ async fn handle_dm_allowlist_get(params: &Value, bridge: &GatewayBridge) -> RpcR
     Ok(json!({ "channel": channel, "allowlist": policy.allowlist }))
 }
 
-async fn handle_dm_allowlist_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_allowlist_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let channel = params["channel"].as_str().unwrap_or("default");
     let entries = params["entries"]
         .as_array()
@@ -1250,7 +1250,7 @@ async fn handle_dm_allowlist_set(params: &Value, bridge: &GatewayBridge) -> RpcR
 
 // ─── Provider Health handler ────────────────────────────────────────────────
 
-async fn handle_providers_health(_bridge: &GatewayBridge) -> RpcResult {
+async fn handle_providers_health(_bridge: &GatewayChannel) -> RpcResult {
     let service = crate::provider_health::ProviderHealthService::new(300);
     let status = service.get_all().await;
     Ok(json!({ "providers": status }))
@@ -1258,7 +1258,7 @@ async fn handle_providers_health(_bridge: &GatewayBridge) -> RpcResult {
 
 // ─── Config Reload / Validate / Migrate handlers ────────────────────────────
 
-async fn handle_config_reload(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_reload(bridge: &GatewayChannel) -> RpcResult {
     let config_path = bridge.config().savfox_home.join("config.json");
     let service = crate::config::reload::ConfigReloadService::new(config_path);
 
@@ -1300,12 +1300,12 @@ async fn handle_config_reload(bridge: &GatewayBridge) -> RpcResult {
     }))
 }
 
-async fn handle_config_validate(params: &Value, _bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_validate(params: &Value, _bridge: &GatewayChannel) -> RpcResult {
     let result = crate::config::validator::validate_config(params);
     Ok(json!({ "valid": result.errors.is_empty(), "errors": result.errors }))
 }
 
-async fn handle_config_migrate(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_migrate(bridge: &GatewayChannel) -> RpcResult {
     // Auto-snapshot before migration (#33)
     let _ = handle_config_snapshot(bridge).await;
 
@@ -1333,7 +1333,7 @@ async fn handle_config_migrate(bridge: &GatewayBridge) -> RpcResult {
 
 // ─── STT handlers ───────────────────────────────────────────────────────────
 
-async fn handle_stt_transcribe(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_stt_transcribe(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let result = crate::stt::transcribe(&bridge.config().savfox_home, bridge.http_client(), params)
         .await
         .map_err(|e| (INTERNAL_ERROR, e))?;
@@ -1346,7 +1346,7 @@ async fn handle_stt_providers() -> RpcResult {
 
 // ─── Agent Routing handlers ─────────────────────────────────────────────────
 
-async fn handle_routing_rules_list(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_routing_rules_list(bridge: &GatewayChannel) -> RpcResult {
     let path = bridge.config().savfox_home.join("routing-rules.json");
     let rules: Vec<crate::agent_routing::RoutingRule> =
         if tokio::fs::try_exists(&path).await.unwrap_or(false) {
@@ -1361,7 +1361,7 @@ async fn handle_routing_rules_list(bridge: &GatewayBridge) -> RpcResult {
     Ok(json!({ "rules": rules, "path": path }))
 }
 
-async fn handle_routing_rules_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_routing_rules_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let rules_value = params
         .get("rules")
         .cloned()
@@ -1458,7 +1458,7 @@ fn plugin_registry() -> &'static Mutex<crate::plugin::PluginRegistry> {
     REGISTRY.get_or_init(|| Mutex::new(crate::plugin::PluginRegistry::new()))
 }
 
-async fn handle_plugins_list(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_plugins_list(bridge: &GatewayChannel) -> RpcResult {
     let mut registry = plugin_registry().lock().await;
 
     // Discover plugins on first call
@@ -1484,7 +1484,7 @@ async fn handle_plugins_list(bridge: &GatewayBridge) -> RpcResult {
     Ok(json!({ "plugins": plugins, "count": plugins.len() }))
 }
 
-async fn handle_plugins_enable(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_plugins_enable(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -1499,7 +1499,7 @@ async fn handle_plugins_enable(params: &Value, bridge: &GatewayBridge) -> RpcRes
     Ok(json!({ "id": id, "status": "enabled" }))
 }
 
-async fn handle_plugins_disable(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_plugins_disable(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -1514,7 +1514,7 @@ async fn handle_plugins_disable(params: &Value, bridge: &GatewayBridge) -> RpcRe
     Ok(json!({ "id": id, "status": "disabled" }))
 }
 
-async fn handle_plugins_config(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_plugins_config(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -1549,7 +1549,7 @@ async fn handle_plugins_config(params: &Value, bridge: &GatewayBridge) -> RpcRes
 // ═══════════════════════════════════════════════════════════════════════════
 // ── Config Snapshots (#33) ──────────────────────────────────────────────────
 
-async fn handle_config_snapshot(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_snapshot(bridge: &GatewayChannel) -> RpcResult {
     let config_path = bridge.config().savfox_home.join("config.json");
     let backups_dir = bridge.config().savfox_home.join("config-backups");
 
@@ -1581,7 +1581,7 @@ async fn handle_config_snapshot(bridge: &GatewayBridge) -> RpcResult {
     }))
 }
 
-async fn handle_config_snapshots_list(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_snapshots_list(bridge: &GatewayChannel) -> RpcResult {
     let backups_dir = bridge.config().savfox_home.join("config-backups");
     if !backups_dir.exists() {
         return Ok(json!({ "snapshots": [], "count": 0 }));
@@ -1614,7 +1614,7 @@ async fn handle_config_snapshots_list(bridge: &GatewayBridge) -> RpcResult {
     Ok(json!({ "snapshots": snapshots, "count": count }))
 }
 
-async fn handle_config_restore(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_restore(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let snapshot = params
         .get("snapshot")
         .and_then(|v| v.as_str())
@@ -1650,11 +1650,11 @@ async fn handle_config_restore(params: &Value, bridge: &GatewayBridge) -> RpcRes
 
 // ── Model Aliases (#34) ─────────────────────────────────────────────────────
 
-fn model_aliases_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn model_aliases_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("model-aliases.json")
 }
 
-async fn load_model_aliases(bridge: &GatewayBridge) -> HashMap<String, String> {
+async fn load_model_aliases(bridge: &GatewayChannel) -> HashMap<String, String> {
     let path = model_aliases_path(bridge);
     let content = match tokio::fs::read_to_string(&path).await {
         Ok(c) => c,
@@ -1664,7 +1664,7 @@ async fn load_model_aliases(bridge: &GatewayBridge) -> HashMap<String, String> {
 }
 
 async fn save_model_aliases(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     aliases: &HashMap<String, String>,
 ) -> Result<(), String> {
     let path = model_aliases_path(bridge);
@@ -1675,12 +1675,12 @@ async fn save_model_aliases(
         .map_err(|e| format!("write error: {e}"))
 }
 
-async fn handle_models_aliases_get(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_models_aliases_get(bridge: &GatewayChannel) -> RpcResult {
     let aliases = load_model_aliases(bridge).await;
     Ok(json!({ "aliases": aliases }))
 }
 
-async fn handle_models_aliases_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_models_aliases_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let aliases_val = params
         .get("aliases")
         .ok_or_else(|| (INVALID_PARAMS, "missing 'aliases' parameter".to_string()))?;
@@ -1695,7 +1695,7 @@ async fn handle_models_aliases_set(params: &Value, bridge: &GatewayBridge) -> Rp
     Ok(json!({ "status": "ok", "count": aliases.len() }))
 }
 
-async fn handle_models_resolve(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_models_resolve(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let model = params.get("model").and_then(|v| v.as_str()).unwrap_or("");
     if model.is_empty() {
         return Err((INVALID_PARAMS, "missing 'model' parameter".to_string()));
@@ -1788,11 +1788,11 @@ async fn handle_sessions_unelevate(params: &Value, session_store: &SessionStore)
 
 // ── Heartbeat Config (#51) ──────────────────────────────────────────────────
 
-fn heartbeat_config_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn heartbeat_config_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("heartbeat-config.json")
 }
 
-async fn handle_heartbeat_config_get(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_heartbeat_config_get(bridge: &GatewayChannel) -> RpcResult {
     let path = heartbeat_config_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -1801,7 +1801,7 @@ async fn handle_heartbeat_config_get(bridge: &GatewayBridge) -> RpcResult {
     Ok(json!({ "config": config }))
 }
 
-async fn handle_heartbeat_config_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_heartbeat_config_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let config = params.get("config").cloned().unwrap_or(json!({}));
     let path = heartbeat_config_path(bridge);
     let json = serde_json::to_string_pretty(&config)
@@ -1839,7 +1839,7 @@ async fn browser_tab_summaries(
     Ok(tabs)
 }
 
-async fn handle_browser_start(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_start(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -1860,7 +1860,7 @@ async fn handle_browser_start(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }))
 }
 
-async fn handle_browser_stop(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_stop(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let cfg = load_browser_profiles_config(bridge).await;
     let profile = selected_profile_name(params, &cfg)?;
     let session = {
@@ -1875,7 +1875,7 @@ async fn handle_browser_stop(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     }
 }
 
-async fn handle_browser_tabs_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_tabs_list(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -1887,7 +1887,7 @@ async fn handle_browser_tabs_list(params: &Value, bridge: &Arc<GatewayBridge>) -
     }))
 }
 
-async fn handle_browser_tabs_open(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_tabs_open(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -1919,7 +1919,7 @@ async fn handle_browser_tabs_open(params: &Value, bridge: &Arc<GatewayBridge>) -
     }))
 }
 
-async fn handle_browser_tabs_switch(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_tabs_switch(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let target_id = params
         .get("target_id")
@@ -1944,7 +1944,7 @@ async fn handle_browser_tabs_switch(params: &Value, bridge: &Arc<GatewayBridge>)
     }))
 }
 
-async fn handle_browser_tabs_close(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_tabs_close(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -1974,7 +1974,7 @@ async fn handle_browser_tabs_close(params: &Value, bridge: &Arc<GatewayBridge>) 
     }))
 }
 
-async fn handle_browser_snapshot(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_snapshot(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -2012,7 +2012,7 @@ async fn handle_browser_snapshot(params: &Value, bridge: &Arc<GatewayBridge>) ->
     }))
 }
 
-async fn handle_browser_storage_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_storage_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -2093,7 +2093,7 @@ async fn handle_browser_storage_get(params: &Value, bridge: &Arc<GatewayBridge>)
     }))
 }
 
-async fn handle_browser_storage_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_storage_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -2135,7 +2135,7 @@ async fn handle_browser_storage_set(params: &Value, bridge: &Arc<GatewayBridge>)
     }))
 }
 
-async fn handle_browser_storage_clear(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_storage_clear(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -2170,7 +2170,7 @@ async fn handle_browser_storage_clear(params: &Value, bridge: &Arc<GatewayBridge
     }))
 }
 
-async fn handle_browser_download(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_download(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let selector = params
         .get("selector")
         .and_then(|v| v.as_str())
@@ -2227,7 +2227,7 @@ async fn handle_browser_download(params: &Value, bridge: &Arc<GatewayBridge>) ->
     }))
 }
 
-async fn handle_browser_network_capture(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_network_capture(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let duration_ms = params
         .get("duration_ms")
@@ -2262,7 +2262,7 @@ async fn handle_browser_network_capture(params: &Value, bridge: &Arc<GatewayBrid
     }))
 }
 
-async fn handle_browser_profiles_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_profiles_list(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let cfg = load_browser_profiles_config(bridge).await;
     let running_profiles: HashSet<String> = {
         let store = browser_runtime_store().lock().await;
@@ -2303,7 +2303,7 @@ async fn handle_browser_profiles_list(bridge: &Arc<GatewayBridge>) -> RpcResult 
     }))
 }
 
-async fn handle_browser_profiles_create(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_profiles_create(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let requested = params
         .get("profile")
         .and_then(|v| v.as_str())
@@ -2348,7 +2348,7 @@ async fn handle_browser_profiles_create(params: &Value, bridge: &Arc<GatewayBrid
     }))
 }
 
-async fn handle_browser_profiles_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_profiles_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let requested = params
         .get("profile")
         .and_then(|v| v.as_str())
@@ -2394,7 +2394,7 @@ async fn handle_browser_profiles_delete(params: &Value, bridge: &Arc<GatewayBrid
 
 async fn handle_browser_profiles_default_set(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let requested = params
         .get("profile")
@@ -2411,7 +2411,7 @@ async fn handle_browser_profiles_default_set(
     }))
 }
 
-async fn handle_browser_goto(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_goto(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
     if url.is_empty() {
         return Err((INVALID_PARAMS, "missing 'url' parameter".to_string()));
@@ -2452,7 +2452,7 @@ async fn handle_browser_goto(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     }))
 }
 
-async fn handle_browser_click(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_click(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let selector = params
         .get("selector")
         .and_then(|v| v.as_str())
@@ -2500,7 +2500,7 @@ async fn handle_browser_click(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }))
 }
 
-async fn handle_browser_type(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_type(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let selector = params
         .get("selector")
         .and_then(|v| v.as_str())
@@ -2585,7 +2585,7 @@ async fn handle_browser_type(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     }))
 }
 
-async fn handle_browser_screenshot(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_screenshot(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
     ensure_browser_session_for_profile(bridge, &profile, &settings).await?;
@@ -2704,7 +2704,7 @@ async fn handle_browser_screenshot(params: &Value, bridge: &Arc<GatewayBridge>) 
     }))
 }
 
-async fn handle_browser_eval(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_eval(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let expression = params
         .get("expression")
         .and_then(|v| v.as_str())
@@ -2761,7 +2761,7 @@ fn browser_extension_relay_bootstrap_expr(channel: &str) -> Result<String, (i64,
 
 async fn handle_browser_extension_relay_start(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let channel = params
@@ -2799,7 +2799,7 @@ async fn handle_browser_extension_relay_start(
 
 async fn handle_browser_extension_relay_status(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
@@ -2834,7 +2834,7 @@ async fn handle_browser_extension_relay_status(
 
 async fn handle_browser_extension_relay_stop(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
@@ -2865,7 +2865,7 @@ async fn handle_browser_extension_relay_stop(
 
 async fn handle_browser_extension_relay_poll(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
@@ -2895,7 +2895,7 @@ async fn handle_browser_extension_relay_poll(
 
 async fn handle_browser_extension_relay_send(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, bridge).await?;
@@ -2964,7 +2964,7 @@ async fn handle_browser_extension_relay_send(
 
 async fn handle_browser_content_script_inject(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let script = params.get("script").and_then(|v| v.as_str()).unwrap_or("");
     if script.trim().is_empty() {
@@ -3010,7 +3010,7 @@ async fn handle_browser_content_script_inject(
     }))
 }
 
-async fn handle_browser_page_extract(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_browser_page_extract(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
     let interactive_only = params
         .get("interactive_only")

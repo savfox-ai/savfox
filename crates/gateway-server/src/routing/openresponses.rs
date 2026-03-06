@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::{error, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 
 // ─── Request types ───────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -399,7 +399,7 @@ fn try_parse_function_call(reply: &str) -> Option<(String, String)> {
 /// Non-streaming: return full response as JSON.
 async fn handle_non_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     response_id: String,
     created_at: u64,
     model: String,
@@ -497,7 +497,7 @@ async fn handle_non_streaming(
 /// Streaming: send SSE events.
 async fn handle_streaming(
     res: &mut Response,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     response_id: String,
     _created_at: u64,
     model: String,

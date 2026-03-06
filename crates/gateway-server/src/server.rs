@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::{GatewayBridge, RuntimeBridgeSecrets};
+use crate::bridge::{GatewayChannel, RuntimeBridgeSecrets};
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -142,7 +142,7 @@ async fn get_agent_run(run_id: &str) -> Option<AgentRunRecord> {
 pub(crate) fn build_router(
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     config: &GatewayConfig,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
@@ -298,7 +298,7 @@ pub(crate) async fn start_server(
     config: &GatewayConfig,
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     savfox_home: PathBuf,
@@ -348,7 +348,7 @@ async fn status_handler(depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -480,7 +480,7 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
 /// Accepts JSON body: `{"channel": "discord:12345", "text": "Hello!"}`
 #[handler]
 async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -551,7 +551,7 @@ async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
 /// `GET /api/channels`  - List configured channel integrations.
 #[handler]
 async fn channels_handler(depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -692,7 +692,7 @@ fn merge_json_patch(target: &mut Value, patch: &Value) {
     }
 }
 
-fn config_toml_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn config_toml_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("config.toml")
 }
 
@@ -918,7 +918,7 @@ fn count_runtime_secrets(secrets: &RuntimeBridgeSecrets) -> usize {
 /// `POST /api/config/patch`  - Merge-patch the gateway configuration.
 #[handler]
 async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(bridge) => bridge.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -981,7 +981,7 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 /// `POST /api/config/apply`  - Replace the gateway configuration entirely.
 #[handler]
 async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(bridge) => bridge.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1087,7 +1087,7 @@ async fn restart_handler(req: &mut Request, res: &mut Response) {
 /// Body: `{"session_id": "...", "message": "...", "model": "...", "system": "..."}`
 #[handler]
 async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1305,7 +1305,7 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(bridge) => bridge.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1337,7 +1337,7 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(bridge) => bridge.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1412,7 +1412,7 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

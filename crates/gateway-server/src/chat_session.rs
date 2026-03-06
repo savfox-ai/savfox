@@ -4,7 +4,7 @@ use std::path::Path;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{Op, TokenUsage};
 
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::session::{SessionStore, session_file_to_store_value};
 
 pub(crate) fn validate_uuid_v7_session_id(raw: Option<&str>) -> Result<Option<String>, String> {
@@ -122,7 +122,7 @@ pub(crate) async fn resolve_abort_candidate_ids(
 }
 
 pub(crate) async fn abort_first_active_candidate(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
     candidates: &[String],
 ) -> Option<String> {
     for candidate in candidates {
@@ -137,7 +137,7 @@ pub(crate) async fn abort_first_active_candidate(
     None
 }
 
-pub(crate) async fn abort_all_active_threads(bridge: &GatewayBridge) -> u32 {
+pub(crate) async fn abort_all_active_threads(bridge: &GatewayChannel) -> u32 {
     let thread_ids = bridge.session_manager().list_session_ids().await;
     let mut aborted = 0u32;
     for thread_id in &thread_ids {

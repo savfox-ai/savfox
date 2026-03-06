@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -272,11 +272,11 @@ pub(crate) async fn create_session_handler(
 /// `POST /webchat/send`  - Send a user message in a webchat session.
 ///
 /// Requires Bearer token auth (the session-scoped token returned from create).
-/// Accepts `{ session_id, message }`. Routes through GatewayBridge to the agent
+/// Accepts `{ session_id, message }`. Routes through GatewayChannel to the agent
 /// and returns the agent's reply.
 #[handler]
 pub(crate) async fn send_message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

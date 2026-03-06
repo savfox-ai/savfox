@@ -1,7 +1,7 @@
-﻿# Chat Bridge Lifecycle
+﻿# Chat channel Lifecycle
 
-Chat bridges connect external messaging platforms to the Savfox gateway. Each
-bridge translates between the platform's message format and gateway operations,
+Chat channels connect external messaging platforms to the Savfox gateway. Each
+channel translates between the platform's message format and gateway operations,
 enabling users to interact with the agent from Discord, Telegram, Slack, Matrix,
 and other services.
 
@@ -9,7 +9,7 @@ and other services.
 
 ```
 External Platform          Gateway                 Agent Engine
-  (Discord, Telegram...)     (bridge.rs)            (ThreadManager)
+  (Discord, Telegram...)     (channel.rs)            (ThreadManager)
        |                       |                         |
        |-- webhook POST ------>|                         |
        |                       |-- parse payload         |
@@ -20,12 +20,12 @@ External Platform          Gateway                 Agent Engine
        |<-- platform API ------|                         |
 ```
 
-## The ChatBridge trait
+## The Chatchannel trait
 
-All bridges implement the `ChatBridge` trait (`crates/gateway-server/src/bridges/mod.rs`):
+All channels implement the `Chatchannel` trait (`crates/gateway-server/src/channels/mod.rs`):
 
 ```rust
-pub trait ChatBridge: Send + Sync {
+pub trait Chatchannel: Send + Sync {
     async fn start(&mut self) -> anyhow::Result<()>;
     async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()>;
     async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()>;
@@ -33,7 +33,7 @@ pub trait ChatBridge: Send + Sync {
 }
 ```
 
-- **start()** -- initialize the bridge (connect to platform API, register
+- **start()** -- initialize the channel (connect to platform API, register
   commands).
 - **send_message()** -- send plain text to a channel.
 - **send_rich_message()** -- send structured content (code blocks, embeds,
@@ -43,7 +43,7 @@ pub trait ChatBridge: Send + Sync {
 
 ## ChannelAction variants
 
-When a webhook arrives, the bridge parses it into one of these actions:
+When a webhook arrives, the channel parses it into one of these actions:
 
 | Action          | Description                                          |
 |-----------------|------------------------------------------------------|
@@ -57,27 +57,27 @@ When a webhook arrives, the bridge parses it into one of these actions:
 ### Inbound (platform to gateway)
 
 1. The external platform sends an HTTP POST to `/webhooks/<platform>`.
-2. The bridge handler verifies the request signature (HMAC, Ed25519, or
+2. The channel handler verifies the request signature (HMAC, Ed25519, or
    platform-specific mechanism).
 3. The payload is parsed into a `ChannelAction`.
 4. For `StartThread`:
-   - The bridge runtime calls `track_inbound_message()` to create or update a
+   - The channel runtime calls `track_inbound_message()` to create or update a
      session entry in the `SessionStore`.
-   - The agent is invoked via `bridge.invoke_agent_text_with_metadata()`.
+   - The agent is invoked via `channel.invoke_agent_text_with_metadata()`.
    - The agent's response is sent back to the originating channel.
 5. For `Approve`:
    - The approval resolution is forwarded to the exec approval system.
 
 ### Outbound (gateway to platform)
 
-1. The gateway calls `bridge.send_platform_message()` with a channel address
+1. The gateway calls `channel.send_platform_message()` with a channel address
    and text.
 2. The channel address format is `platform:identifier` (e.g., `discord:12345`).
-3. The platform prefix is used to select the correct bridge.
-4. The bridge formats the message for the platform's API and sends it.
+3. The platform prefix is used to select the correct channel.
+4. The channel formats the message for the platform's API and sends it.
 5. On failure, the runtime retries up to 3 times before logging a warning.
 
-## Supported bridges
+## Supported channels
 
 | Platform    | Webhook endpoint         | Auth mechanism           |
 |-------------|--------------------------|--------------------------|
@@ -94,13 +94,13 @@ When a webhook arrives, the bridge parses it into one of these actions:
 | Webhook     | `/webhooks/webhook`      | HMAC-SHA256 (optional)   |
 | Zalo        | `/webhooks/zalo`         | Signature verification   |
 | WhatsApp    | `/webhooks/whatsapp`     | Signature verification   |
-| Signal      | `/webhooks/signal`       | Local bridge             |
+| Signal      | `/webhooks/signal`       | Local channel             |
 | Nostr       | `/webhooks/nostr`        | NIP-based                |
 | Twitch      | `/webhooks/twitch`       | Signature verification   |
 
 ## Rich messages
 
-Bridges can send structured messages via `RichMessage`:
+channels can send structured messages via `RichMessage`:
 
 ```rust
 struct RichMessage {
@@ -116,27 +116,27 @@ Matrix uses HTML formatting, Telegram uses HTML parse mode.
 
 ## Credential management
 
-Bridge credentials are configured in two ways:
+channel credentials are configured in two ways:
 
 ### config.toml
 
 ```toml
-[gateway.bridges.discord]
+[gateway.channels.discord]
 enabled = true
 bot_token = "YOUR_BOT_TOKEN"
 application_id = "YOUR_APP_ID"
 application_public_key = "YOUR_PUBLIC_KEY"
 
-[gateway.bridges.telegram]
+[gateway.channels.telegram]
 enabled = true
 bot_token = "123456789:ABCdef..."
 
-[gateway.bridges.slack]
+[gateway.channels.slack]
 enabled = true
 bot_token = "xoxb-..."
 signing_secret = "..."
 
-[gateway.bridges.webhook]
+[gateway.channels.webhook]
 enabled = true
 callback_url = "https://..."
 secret = "hmac-secret"
@@ -154,12 +154,12 @@ WEBHOOK_SECRET=...
 ### Runtime hot-reload
 
 Credentials can be updated at runtime via `config.patch` without restarting the
-gateway. The `RuntimeBridgeSecrets` struct holds the current values and is
+gateway. The `RuntimechannelSecrets` struct holds the current values and is
 protected by an `RwLock`.
 
 ## Deduplication
 
-The bridge runtime maintains a deduplication cache (`should_drop_duplicate()`)
+The channel runtime maintains a deduplication cache (`should_drop_duplicate()`)
 with a 10-minute TTL. Duplicate webhook deliveries from platforms that retry on
 timeout are silently dropped.
 
@@ -173,7 +173,7 @@ When the agent invocation or message send fails:
 
 ## Channel status
 
-The `channels.status` WS-RPC method reports the current state of each bridge:
+The `channels.status` WS-RPC method reports the current state of each channel:
 
 ```json
 {
@@ -182,6 +182,6 @@ The `channels.status` WS-RPC method reports the current state of each bridge:
 }
 ```
 
-A bridge is "configured" if credentials are present (either in config or
-environment), "running" if the bridge has been started, and "connected" if it
+A channel is "configured" if credentials are present (either in config or
+environment), "running" if the channel has been started, and "connected" if it
 has successfully authenticated with the platform API.

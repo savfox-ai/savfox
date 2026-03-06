@@ -139,7 +139,7 @@ pub fn MatrixChannel() -> Element {
                                         }
                                     },
                                     disabled: *action_loading.read(),
-                                    if *action_loading.read() { "Stopping..." } else { "Stop Bridge" }
+                                    if *action_loading.read() { "Stopping..." } else { "Stop Channel" }
                                 }
                             } else {
                                 button {
@@ -156,7 +156,7 @@ pub fn MatrixChannel() -> Element {
                                         }
                                     },
                                     disabled: *action_loading.read(),
-                                    if *action_loading.read() { "Starting..." } else { "Start Bridge" }
+                                    if *action_loading.read() { "Starting..." } else { "Start Channel" }
                                 }
                             }
                             button {

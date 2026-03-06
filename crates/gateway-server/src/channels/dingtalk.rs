@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tracing::info;
 
 use super::runtime;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
@@ -54,7 +54,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     if let ChannelAction::StartThread { channel, prompt } = parse_start_thread_action(&body) {
-        let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+        let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
             Ok(bridge) => bridge.clone(),
             Err(_) => {
                 render_error(

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::auth::{GatewayAuth, TokenInfo, has_scope, required_scope};
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -65,7 +65,7 @@ pub(crate) async fn dispatch_rpc(
     _session_id: &str,
     _auth: &Arc<GatewayAuth>,
     session_mgr: &Arc<GatewaySessionManager>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
     cron_service: &Arc<CronService>,
     token_info: &TokenInfo,
@@ -513,7 +513,7 @@ async fn remove_ws_login_attempt(login_id: &str) {
     lock.remove(login_id);
 }
 
-fn gateway_auth_manager(bridge: &Arc<GatewayBridge>) -> Arc<AuthManager> {
+fn gateway_auth_manager(bridge: &Arc<GatewayChannel>) -> Arc<AuthManager> {
     AuthManager::shared(
         bridge.config().savfox_home.clone(),
         false,
@@ -521,7 +521,7 @@ fn gateway_auth_manager(bridge: &Arc<GatewayBridge>) -> Arc<AuthManager> {
     )
 }
 
-fn chatgpt_server_options(bridge: &Arc<GatewayBridge>) -> ServerOptions {
+fn chatgpt_server_options(bridge: &Arc<GatewayChannel>) -> ServerOptions {
     ServerOptions::new(
         bridge.config().savfox_home.clone(),
         CLIENT_ID.to_string(),
@@ -530,7 +530,7 @@ fn chatgpt_server_options(bridge: &Arc<GatewayBridge>) -> ServerOptions {
     )
 }
 
-async fn handle_account_login_start(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_account_login_start(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let login_type = params
         .get("type")
         .and_then(|v| v.as_str())
@@ -674,7 +674,7 @@ async fn handle_account_login_cancel(params: &Value) -> RpcResult {
     }
 }
 
-async fn handle_account_read(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_account_read(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let refresh_token = params
         .get("refreshToken")
         .and_then(|v| v.as_bool())
@@ -762,7 +762,7 @@ async fn handle_health() -> RpcResult {
 
 async fn handle_status(
     session_mgr: &Arc<GatewaySessionManager>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let count = session_mgr.session_count().await;
     let ids = session_mgr.session_ids().await;
@@ -783,7 +783,7 @@ async fn handle_status(
 
 // ── Agent (single-agent operations) ─────────────────────────────────────────
 
-async fn handle_agent(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agent(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
     let agent = params
         .get("agent")
@@ -808,7 +808,7 @@ async fn handle_agent_identity() -> RpcResult {
     }))
 }
 
-async fn handle_agent_wait(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agent_wait(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
     let agent = params
         .get("agent")
@@ -829,7 +829,7 @@ async fn handle_agent_wait(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
 
 /// Returns the capabilities of a specific agent, including its tools,
 /// skills, connected channels, and current status.
-async fn handle_agent_capabilities(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agent_capabilities(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_id = params
         .get("agent")
         .and_then(|v| v.as_str())
@@ -1072,7 +1072,7 @@ async fn handle_agent_delegation_remove(params: &Value) -> RpcResult {
 // ── Agents (multi-agent CRUD) ───────────────────────────────────────────────
 
 /// Get the agents directory (SAVFOX_HOME/agents/).
-fn agents_dir(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn agents_dir(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("agents")
 }
 
@@ -1125,7 +1125,7 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-async fn resolve_agent_file_stem(bridge: &GatewayBridge, agent_ref: &str) -> Option<String> {
+async fn resolve_agent_file_stem(bridge: &GatewayChannel, agent_ref: &str) -> Option<String> {
     let dir = agents_dir(bridge);
     let trimmed = agent_ref.trim();
     if trimmed.is_empty() {
@@ -1196,7 +1196,7 @@ async fn resolve_agent_file_stem(bridge: &GatewayBridge, agent_ref: &str) -> Opt
     None
 }
 
-async fn resolve_agent_files_dir(bridge: &GatewayBridge, agent_ref: &str) -> PathBuf {
+async fn resolve_agent_files_dir(bridge: &GatewayChannel, agent_ref: &str) -> PathBuf {
     let base = agents_dir(bridge);
     let safe_ref = sanitize_agent_file_stem(agent_ref).unwrap_or_else(|| "default".to_string());
     let by_ref = base.join(&safe_ref);
@@ -1214,7 +1214,7 @@ async fn resolve_agent_files_dir(bridge: &GatewayBridge, agent_ref: &str) -> Pat
     by_ref
 }
 
-async fn handle_agents_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_list(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let dir = agents_dir(bridge);
     let mut agents = vec![json!({
         "id": "default",
@@ -1289,7 +1289,7 @@ async fn handle_agents_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
     Ok(json!({ "agents": enriched }))
 }
 
-async fn handle_agents_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("id")
         .or_else(|| params.get("name"))
@@ -1342,7 +1342,7 @@ async fn handle_agents_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
     Ok(config)
 }
 
-async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let raw_id = params
         .get("id")
         .and_then(|v| v.as_str())
@@ -1449,7 +1449,7 @@ async fn handle_agents_create(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }))
 }
 
-async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("id")
         .or_else(|| params.get("name"))
@@ -1539,7 +1539,7 @@ async fn handle_agents_update(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "id": resolved_id, "status": "updated" }))
 }
 
-async fn handle_agents_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("id")
         .or_else(|| params.get("name"))
@@ -1586,7 +1586,7 @@ async fn handle_agents_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     Ok(json!({ "id": resolved_id, "status": "deleted" }))
 }
 
-async fn handle_agents_files_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_files_list(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
@@ -1613,7 +1613,7 @@ async fn handle_agents_files_list(params: &Value, bridge: &Arc<GatewayBridge>) -
     Ok(json!({ "agent_id": agent_ref, "files": files }))
 }
 
-async fn handle_agents_files_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_files_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
@@ -1637,7 +1637,7 @@ async fn handle_agents_files_get(params: &Value, bridge: &Arc<GatewayBridge>) ->
     }
 }
 
-async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
@@ -1665,7 +1665,7 @@ async fn handle_agents_files_set(params: &Value, bridge: &Arc<GatewayBridge>) ->
     Ok(json!({ "agent_id": agent_ref, "path": safe_name, "status": "saved" }))
 }
 
-async fn handle_agents_files_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_agents_files_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let agent_ref = params
         .get("agent_id")
         .and_then(|v| v.as_str())
@@ -1851,7 +1851,7 @@ async fn emit_typing_stop(
 
 async fn handle_chat_send(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
@@ -2605,7 +2605,7 @@ async fn handle_chat_send(
 async fn handle_chat_history(
     params: &Value,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -2636,7 +2636,7 @@ async fn handle_chat_history(
 
 async fn handle_chat_abort(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
     let thread_id_param = params
@@ -2710,7 +2710,7 @@ async fn handle_chat_inject(
 async fn handle_sessions_list(
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let ws_ids = session_mgr.session_ids().await;
     let persistent = session_store.list().await;
@@ -2768,7 +2768,7 @@ async fn handle_sessions_list(
 async fn handle_sessions_preview(
     params: &Value,
     session_store: &Arc<SessionStore>,
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -2885,7 +2885,7 @@ async fn handle_sessions_reset(
     params: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -2921,7 +2921,7 @@ async fn handle_sessions_delete(
     params: &Value,
     session_mgr: &Arc<GatewaySessionManager>,
     session_store: &Arc<SessionStore>,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let session_id = params
         .get("session_id")
@@ -3047,12 +3047,12 @@ async fn handle_sessions_overrides_set(
 
 // ── Identity Linking ────────────────────────────────────────────────────────
 
-async fn handle_identity_links_get(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_identity_links_get(bridge: &GatewayChannel) -> RpcResult {
     let links = load_identity_links(&bridge.config().savfox_home).await;
     Ok(json!({ "links": links }))
 }
 
-async fn handle_identity_links_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_identity_links_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let input: HashMap<String, Vec<String>> = serde_json::from_value(
         params
             .get("links")
@@ -3073,7 +3073,7 @@ async fn handle_identity_links_set(params: &Value, bridge: &GatewayBridge) -> Rp
     Ok(json!({ "status": "updated", "count": merged.len(), "links": merged }))
 }
 
-async fn handle_identity_link(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_identity_link(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let canonical = params
         .get("canonical")
         .or_else(|| params.get("identity"))
@@ -3144,7 +3144,7 @@ impl DmScopePolicyConfig {
     }
 }
 
-fn dm_scope_policy_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn dm_scope_policy_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("dm-scope.json")
 }
 
@@ -3158,7 +3158,7 @@ fn parse_dm_scope(value: Option<&str>) -> Option<DmScope> {
     }
 }
 
-async fn handle_dm_scope_policy_get(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_scope_policy_get(bridge: &GatewayChannel) -> RpcResult {
     let path = dm_scope_policy_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -3168,7 +3168,7 @@ async fn handle_dm_scope_policy_get(bridge: &GatewayBridge) -> RpcResult {
     Ok(json!({ "policy": policy }))
 }
 
-async fn handle_dm_scope_policy_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_dm_scope_policy_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let raw = params
         .get("policy")
         .cloned()
@@ -3395,7 +3395,7 @@ async fn handle_sessions_usage(params: &Value, session_store: &Arc<SessionStore>
 
 // ── Media Staging ───────────────────────────────────────────────────────────
 
-async fn handle_media_staging_list(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_media_staging_list(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let session_id = params.get("session_id").and_then(|v| v.as_str());
     let store = MediaStore::from_home(&bridge.config().savfox_home);
     let entries = store.list_staging(session_id).await;
@@ -3406,7 +3406,7 @@ async fn handle_media_staging_list(params: &Value, bridge: &Arc<GatewayBridge>) 
     }))
 }
 
-async fn handle_media_staging_import(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_media_staging_import(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.trim().is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -3438,7 +3438,7 @@ async fn handle_media_staging_import(params: &Value, bridge: &Arc<GatewayBridge>
     }))
 }
 
-async fn handle_media_staging_cleanup(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_media_staging_cleanup(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let session_id = params
         .get("session_id")
         .and_then(|v| v.as_str())
@@ -3605,7 +3605,7 @@ async fn handle_events_list() -> RpcResult {
 
 // ── Send / Wake / Channels ──────────────────────────────────────────────────
 
-async fn handle_send(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_send(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let channel = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -3630,7 +3630,7 @@ async fn handle_send_metrics() -> RpcResult {
     Ok(json!({ "metrics": metrics }))
 }
 
-async fn handle_wake(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_wake(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let message = params
         .get("message")
         .and_then(|v| v.as_str())
@@ -3655,7 +3655,7 @@ async fn handle_wake(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
     }
 }
 
-async fn handle_channels_list(_bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_list(_bridge: &Arc<GatewayChannel>) -> RpcResult {
     // List all supported platforms with their webhook endpoints.
     let channels = vec![
         json!({"platform": "discord", "endpoint": "/webhooks/discord", "type": "bridge"}),
@@ -3676,7 +3676,7 @@ async fn handle_channels_list(_bridge: &Arc<GatewayBridge>) -> RpcResult {
     Ok(json!({ "channels": channels }))
 }
 
-async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let runtime = bridge.runtime_bridge_secrets().await;
     let discord_configured =
         runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok();
@@ -3923,7 +3923,7 @@ async fn handle_channels_status(params: &Value, bridge: &Arc<GatewayBridge>) -> 
     Ok(json!({ "channels": channels }))
 }
 
-async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -3982,7 +3982,7 @@ async fn handle_channels_login(params: &Value, bridge: &Arc<GatewayBridge>) -> R
     }))
 }
 
-async fn handle_channels_logout(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_logout(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -4020,7 +4020,7 @@ async fn handle_channels_logout(params: &Value, bridge: &Arc<GatewayBridge>) -> 
     Ok(json!({ "platform": platform, "status": "logged_out" }))
 }
 
-async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -4079,7 +4079,7 @@ async fn handle_channels_test(params: &Value, bridge: &Arc<GatewayBridge>) -> Rp
     }))
 }
 
-async fn handle_channels_account_update(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_account_update(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .and_then(|v| v.as_str())
@@ -4303,7 +4303,7 @@ fn session_display_name(entry: &SessionEntry) -> Option<String> {
         })
 }
 
-fn channel_accounts_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn channel_accounts_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge
         .config()
         .savfox_home
@@ -4311,7 +4311,7 @@ fn channel_accounts_path(bridge: &GatewayBridge) -> std::path::PathBuf {
         .join("channel-accounts.json")
 }
 
-async fn load_channel_accounts(bridge: &GatewayBridge) -> Value {
+async fn load_channel_accounts(bridge: &GatewayChannel) -> Value {
     let path = channel_accounts_path(bridge);
     let content = tokio::fs::read_to_string(path)
         .await
@@ -4344,7 +4344,7 @@ fn directory_channel_configured(
 
 async fn handle_directory_self(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
     let channels = parse_directory_channels(params)?;
@@ -4746,7 +4746,7 @@ async fn handle_directory_groups_members(
     }))
 }
 
-async fn handle_web_login_start(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_web_login_start(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -4763,7 +4763,7 @@ async fn handle_web_login_start(params: &Value, bridge: &Arc<GatewayBridge>) -> 
     handle_channels_login(&json!({ "platform": platform }), bridge).await
 }
 
-async fn handle_web_login_wait(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_web_login_wait(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -4782,7 +4782,7 @@ async fn handle_web_login_wait(params: &Value, bridge: &Arc<GatewayBridge>) -> R
     }))
 }
 
-fn nostr_profile_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn nostr_profile_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge
         .config()
         .savfox_home
@@ -4802,7 +4802,7 @@ fn default_nostr_profile() -> Value {
     })
 }
 
-async fn load_nostr_profile(bridge: &GatewayBridge) -> Value {
+async fn load_nostr_profile(bridge: &GatewayChannel) -> Value {
     let path = nostr_profile_path(bridge);
     tokio::fs::read_to_string(path)
         .await
@@ -4812,7 +4812,7 @@ async fn load_nostr_profile(bridge: &GatewayBridge) -> Value {
         .unwrap_or_else(default_nostr_profile)
 }
 
-async fn save_nostr_profile(bridge: &GatewayBridge, profile: &Value) -> Result<(), String> {
+async fn save_nostr_profile(bridge: &GatewayChannel, profile: &Value) -> Result<(), String> {
     let path = nostr_profile_path(bridge);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -4826,14 +4826,14 @@ async fn save_nostr_profile(bridge: &GatewayBridge, profile: &Value) -> Result<(
         .map_err(|err| format!("failed to write nostr profile: {err}"))
 }
 
-async fn handle_channels_nostr_profile_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_nostr_profile_get(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let profile = load_nostr_profile(bridge).await;
     Ok(json!({ "profile": profile }))
 }
 
 async fn handle_channels_nostr_profile_set(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let mut profile = load_nostr_profile(bridge).await;
     if let Some(incoming) = params.get("profile").and_then(|v| v.as_object()) {
@@ -4863,7 +4863,7 @@ async fn handle_channels_nostr_profile_set(
 
 async fn handle_channels_nostr_profile_import(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let private_key = params
         .get("private_key")
@@ -4890,7 +4890,7 @@ async fn handle_channels_nostr_profile_import(
     }))
 }
 
-async fn handle_channels_nostr_profile_export(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_nostr_profile_export(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let profile = load_nostr_profile(bridge).await;
     Ok(json!({
         "status": "exported",
@@ -4898,7 +4898,7 @@ async fn handle_channels_nostr_profile_export(bridge: &Arc<GatewayBridge>) -> Rp
     }))
 }
 
-async fn handle_channels_nostr_relays_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_nostr_relays_get(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let profile = load_nostr_profile(bridge).await;
     let relays = profile.get("relays").cloned().unwrap_or_else(|| json!([]));
     Ok(json!({ "relays": relays }))
@@ -4906,7 +4906,7 @@ async fn handle_channels_nostr_relays_get(bridge: &Arc<GatewayBridge>) -> RpcRes
 
 async fn handle_channels_nostr_relays_set(
     params: &Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let relays = params.get("relays").cloned().unwrap_or_else(|| json!([]));
     if !relays.is_array() {
@@ -4925,7 +4925,7 @@ async fn handle_channels_nostr_relays_set(
 
 // ── Channel Config Management ─────────────────────────────────────────
 
-async fn handle_channels_config_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_config_list(bridge: &Arc<GatewayChannel>) -> RpcResult {
     use savfox_core::config::channel_store;
     let configs = channel_store::list_channel_configs(&bridge.config().savfox_home)
         .await
@@ -4938,7 +4938,7 @@ async fn handle_channels_config_list(bridge: &Arc<GatewayBridge>) -> RpcResult {
     Ok(channel_store::channel_configs_to_json(&configs))
 }
 
-async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     use savfox_core::config::channel_store;
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     if channel_id.is_empty() {
@@ -4951,7 +4951,7 @@ async fn handle_channels_config_get(params: &Value, bridge: &Arc<GatewayBridge>)
     }
 }
 
-async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     use savfox_core::config::channel_store;
     let channel_kind = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let fallback_name = channel_kind.to_string();
@@ -4997,7 +4997,7 @@ async fn handle_channels_config_save(params: &Value, bridge: &Arc<GatewayBridge>
     }
 }
 
-async fn handle_channels_config_delete(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_channels_config_delete(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     use savfox_core::config::channel_store;
     let channel_id = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -5218,7 +5218,7 @@ fn take_detached_matrix_bridge_config(config: &mut Value) -> Option<DetachedBrid
 }
 
 async fn persist_detached_matrix_bridge_config(
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
     detached: DetachedBridgeConfig,
 ) -> Result<(), (i64, String)> {
     use savfox_core::config::channel_store;
@@ -5274,7 +5274,7 @@ async fn persist_detached_matrix_bridge_config(
 
 async fn sanitize_config_before_write(
     config: &mut Value,
-    bridge: &Arc<GatewayBridge>,
+    bridge: &Arc<GatewayChannel>,
 ) -> Result<(), (i64, String)> {
     normalize_model_reasoning_key(config);
     if let Some(detached_matrix) = take_detached_matrix_bridge_config(config) {
@@ -5305,7 +5305,7 @@ fn deep_merge_patch(target: &mut Value, patch: &Value) {
     }
 }
 
-async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_config_get(bridge: &Arc<GatewayChannel>) -> RpcResult {
     let session_count = bridge.websocket_manager().session_count().await;
 
     let mut config_value = load_config_value_or_empty(bridge).await;
@@ -5326,16 +5326,16 @@ async fn handle_config_get(bridge: &Arc<GatewayBridge>) -> RpcResult {
 }
 
 async fn load_config_intermediate(
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
 ) -> Result<crate::security_audit::ConfigFile, String> {
     crate::security_audit::load_config_document(&bridge.config().savfox_home).await
 }
 
-fn primary_config_json_path(bridge: &GatewayBridge) -> PathBuf {
+fn primary_config_json_path(bridge: &GatewayChannel) -> PathBuf {
     bridge.config().savfox_home.join("config.json")
 }
 
-async fn load_config_value_or_empty(bridge: &GatewayBridge) -> Value {
+async fn load_config_value_or_empty(bridge: &GatewayChannel) -> Value {
     let mut config = load_config_intermediate(bridge)
         .await
         .map(|doc| doc.value)
@@ -5346,7 +5346,7 @@ async fn load_config_value_or_empty(bridge: &GatewayBridge) -> Value {
     config
 }
 
-async fn write_config_json(bridge: &GatewayBridge, config: &Value) -> Result<(), String> {
+async fn write_config_json(bridge: &GatewayChannel, config: &Value) -> Result<(), String> {
     let path = primary_config_json_path(bridge);
     let content = serde_json::to_string_pretty(config)
         .map_err(|e| format!("JSON serialization failed: {e}"))?;
@@ -5355,7 +5355,7 @@ async fn write_config_json(bridge: &GatewayBridge, config: &Value) -> Result<(),
         .map_err(|e| format!("failed to write config: {e}"))
 }
 
-async fn handle_config_export(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_config_export(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let mut doc = load_config_intermediate(bridge)
         .await
         .map_err(|e| (INTERNAL_ERROR, e))?;
@@ -5439,7 +5439,7 @@ fn preserve_toml_leading_comments_for_yaml(source_toml: &str, yaml: &str) -> Str
     result
 }
 
-async fn handle_config_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_config_set(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let config = params.get("config");
     let Some(config_value) = config else {
         return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
@@ -5454,7 +5454,7 @@ async fn handle_config_set(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcRe
     Ok(json!({ "status": "ok" }))
 }
 
-async fn handle_config_apply(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_config_apply(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let config = params.get("config");
     let Some(config_value) = config else {
         return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
@@ -5483,7 +5483,7 @@ async fn handle_config_apply(params: &Value, bridge: &Arc<GatewayBridge>) -> Rpc
     }))
 }
 
-async fn handle_config_patch(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_config_patch(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let patch = params.get("patch");
     let Some(patch_value) = patch else {
         return Err((INVALID_REQUEST, "missing 'patch' parameter".to_string()));
@@ -5512,11 +5512,11 @@ include!("ws_rpc/browser_and_related_handlers.rs");
 
 // ── Hooks Event Bus (#31) ───────────────────────────────────────────────────
 
-fn hooks_config_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn hooks_config_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("hooks-config.json")
 }
 
-async fn handle_hooks_list(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_hooks_list(bridge: &GatewayChannel) -> RpcResult {
     let path = hooks_config_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -5540,7 +5540,7 @@ async fn handle_hooks_list(bridge: &GatewayBridge) -> RpcResult {
     }))
 }
 
-async fn handle_hooks_enable(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_hooks_enable(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let hook_id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if hook_id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -5569,7 +5569,7 @@ async fn handle_hooks_enable(params: &Value, bridge: &GatewayBridge) -> RpcResul
     Ok(json!({ "id": hook_id, "status": "enabled" }))
 }
 
-async fn handle_hooks_disable(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_hooks_disable(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let hook_id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if hook_id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
@@ -5600,7 +5600,7 @@ async fn handle_hooks_disable(params: &Value, bridge: &GatewayBridge) -> RpcResu
 
 // ── Message Reactions (#37) ──────────────────────────────────────────────────
 
-async fn handle_reactions_add(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_reactions_add(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let message_id = params
         .get("message_id")
         .and_then(|v| v.as_str())
@@ -5624,7 +5624,7 @@ async fn handle_reactions_add(params: &Value, bridge: &GatewayBridge) -> RpcResu
     }))
 }
 
-async fn handle_reactions_remove(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_reactions_remove(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let message_id = params
         .get("message_id")
         .and_then(|v| v.as_str())
@@ -5648,11 +5648,11 @@ async fn handle_reactions_remove(params: &Value, bridge: &GatewayBridge) -> RpcR
 
 // ── Streaming Config (#36) ──────────────────────────────────────────────────
 
-fn streaming_config_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn streaming_config_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("streaming-config.json")
 }
 
-async fn handle_streaming_config_get(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_streaming_config_get(bridge: &GatewayChannel) -> RpcResult {
     let path = streaming_config_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -5664,7 +5664,7 @@ async fn handle_streaming_config_get(bridge: &GatewayBridge) -> RpcResult {
     }))
 }
 
-async fn handle_streaming_config_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_streaming_config_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let config = params.get("config").cloned().unwrap_or(json!({}));
 
     // Validate stream_mode if present
@@ -5693,7 +5693,7 @@ async fn handle_streaming_config_set(params: &Value, bridge: &GatewayBridge) -> 
 // ── YAML Config Support (#59) ───────────────────────────────────────────────
 
 /// Detect which config format is currently in use (.json, .yaml, .toml).
-async fn handle_config_format(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_format(bridge: &GatewayChannel) -> RpcResult {
     let home = &bridge.config().savfox_home;
     let candidates = [
         ("json", home.join("config.json")),
@@ -5721,7 +5721,7 @@ async fn handle_config_format(bridge: &GatewayBridge) -> RpcResult {
 }
 
 /// Convert config content between formats (json, yaml, toml).
-async fn handle_config_convert(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_config_convert(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let from_format = params
         .get("from_format")
         .and_then(|v| v.as_str())
@@ -5828,7 +5828,7 @@ async fn handle_config_convert(params: &Value, bridge: &GatewayBridge) -> RpcRes
 // ── QR Code Pairing (#62) ───────────────────────────────────────────────────
 
 /// Generate a QR-code pairing URL with a short-lived token.
-async fn handle_device_pair_qr(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_device_pair_qr(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let host = params
         .get("host")
         .and_then(|v| v.as_str())
@@ -5875,7 +5875,7 @@ async fn handle_device_pair_qr(params: &Value, bridge: &GatewayBridge) -> RpcRes
 // ── Agent Avatar Management (#63) ───────────────────────────────────────────
 
 /// Store an avatar path in the agent's config JSON.
-async fn handle_agent_avatar_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_agent_avatar_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agent")
         .or_else(|| params.get("agent_id"))
@@ -5920,7 +5920,7 @@ async fn handle_agent_avatar_set(params: &Value, bridge: &GatewayBridge) -> RpcR
 }
 
 /// Return the current avatar path for an agent.
-async fn handle_agent_avatar_get(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_agent_avatar_get(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agent")
         .or_else(|| params.get("agent_id"))
@@ -6038,12 +6038,12 @@ async fn handle_usage_export(params: &Value, session_store: &Arc<SessionStore>) 
 // ── Log Rotation (#65) ─────────────────────────────────────────────────────
 
 /// Path to log rotation config file.
-fn log_config_path(bridge: &GatewayBridge) -> std::path::PathBuf {
+fn log_config_path(bridge: &GatewayChannel) -> std::path::PathBuf {
     bridge.config().savfox_home.join("log-rotation-config.json")
 }
 
 /// Trigger log rotation: clear in-memory log buffer and archive to a timestamped file.
-async fn handle_logs_rotate(bridge: &GatewayBridge) -> RpcResult {
+async fn handle_logs_rotate(bridge: &GatewayChannel) -> RpcResult {
     // Drain current logs from in-memory store.
     let entries = log_store::list_logs(usize::MAX).await;
     let count = entries.len();
@@ -6088,7 +6088,7 @@ async fn handle_logs_rotate(bridge: &GatewayBridge) -> RpcResult {
 }
 
 /// Prune old log archives beyond the configured max_files limit.
-async fn prune_log_archives(bridge: &GatewayBridge) -> Result<usize, String> {
+async fn prune_log_archives(bridge: &GatewayChannel) -> Result<usize, String> {
     let config = read_log_rotation_config(bridge).await;
     let max_files = config
         .get("max_files")
@@ -6130,7 +6130,7 @@ async fn prune_log_archives(bridge: &GatewayBridge) -> Result<usize, String> {
 }
 
 /// Read log rotation config from disk.
-async fn read_log_rotation_config(bridge: &GatewayBridge) -> Value {
+async fn read_log_rotation_config(bridge: &GatewayChannel) -> Value {
     let path = log_config_path(bridge);
     let content = tokio::fs::read_to_string(&path)
         .await
@@ -6173,7 +6173,7 @@ async fn handle_logs_export(params: &Value) -> RpcResult {
 }
 
 /// Get or set log rotation configuration (max_file_size_mb, max_files).
-async fn handle_logs_config(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_logs_config(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let action = params
         .get("action")
         .and_then(|v| v.as_str())
@@ -6337,7 +6337,7 @@ async fn handle_security_analyze(params: &Value) -> RpcResult {
     }))
 }
 
-async fn handle_security_audit(_params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_security_audit(_params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let report = crate::security_audit::run_audit(&bridge.config().savfox_home).await;
     serde_json::to_value(report).map_err(|e| {
         (
@@ -6351,7 +6351,7 @@ fn rotated_secret(prefix: &str) -> String {
     format!("{prefix}{}", uuid::Uuid::now_v7().simple())
 }
 
-async fn handle_security_rotate(params: &Value, bridge: &Arc<GatewayBridge>) -> RpcResult {
+async fn handle_security_rotate(params: &Value, bridge: &Arc<GatewayChannel>) -> RpcResult {
     let rotate_gateway_token = params
         .get("gateway_token")
         .and_then(|v| v.as_bool())
@@ -6468,7 +6468,7 @@ async fn handle_security_rotate(params: &Value, bridge: &Arc<GatewayBridge>) -> 
 
 // ── Tool Policy Management ───────────────────────────────────────────────────
 
-async fn handle_tools_policy_get(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_policy_get(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -6488,7 +6488,7 @@ async fn handle_tools_policy_get(params: &Value, bridge: &GatewayBridge) -> RpcR
     }))
 }
 
-async fn handle_tools_policy_set(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_policy_set(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -6535,7 +6535,7 @@ async fn handle_tools_policy_set(params: &Value, bridge: &GatewayBridge) -> RpcR
     Ok(json!({ "success": true, "agentId": agent_id }))
 }
 
-async fn handle_tools_policy_reset(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_policy_reset(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -6550,7 +6550,7 @@ async fn handle_tools_policy_reset(params: &Value, bridge: &GatewayBridge) -> Rp
     Ok(json!({ "success": true, "agentId": agent_id }))
 }
 
-async fn handle_tools_policy_allow(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_policy_allow(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -6570,7 +6570,7 @@ async fn handle_tools_policy_allow(params: &Value, bridge: &GatewayBridge) -> Rp
     Ok(json!({ "success": true, "agentId": agent_id, "tool": tool_name, "allowed": true }))
 }
 
-async fn handle_tools_policy_deny(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_policy_deny(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -6590,7 +6590,7 @@ async fn handle_tools_policy_deny(params: &Value, bridge: &GatewayBridge) -> Rpc
     Ok(json!({ "success": true, "agentId": agent_id, "tool": tool_name, "allowed": false }))
 }
 
-async fn handle_tools_list(params: &Value, bridge: &GatewayBridge) -> RpcResult {
+async fn handle_tools_list(params: &Value, bridge: &GatewayChannel) -> RpcResult {
     let agent_id = params
         .get("agentId")
         .and_then(|v| v.as_str())

@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::cron_service::CronService;
 use crate::protocol::GatewayMessage;
 use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
@@ -37,7 +37,7 @@ pub(crate) async fn ws_handler(
         .clone();
 
     let bridge = depot
-        .obtain::<Arc<GatewayBridge>>()
+        .obtain::<Arc<GatewayChannel>>()
         .map_err(|_| StatusError::internal_server_error())?
         .clone();
 
@@ -74,7 +74,7 @@ async fn handle_ws_connection(
     mut ws: WebSocket,
     auth: Arc<GatewayAuth>,
     session_mgr: Arc<GatewaySessionManager>,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     query_token: Option<String>,
@@ -287,7 +287,7 @@ async fn handle_client_message(
     session_id: &str,
     msg: GatewayMessage,
     session_mgr: &GatewaySessionManager,
-    bridge: &GatewayBridge,
+    bridge: &GatewayChannel,
 ) {
     match msg {
         GatewayMessage::Request { id, method, params } => {

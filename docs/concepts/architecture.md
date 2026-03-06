@@ -2,7 +2,7 @@
 
 The Savfox gateway server is a persistent, multi-protocol hub that exposes the
 Savfox AI engine over WebSocket, REST, and chat-platform webhooks. It runs as a
-long-lived process (foreground or daemon) and manages sessions, bridges, and
+long-lived process (foreground or daemon) and manages sessions, Channels, and
 background services on behalf of connected clients.
 
 ## High-level components
@@ -17,7 +17,7 @@ background services on behalf of connected clients.
                              |
                   +----------+----------+
                   |                     |
-           Bridge Runtime         Web UI (SPA)
+           Channel Runtime         Web UI (SPA)
            (Discord, Telegram,    rust-embed WASM
             Slack, Matrix, ...)   at /web/dist/
 ```
@@ -28,9 +28,9 @@ The gateway uses [Salvo](https://salvo.rs/) v0.89 for HTTP routing, WebSocket
 upgrade, and static file serving. TLS is supported via PEM certificate and key
 paths.
 
-### GatewayBridge
+### GatewayChannel
 
-`GatewayBridge` (`crates/gateway-server/src/bridge.rs`) is the central message
+`GatewayChannel` (`crates/gateway-server/src/Channel.rs`) is the central message
 router. It owns:
 
 - An `Arc<ThreadManager>` for creating, resuming, and controlling agent threads.
@@ -51,7 +51,7 @@ token carries a label and a list of `TokenScope` values:
 |--------------------|----------------------------------------------|
 | `Operator`         | Full access (implies all sub-scopes)         |
 | `Viewer`           | Read-only (implies `OperatorRead`)           |
-| `Chat`             | Chat-bridge-only operations                  |
+| `Chat`             | Chat-Channel-only operations                  |
 | `OperatorRead`     | Read sessions, config, logs, usage           |
 | `OperatorWrite`    | Start threads, send messages, modify config  |
 | `OperatorAdmin`    | Token management, plugin control             |
@@ -84,9 +84,9 @@ Messages with a `"jsonrpc"` field are dispatched to the WS-RPC handler
 (`ws_rpc.rs`), which routes 96+ methods organized by domain. All other messages
 are dispatched as `GatewayMessage` variants (the legacy protocol envelope).
 
-## Bridge lifecycle
+## Channel lifecycle
 
-A "bridge" connects a chat platform to the gateway. Each bridge:
+A "Channel" connects a chat platform to the gateway. Each Channel:
 
 1. Receives inbound webhooks at `/webhooks/<platform>`.
 2. Parses the platform-specific payload into a `ChannelAction`:
@@ -94,10 +94,10 @@ A "bridge" connects a chat platform to the gateway. Each bridge:
    - `SendToThread` -- route a message to an existing thread.
    - `Approve` -- respond to an exec approval request.
    - `Ignore` -- no action needed (e.g., a verification ping).
-3. Invokes the agent via `GatewayBridge::invoke_agent_text()`.
+3. Invokes the agent via `GatewayChannel::invoke_agent_text()`.
 4. Sends the agent's reply back to the originating channel via the platform API.
 
-Bridge credentials can be configured via `config.toml` under `[gateway.bridges]`
+Channel credentials can be configured via `config.toml` under `[gateway.Channels]`
 or set at runtime through the `config.patch` RPC method.
 
 ## Session management
@@ -171,7 +171,7 @@ persistent store.
 | `/api/token/validate`       | POST   | Validate a bearer token            |
 | `/api/message`              | POST   | Send message to a chat channel     |
 | `/api/sessions`             | GET    | List active sessions               |
-| `/api/channels`             | GET    | List configured channel bridges    |
+| `/api/channels`             | GET    | List configured channel Channels    |
 | `/api/nodes`                | GET    | List known nodes                   |
 | `/api/devices`              | GET    | List paired devices                |
 | `/api/devices/pair`         | POST   | Create device pairing request      |

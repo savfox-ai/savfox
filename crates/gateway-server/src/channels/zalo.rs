@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::{Channel, RichMessage, runtime};
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 use crate::config::ZaloChannelConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
@@ -20,7 +20,7 @@ const ZALO_OA_API_BASE: &str = "https://openapi.zalo.me/v3.0/oa";
 /// sends replies using the Zalo OA Customer Service Message API.
 pub(crate) struct ZaloChannel {
     config: ZaloChannelConfig,
-    bridge: Arc<GatewayBridge>,
+    bridge: Arc<GatewayChannel>,
     http: reqwest::Client,
 }
 
@@ -36,7 +36,7 @@ impl ZaloChannel {
     #[must_use]
     pub(crate) fn new(
         config: ZaloChannelConfig,
-        bridge: Arc<GatewayBridge>,
+        bridge: Arc<GatewayChannel>,
         http: reqwest::Client,
     ) -> Self {
         Self {
@@ -314,7 +314,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned);
 
-            let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+            let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
                 Ok(bridge) => bridge.clone(),
                 Err(err) => {
                     warn!("Zalo webhook: missing gateway bridge state: {err:?}");

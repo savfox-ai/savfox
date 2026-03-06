@@ -1,30 +1,30 @@
-﻿# Bridge Architecture
+﻿# Channel Architecture
 
-Bridges connect external chat platforms to the Savfox gateway, allowing the agent to communicate across multiple channels.
+Channels connect external chat platforms to the Savfox gateway, allowing the agent to communicate across multiple channels.
 
-## How Bridges Work
+## How Channels Work
 
 ```
 [Discord] ──┐
 [Telegram] ──┤
-[Slack] ─────┤──→ [Gateway Bridge Router] ──→ [Agent Engine]
+[Slack] ─────┤──→ [Gateway Channel Router] ──→ [Agent Engine]
 [Matrix] ────┤
 [Webhook] ───┘
 ```
 
 1. A message arrives on an external platform
-2. The bridge converts it to a normalized `IncomingMessage`
+2. The Channel converts it to a normalized `IncomingMessage`
 3. The gateway routes it to the appropriate session
 4. The agent processes the message and generates a response
-5. The bridge converts the response back to the platform's format
+5. The Channel converts the response back to the platform's format
 
-## Bridge Trait
+## Channel Trait
 
-All bridges implement the `ChatBridge` trait:
+All Channels implement the `ChatChannel` trait:
 
 ```rust
 #[async_trait]
-pub trait ChatBridge: Send + Sync {
+pub trait ChatChannel: Send + Sync {
     async fn start(&mut self) -> Result<()>;
     async fn send_message(&self, channel: &str, text: &str) -> Result<()>;
     async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> Result<()>;
@@ -32,9 +32,9 @@ pub trait ChatBridge: Send + Sync {
 }
 ```
 
-## Available Bridges
+## Available Channels
 
-| Bridge | Protocol | Auth Method |
+| Channel | Protocol | Auth Method |
 |--------|----------|-------------|
 | Discord | WebSocket (Gateway API) | Bot Token |
 | Telegram | HTTPS (Bot API) | Bot Token |
@@ -57,18 +57,18 @@ pub trait ChatBridge: Send + Sync {
 ### Incoming
 
 ```
-Platform → Bridge.handle_webhook() → IncomingMessage → Session → Agent
+Platform → Channel.handle_webhook() → IncomingMessage → Session → Agent
 ```
 
 ### Outgoing
 
 ```
-Agent → Response → Session → Bridge.send_message() → Platform
+Agent → Response → Session → Channel.send_message() → Platform
 ```
 
 ## Configuration
 
-Bridges are configured in `config.toml`:
+Channels are configured in `config.toml`:
 
 ```toml
 [[channels]]
@@ -79,15 +79,15 @@ enabled = true
 bot_token = "${DISCORD_BOT_TOKEN}"
 ```
 
-## Adding a New Bridge
+## Adding a New Channel
 
-1. Create `crates/gateway-server/src/bridges/<name>.rs`
-2. Implement `ChatBridge` trait
+1. Create `crates/gateway-server/src/Channels/<name>.rs`
+2. Implement `ChatChannel` trait
 3. Add config struct to `crates/gateway-server/src/config.rs`
-4. Register in `crates/gateway-server/src/bridges/mod.rs`
-5. Add to bridge runtime initialization in `runtime.rs`
+4. Register in `crates/gateway-server/src/Channels/mod.rs`
+5. Add to Channel runtime initialization in `runtime.rs`
 
 ## See Also
 
 - [Channel Configuration Guides](../channels/discord.md)
-- [Webhook Bridge](../channels/webhook.md)
+- [Webhook Channel](../channels/webhook.md)

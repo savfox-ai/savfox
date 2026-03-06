@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::auth::GatewayAuth;
-use crate::bridge::GatewayBridge;
+use crate::bridge::GatewayChannel;
 
 /// Request body for `POST /tools/invoke`.
 #[derive(Debug, Deserialize)]
@@ -92,7 +92,7 @@ pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, r
         }
     };
 
-    let bridge = match depot.obtain::<Arc<GatewayBridge>>() {
+    let bridge = match depot.obtain::<Arc<GatewayChannel>>() {
         Ok(b) => b.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
