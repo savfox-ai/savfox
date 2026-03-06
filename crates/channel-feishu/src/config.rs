@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use feishu_sdk::core::{Config as FeishuSdkConfig, FEISHU_BASE_URL, LARK_BASE_URL, LogLevel};
+use feishu_sdk::ws::StreamConfig;
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FeishuInboundMode {
     Webhook,
+    #[default]
     Stream,
 }
 
@@ -22,10 +24,10 @@ pub struct FeishuChannelConfig {
     pub receive_id_type: String,
     pub inbound_mode: FeishuInboundMode,
     pub stream_locale: Option<String>,
-    pub stream_auto_reconnect: Option<bool>,
-    pub stream_reconnect_count: Option<i32>,
-    pub stream_reconnect_interval_secs: Option<u64>,
-    pub stream_ping_interval_secs: Option<u64>,
+    pub stream_auto_reconnect: bool,
+    pub stream_reconnect_count: i32,
+    pub stream_reconnect_interval_secs: u64,
+    pub stream_ping_interval_secs: u64,
 }
 
 impl FeishuChannelConfig {
@@ -65,10 +67,13 @@ impl FeishuChannelConfig {
         let inbound_mode = feishu_inbound_mode(raw);
         let stream_locale =
             first_non_empty_config_string(raw, &["streamLocale", "stream_locale", "locale"]);
+        let stream_defaults = default_stream_config();
         let stream_auto_reconnect =
-            first_config_bool(raw, &["streamAutoReconnect", "stream_auto_reconnect"]);
+            first_config_bool(raw, &["streamAutoReconnect", "stream_auto_reconnect"])
+                .unwrap_or(stream_defaults.auto_reconnect);
         let stream_reconnect_count =
-            first_config_i32(raw, &["streamReconnectCount", "stream_reconnect_count"]);
+            first_config_i32(raw, &["streamReconnectCount", "stream_reconnect_count"])
+                .unwrap_or(stream_defaults.reconnect_count);
         let stream_reconnect_interval_secs = first_config_u64(
             raw,
             &[
@@ -76,7 +81,8 @@ impl FeishuChannelConfig {
                 "stream_reconnect_interval_secs",
                 "streamReconnectIntervalSeconds",
             ],
-        );
+        )
+        .unwrap_or(stream_defaults.reconnect_interval.as_secs());
         let stream_ping_interval_secs = first_config_u64(
             raw,
             &[
@@ -84,7 +90,8 @@ impl FeishuChannelConfig {
                 "stream_ping_interval_secs",
                 "streamPingIntervalSeconds",
             ],
-        );
+        )
+        .unwrap_or(stream_defaults.ping_interval.as_secs());
 
         Some(Self {
             kind: config.kind.clone(),
@@ -148,6 +155,10 @@ pub(crate) fn default_stream_locale(kind: &str) -> &'static str {
     }
 }
 
+fn default_stream_config() -> StreamConfig {
+    StreamConfig::default()
+}
+
 fn configured_base_url(kind: &str, raw: &serde_json::Map<String, Value>) -> String {
     first_non_empty_config_string(raw, &["baseUrl", "base_url", "apiBaseUrl", "api_base_url"])
         .unwrap_or_else(|| default_base_url(kind).to_string())
@@ -178,7 +189,8 @@ fn feishu_inbound_mode(raw: &serde_json::Map<String, Value>) -> FeishuInboundMod
         Some("stream" | "long_connection" | "long-connection" | "longconnection") => {
             FeishuInboundMode::Stream
         }
-        _ => FeishuInboundMode::Webhook,
+        Some("webhook" | "callback" | "callback_url") => FeishuInboundMode::Webhook,
+        _ => FeishuInboundMode::default(),
     }
 }
 
@@ -350,4 +362,71 @@ pub(crate) fn build_feishu_sdk_config(
         .base_url(config.base_url.clone())
         .log_level(LogLevel::Info)
         .build())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{FeishuChannelConfig, FeishuInboundMode};
+
+    fn channel_config(
+        config: serde_json::Value,
+    ) -> savfox_core::config::channel_store::ChannelConfig {
+        savfox_core::config::channel_store::ChannelConfig {
+            id: "feishu-test".to_string(),
+            kind: "feishu".to_string(),
+            name: "feishu-test".to_string(),
+            enabled: true,
+            config,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn stream_fields_fall_back_to_sdk_defaults() {
+        let config = FeishuChannelConfig::from_channel_config(&channel_config(json!({
+            "appId": "cli_a",
+            "appSecret": "secret_a"
+        })))
+        .expect("config should parse");
+
+        assert_eq!(config.inbound_mode, FeishuInboundMode::Stream);
+        assert_eq!(config.stream_auto_reconnect, true);
+        assert_eq!(config.stream_reconnect_count, -1);
+        assert_eq!(config.stream_reconnect_interval_secs, 120);
+        assert_eq!(config.stream_ping_interval_secs, 120);
+    }
+
+    #[test]
+    fn stream_fields_accept_explicit_values() {
+        let config = FeishuChannelConfig::from_channel_config(&channel_config(json!({
+            "appId": "cli_a",
+            "appSecret": "secret_a",
+            "eventMode": "stream",
+            "streamAutoReconnect": false,
+            "streamReconnectCount": 3,
+            "streamReconnectIntervalSecs": 15,
+            "streamPingIntervalSecs": 45
+        })))
+        .expect("config should parse");
+
+        assert_eq!(config.stream_auto_reconnect, false);
+        assert_eq!(config.stream_reconnect_count, 3);
+        assert_eq!(config.stream_reconnect_interval_secs, 15);
+        assert_eq!(config.stream_ping_interval_secs, 45);
+    }
+
+    #[test]
+    fn explicit_webhook_mode_overrides_stream_default() {
+        let config = FeishuChannelConfig::from_channel_config(&channel_config(json!({
+            "appId": "cli_a",
+            "appSecret": "secret_a",
+            "eventMode": "webhook"
+        })))
+        .expect("config should parse");
+
+        assert_eq!(config.inbound_mode, FeishuInboundMode::Webhook);
+    }
 }

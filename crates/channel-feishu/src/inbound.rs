@@ -96,25 +96,17 @@ pub async fn start_feishu_stream(
     }
 
     let dispatcher = build_feishu_event_dispatcher(config, sink).await;
-    let mut stream_config = StreamConfig::new().locale(
-        config
-            .stream_locale
-            .clone()
-            .unwrap_or_else(|| default_stream_locale(&config.kind).to_string()),
-    );
-    if let Some(auto_reconnect) = config.stream_auto_reconnect {
-        stream_config = stream_config.auto_reconnect(auto_reconnect);
-    }
-    if let Some(reconnect_count) = config.stream_reconnect_count {
-        stream_config = stream_config.reconnect_count(reconnect_count);
-    }
-    if let Some(reconnect_interval_secs) = config.stream_reconnect_interval_secs {
-        stream_config =
-            stream_config.reconnect_interval(Duration::from_secs(reconnect_interval_secs));
-    }
-    if let Some(ping_interval_secs) = config.stream_ping_interval_secs {
-        stream_config = stream_config.ping_interval(Duration::from_secs(ping_interval_secs));
-    }
+    let stream_config = StreamConfig::new()
+        .locale(
+            config
+                .stream_locale
+                .clone()
+                .unwrap_or_else(|| default_stream_locale(&config.kind).to_string()),
+        )
+        .auto_reconnect(config.stream_auto_reconnect)
+        .reconnect_count(config.stream_reconnect_count)
+        .reconnect_interval(Duration::from_secs(config.stream_reconnect_interval_secs))
+        .ping_interval(Duration::from_secs(config.stream_ping_interval_secs));
 
     let stream_client = StreamClient::builder(build_feishu_sdk_config(config)?)
         .event_dispatcher_ref(dispatcher)
