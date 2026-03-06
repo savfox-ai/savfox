@@ -204,6 +204,10 @@ async fn start_feishu_channel(
     let feishu_config = FeishuChannelConfig::from_channel_config(config)
         .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
 
+    println!(
+        "[startup]   Starting Feishu channel with config: {:#?}",
+        feishu_config
+    );
     if feishu_config.stream_enabled() {
         start_feishu_stream(
             &config.id,
