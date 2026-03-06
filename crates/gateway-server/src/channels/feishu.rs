@@ -6,7 +6,7 @@ use feishu_sdk::core::Error as FeishuSdkError;
 use feishu_sdk::event::{EventDispatcher, EventReq, EventResp};
 use salvo::prelude::*;
 use savfox_channel_feishu::{
-    FeishuActionSink, build_feishu_event_dispatcher,
+    FeishuActionSink, FeishuMessageMeta, build_feishu_event_dispatcher,
 };
 pub(crate) use savfox_channel_feishu::{
     FeishuChannel, FeishuChannelConfig, fetch_feishu_tenant_access_token,
@@ -31,6 +31,7 @@ impl FeishuActionSink for FeishuRuntimeSink {
         action: ChannelAction,
         event_id: Option<&str>,
         message_id: Option<&str>,
+        meta: FeishuMessageMeta,
     ) {
         let dedupe_key = event_id
             .filter(|value| !value.trim().is_empty())
@@ -46,16 +47,25 @@ impl FeishuActionSink for FeishuRuntimeSink {
             prompt,
         } = action
         {
+            let start_meta = runtime::StartThreadMeta {
+                peer_id: meta.sender_id,
+                chat_type: meta.chat_type,
+                thread_id: meta.thread_id.clone(),
+                parent_thread_id: meta.thread_id,
+                reply_target: message_id.map(str::to_string),
+                ..runtime::StartThreadMeta::default()
+            };
             let gateway_channel = Arc::clone(&self.channel);
             let session_store = Arc::clone(&self.session_store);
             tokio::spawn(async move {
-                runtime::spawn_start_thread_pipeline(
+                runtime::spawn_start_thread_pipeline_with_meta(
                     gateway_channel,
                     session_store,
                     "feishu",
                     channel_id,
                     prompt,
-                    None,
+                    meta.sender_name,
+                    Some(start_meta),
                 )
                 .await;
             });

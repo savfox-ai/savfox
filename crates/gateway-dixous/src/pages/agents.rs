@@ -437,6 +437,16 @@ fn AgentCreateForm(
                                 toaster.error("Agent name is required");
                                 return;
                             }
+                            // Check for duplicate agent name or ID
+                            let agents_clone = agents.clone();
+                            if agents_clone.iter().any(|a| a.name.trim().eq_ignore_ascii_case(name.trim())) {
+                                toaster.error("Agent with this name already exists");
+                                return;
+                            }
+                            if agents_clone.iter().any(|a| agent_ref(a) == id) {
+                                toaster.error("Agent with this ID already exists");
+                                return;
+                            }
                             let ws = ws.clone();
                             spawn(async move {
                                 let mut payload = json!({

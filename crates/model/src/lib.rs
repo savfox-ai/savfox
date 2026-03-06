@@ -51,6 +51,7 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
         "chatgpt" | "chat-gpt" => "openai".to_string(),
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
+        "volc" | "volc-engine" => "volcengine".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
         "gemini" => "google".to_string(),
         "bedrock" => "amazon-bedrock".to_string(),
@@ -158,6 +159,7 @@ pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'sta
         "zenmux" => Some(Some("https://zenmux.ai/api/anthropic/v1")),
         "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
         "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
+        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/v3")),
         _ => None,
     }
 }

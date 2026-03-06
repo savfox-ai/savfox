@@ -90,6 +90,7 @@ const KNOWN_PROVIDER_IDS: [&str; 78] = [
     "zenmux",
     "zhipuai",
     "zhipuai-coding-plan",
+    "volcengine",
 ];
 
 fn to_title_case(token: &str) -> String {
@@ -143,6 +144,7 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
         "chatgpt" | "chat-gpt" => "openai".to_string(),
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
+        "volc" | "volc-engine" => "volcengine".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
         "gemini" => "google".to_string(),
         "bedrock" => "amazon-bedrock".to_string(),
@@ -187,6 +189,7 @@ pub fn provider_display_name(provider_id: &str) -> String {
         "alibaba-cn" => "Alibaba (CN)".to_string(),
         "zhipuai-coding-plan" => "Zhipu AI Coding Plan".to_string(),
         "zai-coding-plan" => "Z.ai Coding Plan".to_string(),
+        "volcengine" => "Volcengine".to_string(),
         _ => humanize_provider_id(&canonical),
     }
 }
@@ -199,6 +202,7 @@ pub fn provider_description(provider_id: &str) -> String {
         "lmstudio" => "Run local models with LM Studio server".to_string(),
         "zhipuai-coding-plan" => "Zhipu AI coding plan models and tooling".to_string(),
         "zai-coding-plan" => "Z.ai coding plan models and tooling".to_string(),
+        "volcengine" => "Connect Volcengine models".to_string(),
         _ => format!("Connect {} models", provider_display_name(&canonical)),
     }
 }
@@ -305,6 +309,7 @@ fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'static 
         "zenmux" => Some(Some("https://zenmux.ai/api/anthropic/v1")),
         "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
         "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
+        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/v3")),
         _ => None,
     }
 }
@@ -329,6 +334,7 @@ pub fn provider_api_key_env(provider_id: &str) -> String {
         "minimax" | "minimax-cn" => "MINIMAX_API_KEY".to_string(),
         "alibaba" | "alibaba-cn" => "DASHSCOPE_API_KEY".to_string(),
         "zhipuai" | "zhipuai-coding-plan" => "ZHIPUAI_API_KEY".to_string(),
+        "volcengine" => "VOLCENGINE_API_KEY".to_string(),
         "github-copilot" | "github-copilot-enterprise" => "GITHUB_TOKEN".to_string(),
         "azure" | "azure-cognitive-services" => "AZURE_OPENAI_API_KEY".to_string(),
         "cohere" => "COHERE_API_KEY".to_string(),
@@ -359,6 +365,7 @@ pub fn provider_api_key_help_url(provider_id: &str) -> Option<&'static str> {
         "togetherai" => Some("https://api.together.xyz/settings/api-keys"),
         "openrouter" => Some("https://openrouter.ai/keys"),
         "zhipuai" | "zhipuai-coding-plan" => Some("https://open.bigmodel.cn/"),
+        "volcengine" => Some("https://console.volcengine.com/"),
         _ => None,
     }
 }
@@ -374,6 +381,7 @@ pub fn provider_icon_text(provider_id: &str) -> String {
         "github-copilot-enterprise" => "GE".to_string(),
         "zhipuai" => "ZH".to_string(),
         "zhipuai-coding-plan" => "ZC".to_string(),
+        "volcengine" => "VO".to_string(),
         "zai" => "ZA".to_string(),
         "zai-coding-plan" => "ZP".to_string(),
         _ => {

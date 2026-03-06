@@ -12,10 +12,19 @@ use feishu_sdk::event::{
 };
 use feishu_sdk::ws::{StreamClient, StreamConfig};
 use savfox_core::channel::ChannelAction;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{FeishuChannelConfig, build_feishu_sdk_config, default_stream_locale};
 use crate::parse::extract_channel_action;
+
+#[derive(Debug, Clone, Default)]
+pub struct FeishuMessageMeta {
+    pub sender_id: Option<String>,
+    pub sender_name: Option<String>,
+    pub chat_type: Option<String>,
+    pub thread_id: Option<String>,
+    pub parent_message_id: Option<String>,
+}
 
 #[async_trait]
 pub trait FeishuActionSink: Send + Sync {
@@ -24,6 +33,7 @@ pub trait FeishuActionSink: Send + Sync {
         action: ChannelAction,
         event_id: Option<&str>,
         message_id: Option<&str>,
+        meta: FeishuMessageMeta,
     );
 }
 
@@ -43,18 +53,30 @@ impl FeishuEventHandler for SavfoxFeishuEventHandler {
     {
         Box::pin(async move {
             let event_id = event.event_id().map(str::to_string);
+            debug!(event_id = ?event_id, event = ?event, "Received Feishu event via WebSocket");
             let payload = event.event.ok_or_else(|| {
                 FeishuSdkError::InvalidEventFormat("missing event payload".to_string())
             })?;
             let message_event: FeishuMessageEvent = serde_json::from_value(payload)
                 .map_err(|e| FeishuSdkError::InvalidEventFormat(e.to_string()))?;
+            debug!(message_event = ?message_event, "Parsed Feishu message event from WebSocket");
+
+            let meta = FeishuMessageMeta {
+                sender_id: message_event.sender.sender_id.as_ref().map(|id| format!("{:?}", id)),
+                sender_name: None,
+                chat_type: None,
+                thread_id: message_event.message.root_id.as_ref().map(|id| format!("{:?}", id)),
+                parent_message_id: message_event.message.parent_id.as_ref().map(|id| format!("{:?}", id)),
+            };
 
             if let Some(action) = extract_channel_action(&message_event) {
+                debug!(action = ?action, meta = ?meta, "Extracted channel action from Feishu message");
                 self.sink
                     .handle_action(
                         action,
                         event_id.as_deref(),
                         message_event.message.message_id.as_deref(),
+                        meta,
                     )
                     .await;
             }

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use feishu_sdk::event::models::MessageEvent as FeishuMessageEvent;
 use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{FeishuChannelConfig, fetch_feishu_tenant_access_token};
 use crate::parse::extract_channel_action;
@@ -115,6 +115,7 @@ impl Channel for FeishuChannel {
     }
 
     async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
+        debug!(payload = ?payload, "Received Feishu webhook payload");
         if payload.get("type").and_then(Value::as_str) == Some("url_verification") {
             return Ok(ChannelAction::Ignore);
         }
@@ -122,8 +123,14 @@ impl Channel for FeishuChannel {
         let event = payload.get("event").cloned().unwrap_or(Value::Null);
         let message_event: FeishuMessageEvent = match serde_json::from_value(event) {
             Ok(event) => event,
-            Err(_) => return Ok(ChannelAction::Ignore),
+            Err(e) => {
+                debug!(error = %e, "Failed to parse Feishu message event from webhook");
+                return Ok(ChannelAction::Ignore);
+            }
         };
-        Ok(extract_channel_action(&message_event).unwrap_or(ChannelAction::Ignore))
+        debug!(message_event = ?message_event, "Parsed Feishu message event from webhook");
+        let action = extract_channel_action(&message_event).unwrap_or(ChannelAction::Ignore);
+        debug!(action = ?action, "Extracted channel action from Feishu webhook message");
+        Ok(action)
     }
 }
