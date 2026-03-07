@@ -250,11 +250,19 @@ pub struct ModelInfo {
     pub temperature: Option<f64>,
     pub is_default: Option<bool>,
     pub builtin: Option<bool>,
+    pub default_reasoning_level: Option<String>,
+    pub supported_reasoning_levels: Option<Vec<ReasoningEffortPreset>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ModelsResponse {
     pub models: Vec<ModelInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningEffortPreset {
+    pub effort: String,
+    pub description: String,
 }
 
 // ── Agents ──
@@ -303,6 +311,8 @@ pub struct AgentDetail {
     pub system_prompt: Option<String>,
     pub status: Option<String>,
     pub created_at: Option<String>,
+    pub thinking: Option<String>,
+    pub verbose: Option<String>,
     pub emoji: Option<String>,
     pub theme_color: Option<String>,
     pub is_default: Option<bool>,

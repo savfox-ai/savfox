@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use dioxus::prelude::*;
 use serde_json::{Value, json};
 
-use crate::api::types::ModelsResponse;
+use crate::api::types::{ModelsResponse, ReasoningEffortPreset};
 use crate::api::ws::WsRpc;
 use crate::utils::model_visibility::{
     ModelKey, is_model_visible, load_model_preferences, save_model_preferences,
@@ -429,6 +429,8 @@ struct ModelEntry {
     id: String,
     name: String,
     provider: Option<String>,
+    default_reasoning_level: Option<String>,
+    supported_reasoning_levels: Option<Vec<ReasoningEffortPreset>>,
 }
 
 fn model_provider_id(provider: Option<&str>, model_id: &str) -> String {
@@ -458,6 +460,8 @@ fn build_model_entries(
                 id: model.id.clone(),
                 name: model.name.unwrap_or_else(|| model.id.clone()),
                 provider: Some(provider_id),
+                default_reasoning_level: model.default_reasoning_level,
+                supported_reasoning_levels: model.supported_reasoning_levels,
             }
         })
         .collect::<Vec<_>>();
@@ -1021,13 +1025,25 @@ fn render_step_summary(
                                     .enumerate()
                                     .map(|(i, entry)| {
                                         let model_slug = entry.id.split('/').last().unwrap_or(&entry.id);
-                                        json!({
+                                        let mut model_entry = json!({
                                             "id": entry.id,
                                             "model_slug": model_slug,
                                             "name": entry.name,
                                             "provider": provider_id,
                                             "is_default": i == 0,
-                                        })
+                                        });
+                                        if let Some(default_reasoning_level) = &entry.default_reasoning_level {
+                                            model_entry["default_reasoning_level"] =
+                                                json!(default_reasoning_level);
+                                        }
+                                        if let Some(supported_reasoning_levels) =
+                                            &entry.supported_reasoning_levels
+                                        {
+                                            model_entry["supported_reasoning_levels"] =
+                                                serde_json::to_value(supported_reasoning_levels)
+                                                    .unwrap_or(Value::Null);
+                                        }
+                                        model_entry
                                     })
                                     .collect();
 

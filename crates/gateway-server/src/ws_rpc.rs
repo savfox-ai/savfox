@@ -257,8 +257,12 @@ pub(crate) async fn dispatch_rpc(
         "exec.approvals.set" => handle_exec_approvals_set(&params, channel).await,
         "exec.approvals.node.get" => handle_exec_approvals_node_get(&params, channel).await,
         "exec.approvals.node.set" => handle_exec_approvals_node_set(&params, channel).await,
-        "exec.approval.request" => handle_exec_approval_request(&params, channel, session_mgr).await,
-        "exec.approval.resolve" => handle_exec_approval_resolve(&params, channel, session_mgr).await,
+        "exec.approval.request" => {
+            handle_exec_approval_request(&params, channel, session_mgr).await
+        }
+        "exec.approval.resolve" => {
+            handle_exec_approval_resolve(&params, channel, session_mgr).await
+        }
 
         // ── Usage ───────────────────────────────────────────────────────
         "usage.status" => handle_usage_status(session_store).await,
@@ -1222,13 +1226,14 @@ fn normalize_agent_config(config: &mut Value, fallback_id: &str, builtin: bool) 
         .is_none_or(|value| value.is_empty());
     if name_missing {
         let default_name = default_agent_name_from_config(config, fallback_id);
-        let default_name =
-            if builtin && fallback_id.eq_ignore_ascii_case("default") && default_name == fallback_id
-            {
-                "Savfox Agent".to_string()
-            } else {
-                default_name
-            };
+        let default_name = if builtin
+            && fallback_id.eq_ignore_ascii_case("default")
+            && default_name == fallback_id
+        {
+            "Savfox Agent".to_string()
+        } else {
+            default_name
+        };
         config["name"] = json!(default_name);
     }
 
@@ -1254,7 +1259,9 @@ fn normalize_agent_config(config: &mut Value, fallback_id: &str, builtin: bool) 
 
 async fn load_default_agent_config(channel: &GatewayChannel) -> Value {
     let path = agents_dir(channel).join("default.json");
-    let mut config = read_agent_config(&path).await.unwrap_or_else(default_agent_stub);
+    let mut config = read_agent_config(&path)
+        .await
+        .unwrap_or_else(default_agent_stub);
     normalize_agent_config(&mut config, "default", true);
     config
 }
@@ -1535,8 +1542,14 @@ async fn handle_agents_create(params: &Value, channel: &Arc<GatewayChannel>) -> 
     if name.is_empty() {
         return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
     }
-    if find_agent_name_conflict(channel, &name, None).await.is_some() {
-        return Err((INVALID_REQUEST, format!("agent name already exists: {name}")));
+    if find_agent_name_conflict(channel, &name, None)
+        .await
+        .is_some()
+    {
+        return Err((
+            INVALID_REQUEST,
+            format!("agent name already exists: {name}"),
+        ));
     }
 
     let description = params
@@ -1647,7 +1660,10 @@ async fn handle_agents_update(params: &Value, channel: &Arc<GatewayChannel>) -> 
             .await
             .is_some()
     {
-        return Err((INVALID_REQUEST, format!("agent name already exists: {name}")));
+        return Err((
+            INVALID_REQUEST,
+            format!("agent name already exists: {name}"),
+        ));
     }
 
     // Read existing config or start fresh.
@@ -4549,7 +4565,10 @@ async fn handle_channels_test(params: &Value, channel: &Arc<GatewayChannel>) -> 
     }))
 }
 
-async fn handle_channels_account_update(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+async fn handle_channels_account_update(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
     let platform = params
         .get("platform")
         .and_then(|v| v.as_str())
@@ -5687,15 +5706,17 @@ async fn persist_detached_matrix_channel_config(
         DetachedBridgeConfig::Delete => {
             // Legacy config patch only represented one matrix channel; map delete to that canonical
             // ID.
-            let _ =
-                channel_store::delete_channel_config(&channel.config().savfox_home, "matrix-matrix")
-                    .await
-                    .map_err(|e| {
-                        (
-                            INTERNAL_ERROR,
-                            format!("failed to delete matrix channel config: {e}"),
-                        )
-                    })?;
+            let _ = channel_store::delete_channel_config(
+                &channel.config().savfox_home,
+                "matrix-matrix",
+            )
+            .await
+            .map_err(|e| {
+                (
+                    INTERNAL_ERROR,
+                    format!("failed to delete matrix channel config: {e}"),
+                )
+            })?;
             let _ = channel_store::delete_channel_config(&channel.config().savfox_home, "matrix")
                 .await
                 .map_err(|e| {
@@ -6499,7 +6520,10 @@ async fn handle_usage_export(params: &Value, session_store: &Arc<SessionStore>) 
 
 /// Path to log rotation config file.
 fn log_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("log-rotation-config.json")
+    channel
+        .config()
+        .savfox_home
+        .join("log-rotation-config.json")
 }
 
 /// Trigger log rotation: clear in-memory log buffer and archive to a timestamped file.
@@ -7105,8 +7129,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        canonical_channel_platform, normalize_agent_config, normalize_config_model_fields,
-        normalized_agent_name_key, saved_channel_config_ready, saved_channel_state,
+        canonical_channel_platform, enrich_model_reasoning_metadata, normalize_agent_config,
+        normalize_config_model_fields, normalized_agent_name_key, saved_channel_config_ready,
+        saved_channel_state,
     };
 
     fn channel_config(
@@ -7270,7 +7295,10 @@ mod tests {
 
     #[test]
     fn normalized_agent_name_key_is_case_insensitive() {
-        assert_eq!(normalized_agent_name_key("  Savfox Agent  "), Some("savfox agent".into()));
+        assert_eq!(
+            normalized_agent_name_key("  Savfox Agent  "),
+            Some("savfox agent".into())
+        );
     }
 
     #[test]
@@ -7290,5 +7318,57 @@ mod tests {
         assert_eq!(config["status"], json!("active"));
         assert_eq!(config["model"], json!("volcengine/doubao-seed-2.0-code"));
         assert_eq!(config["fallback_models"], json!(["openai/gpt-5-mini"]));
+    }
+
+    #[test]
+    fn enrich_model_reasoning_metadata_uses_registry_levels() {
+        let mut model = json!({
+            "id": "openai/gpt-5.2-codex",
+            "provider": "openai",
+            "model_slug": "gpt-5.2-codex",
+        });
+
+        enrich_model_reasoning_metadata(&mut model);
+
+        assert_eq!(model["default_reasoning_level"], json!("medium"));
+        assert_eq!(
+            model["supported_reasoning_levels"][0]["effort"],
+            json!("low")
+        );
+        assert_eq!(
+            model["supported_reasoning_levels"][1]["effort"],
+            json!("medium")
+        );
+    }
+
+    #[test]
+    fn enrich_model_reasoning_metadata_synthesizes_binary_reasoning_levels() {
+        let mut model = json!({
+            "id": "volcengine/doubao-seed-2.0-code",
+            "provider": "volcengine",
+            "model_slug": "doubao-seed-2.0-code",
+            "options": {
+                "thinking": {
+                    "type": "enabled"
+                }
+            }
+        });
+
+        enrich_model_reasoning_metadata(&mut model);
+
+        assert_eq!(model["default_reasoning_level"], json!("medium"));
+        assert_eq!(
+            model["supported_reasoning_levels"],
+            json!([
+                {
+                    "effort": "none",
+                    "description": "Disable additional reasoning for faster responses",
+                },
+                {
+                    "effort": "medium",
+                    "description": "Enable provider-managed reasoning",
+                }
+            ])
+        );
     }
 }

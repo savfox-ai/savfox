@@ -1769,7 +1769,10 @@ async fn handle_exec_approvals_set(params: &Value, channel: &Arc<GatewayChannel>
         .map_err(|err| (INVALID_REQUEST, err))
 }
 
-async fn handle_exec_approvals_node_get(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+async fn handle_exec_approvals_node_get(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'node_id' parameter".to_string()));
@@ -1779,7 +1782,10 @@ async fn handle_exec_approvals_node_get(params: &Value, channel: &Arc<GatewayCha
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-async fn handle_exec_approvals_node_set(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+async fn handle_exec_approvals_node_set(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
     let node_id = params.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
     if node_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'node_id' parameter".to_string()));
@@ -2963,6 +2969,142 @@ fn model_test_model_item_field(item: &Value, keys: &[&str]) -> Option<String> {
         .find_map(|key| model_test_nonempty_string(item.get(*key)))
 }
 
+fn model_reasoning_flag(item: &Value) -> bool {
+    item.get("supports_reasoning")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || item
+            .get("reasoning")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || item
+            .get("capabilities")
+            .and_then(|value| value.get("reasoning"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || item
+            .get("options")
+            .and_then(|value| value.get("thinking"))
+            .and_then(|value| value.get("type"))
+            .and_then(Value::as_str)
+            .map(|value| matches!(value.trim(), "enabled" | "auto"))
+            .unwrap_or(false)
+}
+
+fn binary_reasoning_levels_value() -> Value {
+    json!([
+        {
+            "effort": "none",
+            "description": "Disable additional reasoning for faster responses",
+        },
+        {
+            "effort": "medium",
+            "description": "Enable provider-managed reasoning",
+        }
+    ])
+}
+
+fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
+    let raw_id = entry.get("id").and_then(Value::as_str).map(str::trim);
+    let parsed_from_id = raw_id
+        .filter(|value| !value.is_empty())
+        .and_then(savfox_core::parse_provider_prefixed_model)
+        .map(|(provider_id, model_slug)| {
+            (
+                canonical_models_provider_id(provider_id),
+                model_slug.trim().to_string(),
+            )
+        });
+
+    let provider_id = entry
+        .get("provider")
+        .and_then(|value| match value {
+            Value::String(provider) => Some(provider.to_string()),
+            Value::Object(provider) => provider
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+            _ => None,
+        })
+        .map(|value| canonical_models_provider_id(&value))
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            parsed_from_id
+                .as_ref()
+                .map(|(provider_id, _)| provider_id.clone())
+        })?;
+
+    let model_slug = entry
+        .get("model_slug")
+        .and_then(Value::as_str)
+        .or_else(|| entry.get("code").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| parsed_from_id.map(|(_, model_slug)| model_slug))?;
+
+    Some((provider_id, model_slug))
+}
+
+fn enrich_model_reasoning_metadata(entry: &mut Value) {
+    let provider_and_slug = extract_model_provider_and_slug(entry);
+    let registry_model = provider_and_slug
+        .as_ref()
+        .and_then(|(provider_id, model_slug)| {
+            savfox_model::provider_model_info(provider_id, model_slug)
+        });
+    let source_supports_reasoning = model_reasoning_flag(entry);
+
+    let Some(model) = entry.as_object_mut() else {
+        return;
+    };
+
+    if let Some(registry_model) = registry_model {
+        if model.get("default_reasoning_level").is_none()
+            && let Some(default_reasoning_level) = registry_model.default_reasoning_level
+        {
+            model.insert(
+                "default_reasoning_level".to_string(),
+                serde_json::to_value(default_reasoning_level).unwrap_or(Value::Null),
+            );
+        }
+
+        let has_supported_levels = model
+            .get("supported_reasoning_levels")
+            .and_then(Value::as_array)
+            .is_some_and(|levels| !levels.is_empty());
+        if !has_supported_levels && !registry_model.supported_reasoning_levels.is_empty() {
+            model.insert(
+                "supported_reasoning_levels".to_string(),
+                serde_json::to_value(registry_model.supported_reasoning_levels)
+                    .unwrap_or(Value::Null),
+            );
+        }
+    }
+
+    let has_supported_levels = model
+        .get("supported_reasoning_levels")
+        .and_then(Value::as_array)
+        .is_some_and(|levels| !levels.is_empty());
+    let has_default_reasoning = model
+        .get("default_reasoning_level")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+
+    if source_supports_reasoning || has_supported_levels || has_default_reasoning {
+        if !has_default_reasoning {
+            model.insert("default_reasoning_level".to_string(), json!("medium"));
+        }
+        if !has_supported_levels {
+            model.insert(
+                "supported_reasoning_levels".to_string(),
+                binary_reasoning_levels_value(),
+            );
+        }
+    }
+}
+
 fn model_test_parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
     let models = match model_test_extract_models_array(payload) {
         Some(items) => items,
@@ -3030,7 +3172,33 @@ fn model_test_parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<V
         if !provider.is_empty() {
             entry.insert("provider".to_string(), json!(provider));
         }
-        parsed.push(Value::Object(entry));
+        if let Some(default_reasoning_level) = item
+            .get("default_reasoning_level")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            entry.insert(
+                "default_reasoning_level".to_string(),
+                json!(default_reasoning_level),
+            );
+        }
+        if let Some(supported_reasoning_levels) = item
+            .get("supported_reasoning_levels")
+            .filter(|value| value.is_array())
+        {
+            entry.insert(
+                "supported_reasoning_levels".to_string(),
+                supported_reasoning_levels.clone(),
+            );
+        }
+        if model_reasoning_flag(item) {
+            entry.insert("supports_reasoning".to_string(), json!(true));
+        }
+
+        let mut value = Value::Object(entry);
+        enrich_model_reasoning_metadata(&mut value);
+        parsed.push(value);
     }
 
     parsed
@@ -3193,6 +3361,7 @@ async fn handle_models_list(params: &Value, channel: &Arc<GatewayChannel>) -> Rp
             // Never expose secrets over the wire.
             map.remove("api_key");
         }
+        enrich_model_reasoning_metadata(&mut entry);
         models.push(entry);
     }
 
@@ -3607,4 +3776,3 @@ async fn handle_tools_invoke(params: &Value, channel: &Arc<GatewayChannel>) -> R
         Err(err) => Err((INTERNAL_ERROR, format!("tool invocation failed: {err}"))),
     }
 }
-

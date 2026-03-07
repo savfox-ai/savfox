@@ -51,6 +51,80 @@ fn has_agent_name_conflict(
     })
 }
 
+fn normalized_reasoning_level(level: &str) -> Option<String> {
+    let trimmed = level.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = match trimmed.to_ascii_lowercase().as_str() {
+        "none" | "off" => "off",
+        "minimal" => "minimal",
+        "low" => "low",
+        "medium" => "medium",
+        "high" => "high",
+        "xhigh" => "xhigh",
+        other => return Some(other.to_string()),
+    };
+
+    Some(normalized.to_string())
+}
+
+fn reasoning_level_label(level: &str) -> &'static str {
+    match level {
+        "off" => "Off",
+        "minimal" => "Minimal",
+        "low" => "Low",
+        "medium" => "Medium",
+        "high" => "High",
+        "xhigh" => "XHigh",
+        _ => "Custom",
+    }
+}
+
+fn normalized_reasoning_presets(model: Option<&ModelInfo>) -> Vec<(String, String)> {
+    let Some(model) = model else {
+        return Vec::new();
+    };
+
+    let mut presets = Vec::new();
+    for preset in model
+        .supported_reasoning_levels
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+    {
+        let Some(effort) = normalized_reasoning_level(&preset.effort) else {
+            continue;
+        };
+        if presets.iter().any(|(value, _)| value == &effort) {
+            continue;
+        }
+        presets.push((effort, preset.description.clone()));
+    }
+    presets
+}
+
+fn model_default_reasoning_level(model: Option<&ModelInfo>) -> Option<String> {
+    model.and_then(|model| {
+        model
+            .default_reasoning_level
+            .as_deref()
+            .and_then(normalized_reasoning_level)
+    })
+}
+
+fn selected_model_info<'a>(models: &'a [ModelInfo], model_id: &str) -> Option<&'a ModelInfo> {
+    let trimmed = model_id.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    models
+        .iter()
+        .find(|model| model.id.eq_ignore_ascii_case(trimmed))
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -552,9 +626,20 @@ fn AgentOverviewTab(
     let initial_model = entry
         .model
         .clone()
-        .or_else(|| entry.models.as_ref().and_then(|models| models.primary.clone()))
+        .or_else(|| {
+            entry
+                .models
+                .as_ref()
+                .and_then(|models| models.primary.clone())
+        })
         .unwrap_or_default();
     let mut form_model = use_signal(move || initial_model.clone());
+    let initial_reasoning = entry
+        .thinking
+        .as_deref()
+        .and_then(normalized_reasoning_level)
+        .unwrap_or_default();
+    let mut form_reasoning = use_signal(move || initial_reasoning.clone());
 
     let mut form_fallback = use_signal(String::new);
     let mut form_emoji = use_signal(String::new);
@@ -579,7 +664,10 @@ fn AgentOverviewTab(
         }
     });
 
-    let detail_snapshot = detail_data.read().as_ref().and_then(|detail| detail.clone());
+    let detail_snapshot = detail_data
+        .read()
+        .as_ref()
+        .and_then(|detail| detail.clone());
     if !detail_seeded() {
         if let Some(ref detail) = detail_snapshot {
             let fallback = detail
@@ -594,6 +682,13 @@ fn AgentOverviewTab(
                     .theme_color
                     .clone()
                     .unwrap_or_else(|| "#6366f1".to_string()),
+            );
+            form_reasoning.set(
+                detail
+                    .thinking
+                    .as_deref()
+                    .and_then(normalized_reasoning_level)
+                    .unwrap_or_default(),
             );
             form_default.set(detail.is_default.unwrap_or(false));
             detail_seeded.set(true);
@@ -613,14 +708,61 @@ fn AgentOverviewTab(
         }
     });
     let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
+    let selected_model = selected_model_info(&models, &form_model());
+    let mut reasoning_presets = normalized_reasoning_presets(selected_model);
+    if reasoning_presets.is_empty() && !form_reasoning().is_empty() {
+        reasoning_presets.push((
+            form_reasoning(),
+            "Current saved override for this agent.".to_string(),
+        ));
+    }
+    let reasoning_default = model_default_reasoning_level(selected_model);
+    let reasoning_default_label = reasoning_default
+        .as_deref()
+        .map(reasoning_level_label)
+        .map(ToString::to_string);
+    let reasoning_helper = if form_reasoning().is_empty() {
+        reasoning_default_label
+            .as_ref()
+            .map(|label| format!("Uses the model default reasoning effort ({label})."))
+            .unwrap_or_else(|| "No reasoning effort override is set.".to_string())
+    } else {
+        let selected_value = form_reasoning();
+        reasoning_presets
+            .iter()
+            .find(|(effort, _)| effort == &selected_value)
+            .map(|(_, description)| description.clone())
+            .unwrap_or_else(|| "Uses a custom reasoning effort override.".to_string())
+    };
+    let show_reasoning_settings = !reasoning_presets.is_empty() || !form_reasoning().is_empty();
 
     let entry_is_default = agent_id.eq_ignore_ascii_case("default");
 
     // Dirty tracking
     let is_dirty = {
         let orig_name = entry.name.clone();
-        let orig_model = entry.model.clone().unwrap_or_default();
+        let orig_model = entry
+            .model
+            .clone()
+            .or_else(|| {
+                entry
+                    .models
+                    .as_ref()
+                    .and_then(|models| models.primary.clone())
+            })
+            .unwrap_or_default();
         let orig_desc = entry.system_prompt.clone().unwrap_or_default();
+        let orig_reasoning = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.thinking.as_deref())
+            .and_then(normalized_reasoning_level)
+            .or_else(|| {
+                entry
+                    .thinking
+                    .as_deref()
+                    .and_then(normalized_reasoning_level)
+            })
+            .unwrap_or_default();
         let orig_fallback = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.fallback_models.as_ref())
@@ -642,6 +784,7 @@ fn AgentOverviewTab(
         form_name() != orig_name
             || form_model() != orig_model
             || form_desc() != orig_desc
+            || form_reasoning() != orig_reasoning
             || form_fallback() != orig_fallback
             || form_emoji() != orig_emoji
             || form_default() != orig_default
@@ -733,6 +876,37 @@ fn AgentOverviewTab(
                                     option { key: "{m.id}", value: "{m.id}", "{label}" }
                                 }
                             }
+                        }
+                    }
+                }
+                if show_reasoning_settings {
+                    div { style: "margin-top:12px;",
+                        label { style: "{LABEL}", "Reasoning Effort" }
+                        select {
+                            value: "{form_reasoning}",
+                            onchange: move |e| {
+                                let next = normalized_reasoning_level(&e.value()).unwrap_or_default();
+                                form_reasoning.set(next);
+                            },
+                            style: "{INPUT}",
+                            option {
+                                value: "",
+                                if let Some(ref label) = reasoning_default_label {
+                                    "Model default ({label})"
+                                } else {
+                                    "Model default"
+                                }
+                            }
+                            for (effort, _) in reasoning_presets.iter() {
+                                option {
+                                    key: "{effort}",
+                                    value: "{effort}",
+                                    "{reasoning_level_label(effort)}"
+                                }
+                            }
+                        }
+                        p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                            "{reasoning_helper}"
                         }
                     }
                 }
@@ -917,6 +1091,7 @@ fn AgentOverviewTab(
                             }
                             let model_val = form_model().trim().to_string();
                             let desc_val = form_desc();
+                            let reasoning_val = form_reasoning();
                             let fallback_str = form_fallback();
                             let emoji_val = form_emoji().trim().to_string();
                             let is_default = form_default();
@@ -941,6 +1116,11 @@ fn AgentOverviewTab(
                                     models_obj["fallbacks"] = json!(fallback_list.clone());
                                 }
                                 params["models"] = models_obj;
+                                params["thinking"] = if reasoning_val.trim().is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    json!(reasoning_val)
+                                };
                                 if !emoji_val.is_empty() {
                                     params["emoji"] = json!(emoji_val);
                                 }
