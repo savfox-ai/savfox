@@ -5,7 +5,7 @@ use salvo::prelude::*;
 #[folder = "static"]
 struct StaticAssets;
 
-/// SPA handler: serve static files from the embedded `gateway-dixous/dist/` directory.
+/// SPA handler: serve static files from the embedded `gateway-dioxus/dist/` directory.
 ///
 /// 1. Try to match the request path to an exact embedded file.
 /// 2. If not found, fall back to `index.html` (for client-side routing).

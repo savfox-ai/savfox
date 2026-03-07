@@ -37,7 +37,7 @@ web-build-release:
 
 # Live-reload web frontend (run alongside `just gateway-skip-web` in another terminal)
 web-serve:
-    Push-Location crates/gateway-dixous; dx serve --web; Pop-Location
+    Push-Location crates/gateway-dioxus; dx serve --web; Pop-Location
 
 # ── General Cargo ─────────────────────────────────────────────────────────────
 

@@ -63,7 +63,7 @@ function Sync-BuildOutput {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
-$webDir = Join-Path $repoRoot "crates/gateway-dixous"
+$webDir = Join-Path $repoRoot "crates/gateway-dioxus"
 $dioxusTomlPath = Join-Path $webDir "Dioxus.toml"
 
 Push-Location $webDir

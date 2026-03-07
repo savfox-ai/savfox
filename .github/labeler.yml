@@ -10,7 +10,7 @@ gateway:
 
 web-ui:
   - changed-files:
-      - any-glob-to-any-file: "crates/gateway-dixous/**"
+      - any-glob-to-any-file: "crates/gateway-dioxus/**"
 
 cli:
   - changed-files:

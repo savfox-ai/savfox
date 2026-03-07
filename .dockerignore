@@ -4,5 +4,5 @@ target/
 docs/
 deploy/
 .github/
-crates/gateway-dixous/target/
-crates/gateway-dixous/dist/
+crates/gateway-dioxus/target/
+crates/gateway-dioxus/dist/

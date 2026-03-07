@@ -341,7 +341,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 scraper = "0.25.0"
 feishu-sdk = { path = "../../palpo-im/feishu-sdk", features = ["websocket"] }
 
-# WASM dependencies for gateway-dixous
+# WASM dependencies for gateway-dioxus
 dioxus = { version = "0.7", default-features = false, features = ["web", "router", "lib", "launch", "logger"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

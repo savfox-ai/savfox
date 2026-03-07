@@ -39,7 +39,7 @@ cargo build --release
 cargo build -p savfox-gateway-server
 
 # Build the web UI (requires dioxus-cli)
-cd crates/gateway-dixous && dx build --release
+cd crates/gateway-dioxus && dx build --release
 ```
 
 ### Testing

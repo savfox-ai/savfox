@@ -10,7 +10,7 @@ COPY .cargo/ .cargo/
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
 
-WORKDIR /src/crates/gateway-dixous
+WORKDIR /src/crates/gateway-dioxus
 RUN dx build --release
 
 # ---------------------------------------------------------------------------
@@ -27,8 +27,8 @@ WORKDIR /src
 COPY . .
 
 # Copy pre-built web assets into the location rust-embed expects
-COPY --from=web-builder /src/crates/gateway-dixous/dist/ \
-     crates/gateway-dixous/dist/
+COPY --from=web-builder /src/crates/gateway-dioxus/dist/ \
+     crates/gateway-dioxus/dist/
 
 RUN cargo build --release --bin savfox && \
     strip target/release/savfox

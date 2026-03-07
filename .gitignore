@@ -29,3 +29,4 @@ crates/gateway-server/static
 .tmp*
 *.log
 *.tmp
+.gitnexus

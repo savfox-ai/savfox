@@ -37,7 +37,7 @@ jobs:
               - 'Dockerfile*'
               - 'docker-compose.yml'
             web:
-              - 'crates/gateway-dixous/**'
+              - 'crates/gateway-dioxus/**'
 
   # ─── Formatting ────────────────────────────────────────────────────
   fmt:
@@ -198,12 +198,12 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/gateway-dixous
+          workspaces: crates/gateway-dioxus
           key: web-wasm
       - name: Install Dioxus CLI
         run: cargo install dioxus-cli --locked
       - name: Build Web UI
-        working-directory: crates/gateway-dixous
+        working-directory: crates/gateway-dioxus
         run: dx build --release
 
   # ─── Docker build (linux only) ─────────────────────────────────────
