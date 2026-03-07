@@ -895,19 +895,35 @@ async fn handle_agent_capabilities(params: &Value, channel: &Arc<GatewayChannel>
     // Channels: derive from configured channel secrets.
     let channels: Vec<String> = {
         let runtime = channel.runtime_channel_secrets().await;
+        let saved_configs = load_saved_channel_configs(channel).await;
+        let nostr_profile = load_nostr_profile(channel).await;
+        let nostr_configured = nostr_profile
+            .get("private_key")
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| !v.trim().is_empty());
         let mut ch = Vec::new();
-        if runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok() {
-            ch.push("discord".to_string());
+        for platform in [
+            "discord",
+            "telegram",
+            "slack",
+            "webhook",
+            "matrix",
+            "dingtalk",
+            "feishu",
+            "mattermost",
+            "googlechat",
+            "line",
+            "irc",
+            "signal",
+            "whatsapp",
+            "nostr",
+        ] {
+            if channel_is_configured(platform, &runtime, &saved_configs, nostr_configured) {
+                ch.push(platform.to_string());
+            }
         }
-        if runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok() {
-            ch.push("telegram".to_string());
-        }
-        if runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok() {
-            ch.push("slack".to_string());
-        }
-        if runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok() {
-            ch.push("webhook".to_string());
-        }
+        ch.sort();
+        ch.dedup();
         ch
     };
 
@@ -3676,16 +3692,298 @@ async fn handle_channels_list(_channel: &Arc<GatewayChannel>) -> RpcResult {
     Ok(json!({ "channels": channels }))
 }
 
+#[derive(Clone, Debug, Default)]
+struct SavedChannelState {
+    exists: bool,
+    enabled: bool,
+    ready: bool,
+    channel_name: Option<String>,
+    config: Option<savfox_core::config::channel_store::ChannelConfig>,
+}
+
+fn canonical_channel_platform(platform: &str) -> String {
+    match platform.trim().to_ascii_lowercase().as_str() {
+        "lark" => "feishu".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn channel_platform_matches_kind(kind: &str, platform: &str) -> bool {
+    canonical_channel_platform(kind) == canonical_channel_platform(platform)
+}
+
+fn first_non_empty_channel_config_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key).and_then(|value| {
+            let text = value.as_str()?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        })
+    })
+}
+
+fn first_channel_config_bool(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| map.get(*key).and_then(Value::as_bool))
+}
+
+fn saved_channel_config_ready(config: &savfox_core::config::channel_store::ChannelConfig) -> bool {
+    let Some(raw) = config.config.as_object() else {
+        return false;
+    };
+
+    match canonical_channel_platform(&config.kind).as_str() {
+        "discord" => {
+            first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
+                .is_some()
+        }
+        "telegram" => {
+            first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
+                .is_some()
+        }
+        "slack" => first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
+            .is_some(),
+        "webhook" => first_non_empty_channel_config_string(
+            raw,
+            &["secret", "webhook_secret", "verify_token"],
+        )
+        .is_some(),
+        "dingtalk" => {
+            savfox_channels::dingtalk::DingtalkChannelConfig::from_channel_config(config).is_some()
+        }
+        "feishu" => savfox_channels::feishu::FeishuChannelConfig::from_channel_config(config)
+            .is_some_and(|parsed| {
+                parsed
+                    .app_access_token
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty())
+                    || (parsed
+                        .app_id
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+                        && parsed
+                            .app_secret
+                            .as_deref()
+                            .is_some_and(|value| !value.trim().is_empty()))
+            }),
+        "matrix" => first_non_empty_channel_config_string(
+            raw,
+            &["accessToken", "access_token", "token", "password"],
+        )
+        .is_some(),
+        "mattermost" => {
+            first_non_empty_channel_config_string(raw, &["server_url", "serverUrl"]).is_some()
+                && first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
+                    .is_some()
+        }
+        "whatsapp" => {
+            first_non_empty_channel_config_string(raw, &["access_token", "accessToken"]).is_some()
+                && first_non_empty_channel_config_string(raw, &["phone_number_id", "phoneNumberId"])
+                    .is_some()
+        }
+        _ => !raw.is_empty(),
+    }
+}
+
+fn saved_channel_stream_enabled(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+) -> bool {
+    match canonical_channel_platform(&config.kind).as_str() {
+        "dingtalk" => savfox_channels::dingtalk::DingtalkChannelConfig::from_channel_config(config)
+            .is_some_and(|parsed| parsed.stream_enabled()),
+        "feishu" => savfox_channels::feishu::FeishuChannelConfig::from_channel_config(config)
+            .is_some_and(|parsed| {
+                parsed.stream_enabled()
+                    && parsed
+                        .app_id
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+                    && parsed
+                        .app_secret
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+            }),
+        _ => false,
+    }
+}
+
+fn saved_channel_state(
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+    platform: &str,
+) -> SavedChannelState {
+    let preferred = saved_configs
+        .iter()
+        .find(|cfg| {
+            channel_platform_matches_kind(&cfg.kind, platform)
+                && cfg.enabled
+                && saved_channel_config_ready(cfg)
+        })
+        .or_else(|| {
+            saved_configs
+                .iter()
+                .find(|cfg| channel_platform_matches_kind(&cfg.kind, platform) && cfg.enabled)
+        })
+        .or_else(|| {
+            saved_configs
+                .iter()
+                .find(|cfg| channel_platform_matches_kind(&cfg.kind, platform))
+        });
+
+    SavedChannelState {
+        exists: saved_configs
+            .iter()
+            .any(|cfg| channel_platform_matches_kind(&cfg.kind, platform)),
+        enabled: saved_configs
+            .iter()
+            .any(|cfg| channel_platform_matches_kind(&cfg.kind, platform) && cfg.enabled),
+        ready: saved_configs.iter().any(|cfg| {
+            channel_platform_matches_kind(&cfg.kind, platform)
+                && cfg.enabled
+                && saved_channel_config_ready(cfg)
+        }),
+        channel_name: preferred.map(|cfg| cfg.name.clone()),
+        config: preferred.cloned(),
+    }
+}
+
+async fn load_saved_channel_configs(
+    channel: &GatewayChannel,
+) -> Vec<savfox_core::config::channel_store::ChannelConfig> {
+    savfox_core::config::channel_store::list_channel_configs(&channel.config().savfox_home)
+        .await
+        .unwrap_or_default()
+}
+
+fn runtime_channel_configured(
+    platform: &str,
+    runtime: &crate::channel::RuntimeBridgeSecrets,
+) -> bool {
+    match canonical_channel_platform(platform).as_str() {
+        "discord" => {
+            runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok()
+        }
+        "telegram" => {
+            runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok()
+        }
+        "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
+        "webhook" => runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok(),
+        "dingtalk" => {
+            std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
+                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok()
+        }
+        "feishu" => {
+            std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
+                || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
+        }
+        "matrix" => std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
+        "whatsapp" => {
+            std::env::var("WHATSAPP_ACCESS_TOKEN").is_ok()
+                && std::env::var("WHATSAPP_PHONE_NUMBER_ID").is_ok()
+        }
+        _ => false,
+    }
+}
+
+fn channel_is_configured(
+    platform: &str,
+    runtime: &crate::channel::RuntimeBridgeSecrets,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+    nostr_configured: bool,
+) -> bool {
+    let platform = canonical_channel_platform(platform);
+    if platform == "nostr" {
+        return nostr_configured;
+    }
+
+    runtime_channel_configured(&platform, runtime)
+        || saved_channel_state(saved_configs, &platform).ready
+}
+
+fn insert_saved_channel_metadata(
+    info: &mut serde_json::Map<String, Value>,
+    platform: &str,
+    saved_state: &SavedChannelState,
+) {
+    info.insert("saved".to_string(), json!(saved_state.exists));
+    if !saved_state.exists {
+        return;
+    }
+
+    info.insert("enabled".to_string(), json!(saved_state.enabled));
+    if let Some(name) = saved_state.channel_name.as_ref() {
+        info.insert("channelName".to_string(), json!(name));
+    }
+
+    let Some(config_obj) = saved_state
+        .config
+        .as_ref()
+        .and_then(|config| config.config.as_object())
+    else {
+        return;
+    };
+
+    match canonical_channel_platform(platform).as_str() {
+        "telegram" => {
+            let mode = if first_channel_config_bool(config_obj, &["polling"]).unwrap_or(false) {
+                "polling"
+            } else {
+                "webhook"
+            };
+            info.insert("mode".to_string(), json!(mode));
+        }
+        "slack" => {
+            if let Some(workspace_name) = first_non_empty_channel_config_string(
+                config_obj,
+                &["workspace_name", "workspace", "team_name", "team"],
+            ) {
+                info.insert("workspace_name".to_string(), json!(workspace_name));
+            }
+        }
+        "matrix" => {
+            if let Some(homeserver) = first_non_empty_channel_config_string(
+                config_obj,
+                &["homeserver", "homeserver_url", "server_url"],
+            ) {
+                info.insert("homeserver".to_string(), json!(homeserver));
+            }
+            if let Some(user_id) =
+                first_non_empty_channel_config_string(config_obj, &["userId", "user_id"])
+            {
+                info.insert("user_id".to_string(), json!(user_id));
+            }
+        }
+        "mattermost" => {
+            if let Some(server_url) =
+                first_non_empty_channel_config_string(config_obj, &["server_url", "serverUrl"])
+            {
+                info.insert("server_url".to_string(), json!(server_url));
+            }
+            if let Some(team_name) =
+                first_non_empty_channel_config_string(config_obj, &["team_name", "teamName"])
+            {
+                info.insert("team_name".to_string(), json!(team_name));
+            }
+        }
+        "feishu" => {
+            if let Some(app_id) =
+                first_non_empty_channel_config_string(config_obj, &["appId", "app_id"])
+            {
+                info.insert("app_id".to_string(), json!(app_id));
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
     let runtime = channel.runtime_channel_secrets().await;
-    let discord_configured =
-        runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok();
-    let telegram_configured =
-        runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok();
-    let slack_configured =
-        runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok();
-    let webhook_configured =
-        runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok();
+    let saved_configs = load_saved_channel_configs(channel).await;
     let probe_requested = params
         .get("probe")
         .and_then(|v| v.as_bool())
@@ -3706,6 +4004,39 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         .and_then(|v| v.as_array())
         .map(|arr| arr.len() as u32)
         .unwrap_or(0);
+    let discord_configured =
+        channel_is_configured("discord", &runtime, &saved_configs, nostr_configured);
+    let telegram_configured =
+        channel_is_configured("telegram", &runtime, &saved_configs, nostr_configured);
+    let slack_configured =
+        channel_is_configured("slack", &runtime, &saved_configs, nostr_configured);
+    let matrix_configured =
+        channel_is_configured("matrix", &runtime, &saved_configs, nostr_configured);
+    let whatsapp_configured =
+        channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
+    let signal_configured =
+        channel_is_configured("signal", &runtime, &saved_configs, nostr_configured);
+    let mattermost_configured =
+        channel_is_configured("mattermost", &runtime, &saved_configs, nostr_configured);
+    let googlechat_configured =
+        channel_is_configured("googlechat", &runtime, &saved_configs, nostr_configured);
+    let webhook_configured =
+        channel_is_configured("webhook", &runtime, &saved_configs, nostr_configured);
+    let irc_configured = channel_is_configured("irc", &runtime, &saved_configs, nostr_configured);
+    let line_configured = channel_is_configured("line", &runtime, &saved_configs, nostr_configured);
+    let dingtalk_saved = saved_channel_state(&saved_configs, "dingtalk");
+    let dingtalk_configured =
+        runtime_channel_configured("dingtalk", &runtime) || dingtalk_saved.ready;
+    let dingtalk_running = dingtalk_saved
+        .config
+        .as_ref()
+        .is_some_and(saved_channel_stream_enabled);
+    let feishu_saved = saved_channel_state(&saved_configs, "feishu");
+    let feishu_configured = runtime_channel_configured("feishu", &runtime) || feishu_saved.ready;
+    let feishu_running = feishu_saved
+        .config
+        .as_ref()
+        .is_some_and(saved_channel_stream_enabled);
 
     let mut channels = json!({
         "discord": {
@@ -3724,29 +4055,29 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
             "connected": slack_configured,
         },
         "matrix": {
-            "configured": false,
+            "configured": matrix_configured,
             "running": false,
             "connected": false,
         },
         "whatsapp": {
-            "configured": false,
+            "configured": whatsapp_configured,
             "running": false,
             "connected": false,
             "linked": false,
             "qr_data_url": Value::Null,
         },
         "signal": {
-            "configured": false,
+            "configured": signal_configured,
             "running": false,
             "connected": false,
         },
         "mattermost": {
-            "configured": false,
+            "configured": mattermost_configured,
             "running": false,
             "connected": false,
         },
         "googlechat": {
-            "configured": false,
+            "configured": googlechat_configured,
             "running": false,
             "connected": false,
         },
@@ -3756,24 +4087,23 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
             "connected": webhook_configured,
         },
         "irc": {
-            "configured": false,
+            "configured": irc_configured,
             "running": false,
             "connected": false,
         },
         "line": {
-            "configured": false,
+            "configured": line_configured,
             "running": false,
             "connected": false,
         },
         "dingtalk": {
-            "configured": std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
-                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok(),
-            "running": false,
+            "configured": dingtalk_configured,
+            "running": dingtalk_running,
             "connected": false,
         },
         "feishu": {
-            "configured": false,
-            "running": false,
+            "configured": feishu_configured,
+            "running": feishu_running,
             "connected": false,
         },
         "nostr": {
@@ -3786,12 +4116,15 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
     });
 
     // Overlay persisted channel configs so UI can restore configured channels on page load.
-    if let Ok(saved_configs) =
-        savfox_core::config::channel_store::list_channel_configs(&channel.config().savfox_home).await
-        && let Some(channels_map) = channels.as_object_mut()
-    {
-        for saved in saved_configs {
-            let key = saved.kind.to_ascii_lowercase();
+    if let Some(channels_map) = channels.as_object_mut() {
+        let mut processed_platforms = HashSet::new();
+        for saved in &saved_configs {
+            let key = canonical_channel_platform(&saved.kind);
+            if !processed_platforms.insert(key.clone()) {
+                continue;
+            }
+
+            let saved_state = saved_channel_state(&saved_configs, &key);
             let entry = channels_map.entry(key.clone()).or_insert_with(|| {
                 json!({
                     "configured": false,
@@ -3800,10 +4133,13 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
                 })
             });
             if let Some(obj) = entry.as_object_mut() {
-                obj.insert("configured".to_string(), json!(true));
-                obj.insert("saved".to_string(), json!(true));
-                obj.insert("enabled".to_string(), json!(saved.enabled));
-                obj.insert("channelName".to_string(), json!(saved.name));
+                let configured = obj
+                    .get("configured")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || saved_state.ready;
+                obj.insert("configured".to_string(), json!(configured));
+                insert_saved_channel_metadata(obj, &key, &saved_state);
             }
         }
     }
@@ -3880,6 +4216,21 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
                 obj.insert("error_rate".to_string(), json!(error_rate));
                 obj.insert("messages_total".to_string(), json!(send.attempts));
                 obj.insert("messages_failed".to_string(), json!(send.failed));
+                obj.insert(
+                    "last_activity".to_string(),
+                    json!(last_activity_ms.map(|ts| ts as i64)),
+                );
+                obj.insert(
+                    "last_probe_at".to_string(),
+                    json!(metrics.last_probe_time_ms.map(|ts| ts as i64)),
+                );
+                obj.insert(
+                    "probe".to_string(),
+                    json!({
+                        "ok": probe_status == "ok",
+                        "status": probe_status,
+                    }),
+                );
 
                 obj.insert(
                     "lastMessageTime".to_string(),
@@ -3908,8 +4259,9 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
     let requested_channel = params
         .get("channel")
         .or_else(|| params.get("platform"))
-        .and_then(|v| v.as_str());
-    if let Some(channel) = requested_channel {
+        .and_then(|v| v.as_str())
+        .map(canonical_channel_platform);
+    if let Some(channel) = requested_channel.as_deref() {
         if let Some(entry) = channels.get(channel) {
             let mut payload = entry.clone();
             if let Some(obj) = payload.as_object_mut() {
@@ -3928,47 +4280,21 @@ async fn handle_channels_login(params: &Value, channel: &Arc<GatewayChannel>) ->
         .get("platform")
         .or_else(|| params.get("channel"))
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .map(canonical_channel_platform)
+        .unwrap_or_default();
     if platform.is_empty() {
         return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
     }
 
     let runtime = channel.runtime_channel_secrets().await;
-    let saved_channel_enabled = savfox_core::config::channel_store::get_channel_config(
-        &channel.config().savfox_home,
-        platform,
-    )
-    .await
-    .ok()
-    .flatten()
-    .is_some_and(|cfg| cfg.enabled);
+    let saved_configs = load_saved_channel_configs(channel).await;
     let nostr_profile = load_nostr_profile(channel).await;
     let nostr_configured = nostr_profile
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let is_configured = match platform {
-        "discord" => {
-            runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok()
-        }
-        "telegram" => {
-            runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok()
-        }
-        "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
-        "webhook" => runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok(),
-        "dingtalk" => {
-            std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
-                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok()
-        }
-        "feishu" | "lark" => {
-            saved_channel_enabled
-                || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
-                || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
-        }
-        "matrix" => saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
-        "nostr" => nostr_configured,
-        _ => saved_channel_enabled,
-    };
+    let is_configured =
+        channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
 
     Ok(json!({
         "platform": platform,
@@ -3987,13 +4313,14 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
         .get("platform")
         .or_else(|| params.get("channel"))
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .map(canonical_channel_platform)
+        .unwrap_or_default();
     if platform.is_empty() {
         return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
     }
 
     let mut secrets = channel.runtime_channel_secrets().await;
-    match platform {
+    match platform.as_str() {
         "discord" => secrets.discord_bot_token = None,
         "telegram" => secrets.telegram_bot_token = None,
         "slack" => {
@@ -4025,47 +4352,23 @@ async fn handle_channels_test(params: &Value, channel: &Arc<GatewayChannel>) -> 
         .get("platform")
         .or_else(|| params.get("channel"))
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .map(canonical_channel_platform)
+        .unwrap_or_default();
     if platform.is_empty() {
         return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
     }
 
     let runtime = channel.runtime_channel_secrets().await;
-    let saved_channel_enabled = savfox_core::config::channel_store::get_channel_config(
-        &channel.config().savfox_home,
-        platform,
-    )
-    .await
-    .ok()
-    .flatten()
-    .is_some_and(|cfg| cfg.enabled);
+    let saved_configs = load_saved_channel_configs(channel).await;
     let nostr_profile = load_nostr_profile(channel).await;
     let nostr_configured = nostr_profile
         .get("private_key")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    let configured = match platform {
-        "discord" => {
-            runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok()
-        }
-        "telegram" => {
-            runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok()
-        }
-        "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
-        "webhook" => runtime.webhook_secret.is_some() || std::env::var("WEBHOOK_SECRET").is_ok(),
-        "dingtalk" => {
-            std::env::var("DINGTALK_WEBHOOK_URL").is_ok()
-                || std::env::var("DINGTALK_ACCESS_TOKEN").is_ok()
-        }
-        "feishu" | "lark" => {
-            saved_channel_enabled
-                || std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
-                || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
-        }
-        "matrix" => saved_channel_enabled || std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
-        "nostr" => nostr_configured,
-        "whatsapp" => true,
-        _ => saved_channel_enabled,
+    let configured = if platform == "whatsapp" {
+        true
+    } else {
+        channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured)
     };
 
     Ok(json!({
@@ -4325,21 +4628,10 @@ async fn load_channel_accounts(channel: &GatewayChannel) -> Value {
 fn directory_channel_configured(
     channel: &str,
     runtime: &crate::channel::RuntimeBridgeSecrets,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
 ) -> bool {
-    match channel {
-        "discord" => {
-            runtime.discord_bot_token.is_some() || std::env::var("DISCORD_BOT_TOKEN").is_ok()
-        }
-        "telegram" => {
-            runtime.telegram_bot_token.is_some() || std::env::var("TELEGRAM_BOT_TOKEN").is_ok()
-        }
-        "slack" => runtime.slack_bot_token.is_some() || std::env::var("SLACK_BOT_TOKEN").is_ok(),
-        "whatsapp" => {
-            std::env::var("WHATSAPP_ACCESS_TOKEN").is_ok()
-                && std::env::var("WHATSAPP_PHONE_NUMBER_ID").is_ok()
-        }
-        _ => false,
-    }
+    runtime_channel_configured(channel, runtime)
+        || saved_channel_state(saved_configs, channel).ready
 }
 
 async fn handle_directory_self(
@@ -4349,13 +4641,14 @@ async fn handle_directory_self(
 ) -> RpcResult {
     let channels = parse_directory_channels(params)?;
     let runtime = channel.runtime_channel_secrets().await;
+    let saved_configs = load_saved_channel_configs(channel).await;
     let account_doc = load_channel_accounts(channel).await;
     let sessions = session_store.list().await;
 
     let mut accounts = Vec::new();
 
     for channel in &channels {
-        let configured = directory_channel_configured(channel, &runtime);
+        let configured = directory_channel_configured(channel, &runtime, &saved_configs);
         let mut seen_accounts = HashSet::new();
 
         if let Some(account_map) = account_doc
@@ -6644,7 +6937,26 @@ async fn handle_tools_categories() -> RpcResult {
 mod tests {
     use serde_json::json;
 
-    use super::normalize_config_model_fields;
+    use super::{
+        canonical_channel_platform, normalize_config_model_fields, saved_channel_config_ready,
+        saved_channel_state,
+    };
+
+    fn channel_config(
+        kind: &str,
+        enabled: bool,
+        config: serde_json::Value,
+    ) -> savfox_core::config::channel_store::ChannelConfig {
+        savfox_core::config::channel_store::ChannelConfig {
+            id: format!("{kind}-test"),
+            kind: kind.to_string(),
+            name: format!("{kind}-test"),
+            enabled,
+            config,
+            created_at: None,
+            updated_at: None,
+        }
+    }
 
     #[test]
     fn expands_top_level_model_string_into_full_object() {
@@ -6741,5 +7053,51 @@ mod tests {
             config["model"]["provider"]["base_url"],
             json!("https://example.invalid/anthropic")
         );
+    }
+
+    #[test]
+    fn canonicalizes_lark_platform_alias() {
+        assert_eq!(canonical_channel_platform("lark"), "feishu");
+        assert_eq!(canonical_channel_platform("Feishu"), "feishu");
+    }
+
+    #[test]
+    fn lark_saved_config_counts_as_feishu_state() {
+        let saved = vec![channel_config(
+            "lark",
+            true,
+            json!({
+                "app_id": "cli_lark",
+                "app_secret": "secret_lark"
+            }),
+        )];
+
+        let state = saved_channel_state(&saved, "feishu");
+        assert!(state.exists);
+        assert!(state.enabled);
+        assert!(state.ready);
+        assert_eq!(state.channel_name.as_deref(), Some("lark-test"));
+    }
+
+    #[test]
+    fn feishu_saved_config_requires_complete_auth() {
+        let incomplete = channel_config(
+            "feishu",
+            true,
+            json!({
+                "app_id": "cli_incomplete"
+            }),
+        );
+        let complete = channel_config(
+            "feishu",
+            true,
+            json!({
+                "app_id": "cli_complete",
+                "app_secret": "secret_complete"
+            }),
+        );
+
+        assert!(!saved_channel_config_ready(&incomplete));
+        assert!(saved_channel_config_ready(&complete));
     }
 }
