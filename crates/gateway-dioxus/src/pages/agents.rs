@@ -125,6 +125,35 @@ fn selected_model_info<'a>(models: &'a [ModelInfo], model_id: &str) -> Option<&'
         .find(|model| model.id.eq_ignore_ascii_case(trimmed))
 }
 
+fn model_option_label(model: &ModelInfo) -> String {
+    model
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .or_else(|| {
+            model
+                .model_slug
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| model.id.clone())
+}
+
+fn model_select_value(models: &[ModelInfo], model_id: &str) -> String {
+    let trimmed = model_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    selected_model_info(models, trimmed)
+        .map(|model| model.id.clone())
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -670,11 +699,22 @@ fn AgentOverviewTab(
         .and_then(|detail| detail.clone());
     if !detail_seeded() {
         if let Some(ref detail) = detail_snapshot {
+            let detail_model = detail
+                .model
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
             let fallback = detail
                 .fallback_models
                 .as_ref()
                 .map(|items| items.join(", "))
                 .unwrap_or_default();
+            if form_model().trim().is_empty() {
+                if let Some(detail_model) = detail_model {
+                    form_model.set(detail_model);
+                }
+            }
             form_fallback.set(fallback);
             form_emoji.set(detail.emoji.clone().unwrap_or_default());
             form_theme_color.set(
@@ -709,6 +749,8 @@ fn AgentOverviewTab(
     });
     let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
     let selected_model = selected_model_info(&models, &form_model());
+    let selected_model_value = model_select_value(&models, &form_model());
+    let selected_model_missing = !selected_model_value.is_empty() && selected_model.is_none();
     let mut reasoning_presets = normalized_reasoning_presets(selected_model);
     if reasoning_presets.is_empty() && !form_reasoning().is_empty() {
         reasoning_presets.push((
@@ -752,6 +794,8 @@ fn AgentOverviewTab(
             })
             .unwrap_or_default();
         let orig_desc = entry.system_prompt.clone().unwrap_or_default();
+        let current_model = model_select_value(&models, &form_model());
+        let original_model = model_select_value(&models, &orig_model);
         let orig_reasoning = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.thinking.as_deref())
@@ -782,7 +826,7 @@ fn AgentOverviewTab(
             .unwrap_or_else(|| "#6366f1".to_string());
 
         form_name() != orig_name
-            || form_model() != orig_model
+            || current_model != original_model
             || form_desc() != orig_desc
             || form_reasoning() != orig_reasoning
             || form_fallback() != orig_fallback
@@ -865,15 +909,33 @@ fn AgentOverviewTab(
                     }
                 } else {
                     select {
-                        value: "{form_model}",
+                        key: "{selected_model_value}:{models.len()}",
+                        value: "{selected_model_value}",
                         onchange: move |e| form_model.set(e.value()),
                         style: "{INPUT}",
-                        option { value: "", "-- Select model --" }
+                        option {
+                            value: "",
+                            selected: selected_model_value.is_empty(),
+                            "-- Select model --"
+                        }
+                        if selected_model_missing {
+                            option {
+                                value: "{selected_model_value}",
+                                selected: true,
+                                "{selected_model_value}"
+                            }
+                        }
                         for m in models.iter() {
                             {
-                                let label = m.name.as_deref().unwrap_or(&m.id);
+                                let label = model_option_label(m);
+                                let is_selected = selected_model_value == m.id;
                                 rsx! {
-                                    option { key: "{m.id}", value: "{m.id}", "{label}" }
+                                    option {
+                                        key: "{m.id}",
+                                        value: "{m.id}",
+                                        selected: is_selected,
+                                        "{label}"
+                                    }
                                 }
                             }
                         }
@@ -955,12 +1017,13 @@ fn AgentOverviewTab(
                 h4 { style: "{SECTION_TITLE}", "Connection Test" }
                 div { style: "display:flex;gap:8px;align-items:center;",
                     button {
-                        disabled: form_model().is_empty() || testing(),
+                        disabled: selected_model_value.is_empty() || testing(),
                         onclick: {
+                            let selected_model_value = selected_model_value.clone();
                             let ws = ws.clone();
                             move |_| {
                                 let ws = ws.clone();
-                                let model_id = form_model();
+                                let model_id = selected_model_value.clone();
                                 testing.set(true);
                                 test_result.set(None);
                                 spawn(async move {
@@ -1089,7 +1152,7 @@ fn AgentOverviewTab(
                                 toaster.error("Agent with this name already exists");
                                 return;
                             }
-                            let model_val = form_model().trim().to_string();
+                            let model_val = selected_model_value.clone();
                             let desc_val = form_desc();
                             let reasoning_val = form_reasoning();
                             let fallback_str = form_fallback();
@@ -1219,7 +1282,7 @@ fn AgentFilesTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) ->
             // File list sidebar
             div { style: "width:220px;min-width:180px;border-right:1px solid var(--border);overflow:auto;display:flex;flex-direction:column;",
                 div { style: "padding:10px 12px;border-bottom:1px solid var(--border);",
-                    span { style: "font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;", "Agent Files" }
+                    span { style: "font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;", "Agent Files" }
                     div { style: "display:flex;gap:6px;margin-top:8px;",
                         input {
                             value: "{new_file_name}",
@@ -2170,8 +2233,10 @@ const INPUT: &str = "width:100%;padding:8px 12px;background:var(--bg-tertiary);b
 const LABEL: &str =
     "display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;";
 const SECTION_CARD: &str = "background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;";
-const SECTION_TITLE: &str = "font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;";
-const TH: &str = "text-align:left;padding:10px 14px;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;";
+const SECTION_TITLE: &str =
+    "font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;";
+const TH: &str =
+    "text-align:left;padding:10px 14px;font-size:12px;font-weight:600;color:var(--text-secondary);";
 const TD: &str = "padding:10px 14px;font-size:14px;";
 
 const THEME_COLORS: &[(&str, &str)] = &[
@@ -2184,3 +2249,59 @@ const THEME_COLORS: &[(&str, &str)] = &[
     ("#22c55e", "Green"),
     ("#06b6d4", "Cyan"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::{model_option_label, model_select_value};
+    use crate::api::types::ModelInfo;
+
+    fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            name: name.map(str::to_string),
+            provider: None,
+            model_slug: model_slug.map(str::to_string),
+            api_key: None,
+            base_url: None,
+            max_tokens: None,
+            temperature: None,
+            is_default: None,
+            builtin: None,
+            default_reasoning_level: None,
+            supported_reasoning_levels: None,
+        }
+    }
+
+    #[test]
+    fn model_select_value_uses_canonical_id_for_case_insensitive_match() {
+        let models = vec![test_model("openai/gpt-5", Some("GPT-5"), Some("gpt-5"))];
+
+        assert_eq!(model_select_value(&models, "OpenAI/GPT-5"), "openai/gpt-5");
+    }
+
+    #[test]
+    fn model_select_value_preserves_unknown_saved_model() {
+        let models = vec![test_model("openai/gpt-5", Some("GPT-5"), Some("gpt-5"))];
+
+        assert_eq!(
+            model_select_value(&models, "custom-provider/custom-model"),
+            "custom-provider/custom-model"
+        );
+    }
+
+    #[test]
+    fn model_option_label_prefers_name_then_slug_then_id() {
+        assert_eq!(
+            model_option_label(&test_model("openai/gpt-5", Some("GPT-5"), Some("gpt-5"))),
+            "GPT-5"
+        );
+        assert_eq!(
+            model_option_label(&test_model("openai/gpt-5", Some("  "), Some("gpt-5"))),
+            "gpt-5"
+        );
+        assert_eq!(
+            model_option_label(&test_model("openai/gpt-5", None, None)),
+            "openai/gpt-5"
+        );
+    }
+}
