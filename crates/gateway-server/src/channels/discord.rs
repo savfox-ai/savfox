@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use salvo::prelude::*;
-use savfox_channel_discord::{
+use savfox_channels::discord::{
     DiscordStartMeta, build_command_prompt, parse_interaction_with_resolver, parse_start_meta,
 };
 use serde_json::{Value, json};

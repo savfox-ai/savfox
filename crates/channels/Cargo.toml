@@ -1,12 +1,12 @@
 [package]
-name = "savfox-channel-dingtalk"
+name = "savfox-channels"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 documentation.workspace = true
 
 [lib]
-name = "savfox_channel_dingtalk"
+name = "savfox_channels"
 path = "src/lib.rs"
 
 [lints]
@@ -17,10 +17,13 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
+feishu-sdk = { workspace = true }
 hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }

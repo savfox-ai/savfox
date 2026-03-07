@@ -30,11 +30,7 @@ savfox-utils-json-to-toml = { workspace = true }
 savfox-skill-registry = { workspace = true }
 savfox-browser-automation = { workspace = true }
 savfox-memory = { workspace = true }
-savfox-channel-dingtalk = { workspace = true }
-savfox-channel-discord = { workspace = true }
-savfox-channel-feishu = { workspace = true }
-savfox-channel-mattermost = { workspace = true }
-savfox-channel-matrix = { workspace = true }
+savfox-channels = { workspace = true }
 feishu-sdk = { workspace = true }
 chrono = { workspace = true }
 cron = { workspace = true }

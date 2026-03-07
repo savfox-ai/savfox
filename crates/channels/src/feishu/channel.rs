@@ -4,8 +4,8 @@ use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
 use tracing::{debug, info, warn};
 
-use crate::config::{FeishuChannelConfig, fetch_feishu_tenant_access_token};
-use crate::parse::extract_channel_action;
+use super::config::{FeishuChannelConfig, fetch_feishu_tenant_access_token};
+use super::parse::extract_channel_action;
 
 #[derive(Debug)]
 pub struct FeishuChannel {

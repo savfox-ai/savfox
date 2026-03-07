@@ -3,7 +3,7 @@ use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
-use crate::parse::parse_webhook_payload;
+use super::parse::parse_webhook_payload;
 
 #[derive(Debug)]
 pub struct MatrixChannel {

@@ -3,7 +3,7 @@ use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
 use tracing::{error, info};
 
-use crate::parse::parse_interaction;
+use super::parse::parse_interaction;
 
 #[derive(Debug)]
 pub struct DiscordChannel {

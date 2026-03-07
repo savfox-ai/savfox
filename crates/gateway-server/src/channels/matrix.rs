@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use salvo::prelude::*;
-pub(crate) use savfox_channel_matrix::MatrixChannel;
-use savfox_channel_matrix::parse_webhook_payload;
+pub(crate) use savfox_channels::matrix::MatrixChannel;
+use savfox_channels::matrix::parse_webhook_payload;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 

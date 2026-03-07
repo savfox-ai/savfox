@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sha2::Sha256;
 use tracing::{info, warn};
 
-use crate::parse::parse_start_thread_action;
+use super::parse::parse_start_thread_action;
 
 #[derive(Debug)]
 pub struct DingtalkChannel {

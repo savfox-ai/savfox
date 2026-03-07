@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use salvo::prelude::*;
-use savfox_channel_mattermost::parse_webhook_payload;
+use savfox_channels::mattermost::parse_webhook_payload;
 use serde_json::{Value, json};
 use tracing::info;
 

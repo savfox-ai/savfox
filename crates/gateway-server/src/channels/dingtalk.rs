@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use salvo::prelude::*;
-use savfox_channel_dingtalk::parse_start_thread_action;
-pub(crate) use savfox_channel_dingtalk::resolve_dingtalk_outbound_config;
+use savfox_channels::dingtalk::parse_start_thread_action;
+pub(crate) use savfox_channels::dingtalk::resolve_dingtalk_outbound_config;
 use serde_json::{Value, json};
 use tracing::info;
 

@@ -14,8 +14,8 @@ use feishu_sdk::ws::{StreamClient, StreamConfig};
 use savfox_core::channel::ChannelAction;
 use tracing::{debug, info, warn};
 
-use crate::config::{FeishuChannelConfig, build_feishu_sdk_config, default_stream_locale};
-use crate::parse::extract_channel_action;
+use super::config::{FeishuChannelConfig, build_feishu_sdk_config, default_stream_locale};
+use super::parse::extract_channel_action;
 
 #[derive(Debug, Clone, Default)]
 pub struct FeishuMessageMeta {

@@ -16,7 +16,16 @@ members = [
     "crates/exec-server/tests/common",
     "crates/mcp-server/tests/common",
 ]
-exclude = ["crates/docs", "crates/scripts", "crates/utils"]
+exclude = [
+    "crates/docs",
+    "crates/scripts",
+    "crates/utils",
+    "crates/channel-dingtalk",
+    "crates/channel-discord",
+    "crates/channel-feishu",
+    "crates/channel-matrix",
+    "crates/channel-mattermost",
+]
 resolver = "3"
 
 [workspace.package]
@@ -96,11 +105,7 @@ savfox-browser-automation = { version = "0.3.0", path = "crates/browser-automati
 savfox-memory = { version = "0.3.0", path = "crates/memory", default-features = true }
 savfox-link-understanding = { version = "0.3.0", path = "crates/link-understanding", default-features = true }
 savfox-plugin-sdk = { version = "0.3.0", path = "crates/plugin-sdk", default-features = true }
-savfox-channel-dingtalk = { version = "0.3.0", path = "crates/channel-dingtalk", default-features = true }
-savfox-channel-discord = { version = "0.3.0", path = "crates/channel-discord", default-features = true }
-savfox-channel-feishu = { version = "0.3.0", path = "crates/channel-feishu", default-features = true }
-savfox-channel-mattermost = { version = "0.3.0", path = "crates/channel-mattermost", default-features = true }
-savfox-channel-matrix = { version = "0.3.0", path = "crates/channel-matrix", default-features = true }
+savfox-channels = { version = "0.3.0", path = "crates/channels", default-features = true }
 app_test_support = { version = "0.3.0", path = "crates/app-server/tests/common" }
 core_test_support = { version = "0.3.0", path = "crates/core/tests/common" }
 exec_server_test_support = { version = "0.3.0", path = "crates/exec-server/tests/common" }
