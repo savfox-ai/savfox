@@ -213,7 +213,7 @@ jobs:
     if: needs.changes.outputs.docker == 'true' || needs.changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
