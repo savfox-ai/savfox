@@ -6,6 +6,29 @@ fn debug_matrix_inbound_message(room_id: &str, sender: &str, text: &str) {
     println!("[matrix][inbound] room={room_id} sender={sender} text={text}");
 }
 
+#[allow(clippy::print_stdout)]
+fn debug_matrix_invite_detected(room_id: &str, invited_user_id: Option<&str>) {
+    println!(
+        "[matrix][invite] detected room={} invited_user={}",
+        room_id,
+        invited_user_id.unwrap_or("")
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixCommandEvent {
+    pub room_id: String,
+    pub sender: String,
+    pub prompt: String,
+    pub dedupe_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MatrixInboundParseResult {
+    pub commands: Vec<MatrixCommandEvent>,
+    pub rooms_to_auto_join: Vec<(String, Option<String>)>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MatrixWebhookParseResult {
     pub action: ChannelAction,
@@ -110,63 +133,84 @@ pub fn parse_invite_event(
         .filter(|value| !value.is_empty())
         .map(ToString::to_string);
 
+    debug_matrix_invite_detected(room_id, invited_user_id.as_deref());
     Some((room_id.to_owned(), invited_user_id))
 }
 
-pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
-    let mut action = ChannelAction::Ignore;
-    let mut dedupe_key = None;
-    let mut rooms_to_auto_join = Vec::new();
+pub fn parse_command_event(
+    event: &Value,
+    room_id_hint: Option<&str>,
+) -> Option<MatrixCommandEvent> {
+    if event.get("type").and_then(Value::as_str) != Some("m.room.message") {
+        return None;
+    }
+    let content = event.get("content").unwrap_or(&Value::Null);
+    if content.get("msgtype").and_then(Value::as_str) != Some("m.text") {
+        return None;
+    }
+    let text = content.get("body").and_then(Value::as_str).unwrap_or("");
+    let room_id = event
+        .get("room_id")
+        .and_then(Value::as_str)
+        .or(room_id_hint)
+        .unwrap_or("");
+    let sender = event.get("sender").and_then(Value::as_str).unwrap_or("");
+    debug_matrix_inbound_message(room_id, sender, text);
+    let prompt = text.strip_prefix("!savfox ").map(str::trim)?;
+    if prompt.is_empty() || room_id.is_empty() {
+        return None;
+    }
+    let dedupe_key = event
+        .get("event_id")
+        .and_then(Value::as_str)
+        .map(|id| format!("matrix:{id}"));
+    Some(MatrixCommandEvent {
+        room_id: room_id.to_owned(),
+        sender: sender.to_owned(),
+        prompt: prompt.to_owned(),
+        dedupe_key,
+    })
+}
+
+pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
+    let mut parsed = MatrixInboundParseResult::default();
 
     for (event, room_id_hint) in collect_matrix_events(payload) {
         if let Some((room_id, invited_user_id)) = parse_invite_event(event, room_id_hint)
-            && !rooms_to_auto_join
-                .iter()
-                .any(|(existing_room_id, _): &(String, Option<String>)| {
+            && !parsed.rooms_to_auto_join.iter().any(
+                |(existing_room_id, _): &(String, Option<String>)| {
                     existing_room_id.eq_ignore_ascii_case(&room_id)
-                })
+                },
+            )
         {
-            rooms_to_auto_join.push((room_id, invited_user_id));
+            parsed.rooms_to_auto_join.push((room_id, invited_user_id));
         }
 
-        if event.get("type").and_then(Value::as_str) != Some("m.room.message") {
-            continue;
+        if let Some(command) = parse_command_event(event, room_id_hint) {
+            parsed.commands.push(command);
         }
-        let content = event.get("content").unwrap_or(&Value::Null);
-        if content.get("msgtype").and_then(Value::as_str) != Some("m.text") {
-            continue;
-        }
-        let text = content.get("body").and_then(Value::as_str).unwrap_or("");
-        let room_id = event
-            .get("room_id")
-            .and_then(Value::as_str)
-            .or(room_id_hint)
-            .unwrap_or("");
-        let sender = event.get("sender").and_then(Value::as_str).unwrap_or("");
-        debug_matrix_inbound_message(room_id, sender, text);
-        if let Some(prompt) = text.strip_prefix("!savfox ").map(str::trim)
-            && !prompt.is_empty()
-        {
-            let room_id = room_id.to_owned();
-            if room_id.is_empty() {
-                break;
-            }
-            dedupe_key = event
-                .get("event_id")
-                .and_then(Value::as_str)
-                .map(|id| format!("matrix:{id}"));
-            action = ChannelAction::StartThread {
-                channel: room_id,
-                prompt: prompt.to_owned(),
-            };
-            break;
-        }
+    }
+
+    parsed
+}
+
+pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
+    let parsed = parse_inbound_payload(payload);
+    let mut action = ChannelAction::Ignore;
+    let mut dedupe_key = None;
+
+    if let Some(command) = parsed.commands.first() {
+        dedupe_key = command.dedupe_key.clone();
+        action = ChannelAction::StartThread {
+            channel: command.room_id.clone(),
+            prompt: command.prompt.clone(),
+        };
     }
 
     MatrixWebhookParseResult {
         action,
         dedupe_key,
-        rooms_to_auto_join,
+        rooms_to_auto_join: parsed.rooms_to_auto_join,
     }
 }
 
@@ -174,7 +218,7 @@ pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
 mod tests {
     use serde_json::json;
 
-    use super::{MatrixWebhookParseResult, parse_webhook_payload};
+    use super::{MatrixWebhookParseResult, parse_inbound_payload, parse_webhook_payload};
     use savfox_core::channel::ChannelAction;
 
     fn assert_start_thread(
@@ -273,5 +317,56 @@ mod tests {
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$joined"));
         assert_start_thread(&parsed, "!joined:matrix.org", "sync payload works");
+    }
+
+    #[test]
+    fn parses_multiple_commands_from_single_sync_payload() {
+        let payload = json!({
+            "rooms": {
+                "join": {
+                    "!joined:matrix.org": {
+                        "timeline": {
+                            "events": [
+                                {
+                                    "type": "m.room.message",
+                                    "event_id": "$joined-1",
+                                    "sender": "@user-1:matrix.org",
+                                    "content": {
+                                        "msgtype": "m.text",
+                                        "body": "!savfox first command"
+                                    }
+                                },
+                                {
+                                    "type": "m.room.message",
+                                    "event_id": "$joined-2",
+                                    "sender": "@user-2:matrix.org",
+                                    "content": {
+                                        "msgtype": "m.text",
+                                        "body": "!savfox second command"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        });
+
+        let parsed = parse_inbound_payload(&payload);
+        assert_eq!(parsed.commands.len(), 2);
+        assert_eq!(parsed.commands[0].room_id, "!joined:matrix.org");
+        assert_eq!(parsed.commands[0].sender, "@user-1:matrix.org");
+        assert_eq!(parsed.commands[0].prompt, "first command");
+        assert_eq!(
+            parsed.commands[0].dedupe_key.as_deref(),
+            Some("matrix:$joined-1")
+        );
+        assert_eq!(parsed.commands[1].room_id, "!joined:matrix.org");
+        assert_eq!(parsed.commands[1].sender, "@user-2:matrix.org");
+        assert_eq!(parsed.commands[1].prompt, "second command");
+        assert_eq!(
+            parsed.commands[1].dedupe_key.as_deref(),
+            Some("matrix:$joined-2")
+        );
     }
 }

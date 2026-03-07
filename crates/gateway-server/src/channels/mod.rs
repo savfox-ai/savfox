@@ -66,7 +66,7 @@ pub(crate) async fn initialize_and_start_channels(
         info!("Starting channel '{}' of type '{}'", channel_id, kind);
 
         let result = match kind.as_str() {
-            "matrix" => start_matrix_channel(&config, &registry, &channel).await,
+            "matrix" => start_matrix_channel(&config, &registry, &channel, session_store).await,
             "dingtalk" => start_dingtalk_channel(&config, channel, session_store).await,
             "discord" => start_discord_channel(&config, &registry, &channel).await,
             "telegram" => start_telegram_channel(&config, &registry, &channel).await,
@@ -123,6 +123,7 @@ pub(crate) async fn start_matrix_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
     channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
     use crate::channels::matrix::MatrixChannel;
 
@@ -144,13 +145,37 @@ pub(crate) async fn start_matrix_channel(
         .or_else(|| raw.get("access_token"))
         .or_else(|| raw.get("token"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Matrix channel missing access token"))?
-        .to_string();
+        .map(ToString::to_string);
+    let password = raw
+        .get("password")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    if access_token.is_none() && password.is_none() {
+        anyhow::bail!("Matrix channel missing access token or password");
+    }
+    let user_id = raw
+        .get("userId")
+        .or_else(|| raw.get("user_id"))
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
+    if access_token.is_none() && user_id.is_none() {
+        anyhow::bail!("Matrix password login requires userId");
+    }
+    let device_name = raw
+        .get("deviceName")
+        .or_else(|| raw.get("device_name"))
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string);
 
     let mut channel = MatrixChannel::new(
-        homeserver.clone(),
+        config.id.clone(),
+        homeserver,
+        user_id,
         access_token,
-        channel.http_client().clone(),
+        password,
+        device_name,
+        Arc::clone(channel),
+        Arc::clone(session_store),
     );
 
     channel.start().await?;

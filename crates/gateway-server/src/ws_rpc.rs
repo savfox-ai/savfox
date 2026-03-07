@@ -3862,7 +3862,7 @@ async fn handle_channels_list(_channel: &Arc<GatewayChannel>) -> RpcResult {
         json!({"platform": "slack", "endpoint": "/webhooks/slack", "type": "channel"}),
         json!({"platform": "msteams", "endpoint": "/webhooks/msteams", "type": "channel"}),
         json!({"platform": "webhook", "endpoint": "/webhooks/webhook", "type": "generic"}),
-        json!({"platform": "matrix", "endpoint": "/webhooks/matrix", "type": "webhook"}),
+        json!({"platform": "matrix", "endpoint": "/webhooks/matrix", "type": "channel"}),
         json!({"platform": "mattermost", "endpoint": "/webhooks/mattermost", "type": "webhook"}),
         json!({"platform": "googlechat", "endpoint": "/webhooks/googlechat", "type": "webhook"}),
         json!({"platform": "line", "endpoint": "/webhooks/line", "type": "webhook"}),
@@ -3954,11 +3954,17 @@ fn saved_channel_config_ready(config: &savfox_core::config::channel_store::Chann
                             .as_deref()
                             .is_some_and(|value| !value.trim().is_empty()))
             }),
-        "matrix" => first_non_empty_channel_config_string(
-            raw,
-            &["accessToken", "access_token", "token", "password"],
-        )
-        .is_some(),
+        "matrix" => {
+            let has_token = first_non_empty_channel_config_string(
+                raw,
+                &["accessToken", "access_token", "token"],
+            )
+            .is_some();
+            let has_password = first_non_empty_channel_config_string(raw, &["password"]).is_some();
+            has_token
+                || (has_password
+                    && first_non_empty_channel_config_string(raw, &["userId", "user_id"]).is_some())
+        }
         "mattermost" => {
             first_non_empty_channel_config_string(raw, &["server_url", "serverUrl"]).is_some()
                 && first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
@@ -4079,7 +4085,17 @@ fn runtime_channel_configured(
             std::env::var("FEISHU_TENANT_ACCESS_TOKEN").is_ok()
                 || std::env::var("FEISHU_APP_ACCESS_TOKEN").is_ok()
         }
-        "matrix" => std::env::var("MATRIX_ACCESS_TOKEN").is_ok(),
+        "matrix" => {
+            std::env::var("MATRIX_ACCESS_TOKEN")
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty())
+                || (std::env::var("MATRIX_PASSWORD")
+                    .ok()
+                    .is_some_and(|value| !value.trim().is_empty())
+                    && std::env::var("MATRIX_USER_ID")
+                        .ok()
+                        .is_some_and(|value| !value.trim().is_empty()))
+        }
         "whatsapp" => {
             std::env::var("WHATSAPP_ACCESS_TOKEN").is_ok()
                 && std::env::var("WHATSAPP_PHONE_NUMBER_ID").is_ok()
@@ -4211,7 +4227,13 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
     let matrix_configured =
         channel_is_configured("matrix", &runtime, &saved_configs, nostr_configured);
     let matrix_saved = saved_channel_state(&saved_configs, "matrix");
-    let matrix_running = {
+    let matrix_runtime_states = crate::channels::matrix::matrix_runtime_state_snapshot();
+    let matrix_runtime = saved_configs
+        .iter()
+        .filter(|config| channel_platform_matches_kind(&config.kind, "matrix"))
+        .find_map(|config| matrix_runtime_states.get(&config.id).cloned())
+        .or_else(|| matrix_runtime_states.values().next().cloned());
+    let matrix_registry_running = {
         let registry = channel.channel_registry();
         let started_channel_ids = registry
             .read()
@@ -4222,6 +4244,11 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         started_saved_channel_count("matrix", &saved_configs, &started_channel_ids) > 0
             || (!matrix_saved.ready && runtime_channel_configured("matrix", &runtime))
     };
+    let matrix_running = matrix_runtime.is_some() || matrix_registry_running;
+    let matrix_connected = matrix_runtime
+        .as_ref()
+        .map(|state| state.connected)
+        .unwrap_or(matrix_running);
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -4269,7 +4296,7 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         "matrix": {
             "configured": matrix_configured,
             "running": matrix_running,
-            "connected": matrix_running,
+            "connected": matrix_connected,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
@@ -4353,6 +4380,25 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
                 obj.insert("configured".to_string(), json!(configured));
                 insert_saved_channel_metadata(obj, &key, &saved_state);
             }
+        }
+
+        if let Some(matrix_runtime) = matrix_runtime.as_ref()
+            && let Some(matrix_entry) = channels_map
+                .get_mut("matrix")
+                .and_then(Value::as_object_mut)
+        {
+            matrix_entry.insert("running".to_string(), json!(true));
+            matrix_entry.insert("connected".to_string(), json!(matrix_runtime.connected));
+            if let Some(homeserver) = matrix_runtime.homeserver.as_deref() {
+                matrix_entry.insert("homeserver".to_string(), json!(homeserver));
+            }
+            if let Some(user_id) = matrix_runtime.user_id.as_deref() {
+                matrix_entry.insert("user_id".to_string(), json!(user_id));
+            }
+            if let Some(room_count) = matrix_runtime.room_count {
+                matrix_entry.insert("room_count".to_string(), json!(room_count));
+            }
+            matrix_entry.insert("last_error".to_string(), json!(matrix_runtime.last_error));
         }
     }
 
@@ -4547,7 +4593,7 @@ async fn handle_channels_login(
                 continue;
             }
 
-            crate::channels::start_matrix_channel(saved, &registry, channel)
+            crate::channels::start_matrix_channel(saved, &registry, channel, session_store)
                 .await
                 .map_err(|err| {
                     (
@@ -7522,6 +7568,28 @@ mod tests {
         );
 
         assert!(!saved_channel_config_ready(&incomplete));
+        assert!(saved_channel_config_ready(&complete));
+    }
+
+    #[test]
+    fn matrix_saved_config_requires_user_id_when_using_password() {
+        let missing_user_id = channel_config(
+            "matrix",
+            true,
+            json!({
+                "password": "secret-password"
+            }),
+        );
+        let complete = channel_config(
+            "matrix",
+            true,
+            json!({
+                "userId": "@savfox:matrix.org",
+                "password": "secret-password"
+            }),
+        );
+
+        assert!(!saved_channel_config_ready(&missing_user_id));
         assert!(saved_channel_config_ready(&complete));
     }
 

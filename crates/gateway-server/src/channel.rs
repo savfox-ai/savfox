@@ -96,9 +96,17 @@ pub(crate) struct RuntimeBridgeSecrets {
 struct MatrixOutboundConfig {
     id: String,
     homeserver: String,
-    access_token: String,
+    access_token: Option<String>,
+    password: Option<String>,
+    device_name: Option<String>,
     user_id: Option<String>,
     rooms: Vec<String>,
+}
+
+pub(crate) struct ResolvedMatrixClient {
+    pub(crate) client: MatrixClient,
+    pub(crate) access_token: String,
+    pub(crate) user_id: String,
 }
 
 impl MatrixOutboundConfig {
@@ -110,11 +118,16 @@ impl MatrixOutboundConfig {
         }
         let raw = config.config.as_object()?;
         let access_token =
-            first_non_empty_config_string(raw, &["accessToken", "access_token", "token"])?;
+            first_non_empty_config_string(raw, &["accessToken", "access_token", "token"]);
+        let password = first_non_empty_config_string(raw, &["password"]);
+        if access_token.is_none() && password.is_none() {
+            return None;
+        }
         let homeserver =
             first_non_empty_config_string(raw, &["homeserver", "homeserver_url", "server_url"])
                 .unwrap_or_else(|| "https://matrix.org".to_string());
         let user_id = first_non_empty_config_string(raw, &["userId", "user_id"]);
+        let device_name = first_non_empty_config_string(raw, &["deviceName", "device_name"]);
 
         let mut rooms = Vec::new();
         for key in ["groups", "rooms", "roomIds", "room_ids", "room_id"] {
@@ -129,6 +142,8 @@ impl MatrixOutboundConfig {
             id: config.id.clone(),
             homeserver,
             access_token,
+            password,
+            device_name,
             user_id,
             rooms,
         })
@@ -158,6 +173,10 @@ fn first_non_empty_config_string(
             }
         })
     })
+}
+
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn parse_string_list(value: &Value) -> Vec<String> {
@@ -1571,6 +1590,68 @@ impl GatewayChannel {
         Ok(())
     }
 
+    pub(crate) async fn resolve_matrix_client(
+        homeserver: &str,
+        access_token: Option<&str>,
+        user_id: Option<&str>,
+        password: Option<&str>,
+        device_name: Option<&str>,
+    ) -> anyhow::Result<ResolvedMatrixClient> {
+        let homeserver_url = Url::parse(homeserver)
+            .with_context(|| format!("invalid Matrix homeserver URL: {homeserver}"))?;
+
+        if let Some(access_token) = non_empty_trimmed(access_token) {
+            let auth = if let Some(user_id) = non_empty_trimmed(user_id) {
+                MatrixAuth::new(access_token.to_string()).with_user_id(user_id.to_string())
+            } else {
+                MatrixAuth::new(access_token.to_string())
+            };
+            let client = MatrixClient::new(homeserver_url, auth);
+            let whoami = client
+                .whoami()
+                .await
+                .context("failed to resolve Matrix user via whoami")?;
+
+            let mut resolved_auth =
+                MatrixAuth::new(access_token.to_string()).with_user_id(whoami.user_id.clone());
+            if let Some(device_id) = whoami.device_id {
+                resolved_auth = resolved_auth.with_device_id(device_id);
+            }
+            client.login_with_token(resolved_auth).await;
+
+            return Ok(ResolvedMatrixClient {
+                client,
+                access_token: access_token.to_string(),
+                user_id: whoami.user_id,
+            });
+        }
+
+        let user_id = non_empty_trimmed(user_id)
+            .context("Matrix userId is required when no access token is configured")?;
+        let password = non_empty_trimmed(password)
+            .context("Matrix password is required when no access token is configured")?;
+        let client = MatrixClient::new(homeserver_url, MatrixAuth::default());
+        let auth = client
+            .password_login(user_id, password, non_empty_trimmed(device_name))
+            .await
+            .context("Matrix password login failed")?;
+        let resolved_user_id = auth.user_id.clone().unwrap_or_else(|| user_id.to_string());
+        let access_token = auth.access_token.clone();
+
+        let mut resolved_auth =
+            MatrixAuth::new(access_token.clone()).with_user_id(resolved_user_id.clone());
+        if let Some(device_id) = auth.device_id {
+            resolved_auth = resolved_auth.with_device_id(device_id);
+        }
+        client.login_with_token(resolved_auth).await;
+
+        Ok(ResolvedMatrixClient {
+            client,
+            access_token,
+            user_id: resolved_user_id,
+        })
+    }
+
     async fn resolve_matrix_outbound_config(
         &self,
         room_id: &str,
@@ -1630,7 +1711,7 @@ impl GatewayChannel {
     ) -> anyhow::Result<()> {
         let homeserver_url = Url::parse(homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {homeserver}"))?;
-        let auth = if let Some(uid) = user_id.map(str::trim).filter(|uid| !uid.is_empty()) {
+        let auth = if let Some(uid) = non_empty_trimmed(user_id) {
             MatrixAuth::new(access_token).with_user_id(uid.to_string())
         } else {
             MatrixAuth::new(access_token)
@@ -1662,35 +1743,62 @@ impl GatewayChannel {
             return Ok(());
         };
 
-        let configured_user_id = config
-            .user_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty());
-        if let (Some(invited), Some(configured)) = (
-            invited_user_id.map(str::trim).filter(|v| !v.is_empty()),
-            configured_user_id,
-        ) && !invited.eq_ignore_ascii_case(configured)
+        let runtime_state = crate::channels::matrix::matrix_runtime_state_for(&config.id);
+        let configured_user_id = runtime_state
+            .as_ref()
+            .and_then(|state| non_empty_trimmed(state.user_id.as_deref()))
+            .or_else(|| non_empty_trimmed(config.user_id.as_deref()));
+        if let (Some(invited), Some(configured)) =
+            (non_empty_trimmed(invited_user_id), configured_user_id)
+            && !invited.eq_ignore_ascii_case(configured)
         {
             return Ok(());
         }
 
-        let homeserver_url = Url::parse(&config.homeserver).with_context(|| {
-            format!(
-                "invalid Matrix homeserver URL for config {}: {}",
-                config.id, config.homeserver
-            )
-        })?;
-        let auth = if let Some(uid) = configured_user_id {
-            MatrixAuth::new(config.access_token.clone()).with_user_id(uid.to_string())
+        let joined_room_id = if let Some(runtime_state) = runtime_state.as_ref()
+            && let Some(access_token) = runtime_state.access_token.as_deref()
+        {
+            let homeserver = runtime_state
+                .homeserver
+                .as_deref()
+                .unwrap_or(&config.homeserver);
+            let homeserver_url = Url::parse(homeserver).with_context(|| {
+                format!(
+                    "invalid Matrix homeserver URL for config {}: {}",
+                    config.id, homeserver
+                )
+            })?;
+            let auth = if let Some(uid) = configured_user_id {
+                MatrixAuth::new(access_token.to_string()).with_user_id(uid.to_string())
+            } else {
+                MatrixAuth::new(access_token.to_string())
+            };
+            let client = MatrixClient::new(homeserver_url, auth);
+            client
+                .join_room(room_id)
+                .await
+                .with_context(|| format!("failed to auto-join Matrix room {room_id}"))?
         } else {
-            MatrixAuth::new(config.access_token.clone())
-        };
-        let client = MatrixClient::new(homeserver_url, auth);
-        let joined_room_id = client
-            .join_room(room_id)
+            let resolved = Self::resolve_matrix_client(
+                &config.homeserver,
+                config.access_token.as_deref(),
+                config.user_id.as_deref(),
+                config.password.as_deref(),
+                config.device_name.as_deref(),
+            )
             .await
-            .with_context(|| format!("failed to auto-join Matrix room {room_id}"))?;
+            .with_context(|| {
+                format!(
+                    "failed to authenticate Matrix client for config {}",
+                    config.id
+                )
+            })?;
+            resolved
+                .client
+                .join_room(room_id)
+                .await
+                .with_context(|| format!("failed to auto-join Matrix room {room_id}"))?
+        };
         info!(
             room_id,
             joined_room_id,
@@ -2096,14 +2204,49 @@ impl GatewayChannel {
             }
             "matrix" => {
                 if let Some(config) = self.resolve_matrix_outbound_config(channel_id).await? {
-                    self.send_matrix_message(
-                        &config.homeserver,
-                        &config.access_token,
-                        config.user_id.as_deref(),
-                        channel_id,
-                        text,
-                    )
-                    .await?;
+                    if let Some(runtime_state) =
+                        crate::channels::matrix::matrix_runtime_state_for(&config.id)
+                        && let Some(access_token) = runtime_state.access_token.as_deref()
+                    {
+                        let homeserver = runtime_state
+                            .homeserver
+                            .as_deref()
+                            .unwrap_or(&config.homeserver);
+                        let user_id = runtime_state
+                            .user_id
+                            .as_deref()
+                            .or(config.user_id.as_deref());
+                        self.send_matrix_message(
+                            homeserver,
+                            access_token,
+                            user_id,
+                            channel_id,
+                            text,
+                        )
+                        .await?;
+                    } else {
+                        let resolved = Self::resolve_matrix_client(
+                            &config.homeserver,
+                            config.access_token.as_deref(),
+                            config.user_id.as_deref(),
+                            config.password.as_deref(),
+                            config.device_name.as_deref(),
+                        )
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to authenticate Matrix client for channel '{}'",
+                                config.id
+                            )
+                        })?;
+                        resolved
+                            .client
+                            .send_text(channel_id, text)
+                            .await
+                            .with_context(|| {
+                                format!("failed to send Matrix message to room {channel_id}")
+                            })?;
+                    }
                 } else {
                     warn!("Matrix channel not configured in channels/*.json");
                 }
