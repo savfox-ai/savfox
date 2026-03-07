@@ -23,6 +23,34 @@ fn agent_ref(entry: &AgentEntry) -> String {
         .unwrap_or_else(|| entry.name.clone())
 }
 
+fn normalized_agent_name(name: &str) -> Option<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
+fn has_agent_name_conflict(
+    agents: &[AgentEntry],
+    candidate_name: &str,
+    exclude_agent_ref: Option<&str>,
+) -> bool {
+    let Some(candidate_name) = normalized_agent_name(candidate_name) else {
+        return false;
+    };
+
+    agents.iter().any(|agent| {
+        let current_ref = agent_ref(agent);
+        if exclude_agent_ref.is_some_and(|exclude| exclude == current_ref) {
+            return false;
+        }
+
+        normalized_agent_name(&agent.name).is_some_and(|name| name == candidate_name)
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -162,6 +190,7 @@ pub fn Agents() -> Element {
             div { style: "flex:1;display:flex;flex-direction:column;min-width:0;",
                 if show_create() {
                     AgentCreateForm {
+                        agents: agents.clone(),
                         ws: ws.clone(),
                         refresh_tick,
                         show_create,
@@ -181,6 +210,8 @@ pub fn Agents() -> Element {
                         match active_tab().as_str() {
                             "overview" => rsx! {
                                 AgentOverviewTab {
+                                    key: "{agent_ref(entry)}:{refresh_tick()}",
+                                    agents: agents.clone(),
                                     ws: ws.clone(),
                                     refresh_tick,
                                     entry: entry.clone(),
@@ -241,6 +272,7 @@ pub fn Agents() -> Element {
 
 #[component]
 fn AgentCreateForm(
+    agents: Vec<AgentEntry>,
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     mut show_create: Signal<bool>,
@@ -437,9 +469,8 @@ fn AgentCreateForm(
                                 toaster.error("Agent name is required");
                                 return;
                             }
-                            // Check for duplicate agent name or ID
                             let agents_clone = agents.clone();
-                            if agents_clone.iter().any(|a| a.name.trim().eq_ignore_ascii_case(name.trim())) {
+                            if has_agent_name_conflict(&agents_clone, &name, None) {
                                 toaster.error("Agent with this name already exists");
                                 return;
                             }
@@ -496,6 +527,7 @@ fn AgentCreateForm(
 
 #[component]
 fn AgentOverviewTab(
+    agents: Vec<AgentEntry>,
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
     entry: AgentEntry,
@@ -517,13 +549,18 @@ fn AgentOverviewTab(
     let initial_prompt = entry.system_prompt.clone().unwrap_or_default();
     let mut form_desc = use_signal(move || initial_prompt.clone());
 
-    let initial_model = entry.model.clone().unwrap_or_default();
+    let initial_model = entry
+        .model
+        .clone()
+        .or_else(|| entry.models.as_ref().and_then(|models| models.primary.clone()))
+        .unwrap_or_default();
     let mut form_model = use_signal(move || initial_model.clone());
 
     let mut form_fallback = use_signal(String::new);
     let mut form_emoji = use_signal(String::new);
     let mut form_default = use_signal(|| false);
     let mut form_theme_color = use_signal(|| "#6366f1".to_string());
+    let mut detail_seeded = use_signal(|| false);
     let mut test_result = use_signal(|| Option::<(bool, String)>::None);
     let mut testing = use_signal(|| false);
 
@@ -542,21 +579,24 @@ fn AgentOverviewTab(
         }
     });
 
-    // Sync detail fields once loaded
-    {
-        let detail_read = detail_data.read();
-        if let Some(Some(ref d)) = *detail_read {
-            let fb = d
+    let detail_snapshot = detail_data.read().as_ref().and_then(|detail| detail.clone());
+    if !detail_seeded() {
+        if let Some(ref detail) = detail_snapshot {
+            let fallback = detail
                 .fallback_models
                 .as_ref()
-                .map(|v| v.join(", "))
+                .map(|items| items.join(", "))
                 .unwrap_or_default();
-            form_fallback.set(fb);
-            form_emoji.set(d.emoji.clone().unwrap_or_default());
-            if let Some(ref tc) = d.theme_color {
-                form_theme_color.set(tc.clone());
-            }
-            form_default.set(d.is_default.unwrap_or(false));
+            form_fallback.set(fallback);
+            form_emoji.set(detail.emoji.clone().unwrap_or_default());
+            form_theme_color.set(
+                detail
+                    .theme_color
+                    .clone()
+                    .unwrap_or_else(|| "#6366f1".to_string()),
+            );
+            form_default.set(detail.is_default.unwrap_or(false));
+            detail_seeded.set(true);
         }
     }
 
@@ -574,12 +614,38 @@ fn AgentOverviewTab(
     });
     let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
 
+    let entry_is_default = agent_id.eq_ignore_ascii_case("default");
+
     // Dirty tracking
     let is_dirty = {
         let orig_name = entry.name.clone();
         let orig_model = entry.model.clone().unwrap_or_default();
         let orig_desc = entry.system_prompt.clone().unwrap_or_default();
-        form_name() != orig_name || form_model() != orig_model || form_desc() != orig_desc
+        let orig_fallback = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.fallback_models.as_ref())
+            .map(|items| items.join(", "))
+            .unwrap_or_default();
+        let orig_emoji = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.emoji.clone())
+            .unwrap_or_default();
+        let orig_default = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.is_default)
+            .unwrap_or(false);
+        let orig_theme_color = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.theme_color.clone())
+            .unwrap_or_else(|| "#6366f1".to_string());
+
+        form_name() != orig_name
+            || form_model() != orig_model
+            || form_desc() != orig_desc
+            || form_fallback() != orig_fallback
+            || form_emoji() != orig_emoji
+            || form_default() != orig_default
+            || form_theme_color() != orig_theme_color
     };
 
     let entry_id = agent_id.clone();
@@ -596,27 +662,29 @@ fn AgentOverviewTab(
                         "{status}"
                     }
                 }
-                button {
-                    onclick: move |_| {
-                        let id = id_del.clone();
-                        let ws = ws_del.clone();
-                        spawn(async move {
-                            let res = ws.call::<serde_json::Value>(
-                                "agents.delete",
-                                Some(json!({ "id": id })),
-                            ).await;
-                            match res {
-                                Ok(_) => {
-                                    toaster.success("Agent deleted");
-                                    selected_agent.set(None);
-                                    refresh_tick += 1;
+                if !entry_is_default {
+                    button {
+                        onclick: move |_| {
+                            let id = id_del.clone();
+                            let ws = ws_del.clone();
+                            spawn(async move {
+                                let res = ws.call::<serde_json::Value>(
+                                    "agents.delete",
+                                    Some(json!({ "id": id })),
+                                ).await;
+                                match res {
+                                    Ok(_) => {
+                                        toaster.success("Agent deleted");
+                                        selected_agent.set(None);
+                                        refresh_tick += 1;
+                                    }
+                                    Err(e) => toaster.error(format!("Delete failed: {e}")),
                                 }
-                                Err(e) => toaster.error(format!("Delete failed: {e}")),
-                            }
-                        });
-                    },
-                    style: "{TOOL_BTN}color:var(--danger);border-color:var(--danger);",
-                    "Delete"
+                            });
+                        },
+                        style: "{TOOL_BTN}color:var(--danger);border-color:var(--danger);",
+                        "Delete"
+                    }
                 }
             }
 
@@ -839,6 +907,14 @@ fn AgentOverviewTab(
                             let id = id.clone();
                             let ws = ws.clone();
                             let name = form_name().trim().to_string();
+                            if name.is_empty() {
+                                toaster.error("Agent name is required");
+                                return;
+                            }
+                            if has_agent_name_conflict(&agents, &name, Some(id.as_str())) {
+                                toaster.error("Agent with this name already exists");
+                                return;
+                            }
                             let model_val = form_model().trim().to_string();
                             let desc_val = form_desc();
                             let fallback_str = form_fallback();

@@ -1141,6 +1141,175 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
+fn default_agent_stub() -> Value {
+    json!({
+        "id": "default",
+        "name": "Savfox Agent",
+        "description": "Default Savfox assistant agent",
+        "builtin": true,
+        "status": "active",
+    })
+}
+
+fn normalized_agent_name_key(name: &str) -> Option<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
+fn normalize_agent_model_fields(config: &mut Value) {
+    let primary = config
+        .get("models")
+        .and_then(|models| models.get("primary"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    if let Some(primary) = primary {
+        let model_missing = config
+            .get("model")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty());
+        if model_missing {
+            config["model"] = json!(primary);
+        }
+    }
+
+    let fallback_missing = config.get("fallback_models").is_none();
+    if !fallback_missing {
+        return;
+    }
+
+    let Some(fallbacks) = config
+        .get("models")
+        .and_then(|models| models.get("fallbacks"))
+        .and_then(|value| value.as_array())
+    else {
+        return;
+    };
+
+    let normalized: Vec<String> = fallbacks
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+    if !normalized.is_empty() {
+        config["fallback_models"] = json!(normalized);
+    }
+}
+
+fn normalize_agent_config(config: &mut Value, fallback_id: &str, builtin: bool) {
+    let id_missing = config
+        .get("id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty());
+    if id_missing {
+        config["id"] = json!(fallback_id);
+    }
+
+    let name_missing = config
+        .get("name")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty());
+    if name_missing {
+        let default_name = default_agent_name_from_config(config, fallback_id);
+        let default_name =
+            if builtin && fallback_id.eq_ignore_ascii_case("default") && default_name == fallback_id
+            {
+                "Savfox Agent".to_string()
+            } else {
+                default_name
+            };
+        config["name"] = json!(default_name);
+    }
+
+    normalize_agent_model_fields(config);
+
+    if !builtin {
+        return;
+    }
+
+    config["builtin"] = json!(true);
+    if config
+        .get("description")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty())
+    {
+        config["description"] = json!("Default Savfox assistant agent");
+    }
+    if config.get("status").is_none() {
+        config["status"] = json!("active");
+    }
+}
+
+async fn load_default_agent_config(channel: &GatewayChannel) -> Value {
+    let path = agents_dir(channel).join("default.json");
+    let mut config = read_agent_config(&path).await.unwrap_or_else(default_agent_stub);
+    normalize_agent_config(&mut config, "default", true);
+    config
+}
+
+async fn find_agent_name_conflict(
+    channel: &GatewayChannel,
+    candidate_name: &str,
+    exclude_stem: Option<&str>,
+) -> Option<String> {
+    let wanted = normalized_agent_name_key(candidate_name)?;
+    let exclude_default = exclude_stem.is_some_and(|value| value.eq_ignore_ascii_case("default"));
+
+    if !exclude_default {
+        let default_config = load_default_agent_config(channel).await;
+        let default_name = default_agent_name_from_config(&default_config, "default");
+        if normalized_agent_name_key(&default_name).as_deref() == Some(wanted.as_str()) {
+            return Some("default".to_string());
+        }
+    }
+
+    let dir = agents_dir(channel);
+    let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !path.extension().is_some_and(|ext| ext == "json") {
+            continue;
+        }
+
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+
+        if stem.eq_ignore_ascii_case("default") {
+            continue;
+        }
+        if exclude_stem.is_some_and(|exclude| stem.eq_ignore_ascii_case(exclude)) {
+            continue;
+        }
+
+        let Some(config) = read_agent_config(&path).await else {
+            continue;
+        };
+        let current_name = default_agent_name_from_config(&config, &stem);
+        if normalized_agent_name_key(&current_name).as_deref() == Some(wanted.as_str()) {
+            return Some(stem);
+        }
+    }
+
+    None
+}
+
 async fn resolve_agent_file_stem(channel: &GatewayChannel, agent_ref: &str) -> Option<String> {
     let dir = agents_dir(channel);
     let trimmed = agent_ref.trim();
@@ -1232,12 +1401,7 @@ async fn resolve_agent_files_dir(channel: &GatewayChannel, agent_ref: &str) -> P
 
 async fn handle_agents_list(channel: &Arc<GatewayChannel>) -> RpcResult {
     let dir = agents_dir(channel);
-    let mut agents = vec![json!({
-        "id": "default",
-        "name": "Savfox Agent",
-        "description": "Default Savfox assistant agent",
-        "builtin": true,
-    })];
+    let mut agents = vec![load_default_agent_config(channel).await];
 
     // Scan agents directory for user-defined agents.
     if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
@@ -1251,23 +1415,11 @@ async fn handle_agents_list(channel: &Arc<GatewayChannel>) -> RpcResult {
                 else {
                     continue;
                 };
+                if file_stem.eq_ignore_ascii_case("default") {
+                    continue;
+                }
                 if let Some(mut config) = read_agent_config(&path).await {
-                    let id_missing = config
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .is_none_or(|v| v.is_empty());
-                    if id_missing {
-                        config["id"] = json!(file_stem.clone());
-                    }
-                    let name_missing = config
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .map(str::trim)
-                        .is_none_or(|v| v.is_empty());
-                    if name_missing {
-                        config["name"] = json!(default_agent_name_from_config(&config, &file_stem));
-                    }
+                    normalize_agent_config(&mut config, &file_stem, false);
                     agents.push(config);
                 }
             }
@@ -1322,38 +1474,21 @@ async fn handle_agents_get(params: &Value, channel: &Arc<GatewayChannel>) -> Rpc
     }
 
     if agent_ref.trim().eq_ignore_ascii_case("default") {
-        return Ok(json!({
-            "id": "default",
-            "name": "Savfox Agent",
-            "status": "active",
-            "builtin": true,
-        }));
+        return Ok(load_default_agent_config(channel).await);
     }
 
     let Some(file_stem) = resolve_agent_file_stem(channel, agent_ref).await else {
         return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
     };
+    if file_stem.eq_ignore_ascii_case("default") {
+        return Ok(load_default_agent_config(channel).await);
+    }
     let path = agents_dir(channel).join(format!("{file_stem}.json"));
     let Some(mut config) = read_agent_config(&path).await else {
         return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
     };
 
-    let id_missing = config
-        .get("id")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .is_none_or(|v| v.is_empty());
-    if id_missing {
-        config["id"] = json!(file_stem.clone());
-    }
-    let name_missing = config
-        .get("name")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .is_none_or(|v| v.is_empty());
-    if name_missing {
-        config["name"] = json!(default_agent_name_from_config(&config, &file_stem));
-    }
+    normalize_agent_config(&mut config, &file_stem, false);
 
     Ok(config)
 }
@@ -1380,6 +1515,15 @@ async fn handle_agents_create(params: &Value, channel: &Arc<GatewayChannel>) -> 
                 .to_string(),
         ));
     }
+    if id.eq_ignore_ascii_case("default") {
+        return Err((
+            INVALID_REQUEST,
+            "the default agent already exists; edit it instead".to_string(),
+        ));
+    }
+    if resolve_agent_file_stem(channel, &id).await.is_some() {
+        return Err((INVALID_REQUEST, format!("agent already exists: {id}")));
+    }
 
     let name = params
         .get("name")
@@ -1390,6 +1534,9 @@ async fn handle_agents_create(params: &Value, channel: &Arc<GatewayChannel>) -> 
         .unwrap_or_default();
     if name.is_empty() {
         return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
+    }
+    if find_agent_name_conflict(channel, &name, None).await.is_some() {
+        return Err((INVALID_REQUEST, format!("agent name already exists: {name}")));
     }
 
     let description = params
@@ -1491,11 +1638,26 @@ async fn handle_agents_update(params: &Value, channel: &Arc<GatewayChannel>) -> 
             )
         })?;
     let path = dir.join(format!("{resolved_id}.json"));
+    if let Some(name) = params
+        .get("name")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && find_agent_name_conflict(channel, name, Some(resolved_id.as_str()))
+            .await
+            .is_some()
+    {
+        return Err((INVALID_REQUEST, format!("agent name already exists: {name}")));
+    }
 
     // Read existing config or start fresh.
-    let mut config = read_agent_config(&path)
-        .await
-        .unwrap_or(json!({"id": resolved_id, "name": agent_ref}));
+    let mut config = if resolved_id.eq_ignore_ascii_case("default") {
+        load_default_agent_config(channel).await
+    } else {
+        read_agent_config(&path)
+            .await
+            .unwrap_or(json!({"id": resolved_id, "name": agent_ref}))
+    };
     config["id"] = json!(resolved_id.clone());
 
     // Merge updatable fields.
@@ -1542,6 +1704,11 @@ async fn handle_agents_update(params: &Value, channel: &Arc<GatewayChannel>) -> 
         }
     }
     config["updated_at"] = json!(chrono::Utc::now().to_rfc3339());
+    normalize_agent_config(
+        &mut config,
+        &resolved_id,
+        resolved_id.eq_ignore_ascii_case("default"),
+    );
 
     let _ = tokio::fs::create_dir_all(&dir).await;
     let data = serde_json::to_string_pretty(&config).unwrap_or_default();
@@ -1569,12 +1736,6 @@ async fn handle_agents_delete(params: &Value, channel: &Arc<GatewayChannel>) -> 
             "missing 'id' or 'name' parameter".to_string(),
         ));
     }
-    if agent_ref == "default" {
-        return Err((
-            INVALID_REQUEST,
-            "cannot delete the default agent".to_string(),
-        ));
-    }
 
     let resolved_id = resolve_agent_file_stem(channel, agent_ref)
         .await
@@ -1585,6 +1746,12 @@ async fn handle_agents_delete(params: &Value, channel: &Arc<GatewayChannel>) -> 
                 format!("invalid agent reference: {agent_ref}"),
             )
         })?;
+    if resolved_id.eq_ignore_ascii_case("default") {
+        return Err((
+            INVALID_REQUEST,
+            "cannot delete the default agent".to_string(),
+        ));
+    }
 
     let dir = agents_dir(channel);
     let path = dir.join(format!("{resolved_id}.json"));
@@ -6938,8 +7105,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        canonical_channel_platform, normalize_config_model_fields, saved_channel_config_ready,
-        saved_channel_state,
+        canonical_channel_platform, normalize_agent_config, normalize_config_model_fields,
+        normalized_agent_name_key, saved_channel_config_ready, saved_channel_state,
     };
 
     fn channel_config(
@@ -7099,5 +7266,29 @@ mod tests {
 
         assert!(!saved_channel_config_ready(&incomplete));
         assert!(saved_channel_config_ready(&complete));
+    }
+
+    #[test]
+    fn normalized_agent_name_key_is_case_insensitive() {
+        assert_eq!(normalized_agent_name_key("  Savfox Agent  "), Some("savfox agent".into()));
+    }
+
+    #[test]
+    fn normalize_agent_config_populates_default_agent_fields() {
+        let mut config = json!({
+            "models": {
+                "primary": "volcengine/doubao-seed-2.0-code",
+                "fallbacks": ["openai/gpt-5-mini"]
+            }
+        });
+
+        normalize_agent_config(&mut config, "default", true);
+
+        assert_eq!(config["id"], json!("default"));
+        assert_eq!(config["name"], json!("Savfox Agent"));
+        assert_eq!(config["builtin"], json!(true));
+        assert_eq!(config["status"], json!("active"));
+        assert_eq!(config["model"], json!("volcengine/doubao-seed-2.0-code"));
+        assert_eq!(config["fallback_models"], json!(["openai/gpt-5-mini"]));
     }
 }
