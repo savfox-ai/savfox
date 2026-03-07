@@ -77,6 +77,8 @@ pub(crate) struct GatewayChannel {
     http_client: reqwest::Client,
     /// Runtime channel credentials hot-reloaded from config patch/apply.
     runtime_channel_secrets: Arc<RwLock<RuntimeBridgeSecrets>>,
+    /// Started channel instances keyed by saved channel config ID.
+    channel_registry: crate::channels::ChannelRegistry,
     /// Active login attempt (browser OAuth or device code).
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
 }
@@ -200,6 +202,7 @@ pub(crate) struct GatewayBridgeArgs {
     pub(crate) savfox_linux_sandbox_exe: Option<PathBuf>,
     pub(crate) websocket_manager: GatewaySessionManager,
     pub(crate) outgoing_tx: mpsc::Sender<BridgeOutgoing>,
+    pub(crate) channel_registry: crate::channels::ChannelRegistry,
 }
 
 impl GatewayChannel {
@@ -242,6 +245,7 @@ impl GatewayChannel {
             outgoing_tx: args.outgoing_tx,
             http_client,
             runtime_channel_secrets: Arc::new(RwLock::new(RuntimeBridgeSecrets::default())),
+            channel_registry: args.channel_registry,
             active_login: Arc::new(Mutex::new(None)),
         }
     }
@@ -2307,6 +2311,11 @@ impl GatewayChannel {
     #[must_use]
     pub(crate) async fn runtime_channel_secrets(&self) -> RuntimeBridgeSecrets {
         self.runtime_channel_secrets.read().await.clone()
+    }
+
+    #[must_use]
+    pub(crate) fn channel_registry(&self) -> crate::channels::ChannelRegistry {
+        Arc::clone(&self.channel_registry)
     }
 
     /// Invoke the agent with a text prompt and return the response text.

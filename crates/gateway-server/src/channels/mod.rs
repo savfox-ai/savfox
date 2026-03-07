@@ -119,7 +119,7 @@ pub(crate) async fn initialize_and_start_channels(
     Ok(())
 }
 
-async fn start_matrix_channel(
+pub(crate) async fn start_matrix_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     registry: &ChannelRegistry,
     channel: &Arc<GatewayChannel>,

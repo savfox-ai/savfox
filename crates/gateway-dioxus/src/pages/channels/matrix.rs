@@ -139,7 +139,7 @@ pub fn MatrixChannel() -> Element {
                                         }
                                     },
                                     disabled: *action_loading.read(),
-                                    if *action_loading.read() { "Stopping..." } else { "Stop Channel" }
+                                    if *action_loading.read() { "Disconnecting..." } else { "Disconnect" }
                                 }
                             } else {
                                 button {

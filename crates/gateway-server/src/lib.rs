@@ -161,6 +161,7 @@ pub async fn run_main(
 
     let auth = Arc::new(GatewayAuth::single_token(token.clone()));
     let session_mgr = Arc::new(GatewaySessionManager::new());
+    let channel_registry = channels::create_channel_registry();
 
     // Create the channel outgoing channel.
     let (outgoing_tx, _outgoing_rx) = mpsc::channel::<BridgeOutgoing>(128);
@@ -173,6 +174,7 @@ pub async fn run_main(
         savfox_linux_sandbox_exe,
         websocket_manager: (*session_mgr).clone(),
         outgoing_tx,
+        channel_registry: channel_registry.clone(),
     }));
 
     println!("[startup] Gateway channel created");
@@ -217,7 +219,6 @@ pub async fn run_main(
 
     // Initialize and start configured channels
     println!("[startup] Initializing channel instances...");
-    let channel_registry = channels::create_channel_registry();
     if let Err(err) = channels::initialize_and_start_channels(
         &config.savfox_home,
         channel_registry.clone(),

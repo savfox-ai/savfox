@@ -4042,6 +4042,22 @@ async fn load_saved_channel_configs(
         .unwrap_or_default()
 }
 
+fn started_saved_channel_count(
+    platform: &str,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+    started_channel_ids: &HashSet<String>,
+) -> usize {
+    saved_configs
+        .iter()
+        .filter(|config| {
+            channel_platform_matches_kind(&config.kind, platform)
+                && config.enabled
+                && saved_channel_config_ready(config)
+                && started_channel_ids.contains(&config.id)
+        })
+        .count()
+}
+
 fn runtime_channel_configured(
     platform: &str,
     runtime: &crate::channel::RuntimeBridgeSecrets,
@@ -4194,6 +4210,18 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         channel_is_configured("slack", &runtime, &saved_configs, nostr_configured);
     let matrix_configured =
         channel_is_configured("matrix", &runtime, &saved_configs, nostr_configured);
+    let matrix_saved = saved_channel_state(&saved_configs, "matrix");
+    let matrix_running = {
+        let registry = channel.channel_registry();
+        let started_channel_ids = registry
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        started_saved_channel_count("matrix", &saved_configs, &started_channel_ids) > 0
+            || (!matrix_saved.ready && runtime_channel_configured("matrix", &runtime))
+    };
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -4240,8 +4268,8 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         },
         "matrix": {
             "configured": matrix_configured,
-            "running": false,
-            "connected": false,
+            "running": matrix_running,
+            "connected": matrix_running,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
@@ -4484,6 +4512,81 @@ async fn handle_channels_login(
     let is_configured =
         channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
 
+    if platform == "matrix" {
+        if !is_configured {
+            return Ok(json!({
+                "platform": platform,
+                "status": "needs_config",
+                "configured": false,
+                "message": "Please configure matrix in the channel settings",
+            }));
+        }
+
+        let registry = channel.channel_registry();
+        let started_channel_ids = registry
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
+        let mut started = 0_u32;
+        let mut already_running = 0_u32;
+        let mut ready_configs = 0_u32;
+
+        for saved in &saved_configs {
+            if !channel_platform_matches_kind(&saved.kind, "matrix")
+                || !saved.enabled
+                || !saved_channel_config_ready(saved)
+            {
+                continue;
+            }
+
+            ready_configs = ready_configs.saturating_add(1);
+            if started_channel_ids.contains(&saved.id) {
+                already_running = already_running.saturating_add(1);
+                continue;
+            }
+
+            crate::channels::start_matrix_channel(saved, &registry, channel)
+                .await
+                .map_err(|err| {
+                    (
+                        INTERNAL_ERROR,
+                        format!("failed to start Matrix channel '{}': {err}", saved.id),
+                    )
+                })?;
+            started = started.saturating_add(1);
+        }
+
+        let (status, message) = if started > 0 {
+            ("started", format!("Started {started} Matrix channel(s)"))
+        } else if already_running > 0 {
+            (
+                "already_running",
+                format!("{already_running} Matrix channel(s) already running"),
+            )
+        } else if ready_configs > 0 {
+            (
+                "configured",
+                "Matrix is configured, but no enabled channel was started".to_string(),
+            )
+        } else {
+            (
+                "already_configured",
+                "Matrix credentials are configured via environment/runtime settings".to_string(),
+            )
+        };
+
+        return Ok(json!({
+            "platform": platform,
+            "status": status,
+            "configured": true,
+            "started": started,
+            "already_running": already_running,
+            "message": message,
+        }));
+    }
+
     if platform == "feishu" {
         if !is_configured {
             return Ok(json!({
@@ -4610,8 +4713,18 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
                 }
             }
         }
-        "matrix" | "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line"
-        | "dingtalk" => {
+        "matrix" => {
+            let registry = channel.channel_registry();
+            let mut registry = registry.write().await;
+            for saved in load_saved_channel_configs(channel).await {
+                if channel_platform_matches_kind(&saved.kind, "matrix")
+                    && registry.remove(&saved.id).is_some()
+                {
+                    stopped = stopped.saturating_add(1);
+                }
+            }
+        }
+        "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "dingtalk" => {
             // These platforms may not have runtime secrets yet
         }
         _ => {
@@ -4622,9 +4735,9 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
 
     Ok(json!({
         "platform": platform,
-        "status": if platform == "feishu" && stopped > 0 {
+        "status": if matches!(platform.as_str(), "feishu" | "matrix") && stopped > 0 {
             "stopped"
-        } else if platform == "feishu" {
+        } else if matches!(platform.as_str(), "feishu" | "matrix") {
             "already_stopped"
         } else {
             "logged_out"
@@ -7233,22 +7346,25 @@ async fn handle_tools_categories() -> RpcResult {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use serde_json::json;
 
     use super::{
         canonical_channel_platform, cron_job_summary_value, cron_param_job_id,
         cron_run_summary_value, cron_status_summary_value, enrich_model_reasoning_metadata,
         normalize_agent_config, normalize_config_model_fields, normalized_agent_name_key,
-        saved_channel_config_ready, saved_channel_state,
+        saved_channel_config_ready, saved_channel_state, started_saved_channel_count,
     };
 
-    fn channel_config(
+    fn named_channel_config(
+        id: &str,
         kind: &str,
         enabled: bool,
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: format!("{kind}-test"),
+            id: id.to_string(),
             kind: kind.to_string(),
             name: format!("{kind}-test"),
             enabled,
@@ -7256,6 +7372,14 @@ mod tests {
             created_at: None,
             updated_at: None,
         }
+    }
+
+    fn channel_config(
+        kind: &str,
+        enabled: bool,
+        config: serde_json::Value,
+    ) -> savfox_core::config::channel_store::ChannelConfig {
+        named_channel_config(&format!("{kind}-test"), kind, enabled, config)
     }
 
     #[test]
@@ -7399,6 +7523,38 @@ mod tests {
 
         assert!(!saved_channel_config_ready(&incomplete));
         assert!(saved_channel_config_ready(&complete));
+    }
+
+    #[test]
+    fn started_saved_channel_count_only_includes_ready_started_entries() {
+        let saved = vec![
+            named_channel_config(
+                "matrix-running",
+                "matrix",
+                true,
+                json!({ "accessToken": "token-1" }),
+            ),
+            named_channel_config(
+                "matrix-disabled",
+                "matrix",
+                false,
+                json!({ "accessToken": "token-2" }),
+            ),
+            named_channel_config("matrix-incomplete", "matrix", true, json!({})),
+            named_channel_config(
+                "telegram-running",
+                "telegram",
+                true,
+                json!({ "bot_token": "telegram-token" }),
+            ),
+        ];
+        let started = HashSet::from([
+            "matrix-running".to_string(),
+            "matrix-disabled".to_string(),
+            "matrix-incomplete".to_string(),
+        ]);
+
+        assert_eq!(started_saved_channel_count("matrix", &saved, &started), 1);
     }
 
     #[test]
