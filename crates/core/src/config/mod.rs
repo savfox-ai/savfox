@@ -3806,6 +3806,59 @@ model_verbosity = "high"
     }
 
     #[test]
+    fn infers_volcengine_provider_from_provider_store() -> std::io::Result<()> {
+        let cfg = ConfigToml {
+            model: Some(selected_model_from_id("volcengine/doubao-seed-2.0-code")),
+            ..Default::default()
+        };
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+
+        let savfox_home = TempDir::new()?;
+        let models_dir = savfox_home.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("volcengine.json"),
+            r#"{
+  "version": 2,
+  "provider_id": "volcengine",
+  "name": "Volcengine",
+  "auth": {
+    "type": "api_key",
+    "env_key": "ARK_API_KEY",
+    "api_key": "ark-test-key"
+  },
+  "models": [
+    { "id": "volcengine/doubao-seed-2.0-code", "name": "doubao-seed-2.0-code" }
+  ]
+}"#,
+        )?;
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "volcengine");
+        assert_eq!(config.model_provider.name, "Volcengine");
+        assert_eq!(
+            config.model_provider.base_url.as_deref(),
+            Some("https://ark.cn-beijing.volces.com/api/coding/v3")
+        );
+        assert_eq!(config.model_provider.env_key.as_deref(), Some("ARK_API_KEY"));
+        assert_eq!(
+            config.model.as_deref(),
+            Some("volcengine/doubao-seed-2.0-code")
+        );
+        Ok(())
+    }
+
+    #[test]
     fn infers_model_provider_from_string_using_last_separator() -> std::io::Result<()> {
         let mut cfg = ConfigToml {
             model: Some(selected_model_from_id("acme/team/glm-5")),

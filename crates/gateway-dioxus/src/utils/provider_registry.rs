@@ -11,7 +11,7 @@ const POPULAR_PROVIDER_ORDER: [&str; 7] = [
 ];
 
 // Synced with opencode's provider icon registry plus a few savfox-specific extras.
-const KNOWN_PROVIDER_IDS: [&str; 78] = [
+const KNOWN_PROVIDER_IDS: [&str; 79] = [
     "abacus",
     "aihubmix",
     "alibaba",
@@ -144,7 +144,7 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
         "chatgpt" | "chat-gpt" => "openai".to_string(),
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
-        "volc" | "volc-engine" => "volcengine".to_string(),
+        "volc" | "volc-engine" | "ark" => "volcengine".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
         "gemini" => "google".to_string(),
         "bedrock" => "amazon-bedrock".to_string(),
@@ -202,7 +202,7 @@ pub fn provider_description(provider_id: &str) -> String {
         "lmstudio" => "Run local models with LM Studio server".to_string(),
         "zhipuai-coding-plan" => "Zhipu AI coding plan models and tooling".to_string(),
         "zai-coding-plan" => "Z.ai coding plan models and tooling".to_string(),
-        "volcengine" => "Connect Volcengine models".to_string(),
+        "volcengine" => "Volcengine coding plan models and tooling".to_string(),
         _ => format!("Connect {} models", provider_display_name(&canonical)),
     }
 }
@@ -309,7 +309,7 @@ fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'static 
         "zenmux" => Some(Some("https://zenmux.ai/api/anthropic/v1")),
         "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
         "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
-        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/v3")),
+        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/coding/v3")),
         _ => None,
     }
 }
@@ -334,7 +334,7 @@ pub fn provider_api_key_env(provider_id: &str) -> String {
         "minimax" | "minimax-cn" => "MINIMAX_API_KEY".to_string(),
         "alibaba" | "alibaba-cn" => "DASHSCOPE_API_KEY".to_string(),
         "zhipuai" | "zhipuai-coding-plan" => "ZHIPUAI_API_KEY".to_string(),
-        "volcengine" => "VOLCENGINE_API_KEY".to_string(),
+        "volcengine" => "ARK_API_KEY".to_string(),
         "github-copilot" | "github-copilot-enterprise" => "GITHUB_TOKEN".to_string(),
         "azure" | "azure-cognitive-services" => "AZURE_OPENAI_API_KEY".to_string(),
         "cohere" => "COHERE_API_KEY".to_string(),
@@ -405,7 +405,10 @@ pub fn provider_icon_text(provider_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{known_provider_ids, provider_default_base_url_entry};
+    use super::{
+        canonical_provider_id, known_provider_ids, provider_api_key_env, provider_default_base_url,
+        provider_default_base_url_entry,
+    };
 
     #[test]
     fn default_base_url_map_covers_all_known_provider_ids() {
@@ -415,5 +418,15 @@ mod tests {
                 "expected default base url mapping entry for known provider id {provider_id}"
             );
         }
+    }
+
+    #[test]
+    fn volcengine_registry_uses_ark_defaults() {
+        assert_eq!(canonical_provider_id("ark"), "volcengine");
+        assert_eq!(provider_api_key_env("volcengine"), "ARK_API_KEY");
+        assert_eq!(
+            provider_default_base_url("volcengine"),
+            Some("https://ark.cn-beijing.volces.com/api/coding/v3")
+        );
     }
 }

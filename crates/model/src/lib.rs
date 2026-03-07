@@ -51,7 +51,7 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
         "chatgpt" | "chat-gpt" => "openai".to_string(),
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
-        "volc" | "volc-engine" => "volcengine".to_string(),
+        "volc" | "volc-engine" | "ark" => "volcengine".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
         "gemini" => "google".to_string(),
         "bedrock" => "amazon-bedrock".to_string(),
@@ -159,7 +159,7 @@ pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'sta
         "zenmux" => Some(Some("https://zenmux.ai/api/anthropic/v1")),
         "zhipuai" => Some(Some("https://open.bigmodel.cn/api/paas/v4")),
         "zhipuai-coding-plan" => Some(Some("https://open.bigmodel.cn/api/coding/paas/v4")),
-        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/v3")),
+        "volcengine" => Some(Some("https://ark.cn-beijing.volces.com/api/coding/v3")),
         _ => None,
     }
 }
@@ -264,6 +264,7 @@ mod tests {
             canonical_provider_id("zhipu-ai-coding-plan"),
             "zhipuai-coding-plan"
         );
+        assert_eq!(canonical_provider_id("ark"), "volcengine");
         assert_eq!(canonical_provider_id("gemini"), "google");
         assert_eq!(canonical_provider_id("qwen"), "alibaba");
     }
@@ -280,6 +281,14 @@ mod tests {
     fn provider_other_has_entry_but_no_default_url() {
         assert_eq!(provider_default_base_url_entry("other"), Some(None));
         assert_eq!(provider_default_base_url("other"), None);
+    }
+
+    #[test]
+    fn volcengine_uses_coding_plan_base_url() {
+        assert_eq!(
+            provider_default_base_url("volcengine"),
+            Some("https://ark.cn-beijing.volces.com/api/coding/v3")
+        );
     }
 
     #[test]

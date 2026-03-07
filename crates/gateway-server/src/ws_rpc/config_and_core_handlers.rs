@@ -2746,6 +2746,7 @@ fn canonical_models_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
         "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
         "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
+        "volc" | "volc-engine" | "ark" => "volcengine".to_string(),
         "together" | "together-ai" => "togetherai".to_string(),
         "gemini" => "google".to_string(),
         "bedrock" => "amazon-bedrock".to_string(),

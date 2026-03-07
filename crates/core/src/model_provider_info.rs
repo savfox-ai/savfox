@@ -1205,6 +1205,7 @@ env_key = "GEMINI_API_KEY"
             "zenmux",
             "zhipuai",
             "zhipuai-coding-plan",
+            "volcengine",
         ];
 
         for provider_id in known_provider_ids {
