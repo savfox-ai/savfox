@@ -1,123 +1,38 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use salvo::prelude::*;
+use savfox_channels::telegram::{
+    TelegramStartMeta, parse_display_name, parse_start_meta, parse_update_with_resolver,
+};
 use serde_json::{Value, json};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-use super::{Channel, RichMessage, runtime};
+use super::runtime;
 use crate::auto_reply::CommandRegistry;
 use crate::channel::{GatewayChannel, verify_telegram_webhook_secret};
-use crate::config::{GatewayConfig, TelegramChannelConfig};
+use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Telegram bot channel using the Bot API with webhook mode.
-pub(crate) struct TelegramChannel {
-    config: TelegramChannelConfig,
-    http_client: reqwest::Client,
-    bot_token: String,
-}
-
-fn split_telegram_command(text: &str) -> Option<(String, String)> {
-    let trimmed = text.trim();
-    if !trimmed.starts_with('/') {
-        return None;
-    }
-    let (head, rest) = if let Some(idx) = trimmed.find(char::is_whitespace) {
-        let (head, tail) = trimmed.split_at(idx);
-        (head, tail.trim())
-    } else {
-        (trimmed, "")
-    };
-    let command = head
-        .trim_start_matches('/')
-        .split('@')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase();
-    if command.is_empty() {
-        return None;
-    }
-    Some((command, rest.to_string()))
-}
-
-fn normalize_registry_command(text: &str) -> Option<String> {
-    let (command, args) = split_telegram_command(text)?;
+fn resolve_registry_command_name(command: &str) -> Option<String> {
     let registry = CommandRegistry::new();
-    let canonical = registry.resolve_command_name(&command)?;
-    let mut prompt = format!("/{canonical}");
-    let args = args.trim();
-    if !args.is_empty() {
-        prompt.push(' ');
-        prompt.push_str(args);
-    }
-    Some(prompt)
+    registry.resolve_command_name(command)
 }
 
-impl TelegramChannel {
-    #[must_use]
-    pub(crate) fn new(config: TelegramChannelConfig, http_client: reqwest::Client) -> Self {
-        let bot_token = config.bot_token.clone();
-        Self {
-            config,
-            http_client,
-            bot_token,
-        }
-    }
-
-    /// Parse a Telegram Update payload into a `ChannelAction`.
-    fn parse_update(payload: &Value) -> anyhow::Result<ChannelAction> {
-        let message = payload.get("message").unwrap_or(&Value::Null);
-        let text = message.get("text").and_then(|t| t.as_str()).unwrap_or("");
-
-        let chat_id = message
-            .get("chat")
-            .and_then(|c| c.get("id"))
-            .and_then(|id| id.as_i64())
-            .map(|id| id.to_string())
-            .unwrap_or_default();
-
-        if let Some((command, args)) = split_telegram_command(text) {
-            if command == "savfox" {
-                let prompt = args.trim().to_string();
-                if prompt.is_empty() {
-                    return Ok(ChannelAction::Ignore);
-                }
-                return Ok(ChannelAction::StartThread {
-                    channel: chat_id,
-                    prompt,
-                });
-            }
-
-            if let Some(prompt) = normalize_registry_command(text) {
-                return Ok(ChannelAction::StartThread {
-                    channel: chat_id,
-                    prompt,
-                });
-            }
-        }
-
-        // Handle callback queries (button presses for approvals).
-        if let Some(callback) = payload.get("callback_query") {
-            let data = callback.get("data").and_then(|d| d.as_str()).unwrap_or("");
-
-            if let Some(thread_id) = data.strip_prefix("approve:") {
-                return Ok(ChannelAction::Approve {
-                    thread_id: thread_id.to_owned(),
-                    decision: true,
-                });
-            }
-            if let Some(thread_id) = data.strip_prefix("deny:") {
-                return Ok(ChannelAction::Approve {
-                    thread_id: thread_id.to_owned(),
-                    decision: false,
-                });
-            }
-        }
-
-        Ok(ChannelAction::Ignore)
+fn to_runtime_start_meta(meta: TelegramStartMeta) -> runtime::StartThreadMeta {
+    let is_group = matches!(
+        meta.chat_type.as_deref(),
+        Some("group" | "supergroup" | "channel")
+    );
+    runtime::StartThreadMeta {
+        peer_id: meta.peer_id,
+        group_id: if is_group { meta.chat_id } else { None },
+        thread_id: meta.thread_id.clone(),
+        parent_thread_id: meta.thread_id,
+        reply_target: meta.reply_target,
+        chat_type: meta.chat_type,
+        topic: meta.topic,
+        ..runtime::StartThreadMeta::default()
     }
 }
 
@@ -134,137 +49,6 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
     ));
 }
 
-fn parse_display_name(payload: &Value) -> Option<String> {
-    let from = payload.pointer("/message/from").unwrap_or(&Value::Null);
-    let first = from
-        .get("first_name")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    let last = from
-        .get("last_name")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    let username = from
-        .get("username")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-
-    if !first.is_empty() || !last.is_empty() {
-        let full = format!("{first} {last}").trim().to_string();
-        if !full.is_empty() {
-            return Some(full);
-        }
-    }
-    username.map(str::to_string)
-}
-
-fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
-    let peer_id = payload
-        .pointer("/message/from/id")
-        .and_then(Value::as_i64)
-        .map(|v| v.to_string());
-    let chat_id = payload
-        .pointer("/message/chat/id")
-        .and_then(Value::as_i64)
-        .map(|v| v.to_string());
-    let chat_type = payload
-        .pointer("/message/chat/type")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let is_group = matches!(
-        chat_type.as_deref(),
-        Some("group" | "supergroup" | "channel")
-    );
-    let thread_id = payload
-        .pointer("/message/message_thread_id")
-        .and_then(Value::as_i64)
-        .map(|v| v.to_string());
-    let reply_target = payload
-        .pointer("/message/reply_to_message/message_id")
-        .and_then(Value::as_i64)
-        .map(|v| v.to_string());
-    let topic = payload
-        .pointer("/message/chat/title")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    runtime::StartThreadMeta {
-        peer_id,
-        group_id: if is_group { chat_id } else { None },
-        thread_id: thread_id.clone(),
-        parent_thread_id: thread_id,
-        reply_target,
-        chat_type,
-        topic,
-        ..runtime::StartThreadMeta::default()
-    }
-}
-
-#[async_trait]
-impl Channel for TelegramChannel {
-    async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Telegram channel initialized (webhook mode)");
-        // Webhook URL registration should be done via Telegram Bot API `setWebhook`.
-        Ok(())
-    }
-
-    async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
-        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
-        let body = json!({
-            "chat_id": channel,
-            "text": message,
-        });
-
-        let response = self.http_client.post(&url).json(&body).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let resp_body = response.text().await.unwrap_or_default();
-            error!(chat_id = %channel, "Telegram API error: HTTP {status}: {resp_body}");
-            anyhow::bail!("Telegram API error: HTTP {status}");
-        }
-
-        info!(chat_id = %channel, "Telegram message sent");
-        Ok(())
-    }
-
-    async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()> {
-        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
-
-        // Format code blocks with Telegram MarkdownV2.
-        let mut text = msg.text.clone();
-        for block in &msg.code_blocks {
-            text.push_str(&format!("\n```{}\n{}\n```", block.language, block.content));
-        }
-
-        let body = json!({
-            "chat_id": channel,
-            "text": text,
-            "parse_mode": "MarkdownV2",
-        });
-
-        let response = self.http_client.post(&url).json(&body).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let resp_body = response.text().await.unwrap_or_default();
-            error!(chat_id = %channel, "Telegram API error: HTTP {status}: {resp_body}");
-            anyhow::bail!("Telegram API error: HTTP {status}");
-        }
-
-        info!(chat_id = %channel, "Telegram rich message sent");
-        Ok(())
-    }
-
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
-        Self::parse_update(&payload)
-    }
-}
-
-/// `POST /webhooks/telegram`: Handle Telegram Bot API webhook updates.
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let expected_secret = depot
@@ -308,7 +92,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let action = match TelegramChannel::parse_update(&body) {
+    let action = match parse_update_with_resolver(&body, resolve_registry_command_name) {
         Ok(action) => action,
         Err(err) => {
             warn!("Telegram webhook: failed to parse update: {err}");
@@ -363,7 +147,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     return;
                 }
             };
-            let meta = parse_start_meta(&body);
+            let meta = to_runtime_start_meta(parse_start_meta(&body));
             let name = parse_display_name(&body);
 
             tokio::spawn(async move {
@@ -388,52 +172,5 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {}
     }
 
-    // Telegram expects 200 OK for all webhook responses.
     res.status_code(StatusCode::OK);
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::TelegramChannel;
-    use crate::protocol::ChannelAction;
-
-    #[test]
-    fn supports_commands_alias_surface() {
-        let payload = json!({
-            "message": {
-                "text": "/commands",
-                "chat": { "id": 42 }
-            }
-        });
-
-        let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
-        match action {
-            ChannelAction::StartThread { channel, prompt } => {
-                assert_eq!(channel, "42");
-                assert_eq!(prompt, "/commands");
-            }
-            _ => panic!("expected start thread action"),
-        }
-    }
-
-    #[test]
-    fn supports_bot_qualified_savfox_command() {
-        let payload = json!({
-            "message": {
-                "text": "/savfox@mybot summarize this",
-                "chat": { "id": 42 }
-            }
-        });
-
-        let action = TelegramChannel::parse_update(&payload).expect("parse should succeed");
-        match action {
-            ChannelAction::StartThread { channel, prompt } => {
-                assert_eq!(channel, "42");
-                assert_eq!(prompt, "summarize this");
-            }
-            _ => panic!("expected start thread action"),
-        }
-    }
 }

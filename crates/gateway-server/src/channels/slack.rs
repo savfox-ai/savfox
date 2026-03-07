@@ -1,182 +1,38 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use salvo::prelude::*;
-use serde_json::{Map, Value, json};
-use tracing::{error, info, warn};
+use savfox_channels::slack::{
+    SlackStartMeta, parse_event_with_resolver, parse_payload_bytes,
+    parse_slash_command_with_resolver, parse_start_meta,
+};
+use serde_json::json;
+use tracing::{info, warn};
 
-use super::{Channel, RichMessage, runtime};
+use super::runtime;
 use crate::auto_reply::CommandRegistry;
 use crate::channel::{GatewayChannel, is_slack_timestamp_fresh};
-use crate::config::{GatewayConfig, SlackChannelConfig};
+use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;
 
-/// Slack channel using Events API and slash commands.
-pub(crate) struct SlackChannel {
-    config: SlackChannelConfig,
-    http_client: reqwest::Client,
-    bot_token: String,
-    signing_secret: String,
-}
-
-fn split_head_and_tail(s: &str) -> (&str, &str) {
-    if let Some(idx) = s.find(char::is_whitespace) {
-        let (head, tail) = s.split_at(idx);
-        (head, tail.trim())
-    } else {
-        (s, "")
-    }
-}
-
-fn normalize_command_prompt(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if !trimmed.starts_with('/') {
-        return None;
-    }
-    let (head, tail) = split_head_and_tail(trimmed);
+fn resolve_registry_command_name(command: &str) -> Option<String> {
     let registry = CommandRegistry::new();
-    let canonical = registry.resolve_command_name(head)?;
-    let mut prompt = format!("/{canonical}");
-    if !tail.is_empty() {
-        prompt.push(' ');
-        prompt.push_str(tail);
-    }
-    Some(prompt)
+    registry.resolve_command_name(command)
 }
 
-fn slash_command_prompt(command: &str, text: &str) -> Option<String> {
-    let command = command.trim();
-    let text = text.trim();
-
-    if command.eq_ignore_ascii_case("/savfox") {
-        if text.is_empty() {
-            return None;
-        }
-        return Some(normalize_command_prompt(text).unwrap_or_else(|| text.to_string()));
-    }
-
-    let registry = CommandRegistry::new();
-    let canonical = registry.resolve_command_name(command)?;
-    let mut prompt = format!("/{canonical}");
-    if !text.is_empty() {
-        prompt.push(' ');
-        prompt.push_str(text);
-    }
-    Some(prompt)
-}
-
-impl SlackChannel {
-    #[must_use]
-    pub(crate) fn new(config: SlackChannelConfig, http_client: reqwest::Client) -> Self {
-        let bot_token = config.bot_token.clone();
-        let signing_secret = config.signing_secret.clone();
-        Self {
-            config,
-            http_client,
-            bot_token,
-            signing_secret,
-        }
-    }
-
-    /// Verify a Slack request signature using the signing secret.
-    fn verify_signature(
-        signing_secret: &str,
-        timestamp: &str,
-        signature: &str,
-        body: &[u8],
-    ) -> bool {
-        crate::channel::verify_slack_signature(signing_secret, timestamp, signature, body)
-    }
-
-    /// Parse a Slack event or slash command payload into a `ChannelAction`.
-    fn parse_event(payload: &Value) -> anyhow::Result<ChannelAction> {
-        let event_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-        match event_type {
-            // URL verification challenge.
-            "url_verification" => Ok(ChannelAction::Ignore),
-
-            // Event callback.
-            "event_callback" => {
-                let event = payload.get("event").unwrap_or(&Value::Null);
-                let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-                match event_type {
-                    "app_mention" | "message" => {
-                        let text = event.get("text").and_then(|t| t.as_str()).unwrap_or("");
-
-                        let channel = event
-                            .get("channel")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("")
-                            .to_owned();
-
-                        // Look for @savfox or /savfox prefix.
-                        let prompt = text
-                            .trim()
-                            .strip_prefix("/savfox ")
-                            .or_else(|| {
-                                // Strip bot mention (e.g., "<@U12345> prompt")
-                                text.find('>').map(|i| text[i + 1..].trim())
-                            })
-                            .unwrap_or("")
-                            .to_owned();
-
-                        if prompt.is_empty() {
-                            Ok(ChannelAction::Ignore)
-                        } else if let Some(command_prompt) = normalize_command_prompt(&prompt) {
-                            Ok(ChannelAction::StartThread {
-                                channel,
-                                prompt: command_prompt,
-                            })
-                        } else {
-                            Ok(ChannelAction::StartThread { channel, prompt })
-                        }
-                    }
-                    _ => Ok(ChannelAction::Ignore),
-                }
-            }
-
-            _ => Ok(ChannelAction::Ignore),
-        }
-    }
-
-    /// Parse a slash command form payload.
-    fn parse_slash_command(payload: &Value) -> anyhow::Result<ChannelAction> {
-        let command = payload
-            .get("command")
-            .and_then(|c| c.as_str())
-            .unwrap_or("");
-        let text = payload.get("text").and_then(|t| t.as_str()).unwrap_or("");
-
-        let channel = payload
-            .get("channel_id")
-            .and_then(|c| c.as_str())
-            .unwrap_or("")
-            .to_owned();
-
-        if let Some(prompt) = slash_command_prompt(command, text) {
-            Ok(ChannelAction::StartThread { channel, prompt })
-        } else {
-            Ok(ChannelAction::Ignore)
-        }
-    }
-
-    fn parse_payload_bytes(body: &[u8]) -> anyhow::Result<Value> {
-        if let Ok(json_value) = serde_json::from_slice::<Value>(body) {
-            return Ok(json_value);
-        }
-
-        // Slack slash commands are usually x-www-form-urlencoded.
-        let mut map = Map::new();
-        for (key, value) in form_urlencoded::parse(body).into_owned() {
-            map.insert(key, Value::String(value));
-        }
-        if map.is_empty() {
-            anyhow::bail!("unsupported payload format");
-        }
-        Ok(Value::Object(map))
+fn to_runtime_start_meta(meta: SlackStartMeta) -> runtime::StartThreadMeta {
+    runtime::StartThreadMeta {
+        peer_id: meta.peer_id,
+        group_id: meta.channel_id.filter(|channel| !channel.starts_with('D')),
+        thread_id: meta.thread_id.clone(),
+        parent_thread_id: meta.thread_id,
+        reply_target: meta.reply_target,
+        team_id: meta.team_id,
+        account_id: meta.account_id,
+        parent_sender_id: meta.parent_sender_id,
+        slack_groups: meta.slack_groups,
+        chat_type: meta.chat_type,
+        ..runtime::StartThreadMeta::default()
     }
 }
 
@@ -193,183 +49,6 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
     ));
 }
 
-fn append_string_values(value: &Value, out: &mut Vec<String>) {
-    match value {
-        Value::String(s) => out.push(s.to_string()),
-        Value::Array(items) => {
-            for item in items {
-                if let Some(s) = item.as_str() {
-                    out.push(s.to_string());
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn parse_start_meta(payload: &Value) -> runtime::StartThreadMeta {
-    let peer_id = payload
-        .get("user_id")
-        .and_then(Value::as_str)
-        .or_else(|| payload.pointer("/event/user").and_then(Value::as_str))
-        .map(str::to_string);
-    let team_id = payload
-        .get("team_id")
-        .and_then(Value::as_str)
-        .or_else(|| payload.pointer("/team/id").and_then(Value::as_str))
-        .map(str::to_string);
-    let account_id = payload
-        .get("api_app_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let thread_id = payload
-        .pointer("/event/thread_ts")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("thread_ts").and_then(Value::as_str))
-        .map(str::to_string);
-    let reply_target = payload
-        .pointer("/event/ts")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let parent_sender_id = payload
-        .pointer("/event/parent_user_id")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    let mut slack_groups = Vec::new();
-    for ptr in [
-        "/event/user_groups",
-        "/user_groups",
-        "/event/user_profile/user_groups",
-        "/user_profile/user_groups",
-    ] {
-        if let Some(value) = payload.pointer(ptr) {
-            append_string_values(value, &mut slack_groups);
-        }
-    }
-
-    let channel_id = payload
-        .pointer("/event/channel")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("channel_id").and_then(Value::as_str))
-        .map(str::to_string);
-    let chat_type = channel_id
-        .as_deref()
-        .map(|channel| {
-            if channel.starts_with('D') {
-                "dm".to_string()
-            } else {
-                "group".to_string()
-            }
-        })
-        .or_else(|| Some("group".to_string()));
-
-    runtime::StartThreadMeta {
-        peer_id,
-        group_id: channel_id.filter(|channel| !channel.starts_with('D')),
-        thread_id: thread_id.clone(),
-        parent_thread_id: thread_id,
-        reply_target,
-        team_id,
-        account_id,
-        parent_sender_id,
-        slack_groups,
-        chat_type,
-        ..runtime::StartThreadMeta::default()
-    }
-}
-
-#[async_trait]
-impl Channel for SlackChannel {
-    async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Slack channel initialized (Events API + slash commands)");
-        Ok(())
-    }
-
-    async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
-        let url = "https://slack.com/api/chat.postMessage";
-        let body = json!({
-            "channel": channel,
-            "text": message,
-        });
-
-        let response = self
-            .http_client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.bot_token))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let resp_body = response.text().await.unwrap_or_default();
-            error!(channel = %channel, "Slack API error: HTTP {status}: {resp_body}");
-            anyhow::bail!("Slack API error: HTTP {status}");
-        }
-
-        info!(channel = %channel, "Slack message sent");
-        Ok(())
-    }
-
-    async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()> {
-        let url = "https://slack.com/api/chat.postMessage";
-
-        // Build Slack Block Kit blocks: a section for the main text and code blocks.
-        let mut blocks = vec![json!({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": msg.text,
-            }
-        })];
-
-        for block in &msg.code_blocks {
-            blocks.push(json!({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": format!("```\n{}\n```", block.content),
-                }
-            }));
-        }
-
-        let body = json!({
-            "channel": channel,
-            "text": msg.text,
-            "blocks": blocks,
-        });
-
-        let response = self
-            .http_client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.bot_token))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let resp_body = response.text().await.unwrap_or_default();
-            error!(channel = %channel, "Slack API error: HTTP {status}: {resp_body}");
-            anyhow::bail!("Slack API error: HTTP {status}");
-        }
-
-        info!(channel = %channel, "Slack rich message sent");
-        Ok(())
-    }
-
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
-        // Check if this is a slash command (has "command" field) or an event.
-        if payload.get("command").is_some() {
-            Self::parse_slash_command(&payload)
-        } else {
-            Self::parse_event(&payload)
-        }
-    }
-}
-
-/// `POST /webhooks/slack`: Handle Slack Events API and slash command webhooks.
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let raw_body = match req.payload().await {
@@ -385,7 +64,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
-    let body = match SlackChannel::parse_payload_bytes(raw_body.as_ref()) {
+    let body = match parse_payload_bytes(raw_body.as_ref()) {
         Ok(v) => v,
         Err(err) => {
             warn!("Slack webhook: failed to parse payload: {err}");
@@ -437,7 +116,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             );
             return;
         }
-        if !SlackChannel::verify_signature(&secret, timestamp, signature, raw_body.as_ref()) {
+        if !crate::channel::verify_slack_signature(&secret, timestamp, signature, raw_body.as_ref())
+        {
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -448,7 +128,6 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     }
 
-    // Handle Slack URL verification challenge.
     if body.get("type").and_then(|t| t.as_str()) == Some("url_verification") {
         let challenge = body.get("challenge").and_then(|c| c.as_str()).unwrap_or("");
         res.render(Text::Json(json!({"challenge": challenge}).to_string()));
@@ -456,9 +135,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     }
 
     let action = if body.get("command").is_some() {
-        SlackChannel::parse_slash_command(&body)
+        parse_slash_command_with_resolver(&body, resolve_registry_command_name)
     } else {
-        SlackChannel::parse_event(&body)
+        parse_event_with_resolver(&body, resolve_registry_command_name)
     };
 
     match action {
@@ -509,7 +188,6 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 }
             };
 
-            // Acknowledge immediately, process asynchronously.
             res.render(Text::Json(
                 json!({
                     "response_type": "in_channel",
@@ -518,7 +196,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .to_string(),
             ));
 
-            let start_meta = parse_start_meta(&body);
+            let start_meta = to_runtime_start_meta(parse_start_meta(&body));
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta(
                     gateway_channel,
@@ -550,50 +228,6 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 "invalid_payload",
                 format!("failed to parse Slack action: {err}"),
             );
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::SlackChannel;
-    use crate::protocol::ChannelAction;
-
-    #[test]
-    fn slash_command_supports_native_registry_command() {
-        let payload = json!({
-            "command": "/status",
-            "channel_id": "C123",
-            "text": ""
-        });
-
-        let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
-        match action {
-            ChannelAction::StartThread { channel, prompt } => {
-                assert_eq!(channel, "C123");
-                assert_eq!(prompt, "/status");
-            }
-            _ => panic!("expected start thread action"),
-        }
-    }
-
-    #[test]
-    fn savfox_slash_command_accepts_command_text() {
-        let payload = json!({
-            "command": "/savfox",
-            "channel_id": "C123",
-            "text": "/help"
-        });
-
-        let action = SlackChannel::parse_slash_command(&payload).expect("parse should succeed");
-        match action {
-            ChannelAction::StartThread { channel, prompt } => {
-                assert_eq!(channel, "C123");
-                assert_eq!(prompt, "/help");
-            }
-            _ => panic!("expected start thread action"),
         }
     }
 }

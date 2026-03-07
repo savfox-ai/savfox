@@ -67,6 +67,7 @@ pub(crate) async fn initialize_and_start_channels(
 
         let result = match kind.as_str() {
             "matrix" => start_matrix_channel(&config, &registry, &channel).await,
+            "dingtalk" => start_dingtalk_channel(&config, channel, session_store).await,
             "discord" => start_discord_channel(&config, &registry, &channel).await,
             "telegram" => start_telegram_channel(&config, &registry, &channel).await,
             "slack" => start_slack_channel(&config, &registry, &channel).await,
@@ -168,6 +169,28 @@ async fn start_discord_channel(
     println!(
         "[startup]   Discord channel persistent connection not yet implemented - using webhook mode"
     );
+    Ok(())
+}
+
+async fn start_dingtalk_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    use crate::channels::dingtalk::{
+        dingtalk_sink, load_dingtalk_channel_config, start_dingtalk_stream,
+    };
+
+    let dingtalk_config = load_dingtalk_channel_config(&channel.config().savfox_home)
+        .await?
+        .or_else(|| crate::channels::dingtalk::DingtalkChannelConfig::from_channel_config(config))
+        .ok_or_else(|| anyhow::anyhow!("Dingtalk channel config must be an object"))?;
+
+    if dingtalk_config.stream_enabled() {
+        let sink = dingtalk_sink(Arc::clone(channel), Arc::clone(session_store));
+        start_dingtalk_stream(&config.id, &dingtalk_config, sink).await?;
+    }
+
     Ok(())
 }
 

@@ -1917,60 +1917,14 @@ impl GatewayChannel {
         secret: Option<&str>,
         text: &str,
     ) -> anyhow::Result<()> {
-        let webhook_or_token = webhook_or_token.trim();
-        if webhook_or_token.is_empty() {
-            anyhow::bail!("dingtalk webhook target is empty");
-        }
-
-        let mut webhook_url = if webhook_or_token.starts_with("https://")
-            || webhook_or_token.starts_with("http://")
-        {
-            webhook_or_token.to_string()
-        } else {
-            format!("https://oapi.dingtalk.com/robot/send?access_token={webhook_or_token}")
-        };
-
-        if let Some(secret) = secret.map(str::trim).filter(|v| !v.is_empty()) {
-            use base64::Engine;
-            use hmac::{Hmac, Mac};
-            use sha2::Sha256;
-
-            let timestamp = chrono::Utc::now().timestamp_millis().to_string();
-            let sign_content = format!("{timestamp}\n{secret}");
-            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
-            mac.update(sign_content.as_bytes());
-            let sign =
-                base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-            let sign_encoded: String =
-                url::form_urlencoded::byte_serialize(sign.as_bytes()).collect();
-            let separator = if webhook_url.contains('?') { '&' } else { '?' };
-            webhook_url =
-                format!("{webhook_url}{separator}timestamp={timestamp}&sign={sign_encoded}");
-        }
-
-        let body = serde_json::json!({
-            "msgtype": "text",
-            "text": {
-                "content": text,
-            }
-        });
-        let response = self
-            .http_client
-            .post(&webhook_url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.bytes().await.unwrap_or_default();
-            warn!(
-                "Dingtalk API error: HTTP {status}: {}",
-                String::from_utf8_lossy(&body)
-            );
-        }
-        Ok(())
+        savfox_channels::dingtalk::send_dingtalk_text_message(
+            &self.http_client,
+            webhook_or_token,
+            secret,
+            None,
+            text,
+        )
+        .await
     }
 
     /// Send a message via the Zalo OA Customer Service API.

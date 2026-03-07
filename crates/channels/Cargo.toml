@@ -17,7 +17,9 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
+dingtalk-sdk = { workspace = true }
 feishu-sdk = { workspace = true }
+form_urlencoded = { workspace = true }
 hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }

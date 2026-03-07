@@ -340,6 +340,7 @@ zeroize = "1.8.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 scraper = "0.25.0"
 feishu-sdk = { path = "../../palpo-im/feishu-sdk", features = ["websocket"] }
+dingtalk-sdk = { path = "../../palpo-im/dingtalk-sdk" }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "0.7", default-features = false, features = ["web", "router", "lib", "launch", "logger"] }
