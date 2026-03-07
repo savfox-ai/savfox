@@ -257,6 +257,7 @@ fn default_experimental_supported_tools() -> Vec<String> {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelInfo {
     pub slug: String,
+    #[serde(alias = "display_name")]
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -772,5 +773,17 @@ mod tests {
             TruncationPolicyConfig::bytes(10_000)
         );
         assert_eq!(model.input_modalities, default_input_modalities());
+    }
+
+    #[test]
+    fn deserialize_model_info_accepts_legacy_display_name_alias() {
+        let value = json!({
+            "slug": "gpt-test",
+            "display_name": "GPT Test"
+        });
+        let model: ModelInfo = serde_json::from_value(value).expect("model should deserialize");
+
+        assert_eq!(model.slug, "gpt-test");
+        assert_eq!(model.name, "GPT Test");
     }
 }

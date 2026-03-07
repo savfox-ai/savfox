@@ -253,8 +253,14 @@ mod tests {
 
     #[test]
     fn parse_text_command_matches_feishu_style() {
-        assert_eq!(parse_text_command("/savfox summarize"), Some("summarize".to_string()));
-        assert_eq!(parse_text_command("!savfox summarize"), Some("summarize".to_string()));
+        assert_eq!(
+            parse_text_command("/savfox summarize"),
+            Some("summarize".to_string())
+        );
+        assert_eq!(
+            parse_text_command("!savfox summarize"),
+            Some("summarize".to_string())
+        );
         assert_eq!(parse_text_command("/savfox"), None);
         assert_eq!(parse_text_command("/savfoxtest hi"), None);
     }

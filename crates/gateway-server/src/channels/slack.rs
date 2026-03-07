@@ -81,7 +81,12 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let signing_secret = depot
         .obtain::<Arc<GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.channels.slack.as_ref().map(|b| b.signing_secret.clone()))
+        .and_then(|cfg| {
+            cfg.channels
+                .slack
+                .as_ref()
+                .map(|b| b.signing_secret.clone())
+        })
         .or_else(|| std::env::var("SLACK_SIGNING_SECRET").ok());
     if let Some(secret) = signing_secret {
         let signature = req

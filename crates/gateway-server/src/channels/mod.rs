@@ -234,12 +234,7 @@ async fn start_feishu_channel(
     );
     if feishu_config.stream_enabled() {
         let sink = feishu_sink(Arc::clone(channel), Arc::clone(session_store));
-        start_feishu_stream(
-            &config.id,
-            &feishu_config,
-            sink,
-        )
-        .await?;
+        start_feishu_stream(&config.id, &feishu_config, sink).await?;
     }
 
     let mut channel = FeishuChannel::new(feishu_config, channel.http_client().clone());
@@ -371,7 +366,10 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
                     if has_token { "configured" } else { "NOT SET" }
                 );
                 println!("[startup]       Configured rooms: {}", rooms_str);
-                info!("Matrix channel starting with homeserver URL: {}", homeserver);
+                info!(
+                    "Matrix channel starting with homeserver URL: {}",
+                    homeserver
+                );
                 info!("  Channel ID: {}", channel_id);
                 info!(
                     "  Access token: {}",

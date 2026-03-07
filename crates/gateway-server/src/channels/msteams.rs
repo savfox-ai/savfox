@@ -411,7 +411,12 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let app_password = depot
         .obtain::<Arc<GatewayConfig>>()
         .ok()
-        .and_then(|cfg| cfg.channels.msteams.as_ref().map(|b| b.app_password.clone()))
+        .and_then(|cfg| {
+            cfg.channels
+                .msteams
+                .as_ref()
+                .map(|b| b.app_password.clone())
+        })
         .or_else(|| std::env::var("MSTEAMS_APP_PASSWORD").ok());
     if let Some(secret) = app_password {
         let auth_header = req

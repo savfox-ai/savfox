@@ -143,10 +143,7 @@ pub fn parse_slash_command_with_resolver<F>(
 where
     F: Fn(&str) -> Option<String>,
 {
-    let command = payload
-        .get("command")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let command = payload.get("command").and_then(Value::as_str).unwrap_or("");
     let text = payload.get("text").and_then(Value::as_str).unwrap_or("");
 
     let channel = payload
@@ -155,8 +152,7 @@ where
         .unwrap_or("")
         .to_owned();
 
-    if let Some(prompt) = slash_command_prompt_with_resolver(command, text, &resolve_command_name)
-    {
+    if let Some(prompt) = slash_command_prompt_with_resolver(command, text, &resolve_command_name) {
         Ok(ChannelAction::StartThread { channel, prompt })
     } else {
         Ok(ChannelAction::Ignore)

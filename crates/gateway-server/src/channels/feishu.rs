@@ -5,9 +5,7 @@ use async_trait::async_trait;
 use feishu_sdk::core::Error as FeishuSdkError;
 use feishu_sdk::event::{EventDispatcher, EventReq, EventResp};
 use salvo::prelude::*;
-use savfox_channels::feishu::{
-    FeishuActionSink, FeishuMessageMeta, build_feishu_event_dispatcher,
-};
+use savfox_channels::feishu::{FeishuActionSink, FeishuMessageMeta, build_feishu_event_dispatcher};
 pub(crate) use savfox_channels::feishu::{
     FeishuChannel, FeishuChannelConfig, fetch_feishu_tenant_access_token,
     load_feishu_channel_config, resolve_feishu_outbound_config,

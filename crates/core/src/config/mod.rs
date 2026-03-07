@@ -3850,7 +3850,10 @@ model_verbosity = "high"
             config.model_provider.base_url.as_deref(),
             Some("https://ark.cn-beijing.volces.com/api/coding/v3")
         );
-        assert_eq!(config.model_provider.env_key.as_deref(), Some("ARK_API_KEY"));
+        assert_eq!(
+            config.model_provider.env_key.as_deref(),
+            Some("ARK_API_KEY")
+        );
         assert_eq!(
             config.model.as_deref(),
             Some("volcengine/doubao-seed-2.0-code")

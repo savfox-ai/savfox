@@ -44,8 +44,9 @@ pub async fn start_dingtalk_stream(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("DingTalk stream mode requires client_secret"))?;
 
-    let mut stream_client = DingTalkStreamClient::new(client_id.to_string(), client_secret.to_string())
-        .map_err(|err| anyhow::anyhow!("failed to build DingTalk stream client: {err}"))?;
+    let mut stream_client =
+        DingTalkStreamClient::new(client_id.to_string(), client_secret.to_string())
+            .map_err(|err| anyhow::anyhow!("failed to build DingTalk stream client: {err}"))?;
     {
         let stream_config = stream_client.config_mut();
         stream_config.openapi_host = config.openapi_host.clone();

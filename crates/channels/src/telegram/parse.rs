@@ -25,7 +25,10 @@ fn split_telegram_command(text: &str) -> Option<(String, String)> {
     Some((command, rest.to_string()))
 }
 
-fn normalize_registry_command_with_resolver<F>(text: &str, resolve_command_name: &F) -> Option<String>
+fn normalize_registry_command_with_resolver<F>(
+    text: &str,
+    resolve_command_name: &F,
+) -> Option<String>
 where
     F: Fn(&str) -> Option<String>,
 {
@@ -73,8 +76,7 @@ where
             });
         }
 
-        if let Some(prompt) =
-            normalize_registry_command_with_resolver(text, &resolve_command_name)
+        if let Some(prompt) = normalize_registry_command_with_resolver(text, &resolve_command_name)
         {
             return Ok(ChannelAction::StartThread {
                 channel: chat_id,

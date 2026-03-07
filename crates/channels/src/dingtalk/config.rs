@@ -52,7 +52,14 @@ impl DingtalkChannelConfig {
             first_non_empty_config_string(raw, &["secret", "sign_secret", "webhook_secret"]);
         let client_id = first_non_empty_config_string(
             raw,
-            &["clientId", "client_id", "appKey", "app_key", "appId", "app_id"],
+            &[
+                "clientId",
+                "client_id",
+                "appKey",
+                "app_key",
+                "appId",
+                "app_id",
+            ],
         );
         let client_secret = first_non_empty_config_string(
             raw,

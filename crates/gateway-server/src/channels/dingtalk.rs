@@ -45,7 +45,11 @@ impl DingtalkActionSink for DingtalkRuntimeSink {
             let is_group = matches!(meta.chat_type.as_deref(), Some("group" | "chat"));
             let start_meta = runtime::StartThreadMeta {
                 peer_id: meta.sender_id,
-                group_id: if is_group { meta.thread_id.clone() } else { None },
+                group_id: if is_group {
+                    meta.thread_id.clone()
+                } else {
+                    None
+                },
                 thread_id: meta.thread_id.clone(),
                 parent_thread_id: meta.thread_id,
                 reply_target: meta.reply_target.or_else(|| message_id.map(str::to_string)),
@@ -152,7 +156,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         let is_group = matches!(meta.chat_type.as_deref(), Some("group" | "chat"));
         let start_meta = runtime::StartThreadMeta {
             peer_id: meta.sender_id,
-            group_id: if is_group { meta.thread_id.clone() } else { None },
+            group_id: if is_group {
+                meta.thread_id.clone()
+            } else {
+                None
+            },
             thread_id: meta.thread_id.clone(),
             parent_thread_id: meta.thread_id,
             reply_target: meta.reply_target,
