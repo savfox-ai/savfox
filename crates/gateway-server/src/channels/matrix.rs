@@ -8,7 +8,9 @@ use form_urlencoded::Serializer;
 use matrix_bot_sdk::client::MatrixClient;
 use reqwest::Method;
 use salvo::prelude::*;
-use savfox_channels::matrix::{MatrixCommandEvent, parse_inbound_payload, parse_webhook_payload};
+use savfox_channels::matrix::{
+    MatrixCommandEvent, parse_inbound_payload_for_user, parse_webhook_payload_for_user,
+};
 use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
@@ -162,7 +164,8 @@ impl Channel for MatrixChannel {
             })?;
         debug_matrix_sync_payload(&self.config_id, "initial", &initial_payload);
 
-        let initial_batch = parse_inbound_payload(&initial_payload);
+        let initial_batch =
+            parse_inbound_payload_for_user(&initial_payload, Some(&resolved.user_id));
         let next_batch = initial_payload
             .get("next_batch")
             .and_then(Value::as_str)
@@ -275,7 +278,7 @@ impl Channel for MatrixChannel {
     }
 
     async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
-        Ok(parse_webhook_payload(&payload).action)
+        Ok(parse_webhook_payload_for_user(&payload, None).action)
     }
 }
 
@@ -464,7 +467,7 @@ async fn run_matrix_sync_task(task: MatrixSyncTask, mut since: Option<String>) {
                     since = Some(next_batch);
                 }
 
-                let parsed = parse_inbound_payload(&payload);
+                let parsed = parse_inbound_payload_for_user(&payload, Some(&task.user_id));
                 debug_matrix_sync_batch(
                     &task.config_id,
                     "incremental",
@@ -542,6 +545,44 @@ fn render_error(res: &mut Response, status: StatusCode, code: &str, message: imp
     })));
 }
 
+fn extract_first_room_id(payload: &Value) -> Option<&str> {
+    if let Some(room_id) = payload
+        .get("room_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|room_id| !room_id.is_empty())
+    {
+        return Some(room_id);
+    }
+
+    for section in ["join", "invite", "leave"] {
+        if let Some(rooms) = payload
+            .get("rooms")
+            .and_then(|rooms| rooms.get(section))
+            .and_then(Value::as_object)
+            && let Some((room_id, _)) = rooms.iter().next()
+        {
+            let room_id = room_id.trim();
+            if !room_id.is_empty() {
+                return Some(room_id);
+            }
+        }
+    }
+
+    payload
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|event| {
+            event
+                .get("room_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|room_id| !room_id.is_empty())
+        })
+}
+
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let body = match req.parse_json::<Value>().await {
@@ -558,7 +599,23 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     };
     debug_matrix_webhook_payload(&body);
 
-    let parsed = parse_webhook_payload(&body);
+    let gateway_channel = depot.obtain::<Arc<GatewayChannel>>().ok().cloned();
+    let self_user_id = if let Some(channel) = gateway_channel.as_ref() {
+        match channel
+            .resolve_matrix_user_id_for_room(extract_first_room_id(&body))
+            .await
+        {
+            Ok(user_id) => user_id,
+            Err(err) => {
+                warn!(error = %err, "failed to resolve Matrix webhook user id");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let parsed = parse_webhook_payload_for_user(&body, self_user_id.as_deref());
     debug_matrix_webhook_summary(
         parsed.rooms_to_auto_join.len(),
         parsed.dedupe_key.as_deref(),
@@ -621,9 +678,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         prompt,
     } = parsed.action
     {
-        let gateway_channel = match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(channel) => channel.clone(),
-            Err(_) => {
+        let gateway_channel = match gateway_channel {
+            Some(channel) => channel,
+            None => {
                 render_error(
                     res,
                     StatusCode::INTERNAL_SERVER_ERROR,

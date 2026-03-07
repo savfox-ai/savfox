@@ -36,6 +36,148 @@ pub struct MatrixWebhookParseResult {
     pub rooms_to_auto_join: Vec<(String, Option<String>)>,
 }
 
+fn extract_prefixed_prompt(text: &str) -> Option<String> {
+    let prompt = text
+        .trim()
+        .strip_prefix("!savfox ")
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())?;
+    Some(prompt.to_string())
+}
+
+fn matrix_localpart(user_id: &str) -> Option<&str> {
+    let trimmed = user_id.trim();
+    let without_at = trimmed.strip_prefix('@').unwrap_or(trimmed);
+    let localpart = without_at.split(':').next()?.trim();
+    if localpart.is_empty() {
+        None
+    } else {
+        Some(localpart)
+    }
+}
+
+fn mention_candidates(user_id: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let trimmed = user_id.trim();
+    if !trimmed.is_empty() {
+        candidates.push(trimmed.to_string());
+        candidates.push(trimmed.trim_start_matches('@').to_string());
+    }
+    if let Some(localpart) = matrix_localpart(trimmed) {
+        candidates.push(localpart.to_string());
+        candidates.push(format!("@{localpart}"));
+    }
+    candidates.sort_unstable();
+    candidates.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    candidates
+}
+
+fn split_leading_candidate<'a>(text: &'a str, candidate: &str) -> Option<&'a str> {
+    let text = text.trim_start();
+    let prefix = text.get(..candidate.len())?;
+    if !prefix.eq_ignore_ascii_case(candidate) {
+        return None;
+    }
+
+    let remainder = text.get(candidate.len()..).unwrap_or("");
+    if remainder.is_empty() {
+        return Some(remainder);
+    }
+
+    let first = remainder.chars().next()?;
+    if first.is_whitespace() || matches!(first, ':' | ',' | ';' | '>') {
+        Some(remainder)
+    } else {
+        None
+    }
+}
+
+fn cleanup_stripped_prompt(text: &str) -> Option<String> {
+    let prompt = text
+        .trim_start_matches(|ch: char| ch.is_whitespace() || matches!(ch, ':' | ',' | ';' | '>'))
+        .trim();
+    if prompt.is_empty() {
+        None
+    } else {
+        Some(prompt.to_string())
+    }
+}
+
+fn content_mentions_user(content: &Value, self_user_id: &str) -> bool {
+    content
+        .get("m.mentions")
+        .and_then(|mentions| mentions.get("user_ids"))
+        .and_then(Value::as_array)
+        .map(|user_ids| {
+            user_ids
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|user_id| user_id.eq_ignore_ascii_case(self_user_id))
+        })
+        .unwrap_or(false)
+}
+
+fn strip_html_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn extract_prompt_from_formatted_body(formatted_body: &str, self_user_id: &str) -> Option<String> {
+    let trimmed = formatted_body.trim_start();
+    if !trimmed.starts_with("<a ") {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let self_user_id = self_user_id.trim().to_ascii_lowercase();
+    if !lower.contains(&self_user_id) {
+        return None;
+    }
+
+    let anchor_end = trimmed.find("</a>")?;
+    let remainder = trimmed.get(anchor_end + 4..).unwrap_or("");
+    let remainder = strip_html_tags(remainder);
+    cleanup_stripped_prompt(&remainder)
+}
+
+fn extract_prompt_from_bot_mention(content: &Value, self_user_id: &str) -> Option<String> {
+    let body = content.get("body").and_then(Value::as_str).unwrap_or("");
+    for candidate in mention_candidates(self_user_id) {
+        if let Some(remainder) = split_leading_candidate(body, &candidate)
+            && let Some(prompt) = cleanup_stripped_prompt(remainder)
+        {
+            return Some(prompt);
+        }
+    }
+
+    if content_mentions_user(content, self_user_id)
+        && let Some(formatted_body) = content.get("formatted_body").and_then(Value::as_str)
+    {
+        return extract_prompt_from_formatted_body(formatted_body, self_user_id);
+    }
+
+    None
+}
+
+fn extract_prompt(content: &Value, self_user_id: Option<&str>) -> Option<String> {
+    let body = content.get("body").and_then(Value::as_str).unwrap_or("");
+    if let Some(prompt) = extract_prefixed_prompt(body) {
+        return Some(prompt);
+    }
+
+    let self_user_id = self_user_id?;
+    extract_prompt_from_bot_mention(content, self_user_id)
+}
+
 fn push_events<'a>(
     out: &mut Vec<(&'a Value, Option<&'a str>)>,
     events: Option<&'a Vec<Value>>,
@@ -141,6 +283,14 @@ pub fn parse_command_event(
     event: &Value,
     room_id_hint: Option<&str>,
 ) -> Option<MatrixCommandEvent> {
+    parse_command_event_for_user(event, room_id_hint, None)
+}
+
+pub fn parse_command_event_for_user(
+    event: &Value,
+    room_id_hint: Option<&str>,
+    self_user_id: Option<&str>,
+) -> Option<MatrixCommandEvent> {
     if event.get("type").and_then(Value::as_str) != Some("m.room.message") {
         return None;
     }
@@ -156,7 +306,7 @@ pub fn parse_command_event(
         .unwrap_or("");
     let sender = event.get("sender").and_then(Value::as_str).unwrap_or("");
     debug_matrix_inbound_message(room_id, sender, text);
-    let prompt = text.strip_prefix("!savfox ").map(str::trim)?;
+    let prompt = extract_prompt(content, self_user_id)?;
     if prompt.is_empty() || room_id.is_empty() {
         return None;
     }
@@ -167,12 +317,19 @@ pub fn parse_command_event(
     Some(MatrixCommandEvent {
         room_id: room_id.to_owned(),
         sender: sender.to_owned(),
-        prompt: prompt.to_owned(),
+        prompt,
         dedupe_key,
     })
 }
 
 pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
+    parse_inbound_payload_for_user(payload, None)
+}
+
+pub fn parse_inbound_payload_for_user(
+    payload: &Value,
+    self_user_id: Option<&str>,
+) -> MatrixInboundParseResult {
     let mut parsed = MatrixInboundParseResult::default();
 
     for (event, room_id_hint) in collect_matrix_events(payload) {
@@ -186,7 +343,7 @@ pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
             parsed.rooms_to_auto_join.push((room_id, invited_user_id));
         }
 
-        if let Some(command) = parse_command_event(event, room_id_hint) {
+        if let Some(command) = parse_command_event_for_user(event, room_id_hint, self_user_id) {
             parsed.commands.push(command);
         }
     }
@@ -195,7 +352,14 @@ pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
 }
 
 pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
-    let parsed = parse_inbound_payload(payload);
+    parse_webhook_payload_for_user(payload, None)
+}
+
+pub fn parse_webhook_payload_for_user(
+    payload: &Value,
+    self_user_id: Option<&str>,
+) -> MatrixWebhookParseResult {
+    let parsed = parse_inbound_payload_for_user(payload, self_user_id);
     let mut action = ChannelAction::Ignore;
     let mut dedupe_key = None;
 
@@ -218,7 +382,10 @@ pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
 mod tests {
     use serde_json::json;
 
-    use super::{MatrixWebhookParseResult, parse_inbound_payload, parse_webhook_payload};
+    use super::{
+        MatrixWebhookParseResult, parse_inbound_payload, parse_inbound_payload_for_user,
+        parse_webhook_payload, parse_webhook_payload_for_user,
+    };
     use savfox_core::channel::ChannelAction;
 
     fn assert_start_thread(
@@ -368,5 +535,89 @@ mod tests {
             parsed.commands[1].dedupe_key.as_deref(),
             Some("matrix:$joined-2")
         );
+    }
+
+    #[test]
+    fn parses_leading_localpart_mentions_for_authenticated_user() {
+        let payload = json!({
+            "rooms": {
+                "join": {
+                    "!joined:matrix.org": {
+                        "timeline": {
+                            "events": [
+                                {
+                                    "type": "m.room.message",
+                                    "event_id": "$mention-1",
+                                    "sender": "@user:matrix.org",
+                                    "content": {
+                                        "msgtype": "m.text",
+                                        "body": "outfox_bot: hi",
+                                        "m.mentions": {
+                                            "user_ids": ["@outfox_bot:127.0.0.1:6006"]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        });
+
+        let parsed = parse_inbound_payload_for_user(&payload, Some("@outfox_bot:127.0.0.1:6006"));
+        assert_eq!(parsed.commands.len(), 1);
+        assert_eq!(parsed.commands[0].room_id, "!joined:matrix.org");
+        assert_eq!(parsed.commands[0].sender, "@user:matrix.org");
+        assert_eq!(parsed.commands[0].prompt, "hi");
+        assert_eq!(
+            parsed.commands[0].dedupe_key.as_deref(),
+            Some("matrix:$mention-1")
+        );
+    }
+
+    #[test]
+    fn parses_formatted_body_mentions_for_authenticated_user() {
+        let payload = json!({
+            "room_id": "!joined:matrix.org",
+            "type": "m.room.message",
+            "event_id": "$mention-2",
+            "sender": "@user:matrix.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "Savfox Agent: hi",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<a href=\"https://matrix.to/#/@outfox_bot:127.0.0.1:6006\">Savfox Agent</a>: hi",
+                "m.mentions": {
+                    "user_ids": ["@outfox_bot:127.0.0.1:6006"]
+                }
+            }
+        });
+
+        let parsed = parse_webhook_payload_for_user(&payload, Some("@outfox_bot:127.0.0.1:6006"));
+        assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$mention-2"));
+        assert_start_thread(&parsed, "!joined:matrix.org", "hi");
+    }
+
+    #[test]
+    fn mention_events_without_authenticated_user_still_require_prefix() {
+        let payload = json!({
+            "room_id": "!joined:matrix.org",
+            "type": "m.room.message",
+            "event_id": "$mention-3",
+            "sender": "@user:matrix.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "outfox_bot: hi",
+                "m.mentions": {
+                    "user_ids": ["@outfox_bot:127.0.0.1:6006"]
+                }
+            }
+        });
+
+        let parsed = parse_inbound_payload(&payload);
+        assert!(parsed.commands.is_empty());
+
+        let parsed = parse_webhook_payload(&payload);
+        assert!(matches!(parsed.action, ChannelAction::Ignore));
     }
 }

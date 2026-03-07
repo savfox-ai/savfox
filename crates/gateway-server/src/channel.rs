@@ -1700,6 +1700,46 @@ impl GatewayChannel {
         Ok(fallback)
     }
 
+    pub(crate) async fn resolve_matrix_user_id_for_room(
+        &self,
+        room_id: Option<&str>,
+    ) -> anyhow::Result<Option<String>> {
+        let config = self
+            .resolve_matrix_outbound_config(room_id.unwrap_or_default())
+            .await?;
+        let Some(config) = config else {
+            return Ok(None);
+        };
+
+        if let Some(runtime_user_id) = crate::channels::matrix::matrix_runtime_state_for(&config.id)
+            .and_then(|state| state.user_id)
+            .and_then(|user_id| {
+                let user_id = user_id.trim().to_string();
+                if user_id.is_empty() {
+                    None
+                } else {
+                    Some(user_id)
+                }
+            })
+        {
+            return Ok(Some(runtime_user_id));
+        }
+
+        if let Some(config_user_id) = non_empty_trimmed(config.user_id.as_deref()) {
+            return Ok(Some(config_user_id.to_string()));
+        }
+
+        let resolved = Self::resolve_matrix_client(
+            &config.homeserver,
+            config.access_token.as_deref(),
+            config.user_id.as_deref(),
+            config.password.as_deref(),
+            config.device_name.as_deref(),
+        )
+        .await?;
+        Ok(Some(resolved.user_id))
+    }
+
     /// Send a message via Matrix using matrix-bot-sdk.
     pub(crate) async fn send_matrix_message(
         &self,
