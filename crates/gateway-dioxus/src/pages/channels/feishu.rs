@@ -115,31 +115,41 @@ pub fn FeishuChannel() -> Element {
                                 class: "btn btn-danger",
                                 onclick: move |_| {
                                     let ws = ws.clone();
-                                    async move {
+                                    spawn(async move {
                                         action_loading.set(true);
-                                        let _ = ws.read()
+                                        error.set(None);
+                                        match ws.read()
                                             .call::<serde_json::Value>("channels.logout", Some(serde_json::json!({"channel": "feishu"})))
-                                            .await;
+                                            .await
+                                        {
+                                            Ok(_) => {}
+                                            Err(e) => error.set(Some(e)),
+                                        }
                                         action_loading.set(false);
                                         load_status().await;
-                                    }
+                                    });
                                 },
                                 disabled: *action_loading.read(),
-                                if *action_loading.read() { "Stopping..." } else { "Stop Channel" }
+                                if *action_loading.read() { "Disconnecting..." } else { "Disconnect" }
                             }
                         } else {
                             button {
                                 class: "btn btn-success",
                                 onclick: move |_| {
                                     let ws = ws.clone();
-                                    async move {
+                                    spawn(async move {
                                         action_loading.set(true);
-                                        let _ = ws.read()
+                                        error.set(None);
+                                        match ws.read()
                                             .call::<serde_json::Value>("channels.login", Some(serde_json::json!({"channel": "feishu"})))
-                                            .await;
+                                            .await
+                                        {
+                                            Ok(_) => {}
+                                            Err(e) => error.set(Some(e)),
+                                        }
                                         action_loading.set(false);
                                         load_status().await;
-                                    }
+                                    });
                                 },
                                 disabled: *action_loading.read(),
                                 if *action_loading.read() { "Starting..." } else { "Start Channel" }

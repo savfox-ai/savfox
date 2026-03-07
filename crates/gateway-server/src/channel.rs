@@ -1897,13 +1897,25 @@ impl GatewayChannel {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.bytes().await.unwrap_or_default();
-            warn!(
-                "Feishu API error: HTTP {status}: {}",
+        let status = response.status();
+        let body = response.bytes().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!(
+                "Feishu API error: HTTP {}: {}",
+                status,
                 String::from_utf8_lossy(&body)
             );
+        }
+
+        if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) {
+            let code = payload.get("code").and_then(serde_json::Value::as_i64);
+            if code.is_some_and(|value| value != 0) {
+                let msg = payload
+                    .get("msg")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown error");
+                anyhow::bail!("Feishu API returned code {}: {}", code.unwrap_or(-1), msg);
+            }
         }
         Ok(())
     }
@@ -2128,10 +2140,12 @@ impl GatewayChannel {
                     &self.config.savfox_home,
                 )
                 .await?;
-                let receive_id_type = config
+                let configured_receive_id_type = config
                     .as_ref()
                     .map(|cfg| cfg.receive_id_type.as_str())
                     .unwrap_or("chat_id");
+                let receive_id_type =
+                    Self::infer_feishu_receive_id_type(channel_id, configured_receive_id_type);
                 let token = if let Some(token) = config
                     .as_ref()
                     .and_then(|cfg| cfg.app_access_token.as_deref())
@@ -2179,7 +2193,7 @@ impl GatewayChannel {
                         .as_ref()
                         .map(|cfg| cfg.base_url.as_str())
                         .unwrap_or("https://open.feishu.cn");
-                    self.send_feishu_message(base_url, &token, channel_id, receive_id_type, text)
+                    self.send_feishu_message(base_url, &token, channel_id, &receive_id_type, text)
                         .await?;
                 } else {
                     warn!(
@@ -2228,7 +2242,8 @@ impl GatewayChannel {
             "irc" => {
                 let channel_url = std::env::var("IRC_BRIDGE_URL")
                     .unwrap_or_else(|_| "http://127.0.0.1:6667".to_string());
-                self.send_irc_message(&channel_url, channel_id, text).await?;
+                self.send_irc_message(&channel_url, channel_id, text)
+                    .await?;
             }
             "zalo" => {
                 if let Ok(token) = std::env::var("ZALO_OA_ACCESS_TOKEN") {
@@ -2243,6 +2258,19 @@ impl GatewayChannel {
         }
 
         Ok(())
+    }
+
+    fn infer_feishu_receive_id_type(channel_id: &str, configured: &str) -> String {
+        let normalized = configured.trim();
+        if channel_id.starts_with("oc_") {
+            "chat_id".to_string()
+        } else if channel_id.starts_with("ou_") {
+            "open_id".to_string()
+        } else if normalized.is_empty() {
+            "chat_id".to_string()
+        } else {
+            normalized.to_string()
+        }
     }
 
     /// Get a reference to the thread manager.
@@ -3138,7 +3166,7 @@ pub(crate) fn verify_whatsapp_webhook_signature(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_slack_timestamp_fresh, verify_discord_signature, verify_slack_signature,
+        GatewayChannel, is_slack_timestamp_fresh, verify_discord_signature, verify_slack_signature,
         verify_telegram_webhook_secret, verify_webhook_hmac,
     };
 
@@ -3148,6 +3176,22 @@ mod tests {
         assert!(!is_slack_timestamp_fresh("899", 300, 1200));
         assert!(!is_slack_timestamp_fresh("1201", 300, 1200));
         assert!(!is_slack_timestamp_fresh("not-a-number", 300, 1200));
+    }
+
+    #[test]
+    fn feishu_receive_id_type_prefers_chat_and_open_id_prefixes() {
+        assert_eq!(
+            GatewayChannel::infer_feishu_receive_id_type("oc_123", "open_id"),
+            "chat_id"
+        );
+        assert_eq!(
+            GatewayChannel::infer_feishu_receive_id_type("ou_123", "chat_id"),
+            "open_id"
+        );
+        assert_eq!(
+            GatewayChannel::infer_feishu_receive_id_type("user-123", "user_id"),
+            "user_id"
+        );
     }
 
     #[test]

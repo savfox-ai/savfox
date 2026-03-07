@@ -1,17 +1,21 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use feishu_sdk::core::{Error as FeishuSdkError, LogLevel};
-use feishu_sdk::event::models::MessageEvent as FeishuMessageEvent;
+use feishu_sdk::event::models::{MessageEvent as FeishuMessageEvent, MessageId};
 use feishu_sdk::event::{
     Event as FeishuEvent, EventDispatcher, EventDispatcherConfig,
     EventHandler as FeishuEventHandler, EventResp as FeishuEventResp,
 };
 use feishu_sdk::ws::{StreamClient, StreamConfig};
 use savfox_core::channel::ChannelAction;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use super::config::{FeishuChannelConfig, build_feishu_sdk_config, default_stream_locale};
@@ -35,6 +39,35 @@ pub trait FeishuActionSink: Send + Sync {
         message_id: Option<&str>,
         meta: FeishuMessageMeta,
     );
+}
+
+#[derive(Debug)]
+struct StreamTaskEntry {
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
+fn stream_handles() -> &'static Mutex<std::collections::HashMap<String, StreamTaskEntry>> {
+    static HANDLES: OnceLock<Mutex<std::collections::HashMap<String, StreamTaskEntry>>> =
+        OnceLock::new();
+    HANDLES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn next_stream_generation() -> u64 {
+    static GENERATION: AtomicU64 = AtomicU64::new(1);
+    GENERATION.fetch_add(1, Ordering::Relaxed)
+}
+
+fn extract_sender_id(sender_id: Option<&MessageId>) -> Option<String> {
+    let sender_id = sender_id?;
+    sender_id
+        .user_id
+        .as_deref()
+        .or(sender_id.open_id.as_deref())
+        .or(sender_id.union_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
 }
 
 struct SavfoxFeishuEventHandler {
@@ -62,11 +95,11 @@ impl FeishuEventHandler for SavfoxFeishuEventHandler {
             debug!(message_event = ?message_event, "Parsed Feishu message event from WebSocket");
 
             let meta = FeishuMessageMeta {
-                sender_id: message_event.sender.sender_id.as_ref().map(|id| format!("{:?}", id)),
+                sender_id: extract_sender_id(message_event.sender.sender_id.as_ref()),
                 sender_name: None,
                 chat_type: None,
-                thread_id: message_event.message.root_id.as_ref().map(|id| format!("{:?}", id)),
-                parent_message_id: message_event.message.parent_id.as_ref().map(|id| format!("{:?}", id)),
+                thread_id: message_event.message.root_id.clone(),
+                parent_message_id: message_event.message.parent_id.clone(),
             };
 
             if let Some(action) = extract_channel_action(&message_event) {
@@ -136,12 +169,41 @@ pub async fn start_feishu_stream(
         .build()
         .map_err(|err| anyhow::anyhow!("failed to build Feishu stream client: {err}"))?;
 
-    let channel_id = channel_id.to_string();
-    tokio::spawn(async move {
-        info!(channel_id = %channel_id, "Feishu/Lark stream channel starting");
+    let stream_key = channel_id.to_string();
+    let generation = next_stream_generation();
+    let task_channel_id = stream_key.clone();
+    let tracked_channel_id = stream_key.clone();
+    let handle = tokio::spawn(async move {
+        info!(channel_id = %task_channel_id, "Feishu/Lark stream channel starting");
         if let Err(err) = stream_client.start().await {
-            warn!(channel_id = %channel_id, error = %err, "Feishu/Lark stream channel stopped");
+            warn!(channel_id = %task_channel_id, error = %err, "Feishu/Lark stream channel stopped");
+        }
+        let mut handles = stream_handles().lock().await;
+        if handles
+            .get(&tracked_channel_id)
+            .is_some_and(|entry| entry.generation == generation)
+        {
+            handles.remove(&tracked_channel_id);
         }
     });
+
+    let mut handles = stream_handles().lock().await;
+    if let Some(previous) = handles.insert(stream_key, StreamTaskEntry { generation, handle }) {
+        previous.handle.abort();
+    }
     Ok(())
+}
+
+pub async fn stop_feishu_stream(channel_id: &str) -> bool {
+    let mut handles = stream_handles().lock().await;
+    if let Some(entry) = handles.remove(channel_id) {
+        entry.handle.abort();
+        true
+    } else {
+        false
+    }
+}
+
+pub async fn is_feishu_stream_running(channel_id: &str) -> bool {
+    stream_handles().lock().await.contains_key(channel_id)
 }

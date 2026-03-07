@@ -168,11 +168,11 @@ pub(crate) async fn dispatch_rpc(
         "wake" => handle_wake(&params, channel).await,
         "channels.list" => handle_channels_list(channel).await,
         "channels.status" => handle_channels_status(&params, channel).await,
-        "channels.login" => handle_channels_login(&params, channel).await,
+        "channels.login" => handle_channels_login(&params, channel, session_store).await,
         "channels.logout" => handle_channels_logout(&params, channel).await,
         "channels.test" => handle_channels_test(&params, channel).await,
         "channels.account.update" => handle_channels_account_update(&params, channel).await,
-        "web.login.start" => handle_web_login_start(&params, channel).await,
+        "web.login.start" => handle_web_login_start(&params, channel, session_store).await,
         "web.login.wait" => handle_web_login_wait(&params, channel).await,
         "channels.nostr.profile.get" => handle_channels_nostr_profile_get(channel).await,
         "channels.nostr.profile.set" => handle_channels_nostr_profile_set(&params, channel).await,
@@ -4215,10 +4215,12 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         .is_some_and(saved_channel_stream_enabled);
     let feishu_saved = saved_channel_state(&saved_configs, "feishu");
     let feishu_configured = runtime_channel_configured("feishu", &runtime) || feishu_saved.ready;
-    let feishu_running = feishu_saved
-        .config
-        .as_ref()
-        .is_some_and(saved_channel_stream_enabled);
+    let feishu_running = if let Some(config) = feishu_saved.config.as_ref() {
+        saved_channel_stream_enabled(config)
+            && savfox_channels::feishu::is_feishu_stream_running(&config.id).await
+    } else {
+        false
+    };
 
     let mut channels = json!({
         "discord": {
@@ -4286,7 +4288,7 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
         "feishu": {
             "configured": feishu_configured,
             "running": feishu_running,
-            "connected": false,
+            "connected": feishu_running,
         },
         "nostr": {
             "configured": nostr_configured,
@@ -4457,7 +4459,11 @@ async fn handle_channels_status(params: &Value, channel: &Arc<GatewayChannel>) -
     Ok(json!({ "channels": channels }))
 }
 
-async fn handle_channels_login(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+async fn handle_channels_login(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -4477,6 +4483,84 @@ async fn handle_channels_login(params: &Value, channel: &Arc<GatewayChannel>) ->
         .is_some_and(|v| !v.trim().is_empty());
     let is_configured =
         channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
+
+    if platform == "feishu" {
+        if !is_configured {
+            return Ok(json!({
+                "platform": platform,
+                "status": "needs_config",
+                "configured": false,
+                "message": "Please configure feishu in the channel settings",
+            }));
+        }
+
+        let mut started = 0_u32;
+        let mut already_running = 0_u32;
+        let mut stream_disabled = 0_u32;
+        for saved in &saved_configs {
+            if !channel_platform_matches_kind(&saved.kind, "feishu") || !saved.enabled {
+                continue;
+            }
+            let Some(parsed) =
+                savfox_channels::feishu::FeishuChannelConfig::from_channel_config(saved)
+            else {
+                continue;
+            };
+            if !parsed.stream_enabled() {
+                stream_disabled = stream_disabled.saturating_add(1);
+                continue;
+            }
+            if savfox_channels::feishu::is_feishu_stream_running(&saved.id).await {
+                already_running = already_running.saturating_add(1);
+                continue;
+            }
+
+            let sink = crate::channels::feishu::feishu_sink(
+                Arc::clone(channel),
+                Arc::clone(session_store),
+            );
+            savfox_channels::feishu::start_feishu_stream(&saved.id, &parsed, sink)
+                .await
+                .map_err(|err| {
+                    (
+                        INTERNAL_ERROR,
+                        format!("failed to start Feishu stream '{}': {err}", saved.id),
+                    )
+                })?;
+            started = started.saturating_add(1);
+        }
+
+        let (status, message) = if started > 0 {
+            (
+                "started",
+                format!("Started {started} Feishu stream channel(s)"),
+            )
+        } else if already_running > 0 {
+            (
+                "already_running",
+                format!("{already_running} Feishu stream channel(s) already running"),
+            )
+        } else if stream_disabled > 0 {
+            (
+                "webhook_mode",
+                "Feishu is configured in webhook mode; no stream channel was started".to_string(),
+            )
+        } else {
+            (
+                "configured",
+                "Feishu is configured, but no enabled stream channel was found".to_string(),
+            )
+        };
+
+        return Ok(json!({
+            "platform": platform,
+            "status": status,
+            "configured": true,
+            "started": started,
+            "already_running": already_running,
+            "message": message,
+        }));
+    }
 
     Ok(json!({
         "platform": platform,
@@ -4502,6 +4586,7 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
     }
 
     let mut secrets = channel.runtime_channel_secrets().await;
+    let mut stopped = 0_u32;
     match platform.as_str() {
         "discord" => secrets.discord_bot_token = None,
         "telegram" => secrets.telegram_bot_token = None,
@@ -4516,8 +4601,17 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
             profile["public_key"] = json!("");
             let _ = save_nostr_profile(channel, &profile).await;
         }
+        "feishu" => {
+            for saved in load_saved_channel_configs(channel).await {
+                if channel_platform_matches_kind(&saved.kind, "feishu")
+                    && savfox_channels::feishu::stop_feishu_stream(&saved.id).await
+                {
+                    stopped = stopped.saturating_add(1);
+                }
+            }
+        }
         "matrix" | "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line"
-        | "feishu" | "dingtalk" => {
+        | "dingtalk" => {
             // These platforms may not have runtime secrets yet
         }
         _ => {
@@ -4526,7 +4620,17 @@ async fn handle_channels_logout(params: &Value, channel: &Arc<GatewayChannel>) -
     }
     channel.set_runtime_channel_secrets(secrets).await;
 
-    Ok(json!({ "platform": platform, "status": "logged_out" }))
+    Ok(json!({
+        "platform": platform,
+        "status": if platform == "feishu" && stopped > 0 {
+            "stopped"
+        } else if platform == "feishu" {
+            "already_stopped"
+        } else {
+            "logged_out"
+        },
+        "stopped": stopped,
+    }))
 }
 
 async fn handle_channels_test(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
@@ -5224,7 +5328,11 @@ async fn handle_directory_groups_members(
     }))
 }
 
-async fn handle_web_login_start(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+async fn handle_web_login_start(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) -> RpcResult {
     let platform = params
         .get("platform")
         .or_else(|| params.get("channel"))
@@ -5238,7 +5346,7 @@ async fn handle_web_login_start(params: &Value, channel: &Arc<GatewayChannel>) -
             "message": "Scan the QR code in the WhatsApp page and poll web.login.wait.",
         }));
     }
-    handle_channels_login(&json!({ "platform": platform }), channel).await
+    handle_channels_login(&json!({ "platform": platform }), channel, session_store).await
 }
 
 async fn handle_web_login_wait(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
