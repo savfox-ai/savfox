@@ -5,6 +5,7 @@ use crate::api::types::{
     AgentsResponse, CronJob, CronListResponse, CronRunEntry, CronRunsResponse, CronStatusResponse,
 };
 use crate::api::ws::WsRpc;
+use crate::components::toast::Toaster;
 
 #[derive(Clone, Copy, PartialEq)]
 enum ScheduleType {
@@ -13,10 +14,119 @@ enum ScheduleType {
     Cron,
 }
 
+fn trimmed_or_none(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn every_interval_secs(value: &str, unit: &str) -> Result<u64, String> {
+    let quantity = value
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| "Interval must be a positive integer".to_string())?;
+    if quantity == 0 {
+        return Err("Interval must be greater than 0".to_string());
+    }
+
+    let multiplier = match unit {
+        "seconds" => 1,
+        "minutes" => 60,
+        "hours" => 3_600,
+        "days" => 86_400,
+        _ => return Err("Unsupported interval unit".to_string()),
+    };
+
+    quantity
+        .checked_mul(multiplier)
+        .ok_or_else(|| "Interval is too large".to_string())
+}
+
+fn build_schedule_value(
+    schedule_type: ScheduleType,
+    every_value: &str,
+    every_unit: &str,
+    at_datetime: &str,
+    cron_expr: &str,
+    cron_tz: &str,
+) -> Result<serde_json::Value, String> {
+    match schedule_type {
+        ScheduleType::Every => Ok(json!({
+            "kind": "every",
+            "interval_secs": every_interval_secs(every_value, every_unit)?,
+        })),
+        ScheduleType::At => {
+            let at_datetime =
+                trimmed_or_none(at_datetime).ok_or_else(|| "Run time is required".to_string())?;
+            let at_ms =
+                js_sys::Date::new(&wasm_bindgen::JsValue::from_str(&at_datetime)).get_time();
+            if !at_ms.is_finite() {
+                return Err("Invalid run time".to_string());
+            }
+            Ok(json!({
+                "kind": "at",
+                "at_ms": at_ms.max(0.0) as u64,
+            }))
+        }
+        ScheduleType::Cron => {
+            let expression = trimmed_or_none(cron_expr)
+                .ok_or_else(|| "Cron expression is required".to_string())?;
+            Ok(json!({
+                "kind": "cron",
+                "expression": expression,
+                "timezone": trimmed_or_none(cron_tz),
+            }))
+        }
+    }
+}
+
+fn build_payload_value(
+    payload_type: &str,
+    payload_text: &str,
+    payload_timeout: &str,
+) -> Result<serde_json::Value, String> {
+    match payload_type {
+        "system_event" => {
+            let text = trimmed_or_none(payload_text)
+                .ok_or_else(|| "Event message is required".to_string())?;
+            Ok(json!({
+                "type": "system_event",
+                "text": text,
+            }))
+        }
+        "agent_turn" => {
+            let message = trimmed_or_none(payload_text)
+                .ok_or_else(|| "Agent message is required".to_string())?;
+            let timeout_secs = match trimmed_or_none(payload_timeout) {
+                Some(timeout) => {
+                    let timeout_secs = timeout
+                        .parse::<u64>()
+                        .map_err(|_| "Timeout must be a positive integer".to_string())?;
+                    if timeout_secs == 0 {
+                        return Err("Timeout must be greater than 0".to_string());
+                    }
+                    Some(timeout_secs)
+                }
+                None => None,
+            };
+            Ok(json!({
+                "type": "agent_turn",
+                "message": message,
+                "timeout_secs": timeout_secs,
+            }))
+        }
+        _ => Err("Unsupported payload type".to_string()),
+    }
+}
+
 #[component]
 pub fn Cron() -> Element {
     let ws = use_context::<WsRpc>();
     let ws_connected = use_context::<Signal<bool>>();
+    let mut toaster = use_context::<Toaster>();
     let mut refresh_tick = use_signal(|| 0u32);
 
     let mut selected_job = use_signal(|| Option::<String>::None);
@@ -32,7 +142,6 @@ pub fn Cron() -> Element {
     let new_cron_tz = use_signal(|| "UTC".to_string());
     let new_agent_id = use_signal(String::new);
     let new_session_target = use_signal(|| "main".to_string());
-    let new_wake_mode = use_signal(|| "now".to_string());
     let new_payload_type = use_signal(|| "system_event".to_string());
     let new_payload_text = use_signal(String::new);
     let new_payload_timeout = use_signal(|| "300".to_string());
@@ -83,7 +192,7 @@ pub fn Cron() -> Element {
         let job_id = sel.clone();
         async move {
             if let Some(id) = job_id {
-                ws.call::<CronRunsResponse>("cron.runs", Some(json!({ "job_id": id })))
+                ws.call::<CronRunsResponse>("cron.runs", Some(json!({ "id": id })))
                     .await
                     .map(|r| r.runs)
                     .unwrap_or_default()
@@ -199,14 +308,14 @@ pub fn Cron() -> Element {
                         new_cron_tz,
                         new_agent_id,
                         new_session_target,
-                        new_wake_mode,
                         new_payload_type,
                         new_payload_text,
                         new_payload_timeout,
+                        toaster,
                         &agents,
                     ) }
                 } else if let Some(ref entry) = selected_entry {
-                    { render_job_detail(ws.clone(), refresh_tick, entry, selected_job, &runs) }
+                    { render_job_detail(ws.clone(), refresh_tick, entry, selected_job, toaster, &runs) }
                 } else {
                     div { style: "display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);font-size:14px;",
                         "Select a job or create a new one"
@@ -231,10 +340,10 @@ fn render_create_form(
     mut new_cron_tz: Signal<String>,
     mut new_agent_id: Signal<String>,
     mut new_session_target: Signal<String>,
-    mut new_wake_mode: Signal<String>,
     mut new_payload_type: Signal<String>,
     mut new_payload_text: Signal<String>,
     mut new_payload_timeout: Signal<String>,
+    mut toaster: Toaster,
     agents: &[crate::api::types::AgentEntry],
 ) -> Element {
     let sched_types = [
@@ -265,10 +374,17 @@ fn render_create_form(
                         value: "{new_agent_id}",
                         onchange: move |e| new_agent_id.set(e.value()),
                         style: "{INPUT}",
-                        option { value: "", "-- Select agent --" }
+                        option { value: "", "-- Optional agent --" }
                         for agent in agents.iter() {
-                            option { key: "{agent.name}", value: "{agent.name}", "{agent.name}" }
+                            option {
+                                key: "{agent.id.as_deref().unwrap_or(&agent.name)}",
+                                value: "{agent.id.as_deref().unwrap_or(&agent.name)}",
+                                "{agent.name}"
+                            }
                         }
+                    }
+                    p { style: "margin-top:4px;color:var(--text-muted);font-size:12px;",
+                        "Associate this job with an agent for filtering and management."
                     }
                 }
 
@@ -341,27 +457,17 @@ fn render_create_form(
                     }
                 }
 
-                // Session target & wake mode
-                div { style: "display:flex;gap:16px;",
-                    div { style: "flex:1;",
-                        label { style: "{LABEL}", "Session Target" }
-                        select {
-                            value: "{new_session_target}",
-                            onchange: move |e| new_session_target.set(e.value()),
-                            style: "{INPUT}",
-                            option { value: "main", "Main" }
-                            option { value: "isolated", "Isolated" }
-                        }
+                div {
+                    label { style: "{LABEL}", "Session Target" }
+                    select {
+                        value: "{new_session_target}",
+                        onchange: move |e| new_session_target.set(e.value()),
+                        style: "{INPUT}",
+                        option { value: "main", "Main Session" }
+                        option { value: "isolated", "Isolated Run" }
                     }
-                    div { style: "flex:1;",
-                        label { style: "{LABEL}", "Wake Mode" }
-                        select {
-                            value: "{new_wake_mode}",
-                            onchange: move |e| new_wake_mode.set(e.value()),
-                            style: "{INPUT}",
-                            option { value: "now", "Now" }
-                            option { value: "next-heartbeat", "Next Heartbeat" }
-                        }
+                    p { style: "margin-top:4px;color:var(--text-muted);font-size:12px;",
+                        "Main keeps the same cron conversation context between runs. Isolated starts fresh each time."
                     }
                 }
 
@@ -424,31 +530,77 @@ fn render_create_form(
                     button {
                         onclick: move |_| {
                             let name = new_name().trim().to_string();
-                            if name.is_empty() { return; }
-                            let schedule = match schedule_type() {
-                                ScheduleType::Every => {
-                                    let unit_first: String = new_every_unit().chars().take(1).collect();
-                                    format!("every {}{}", new_every_value(), unit_first)
-                                },
-                                ScheduleType::At => new_at_datetime(),
-                                ScheduleType::Cron => new_cron_expr(),
+                            if name.is_empty() {
+                                toaster.error("Cron job name is required");
+                                return;
+                            }
+
+                            let schedule = match build_schedule_value(
+                                schedule_type(),
+                                &new_every_value(),
+                                &new_every_unit(),
+                                &new_at_datetime(),
+                                &new_cron_expr(),
+                                &new_cron_tz(),
+                            ) {
+                                Ok(schedule) => schedule,
+                                Err(err) => {
+                                    toaster.error(err);
+                                    return;
+                                }
                             };
-                            let payload_str = new_payload_text();
-                            let payload: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or(json!(payload_str));
+                            let payload = match build_payload_value(
+                                &new_payload_type(),
+                                &new_payload_text(),
+                                &new_payload_timeout(),
+                            ) {
+                                Ok(payload) => payload,
+                                Err(err) => {
+                                    toaster.error(err);
+                                    return;
+                                }
+                            };
+                            let session_target = match new_session_target().as_str() {
+                                "main" | "isolated" => new_session_target(),
+                                _ => {
+                                    toaster.error("Invalid session target");
+                                    return;
+                                }
+                            };
                             let ws = ws.clone();
-                            let agent = new_agent_id();
+                            let agent = trimmed_or_none(&new_agent_id());
+                            let mut toaster = toaster;
                             spawn(async move {
                                 let mut params = json!({
-                                    "name": name, "schedule": schedule, "payload": payload,
+                                    "name": name,
+                                    "schedule": schedule,
+                                    "payload": payload,
+                                    "session_target": session_target,
                                 });
-                                if !agent.is_empty() {
+                                if let Some(agent) = agent {
                                     params["agent_id"] = json!(agent);
                                 }
-                                let _ = ws.call::<serde_json::Value>("cron.add", Some(params)).await;
-                                show_create.set(false);
-                                new_name.set(String::new());
-                                new_payload_text.set(String::new());
-                                refresh_tick += 1;
+
+                                match ws.call::<serde_json::Value>("cron.add", Some(params)).await {
+                                    Ok(_) => {
+                                        toaster.success("Cron job created");
+                                        show_create.set(false);
+                                        new_name.set(String::new());
+                                        schedule_type.set(ScheduleType::Every);
+                                        new_every_value.set("1".to_string());
+                                        new_every_unit.set("hours".to_string());
+                                        new_at_datetime.set(String::new());
+                                        new_cron_expr.set(String::new());
+                                        new_cron_tz.set("UTC".to_string());
+                                        new_agent_id.set(String::new());
+                                        new_session_target.set("main".to_string());
+                                        new_payload_type.set("system_event".to_string());
+                                        new_payload_text.set(String::new());
+                                        new_payload_timeout.set("300".to_string());
+                                        refresh_tick += 1;
+                                    }
+                                    Err(err) => toaster.error(format!("Create failed: {err}")),
+                                }
                             });
                         },
                         style: "{TOOL_BTN}background:var(--accent);color:#fff;border:none;padding:8px 20px;",
@@ -470,6 +622,7 @@ fn render_job_detail(
     mut refresh_tick: Signal<u32>,
     job: &CronJob,
     mut selected_job: Signal<Option<String>>,
+    mut toaster: Toaster,
     runs: &[CronRunEntry],
 ) -> Element {
     let id_run = job.id.clone();
@@ -489,6 +642,12 @@ fn render_job_detail(
 
     // Parse schedule for display
     let schedule_display = job.schedule.as_deref().unwrap_or("-").to_string();
+    let payload_type = job
+        .payload
+        .as_ref()
+        .and_then(|payload| payload.get("type"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("-");
 
     rsx! {
         div { style: "display:flex;flex-direction:column;height:100%;",
@@ -504,12 +663,22 @@ fn render_job_detail(
                             let id = id_toggle.clone();
                             let ws = ws_toggle.clone();
                             let next = !enabled;
+                            let mut toaster = toaster;
                             spawn(async move {
-                                let _ = ws.call::<serde_json::Value>(
+                                match ws.call::<serde_json::Value>(
                                     "cron.update",
-                                    Some(json!({ "job_id": id, "enabled": next })),
-                                ).await;
-                                refresh_tick += 1;
+                                    Some(json!({ "id": id, "enabled": next })),
+                                ).await {
+                                    Ok(_) => {
+                                        toaster.success(if next {
+                                            "Cron job enabled"
+                                        } else {
+                                            "Cron job disabled"
+                                        });
+                                        refresh_tick += 1;
+                                    }
+                                    Err(err) => toaster.error(format!("Update failed: {err}")),
+                                }
                             });
                         },
                         style: "{TOOL_BTN}",
@@ -519,9 +688,15 @@ fn render_job_detail(
                         onclick: move |_| {
                             let id = id_run.clone();
                             let ws = ws_run.clone();
+                            let mut toaster = toaster;
                             spawn(async move {
-                                let _ = ws.call::<serde_json::Value>("cron.run", Some(json!({ "job_id": id }))).await;
-                                refresh_tick += 1;
+                                match ws.call::<serde_json::Value>("cron.run", Some(json!({ "id": id }))).await {
+                                    Ok(_) => {
+                                        toaster.success("Cron job triggered");
+                                        refresh_tick += 1;
+                                    }
+                                    Err(err) => toaster.error(format!("Run failed: {err}")),
+                                }
                             });
                         },
                         style: "{TOOL_BTN}background:var(--accent);color:#fff;border:none;",
@@ -531,10 +706,16 @@ fn render_job_detail(
                         onclick: move |_| {
                             let id = id_del.clone();
                             let ws = ws_del.clone();
+                            let mut toaster = toaster;
                             spawn(async move {
-                                let _ = ws.call::<serde_json::Value>("cron.remove", Some(json!({ "job_id": id }))).await;
-                                selected_job.set(None);
-                                refresh_tick += 1;
+                                match ws.call::<serde_json::Value>("cron.remove", Some(json!({ "id": id }))).await {
+                                    Ok(_) => {
+                                        toaster.success("Cron job deleted");
+                                        selected_job.set(None);
+                                        refresh_tick += 1;
+                                    }
+                                    Err(err) => toaster.error(format!("Delete failed: {err}")),
+                                }
                             });
                         },
                         style: "{TOOL_BTN}color:var(--danger);border-color:var(--danger);",
@@ -548,6 +729,16 @@ fn render_job_detail(
                 div {
                     span { style: "font-size:12px;color:var(--text-muted);display:block;", "Schedule" }
                     code { style: "font-size:13px;", "{schedule_display}" }
+                }
+                div {
+                    span { style: "font-size:12px;color:var(--text-muted);display:block;", "Payload" }
+                    span { style: "font-size:13px;", "{payload_type}" }
+                }
+                if let Some(ref agent_id) = job.agent_id {
+                    div {
+                        span { style: "font-size:12px;color:var(--text-muted);display:block;", "Agent" }
+                        span { style: "font-size:13px;", "{agent_id}" }
+                    }
                 }
                 if let Some(ref next) = job.next_run {
                     div {

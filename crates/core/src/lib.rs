@@ -163,4 +163,5 @@ pub use savfox_protocol::models::{
 pub use savfox_protocol::protocol;
 pub use tools::spec::parse_tool_input_schema;
 pub mod compact;
+pub mod cron;
 pub mod otel_init;

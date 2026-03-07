@@ -2057,6 +2057,11 @@ fn AgentCronTab(ws: WsRpc, mut refresh_tick: Signal<u32>, entry: AgentEntry) -> 
             all_jobs
                 .into_iter()
                 .filter(|job| {
+                    if let Some(ref agent_id) = job.agent_id {
+                        if agent_id == &id || agent_id == &name {
+                            return true;
+                        }
+                    }
                     // Check if payload contains agent reference
                     if let Some(ref payload) = job.payload {
                         if let Some(agent_id) = payload.get("agent_id").and_then(|v| v.as_str()) {

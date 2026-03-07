@@ -10,219 +10,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use savfox_core::cron::{
+    CronDelivery, CronJob, CronJobState, CronPayload, CronRunEntry, CronSchedule,
+    CronServiceStatus, CronSessionTarget,
+};
 use tokio::sync::{RwLock, mpsc};
 use tracing::{info, warn};
 
 use crate::channel::GatewayChannel;
-
-// ─── Schedule Types ────────────────────────────────────────────────────────
-
-/// How a cron job is scheduled.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum CronSchedule {
-    /// Execute at a specific absolute timestamp (one-shot).
-    At {
-        /// Epoch milliseconds.
-        at_ms: u64,
-    },
-    /// Execute every N seconds, anchored to a start time.
-    Every {
-        /// Interval in seconds.
-        interval_secs: u64,
-        /// Anchor point (epoch ms). Defaults to job creation time.
-        #[serde(default)]
-        anchor_ms: u64,
-    },
-    /// Standard cron expression (5 or 6 fields).
-    Cron {
-        /// Cron expression string.
-        expression: String,
-        /// IANA timezone (e.g. "America/New_York"). Defaults to UTC.
-        #[serde(default)]
-        timezone: Option<String>,
-    },
-}
-
-impl CronSchedule {
-    /// Compute the next run time in epoch milliseconds, or None if expired.
-    pub fn next_run_ms(&self, after_ms: u64) -> Option<u64> {
-        match self {
-            Self::At { at_ms } => {
-                if *at_ms > after_ms {
-                    Some(*at_ms)
-                } else {
-                    None // Already past.
-                }
-            }
-            Self::Every {
-                interval_secs,
-                anchor_ms,
-            } => {
-                let interval_ms = interval_secs * 1000;
-                if interval_ms == 0 {
-                    return None;
-                }
-                let elapsed = after_ms.saturating_sub(*anchor_ms);
-                let periods = elapsed / interval_ms + 1;
-                Some(anchor_ms + periods * interval_ms)
-            }
-            Self::Cron { expression, .. } => {
-                use std::str::FromStr;
-                let schedule = cron::Schedule::from_str(expression).ok()?;
-                // Convert after_ms to DateTime.
-                let after_dt = chrono::DateTime::from_timestamp_millis(after_ms as i64)?;
-                schedule
-                    .after(&after_dt)
-                    .next()
-                    .map(|dt| dt.timestamp_millis() as u64)
-            }
-        }
-    }
-}
-
-// ─── Payload Types ─────────────────────────────────────────────────────────
-
-/// What to execute when the job fires.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CronPayload {
-    /// Inject a text message into the main agent session.
-    SystemEvent {
-        /// Text to inject.
-        text: String,
-    },
-    /// Run an isolated agent turn.
-    AgentTurn {
-        /// Prompt for the agent.
-        message: String,
-        /// Model override (optional).
-        #[serde(default)]
-        model: Option<String>,
-        /// Timeout in seconds (default: 600).
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-    },
-}
-
-// ─── Delivery Config ───────────────────────────────────────────────────────
-
-/// Where to deliver job results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronDelivery {
-    /// Delivery mode: "none" or "announce".
-    #[serde(default = "default_delivery_mode")]
-    pub mode: String,
-    /// Channel to announce to (e.g. "discord:123456").
-    #[serde(default)]
-    pub channel: Option<String>,
-    /// Recipient for DM delivery.
-    #[serde(default)]
-    pub recipient: Option<String>,
-}
-
-fn default_delivery_mode() -> String {
-    "none".to_string()
-}
-
-impl Default for CronDelivery {
-    fn default() -> Self {
-        Self {
-            mode: default_delivery_mode(),
-            channel: None,
-            recipient: None,
-        }
-    }
-}
-
-/// Session target for cron job execution.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum CronSessionTarget {
-    /// Use the agent's main session.
-    #[default]
-    Main,
-    /// Create a temporary isolated session that is cleaned up after execution.
-    Isolated,
-}
-
-// ─── Job State ─────────────────────────────────────────────────────────────
-
-/// Runtime state for a cron job.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronJobState {
-    /// Whether the job is enabled.
-    pub enabled: bool,
-    /// Next scheduled run (epoch ms), or None.
-    #[serde(default)]
-    pub next_run_at_ms: Option<u64>,
-    /// Last run timestamp (epoch ms).
-    #[serde(default)]
-    pub last_run_at_ms: Option<u64>,
-    /// Last run status: "ok", "error", "timeout".
-    #[serde(default)]
-    pub last_status: Option<String>,
-    /// Consecutive error count.
-    #[serde(default)]
-    pub consecutive_errors: u32,
-}
-
-impl Default for CronJobState {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            next_run_at_ms: None,
-            last_run_at_ms: None,
-            last_status: None,
-            consecutive_errors: 0,
-        }
-    }
-}
-
-// ─── Cron Job ──────────────────────────────────────────────────────────────
-
-/// A persistent cron job.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CronJob {
-    /// Unique job identifier.
-    pub id: String,
-    /// Human-readable name.
-    pub name: String,
-    /// Schedule definition.
-    pub schedule: CronSchedule,
-    /// What to execute.
-    pub payload: CronPayload,
-    /// Where to deliver results.
-    #[serde(default)]
-    pub delivery: CronDelivery,
-    /// Session target: "main" uses the agent's main session, "isolated" creates
-    /// a temporary session that is cleaned up after cron execution completes.
-    #[serde(default)]
-    pub session_target: CronSessionTarget,
-    /// Runtime state.
-    #[serde(default)]
-    pub state: CronJobState,
-    /// Creation timestamp (epoch ms).
-    pub created_at_ms: u64,
-}
-
-// ─── Run Log Entry ─────────────────────────────────────────────────────────
-
-/// A record of a single cron job execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronRunEntry {
-    pub job_id: String,
-    pub job_name: String,
-    pub started_at_ms: u64,
-    pub finished_at_ms: u64,
-    pub status: String,
-    #[serde(default)]
-    pub error: Option<String>,
-    #[serde(default)]
-    pub result_preview: Option<String>,
-}
 
 // ─── Backoff Schedule ──────────────────────────────────────────────────────
 
@@ -238,6 +33,24 @@ const BACKOFF_SCHEDULE: &[Duration] = &[
 fn backoff_delay(consecutive_errors: u32) -> Duration {
     let idx = (consecutive_errors as usize).min(BACKOFF_SCHEDULE.len() - 1);
     BACKOFF_SCHEDULE[idx]
+}
+
+fn payload_timeout_secs(payload: &CronPayload) -> u64 {
+    match payload {
+        CronPayload::AgentTurn {
+            timeout_secs: Some(timeout_secs),
+            ..
+        } if *timeout_secs > 0 => *timeout_secs,
+        _ => 600,
+    }
+}
+
+fn preview_reply(reply: String) -> String {
+    if reply.len() > 200 {
+        format!("{}...", &reply[..200])
+    } else {
+        reply
+    }
 }
 
 // ─── Cron Service ──────────────────────────────────────────────────────────
@@ -398,10 +211,12 @@ impl CronService {
     async fn execute_job(&self, job: &CronJob, channel: &Arc<GatewayChannel>) {
         let start_ms = now_epoch_ms();
         info!(job_id = %job.id, job_name = %job.name, "executing cron job");
+        let timeout_secs = payload_timeout_secs(&job.payload);
+        let session_id = self.session_id_for_job(job).await;
 
         let result = tokio::time::timeout(
-            Duration::from_secs(600), // 10 minute timeout
-            self.execute_payload(&job.payload, channel),
+            Duration::from_secs(timeout_secs),
+            self.execute_payload(job, channel, session_id.as_deref()),
         )
         .await;
 
@@ -412,7 +227,7 @@ impl CronService {
             Ok(Err(err)) => ("error".to_string(), Some(err.clone()), None),
             Err(_) => (
                 "timeout".to_string(),
-                Some("job timed out (10m)".to_string()),
+                Some(format!("job timed out ({timeout_secs}s)")),
                 None,
             ),
         };
@@ -499,23 +314,48 @@ impl CronService {
     }
 
     /// Execute the payload for a job.
+    async fn session_id_for_job(&self, job: &CronJob) -> Option<String> {
+        if !matches!(job.session_target, CronSessionTarget::Main) {
+            return None;
+        }
+
+        if let Some(session_id) = job.state.main_session_id.clone() {
+            return Some(session_id);
+        }
+
+        let session_id = {
+            let mut jobs = self.jobs.write().await;
+            let stored = jobs.get_mut(&job.id)?;
+            if let Some(session_id) = stored.state.main_session_id.clone() {
+                session_id
+            } else {
+                let session_id = uuid::Uuid::now_v7().to_string();
+                stored.state.main_session_id = Some(session_id.clone());
+                session_id
+            }
+        };
+
+        if let Err(err) = self.save_jobs().await {
+            warn!(job_id = %job.id, "failed to persist cron main session id: {err}");
+        }
+
+        Some(session_id)
+    }
+
+    /// Execute the payload for a job.
     async fn execute_payload(
         &self,
-        payload: &CronPayload,
+        job: &CronJob,
         channel: &Arc<GatewayChannel>,
+        session_id: Option<&str>,
     ) -> Result<Option<String>, String> {
-        match payload {
+        match &job.payload {
             CronPayload::SystemEvent { text } => {
-                // Inject text into the main agent session.
-                match channel.invoke_agent_text(text, "default").await {
-                    Ok(reply) => {
-                        let preview = if reply.len() > 200 {
-                            format!("{}...", &reply[..200])
-                        } else {
-                            reply
-                        };
-                        Ok(Some(preview))
-                    }
+                match channel
+                    .invoke_agent_text_in_session(text, "default", session_id)
+                    .await
+                {
+                    Ok(reply) => Ok(Some(preview_reply(reply))),
                     Err(err) => Err(format!("agent invocation failed: {err}")),
                 }
             }
@@ -524,16 +364,12 @@ impl CronService {
                 model,
                 timeout_secs: _,
             } => {
-                let agent = model.as_deref().unwrap_or("default");
-                match channel.invoke_agent_text(message, agent).await {
-                    Ok(reply) => {
-                        let preview = if reply.len() > 200 {
-                            format!("{}...", &reply[..200])
-                        } else {
-                            reply
-                        };
-                        Ok(Some(preview))
-                    }
+                let model = model.as_deref().unwrap_or("default");
+                match channel
+                    .invoke_agent_text_in_session(message, model, session_id)
+                    .await
+                {
+                    Ok(reply) => Ok(Some(preview_reply(reply))),
                     Err(err) => Err(format!("agent turn failed: {err}")),
                 }
             }
@@ -602,6 +438,7 @@ impl CronService {
         payload: CronPayload,
         delivery: CronDelivery,
         session_target: CronSessionTarget,
+        agent_id: Option<String>,
     ) -> String {
         let now = now_epoch_ms();
         let id = uuid::Uuid::now_v7().to_string();
@@ -610,6 +447,7 @@ impl CronService {
         let job = CronJob {
             id: id.clone(),
             name,
+            agent_id,
             schedule,
             payload,
             delivery,
@@ -643,6 +481,8 @@ impl CronService {
         schedule: Option<CronSchedule>,
         payload: Option<CronPayload>,
         delivery: Option<CronDelivery>,
+        session_target: Option<CronSessionTarget>,
+        agent_id: Option<Option<String>>,
         enabled: Option<bool>,
     ) -> Result<CronJob, String> {
         let now = now_epoch_ms();
@@ -656,7 +496,11 @@ impl CronService {
         }
         if let Some(schedule) = schedule {
             job.schedule = schedule;
-            job.state.next_run_at_ms = job.schedule.next_run_ms(now);
+            job.state.next_run_at_ms = if job.state.enabled {
+                job.schedule.next_run_ms(now)
+            } else {
+                None
+            };
         }
         if let Some(payload) = payload {
             job.payload = payload;
@@ -664,11 +508,19 @@ impl CronService {
         if let Some(delivery) = delivery {
             job.delivery = delivery;
         }
+        if let Some(session_target) = session_target {
+            job.session_target = session_target;
+        }
+        if let Some(agent_id) = agent_id {
+            job.agent_id = agent_id;
+        }
         if let Some(enabled) = enabled {
             job.state.enabled = enabled;
-            if enabled {
-                job.state.next_run_at_ms = job.schedule.next_run_ms(now);
-            }
+            job.state.next_run_at_ms = if enabled {
+                job.schedule.next_run_ms(now)
+            } else {
+                None
+            };
         }
 
         let updated = job.clone();
@@ -732,15 +584,6 @@ impl CronService {
         runs.truncate(limit);
         runs
     }
-}
-
-/// Status summary for the cron service.
-#[derive(Debug, Clone, Serialize)]
-pub struct CronServiceStatus {
-    pub enabled: bool,
-    pub total_jobs: usize,
-    pub enabled_jobs: usize,
-    pub running_jobs: usize,
 }
 
 fn now_epoch_ms() -> u64 {

@@ -6,6 +6,7 @@ use std::time::Duration;
 use savfox_browser_automation::screenshot::ScreenshotFormat;
 use savfox_browser_automation::{Browser, BrowserLaunchOptions, ScreenshotOptions};
 use savfox_core::auth::{CLIENT_ID, login_with_api_key};
+use savfox_core::cron::{CronDelivery, CronPayload, CronSchedule, CronSessionTarget};
 use savfox_core::{AuthManager, SavfoxAuth};
 use savfox_login_oauth::{
     ServerOptions, ShutdownHandle, complete_device_code_login, request_device_code,
@@ -22,9 +23,7 @@ use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
 };
-use crate::cron_service::{
-    CronDelivery, CronPayload, CronSchedule, CronService, CronSessionTarget,
-};
+use crate::cron_service::CronService;
 use crate::exec_approval::{
     ApprovalForwardingConfig, ExecApprovalRequest, ExecApprovalResolution,
     forward_approval_to_chat, list_pending_approvals, notify_approval_resolved,
@@ -7129,9 +7128,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        canonical_channel_platform, enrich_model_reasoning_metadata, normalize_agent_config,
-        normalize_config_model_fields, normalized_agent_name_key, saved_channel_config_ready,
-        saved_channel_state,
+        canonical_channel_platform, cron_job_summary_value, cron_param_job_id,
+        cron_run_summary_value, cron_status_summary_value, enrich_model_reasoning_metadata,
+        normalize_agent_config, normalize_config_model_fields, normalized_agent_name_key,
+        saved_channel_config_ready, saved_channel_state,
     };
 
     fn channel_config(
@@ -7370,5 +7370,82 @@ mod tests {
                 }
             ])
         );
+    }
+
+    #[test]
+    fn cron_param_job_id_accepts_legacy_alias() {
+        assert_eq!(cron_param_job_id(&json!({ "id": "job-1" })), Some("job-1"));
+        assert_eq!(
+            cron_param_job_id(&json!({ "job_id": "job-2" })),
+            Some("job-2")
+        );
+        assert_eq!(cron_param_job_id(&json!({ "job_id": "   " })), None);
+    }
+
+    #[test]
+    fn cron_job_summary_value_matches_wire_shape() {
+        let job = savfox_core::cron::CronJob {
+            id: "job-1".to_string(),
+            name: "Daily Summary".to_string(),
+            agent_id: Some("writer".to_string()),
+            schedule: savfox_core::cron::CronSchedule::Every {
+                interval_secs: 3_600,
+                anchor_ms: 0,
+            },
+            payload: savfox_core::cron::CronPayload::SystemEvent {
+                text: "summarize the latest notes".to_string(),
+            },
+            delivery: savfox_core::cron::CronDelivery::default(),
+            session_target: savfox_core::cron::CronSessionTarget::Main,
+            state: savfox_core::cron::CronJobState {
+                enabled: true,
+                next_run_at_ms: Some(1_700_000_000_000),
+                last_run_at_ms: Some(1_699_999_900_000),
+                last_status: Some("ok".to_string()),
+                consecutive_errors: 0,
+                main_session_id: Some(uuid::Uuid::now_v7().to_string()),
+            },
+            created_at_ms: 1_699_999_800_000,
+        };
+
+        let value = cron_job_summary_value(&job);
+
+        assert_eq!(value["id"], json!("job-1"));
+        assert_eq!(value["name"], json!("Daily Summary"));
+        assert_eq!(value["schedule"], json!("every 1h"));
+        assert_eq!(value["enabled"], json!(true));
+        assert_eq!(value["agent_id"], json!("writer"));
+        assert_eq!(value["session_target"], json!("main"));
+        assert_eq!(value["payload"]["type"], json!("system_event"));
+        assert!(value["next_run"].as_str().is_some());
+        assert!(value["last_run"].as_str().is_some());
+    }
+
+    #[test]
+    fn cron_summary_helpers_expose_counts_and_duration() {
+        let status = savfox_core::cron::CronServiceStatus {
+            enabled: true,
+            total_jobs: 3,
+            enabled_jobs: 2,
+            running_jobs: 1,
+        };
+        let status_value = cron_status_summary_value(&status);
+        assert_eq!(status_value["running"], json!(true));
+        assert_eq!(status_value["job_count"], json!(3));
+
+        let run = savfox_core::cron::CronRunEntry {
+            job_id: "job-1".to_string(),
+            job_name: "Daily Summary".to_string(),
+            started_at_ms: 1_700_000_000_000,
+            finished_at_ms: 1_700_000_015_250,
+            status: "ok".to_string(),
+            error: None,
+            result_preview: Some("done".to_string()),
+        };
+        let run_value = cron_run_summary_value(&run);
+        assert_eq!(run_value["job_id"], json!("job-1"));
+        assert_eq!(run_value["status"], json!("ok"));
+        assert_eq!(run_value["duration_ms"], json!(15_250));
+        assert_eq!(run_value["result_preview"], json!("done"));
     }
 }

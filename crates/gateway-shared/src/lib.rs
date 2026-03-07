@@ -347,6 +347,7 @@ pub struct CronJob {
     pub enabled: Option<bool>,
     pub next_run: Option<String>,
     pub last_run: Option<String>,
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

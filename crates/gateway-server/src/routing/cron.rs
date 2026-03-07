@@ -3,7 +3,41 @@ use std::sync::Arc;
 use salvo::prelude::*;
 use serde_json::json;
 
-use crate::cron_service::{CronDelivery, CronPayload, CronSchedule, CronService};
+use savfox_core::cron::{CronDelivery, CronPayload, CronSchedule, CronSessionTarget};
+
+use crate::channel::GatewayChannel;
+use crate::cron_service::CronService;
+
+fn parse_cron_field<T>(body: &serde_json::Value, field: &str) -> Result<Option<T>, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    body.get(field)
+        .map(|value| {
+            serde_json::from_value::<T>(value.clone())
+                .map_err(|err| format!("invalid {field}: {err}"))
+        })
+        .transpose()
+}
+
+fn parse_optional_trimmed_string_field(
+    body: &serde_json::Value,
+    field: &str,
+) -> Result<Option<Option<String>>, String> {
+    match body.get(field) {
+        None => Ok(None),
+        Some(serde_json::Value::Null) => Ok(Some(None)),
+        Some(serde_json::Value::String(value)) => {
+            let value = value.trim();
+            if value.is_empty() {
+                Ok(Some(None))
+            } else {
+                Ok(Some(Some(value.to_string())))
+            }
+        }
+        Some(_) => Err(format!("invalid '{field}': expected string or null")),
+    }
+}
 
 #[handler]
 pub async fn cron_list_handler(depot: &mut Depot, res: &mut Response) {
@@ -80,26 +114,99 @@ pub async fn cron_add_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         }
     };
 
-    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let schedule_str = body.get("schedule").and_then(|v| v.as_str()).unwrap_or("");
-    let command = body.get("command").and_then(|v| v.as_str()).unwrap_or("");
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or("");
 
-    if name.is_empty() || schedule_str.is_empty() {
+    if name.is_empty() {
         res.status_code(StatusCode::BAD_REQUEST);
         res.render(Text::Json(
-            json!({ "error": "name and schedule are required" }).to_string(),
+            json!({ "error": "name is required" }).to_string(),
         ));
         return;
     }
 
-    let schedule = CronSchedule::Cron {
-        expression: schedule_str.to_string(),
-        timezone: None,
+    let schedule = match parse_cron_field::<CronSchedule>(&body, "schedule") {
+        Ok(Some(schedule)) => schedule,
+        Ok(None) => {
+            if let Some(schedule_str) = body
+                .get("schedule")
+                .and_then(|v| v.as_str())
+                .or_else(|| body.get("expression").and_then(|v| v.as_str()))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                CronSchedule::Cron {
+                    expression: schedule_str.to_string(),
+                    timezone: None,
+                }
+            } else {
+                res.status_code(StatusCode::BAD_REQUEST);
+                res.render(Text::Json(
+                    json!({ "error": "schedule is required" }).to_string(),
+                ));
+                return;
+            }
+        }
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
     };
-    let payload = CronPayload::SystemEvent {
-        text: command.to_string(),
+
+    let payload = match parse_cron_field::<CronPayload>(&body, "payload") {
+        Ok(Some(payload)) => payload,
+        Ok(None) => {
+            if let Some(command) = body
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                CronPayload::SystemEvent {
+                    text: command.to_string(),
+                }
+            } else {
+                res.status_code(StatusCode::BAD_REQUEST);
+                res.render(Text::Json(
+                    json!({ "error": "payload or command is required" }).to_string(),
+                ));
+                return;
+            }
+        }
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
     };
-    let delivery = CronDelivery::default();
+    let delivery = match parse_cron_field::<CronDelivery>(&body, "delivery") {
+        Ok(delivery) => delivery.unwrap_or_default(),
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let session_target = match parse_cron_field::<CronSessionTarget>(&body, "session_target") {
+        Ok(session_target) => session_target.unwrap_or_default(),
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let agent_id = match parse_optional_trimmed_string_field(&body, "agent_id") {
+        Ok(agent_id) => agent_id.flatten(),
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
 
     let cron_service = match depot.obtain::<Arc<CronService>>() {
         Ok(service) => service.clone(),
@@ -115,7 +222,8 @@ pub async fn cron_add_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
             schedule,
             payload,
             delivery,
-            Default::default(),
+            session_target,
+            agent_id,
         )
         .await;
 
@@ -124,7 +232,6 @@ pub async fn cron_add_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
             "status": "ok",
             "job_id": job_id,
             "name": name,
-            "schedule": schedule_str,
             "message": "cron job added",
         })
         .to_string(),
@@ -156,26 +263,80 @@ pub async fn cron_update_handler(req: &mut Request, depot: &mut Depot, res: &mut
     let name = body
         .get("name")
         .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(|s| s.to_string());
     let enabled = body.get("enabled").and_then(|v| v.as_bool());
 
-    let schedule = body
-        .get("schedule")
-        .and_then(|v| v.as_str())
-        .map(|s| CronSchedule::Cron {
-            expression: s.to_string(),
-            timezone: None,
-        });
-
-    let command = body
-        .get("command")
-        .and_then(|v| v.as_str())
-        .map(|s| CronPayload::SystemEvent {
-            text: s.to_string(),
-        });
+    let schedule = match parse_cron_field::<CronSchedule>(&body, "schedule") {
+        Ok(schedule) => schedule.or_else(|| {
+            body.get("schedule")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|schedule| CronSchedule::Cron {
+                    expression: schedule.to_string(),
+                    timezone: None,
+                })
+        }),
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let payload = match parse_cron_field::<CronPayload>(&body, "payload") {
+        Ok(payload) => payload.or_else(|| {
+            body.get("command")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|command| CronPayload::SystemEvent {
+                    text: command.to_string(),
+                })
+        }),
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let delivery = match parse_cron_field::<CronDelivery>(&body, "delivery") {
+        Ok(delivery) => delivery,
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let session_target = match parse_cron_field::<CronSessionTarget>(&body, "session_target") {
+        Ok(session_target) => session_target,
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
+    let agent_id = match parse_optional_trimmed_string_field(&body, "agent_id") {
+        Ok(agent_id) => agent_id,
+        Err(err) => {
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+            return;
+        }
+    };
 
     match cron_service
-        .update_job(&job_id, name, schedule, command, None, enabled)
+        .update_job(
+            &job_id,
+            name,
+            schedule,
+            payload,
+            delivery,
+            session_target,
+            agent_id,
+            enabled,
+        )
         .await
     {
         Ok(job) => res.render(Text::Json(
@@ -226,15 +387,40 @@ pub async fn cron_run_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    res.render(Text::Json(
-        json!({
-            "status": "ok",
-            "job_id": job_id,
-            "run_id": uuid::Uuid::now_v7().to_string(),
-            "message": "cron job triggered (placeholder - requires channel)",
-        })
-        .to_string(),
-    ));
+    let cron_service = match depot.obtain::<Arc<CronService>>() {
+        Ok(service) => service.clone(),
+        Err(_) => {
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            return;
+        }
+    };
+    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
+        Ok(channel) => channel.clone(),
+        Err(_) => {
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            return;
+        }
+    };
+
+    match cron_service.run_job(&job_id, &channel).await {
+        Ok(()) => res.render(Text::Json(
+            json!({
+                "status": "ok",
+                "job_id": job_id,
+                "run_id": uuid::Uuid::now_v7().to_string(),
+                "message": "cron job triggered",
+            })
+            .to_string(),
+        )),
+        Err(err) => {
+            res.status_code(if err.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            });
+            res.render(Text::Json(json!({ "error": err }).to_string()));
+        }
+    }
 }
 
 #[handler]

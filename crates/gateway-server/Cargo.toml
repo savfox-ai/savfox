@@ -34,7 +34,6 @@ savfox-model = { workspace = true }
 savfox-channels = { workspace = true }
 feishu-sdk = { workspace = true }
 chrono = { workspace = true }
-cron = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }
 mime_guess = { workspace = true }
