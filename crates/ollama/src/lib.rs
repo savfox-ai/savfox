@@ -12,6 +12,7 @@ use semver::Version;
 /// Default OSS model to use when `--oss` is passed without an explicit `-m`.
 pub const DEFAULT_OSS_MODEL: &str = "gpt-oss:20b";
 
+#[derive(Debug)]
 pub struct WireApiDetection {
     pub wire_api: WireApi,
     pub version: Option<Version>,

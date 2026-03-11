@@ -27,6 +27,7 @@ pub trait PullProgressReporter {
 }
 
 /// A minimal CLI reporter that writes inline progress to stderr.
+#[derive(Debug)]
 pub struct CliProgressReporter {
     printed_header: bool,
     last_line_len: usize,
@@ -137,7 +138,7 @@ impl PullProgressReporter for CliProgressReporter {
 
 /// For now the TUI reporter delegates to the CLI reporter. This keeps UI and
 /// CLI behavior aligned until a dedicated TUI integration is implemented.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TuiProgressReporter(CliProgressReporter);
 
 impl PullProgressReporter for TuiProgressReporter {

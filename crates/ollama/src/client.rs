@@ -16,6 +16,7 @@ use crate::url::{base_url_to_host_root, is_openai_compatible_base_url};
 const OLLAMA_CONNECTION_ERROR: &str = "No running Ollama server detected. Start it with: `ollama serve` (after installing). Install instructions: https://github.com/ollama/ollama?tab=readme-ov-file#ollama";
 
 /// Client for interacting with a local Ollama instance.
+#[derive(Debug)]
 pub struct OllamaClient {
     client: reqwest::Client,
     host_root: String,

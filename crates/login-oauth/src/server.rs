@@ -57,6 +57,7 @@ impl ServerOptions {
     }
 }
 
+#[derive(Debug)]
 pub struct LoginServer {
     pub auth_url: String,
     pub actual_port: u16,

@@ -402,7 +402,7 @@ pub(crate) async fn set_enabled(
 
     // Discover skill directories to find the matching skill.
     let bins_val = bins(savfox_home).await?;
-    let bins_arr = bins_val
+    let _bins_arr = bins_val
         .get("bins")
         .and_then(|v| v.as_array())
         .cloned()
