@@ -1,0 +1,35 @@
+﻿[package]
+name = "savfox-skill-registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_skill_registry"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+fs_extra = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+semver = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "process", "rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v7"] }
+zip = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

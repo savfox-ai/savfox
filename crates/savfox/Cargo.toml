@@ -1,0 +1,13 @@
+[package]
+name = "savfox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = true
+description = "Savfox is an AI assistant."
+readme = "README.md"
+
+[lints]
+workspace = true

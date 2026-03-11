@@ -1,0 +1,54 @@
+﻿# ---------------------------------------------------------------------------
+# Dockerfile.test -- Build savfox and run it as a gateway for E2E testing
+# ---------------------------------------------------------------------------
+# Usage:
+#   docker build -f tests/docker/Dockerfile.test -t savfox-e2e .
+#   docker run --rm -p 18881:18881 savfox-e2e
+# ---------------------------------------------------------------------------
+
+# Stage 1: Build the savfox binary
+FROM rust:1.89-bookworm AS builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        pkg-config libssl-dev git && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+
+RUN cargo build --release --bin savfox && \
+    strip target/release/savfox
+
+# Stage 2: Minimal runtime for E2E testing
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates libssl3 curl jq && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1000 savfox && \
+    useradd --uid 1000 --gid savfox --shell /bin/bash --create-home savfox && \
+    mkdir -p /home/savfox/.savfox && \
+    chown -R savfox:savfox /home/savfox/.savfox
+
+COPY --from=builder /src/target/release/savfox /usr/local/bin/savfox
+
+# Copy test scripts into the image
+COPY tests/docker/run-tests.sh /usr/local/bin/run-tests.sh
+RUN chmod +x /usr/local/bin/run-tests.sh
+
+USER savfox
+WORKDIR /home/savfox
+
+ENV SAVFOX_HOME=/home/savfox/.savfox
+ENV RUST_LOG=info
+ENV SAVFOX_TEST_TOKEN=e2e-test-token-00000000
+
+EXPOSE 18881
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=8s --retries=5 \
+    CMD curl -sf http://localhost:18881/health || exit 1
+
+CMD ["savfox", "gateway", "--host", "0.0.0.0", "--port", "18881", "--token", "e2e-test-token-00000000"]

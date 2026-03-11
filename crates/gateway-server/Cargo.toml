@@ -1,0 +1,81 @@
+[package]
+name = "savfox-gateway-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "savfox_gateway_server"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+savfox-app-server-protocol = { workspace = true }
+savfox-common = { workspace = true, features = ["cli"] }
+savfox-core = { workspace = true }
+savfox-keyring-store = { workspace = true }
+savfox-login-oauth = { workspace = true }
+savfox-feedback = { workspace = true }
+savfox-gateway-shared = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-utils = { workspace = true }
+savfox-skill-registry = { workspace = true }
+savfox-browser-automation = { workspace = true }
+savfox-memory = { workspace = true }
+savfox-model = { workspace = true }
+savfox-channels = { workspace = true }
+feishu-sdk = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+dotenvy = { workspace = true }
+mime_guess = { workspace = true }
+matrix-bot-sdk = { workspace = true }
+rust-embed = { workspace = true }
+ed25519-dalek = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures-util = { workspace = true, features = ["sink"] }
+form_urlencoded = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+lopdf = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png", "webp"] }
+rand = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+salvo = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio-stream = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+url = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["json"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }

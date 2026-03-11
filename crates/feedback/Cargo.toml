@@ -1,0 +1,15 @@
+﻿[package]
+name = "savfox-feedback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+savfox-protocol = { workspace = true }
+sentry = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

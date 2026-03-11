@@ -1,0 +1,41 @@
+﻿# ---------------------------------------------------------------------------
+# docker-compose.test.yml -- E2E test harness for the savfox gateway
+# ---------------------------------------------------------------------------
+# Usage:
+#   docker compose -f tests/docker/docker-compose.test.yml up --build --abort-on-container-exit
+# ---------------------------------------------------------------------------
+
+services:
+  # --- Gateway under test ---------------------------------------------------
+  gateway:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test
+    container_name: savfox-e2e-gateway
+    environment:
+      SAVFOX_HOME: /home/savfox/.savfox
+      RUST_LOG: info
+      SAVFOX_TEST_TOKEN: e2e-test-token-00000000
+    ports:
+      - "18881:18881"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:18881/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+
+  # --- Test runner ----------------------------------------------------------
+  test-runner:
+    image: debian:bookworm-slim
+    container_name: savfox-e2e-runner
+    depends_on:
+      gateway:
+        condition: service_healthy
+    environment:
+      GATEWAY_URL: "http://gateway:18881"
+      WS_URL: "ws://gateway:18881/ws"
+      TEST_TOKEN: "e2e-test-token-00000000"
+    entrypoint: ["/bin/bash", "/tests/run-tests.sh"]
+    volumes:
+      - ./run-tests.sh:/tests/run-tests.sh:ro

@@ -1,0 +1,73 @@
+[package]
+name = "savfox-gateway-dioxus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[dependencies]
+savfox-gateway-shared = { workspace = true }
+dioxus = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+chrono = { workspace = true, features = ["wasmbind"] }
+web-sys = { workspace = true, features = [
+    "console",
+    "Window",
+    "Location",
+    "Storage",
+    "Document",
+    "Element",
+    "DomTokenList",
+    "HtmlElement",
+    "HtmlImageElement",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "CssStyleDeclaration",
+    "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "KeyboardEvent",
+    "CompositionEvent",
+    "EventTarget",
+    "Headers",
+    "Request",
+    "RequestInit",
+    "Response",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+    "AbortController",
+    "AbortSignal",
+    "Blob",
+    "File",
+    "FileList",
+    "FileReader",
+    "DataTransfer",
+    "ClipboardEvent",
+    "Navigator",
+    "Clipboard",
+    "Url",
+    "BlobPropertyBag",
+    "HtmlAnchorElement",
+    "TouchEvent",
+    "Touch",
+    "TouchList",
+    "PopStateEvent",
+    "History",
+    "Notification",
+    "NotificationOptions",
+    "NotificationPermission",
+] }
+js-sys = { workspace = true }
+futures = { workspace = true }
+console_error_panic_hook = { workspace = true }
+pulldown-cmark = { workspace = true }
+regex-lite = { workspace = true }
+savfox-utils = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true, features = ["v4", "js"] }

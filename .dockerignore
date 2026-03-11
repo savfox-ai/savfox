@@ -1,0 +1,8 @@
+target/
+.git/
+*.md
+docs/
+deploy/
+.github/
+crates/gateway-dioxus/target/
+crates/gateway-dioxus/dist/

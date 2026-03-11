@@ -1,0 +1,1148 @@
+use std::cmp::Reverse;
+use std::ffi::OsStr;
+use std::io::{self};
+use std::num::NonZero;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+
+use async_trait::async_trait;
+use savfox_file_search as file_search;
+use savfox_protocol::SessionId;
+use savfox_protocol::protocol::{RolloutItem, RolloutLine, SessionMetaLine, SessionSource};
+use time::format_description::FormatItem;
+use time::format_description::well_known::Rfc3339;
+use time::macros::format_description;
+use time::{OffsetDateTime, PrimitiveDateTime};
+use uuid::Uuid;
+
+use super::{ARCHIVED_SESSIONS_SUBDIR, SESSIONS_SUBDIR};
+use crate::instructions::UserInstructions;
+use crate::protocol::EventMsg;
+use crate::session_prefix::is_session_prefix_content;
+use crate::state_db;
+
+/// Returned page of session (session) summaries.
+#[derive(Debug, Default, PartialEq)]
+pub struct SessionsPage {
+    /// Session summaries ordered newest first.
+    pub items: Vec<SessionItem>,
+    /// Opaque pagination token to resume after the last item, or `None` if end.
+    pub next_cursor: Option<Cursor>,
+    /// Total number of files touched while scanning this request.
+    pub num_scanned_files: usize,
+    /// True if a hard scan cap was hit; consider resuming with `next_cursor`.
+    pub reached_scan_cap: bool,
+}
+
+/// Summary information for a session rollout file.
+#[derive(Debug, PartialEq)]
+pub struct SessionItem {
+    /// Absolute path to the rollout file.
+    pub path: PathBuf,
+    /// First up to `HEAD_RECORD_LIMIT` JSONL records parsed as JSON (includes meta line).
+    pub head: Vec<serde_json::Value>,
+    /// RFC3339 timestamp string for when the session was created, if available.
+    /// created_at comes from the filename timestamp with second precision.
+    pub created_at: Option<String>,
+    /// RFC3339 timestamp string for the most recent update (from file mtime).
+    /// updated_at is truncated to second precision to match created_at.
+    pub updated_at: Option<String>,
+}
+
+#[derive(Default)]
+struct HeadTailSummary {
+    head: Vec<serde_json::Value>,
+    saw_session_meta: bool,
+    saw_user_event: bool,
+    source: Option<SessionSource>,
+    model_provider: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+}
+
+/// Hard cap to bound worst‑case work per request.
+const MAX_SCAN_FILES: usize = 10000;
+const HEAD_RECORD_LIMIT: usize = 10;
+const USER_EVENT_SCAN_LIMIT: usize = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionSortKey {
+    CreatedAt,
+    UpdatedAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionListLayout {
+    Flat,
+}
+
+pub(crate) struct SessionListConfig<'a> {
+    pub(crate) allowed_sources: &'a [SessionSource],
+    pub(crate) model_providers: Option<&'a [String]>,
+    pub(crate) default_provider: &'a str,
+    pub(crate) layout: SessionListLayout,
+}
+
+/// Pagination cursor identifying a file by timestamp and UUID.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cursor {
+    ts: OffsetDateTime,
+    id: Uuid,
+}
+
+impl Cursor {
+    fn new(ts: OffsetDateTime, id: Uuid) -> Self {
+        Self { ts, id }
+    }
+}
+
+/// Keeps track of where a paginated listing left off. As the file scan goes newest -> oldest,
+/// it ignores everything until it reaches the last seen item from the previous page, then
+/// starts returning results after that. This makes paging stable even if new files show up during
+/// pagination.
+struct AnchorState {
+    ts: OffsetDateTime,
+    id: Uuid,
+    passed: bool,
+}
+
+impl AnchorState {
+    fn new(anchor: Option<Cursor>) -> Self {
+        match anchor {
+            Some(cursor) => Self {
+                ts: cursor.ts,
+                id: cursor.id,
+                passed: false,
+            },
+            None => Self {
+                ts: OffsetDateTime::UNIX_EPOCH,
+                id: Uuid::nil(),
+                passed: true,
+            },
+        }
+    }
+
+    fn should_skip(&mut self, ts: OffsetDateTime, id: Uuid) -> bool {
+        if self.passed {
+            return false;
+        }
+        if ts < self.ts || (ts == self.ts && id < self.id) {
+            self.passed = true;
+            false
+        } else {
+            true
+        }
+    }
+}
+
+/// Visitor interface to customize behavior when visiting each rollout file
+/// in `walk_rollout_files`.
+///
+/// We need to apply different logic if we're ultimately going to be returning
+/// sessions ordered by created_at or updated_at.
+#[async_trait]
+#[allow(dead_code)]
+trait RolloutFileVisitor {
+    async fn visit(
+        &mut self,
+        ts: OffsetDateTime,
+        id: Uuid,
+        path: PathBuf,
+        scanned: usize,
+    ) -> ControlFlow<()>;
+}
+
+/// Collects session items during directory traversal in created_at order,
+/// applying pagination and filters inline.
+#[allow(dead_code)]
+struct FilesByCreatedAtVisitor<'a> {
+    items: &'a mut Vec<SessionItem>,
+    page_size: usize,
+    anchor_state: AnchorState,
+    more_matches_available: bool,
+    allowed_sources: &'a [SessionSource],
+    provider_matcher: Option<&'a ProviderMatcher<'a>>,
+}
+
+#[async_trait]
+impl<'a> RolloutFileVisitor for FilesByCreatedAtVisitor<'a> {
+    async fn visit(
+        &mut self,
+        ts: OffsetDateTime,
+        id: Uuid,
+        path: PathBuf,
+        scanned: usize,
+    ) -> ControlFlow<()> {
+        if scanned >= MAX_SCAN_FILES && self.items.len() >= self.page_size {
+            self.more_matches_available = true;
+            return ControlFlow::Break(());
+        }
+        if self.anchor_state.should_skip(ts, id) {
+            return ControlFlow::Continue(());
+        }
+        if self.items.len() == self.page_size {
+            self.more_matches_available = true;
+            return ControlFlow::Break(());
+        }
+        let updated_at = file_modified_time(&path)
+            .await
+            .unwrap_or(None)
+            .and_then(format_rfc3339);
+        if let Some(item) = build_session_item(
+            path,
+            self.allowed_sources,
+            self.provider_matcher,
+            updated_at,
+        )
+        .await
+        {
+            self.items.push(item);
+        }
+        ControlFlow::Continue(())
+    }
+}
+
+/// Collects lightweight file candidates (path + id + mtime).
+/// Sorting after mtime happens after all files are collected.
+#[allow(dead_code)]
+struct FilesByUpdatedAtVisitor<'a> {
+    candidates: &'a mut Vec<SessionCandidate>,
+}
+
+#[async_trait]
+impl<'a> RolloutFileVisitor for FilesByUpdatedAtVisitor<'a> {
+    async fn visit(
+        &mut self,
+        _ts: OffsetDateTime,
+        id: Uuid,
+        path: PathBuf,
+        _scanned: usize,
+    ) -> ControlFlow<()> {
+        let updated_at = file_modified_time(&path).await.unwrap_or(None);
+        self.candidates.push(SessionCandidate {
+            path,
+            id,
+            updated_at,
+        });
+        ControlFlow::Continue(())
+    }
+}
+
+impl serde::Serialize for Cursor {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let ts_str = self
+            .ts
+            .format(&Rfc3339)
+            .map_err(|e| serde::ser::Error::custom(format!("format error: {e}")))?;
+        serializer.serialize_str(&format!("{ts_str}|{}", self.id))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Cursor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        parse_cursor(&s).ok_or_else(|| serde::de::Error::custom("invalid cursor"))
+    }
+}
+
+/// Retrieve recorded session file paths with token pagination. The returned `next_cursor`
+/// can be supplied on the next call to resume after the last returned item, resilient to
+/// concurrent new sessions being appended. Ordering is stable by the requested sort key
+/// (timestamp desc, then UUID desc).
+pub(crate) async fn get_sessions(
+    savfox_home: &Path,
+    page_size: usize,
+    cursor: Option<&Cursor>,
+    sort_key: SessionSortKey,
+    allowed_sources: &[SessionSource],
+    model_providers: Option<&[String]>,
+    default_provider: &str,
+) -> io::Result<SessionsPage> {
+    let root = savfox_home.join(SESSIONS_SUBDIR);
+    get_sessions_in_root(
+        root,
+        page_size,
+        cursor,
+        sort_key,
+        SessionListConfig {
+            allowed_sources,
+            model_providers,
+            default_provider,
+            layout: SessionListLayout::Flat,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn get_sessions_in_root(
+    root: PathBuf,
+    page_size: usize,
+    cursor: Option<&Cursor>,
+    sort_key: SessionSortKey,
+    config: SessionListConfig<'_>,
+) -> io::Result<SessionsPage> {
+    if !root.exists() {
+        return Ok(SessionsPage {
+            items: Vec::new(),
+            next_cursor: None,
+            num_scanned_files: 0,
+            reached_scan_cap: false,
+        });
+    }
+
+    let anchor = cursor.cloned();
+
+    let provider_matcher = config
+        .model_providers
+        .and_then(|filters| ProviderMatcher::new(filters, config.default_provider));
+
+    let result = match config.layout {
+        SessionListLayout::Flat => {
+            traverse_flat_paths(
+                root.clone(),
+                page_size,
+                anchor,
+                sort_key,
+                config.allowed_sources,
+                provider_matcher.as_ref(),
+            )
+            .await?
+        }
+    };
+    Ok(result)
+}
+
+/// Load session file paths from disk using directory traversal.
+///
+/// Directory layout: `~/.savfox/sessions/<uuid>.jsonl` (UUID v7)
+/// Returned newest (based on sort key) first.
+#[allow(dead_code)]
+async fn traverse_directories_for_paths(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    sort_key: SessionSortKey,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    match sort_key {
+        SessionSortKey::CreatedAt => {
+            traverse_directories_for_paths_created(
+                root,
+                page_size,
+                anchor,
+                allowed_sources,
+                provider_matcher,
+            )
+            .await
+        }
+        SessionSortKey::UpdatedAt => {
+            traverse_directories_for_paths_updated(
+                root,
+                page_size,
+                anchor,
+                allowed_sources,
+                provider_matcher,
+            )
+            .await
+        }
+    }
+}
+
+async fn traverse_flat_paths(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    sort_key: SessionSortKey,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    match sort_key {
+        SessionSortKey::CreatedAt => {
+            traverse_flat_paths_created(root, page_size, anchor, allowed_sources, provider_matcher)
+                .await
+        }
+        SessionSortKey::UpdatedAt => {
+            traverse_flat_paths_updated(root, page_size, anchor, allowed_sources, provider_matcher)
+                .await
+        }
+    }
+}
+
+/// Walk the rollout directory tree in reverse chronological order and
+/// collect items until the page fills or the scan cap is hit.
+///
+/// Ordering comes from directory/filename sorting, so created_at is derived
+/// from the filename timestamp. Pagination is handled by the anchor cursor
+/// so we resume strictly after the last returned `(ts, id)` pair.
+#[allow(dead_code)]
+async fn traverse_directories_for_paths_created(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
+    let mut scanned_files = 0usize;
+    let mut more_matches_available = false;
+    let mut visitor = FilesByCreatedAtVisitor {
+        items: &mut items,
+        page_size,
+        anchor_state: AnchorState::new(anchor),
+        more_matches_available,
+        allowed_sources,
+        provider_matcher,
+    };
+    walk_rollout_files(&root, &mut scanned_files, &mut visitor).await?;
+    more_matches_available = visitor.more_matches_available;
+
+    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
+    if reached_scan_cap && !items.is_empty() {
+        more_matches_available = true;
+    }
+
+    let next = if more_matches_available {
+        build_next_cursor(&items, SessionSortKey::CreatedAt)
+    } else {
+        None
+    };
+    Ok(SessionsPage {
+        items,
+        next_cursor: next,
+        num_scanned_files: scanned_files,
+        reached_scan_cap,
+    })
+}
+
+/// Walk the rollout directory tree to collect files by updated_at, then sort by
+/// file mtime (updated_at) and apply pagination/filtering in that order.
+///
+/// Because updated_at is not encoded in filenames, this path must scan all
+/// files up to the scan cap, then sort and filter by the anchor cursor.
+///
+/// NOTE: This can be optimized in the future if we store additional state on disk
+/// to cache updated_at timestamps.
+#[allow(dead_code)]
+async fn traverse_directories_for_paths_updated(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
+    let mut scanned_files = 0usize;
+    let mut anchor_state = AnchorState::new(anchor);
+    let mut more_matches_available = false;
+
+    let candidates = collect_files_by_updated_at(&root, &mut scanned_files).await?;
+    let mut candidates = candidates;
+    candidates.sort_by_key(|candidate| {
+        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        (Reverse(ts), Reverse(candidate.id))
+    });
+
+    for candidate in candidates.into_iter() {
+        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        if anchor_state.should_skip(ts, candidate.id) {
+            continue;
+        }
+        if items.len() == page_size {
+            more_matches_available = true;
+            break;
+        }
+
+        let updated_at_fallback = candidate.updated_at.and_then(format_rfc3339);
+        if let Some(item) = build_session_item(
+            candidate.path,
+            allowed_sources,
+            provider_matcher,
+            updated_at_fallback,
+        )
+        .await
+        {
+            items.push(item);
+        }
+    }
+
+    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
+    if reached_scan_cap && !items.is_empty() {
+        more_matches_available = true;
+    }
+
+    let next = if more_matches_available {
+        build_next_cursor(&items, SessionSortKey::UpdatedAt)
+    } else {
+        None
+    };
+    Ok(SessionsPage {
+        items,
+        next_cursor: next,
+        num_scanned_files: scanned_files,
+        reached_scan_cap,
+    })
+}
+
+async fn traverse_flat_paths_created(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
+    let mut scanned_files = 0usize;
+    let mut anchor_state = AnchorState::new(anchor);
+    let mut more_matches_available = false;
+
+    let files = collect_flat_rollout_files(&root, &mut scanned_files).await?;
+    for (ts, id, path) in files.into_iter() {
+        if anchor_state.should_skip(ts, id) {
+            continue;
+        }
+        if items.len() == page_size {
+            more_matches_available = true;
+            break;
+        }
+        let updated_at = file_modified_time(&path)
+            .await
+            .unwrap_or(None)
+            .and_then(format_rfc3339);
+        if let Some(item) =
+            build_session_item(path, allowed_sources, provider_matcher, updated_at).await
+        {
+            items.push(item);
+        }
+    }
+
+    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
+    if reached_scan_cap && !items.is_empty() {
+        more_matches_available = true;
+    }
+
+    let next = if more_matches_available {
+        build_next_cursor(&items, SessionSortKey::CreatedAt)
+    } else {
+        None
+    };
+    Ok(SessionsPage {
+        items,
+        next_cursor: next,
+        num_scanned_files: scanned_files,
+        reached_scan_cap,
+    })
+}
+
+async fn traverse_flat_paths_updated(
+    root: PathBuf,
+    page_size: usize,
+    anchor: Option<Cursor>,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+) -> io::Result<SessionsPage> {
+    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
+    let mut scanned_files = 0usize;
+    let mut anchor_state = AnchorState::new(anchor);
+    let mut more_matches_available = false;
+
+    let candidates = collect_flat_files_by_updated_at(&root, &mut scanned_files).await?;
+    let mut candidates = candidates;
+    candidates.sort_by_key(|candidate| {
+        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        (Reverse(ts), Reverse(candidate.id))
+    });
+
+    for candidate in candidates.into_iter() {
+        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        if anchor_state.should_skip(ts, candidate.id) {
+            continue;
+        }
+        if items.len() == page_size {
+            more_matches_available = true;
+            break;
+        }
+
+        let updated_at_fallback = candidate.updated_at.and_then(format_rfc3339);
+        if let Some(item) = build_session_item(
+            candidate.path,
+            allowed_sources,
+            provider_matcher,
+            updated_at_fallback,
+        )
+        .await
+        {
+            items.push(item);
+        }
+    }
+
+    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
+    if reached_scan_cap && !items.is_empty() {
+        more_matches_available = true;
+    }
+
+    let next = if more_matches_available {
+        build_next_cursor(&items, SessionSortKey::UpdatedAt)
+    } else {
+        None
+    };
+    Ok(SessionsPage {
+        items,
+        next_cursor: next,
+        num_scanned_files: scanned_files,
+        reached_scan_cap,
+    })
+}
+
+/// Pagination cursor token format: "<ts>|<uuid>" where `ts` uses
+/// YYYY-MM-DDThh-mm-ss (UTC, second precision).
+/// The cursor orders files by the requested sort key (timestamp desc, then UUID desc).
+pub fn parse_cursor(token: &str) -> Option<Cursor> {
+    let (file_ts, uuid_str) = token.split_once('|')?;
+
+    let Ok(uuid) = Uuid::parse_str(uuid_str) else {
+        return None;
+    };
+
+    let ts = OffsetDateTime::parse(file_ts, &Rfc3339).ok().or_else(|| {
+        let format: &[FormatItem] =
+            format_description!("[year]-[month]-[day]T[hour]-[minute]-[second]");
+        PrimitiveDateTime::parse(file_ts, format)
+            .ok()
+            .map(PrimitiveDateTime::assume_utc)
+    })?;
+
+    Some(Cursor::new(ts, uuid))
+}
+
+fn build_next_cursor(items: &[SessionItem], sort_key: SessionSortKey) -> Option<Cursor> {
+    let last = items.last()?;
+    let file_name = last.path.file_name()?.to_string_lossy();
+    let (created_ts, id) = parse_timestamp_uuid_from_filename(&file_name)?;
+    let ts = match sort_key {
+        SessionSortKey::CreatedAt => created_ts,
+        SessionSortKey::UpdatedAt => {
+            let updated_at = last.updated_at.as_deref()?;
+            OffsetDateTime::parse(updated_at, &Rfc3339).ok()?
+        }
+    };
+    Some(Cursor::new(ts, id))
+}
+
+async fn build_session_item(
+    path: PathBuf,
+    allowed_sources: &[SessionSource],
+    provider_matcher: Option<&ProviderMatcher<'_>>,
+    updated_at: Option<String>,
+) -> Option<SessionItem> {
+    // Read head and detect message events; stop once meta + user are found.
+    let summary = read_head_summary(&path, HEAD_RECORD_LIMIT)
+        .await
+        .unwrap_or_default();
+    if !allowed_sources.is_empty()
+        && !summary
+            .source
+            .is_some_and(|source| allowed_sources.contains(&source))
+    {
+        return None;
+    }
+    if let Some(matcher) = provider_matcher
+        && !matcher.matches(summary.model_provider.as_deref())
+    {
+        return None;
+    }
+    // Apply filters: must have session meta and at least one user message event
+    if summary.saw_session_meta && summary.saw_user_event {
+        let HeadTailSummary {
+            head,
+            created_at,
+            updated_at: mut summary_updated_at,
+            ..
+        } = summary;
+        if summary_updated_at.is_none() {
+            summary_updated_at = updated_at.or_else(|| created_at.clone());
+        }
+        return Some(SessionItem {
+            path,
+            head,
+            created_at,
+            updated_at: summary_updated_at,
+        });
+    }
+    None
+}
+
+/// Collects immediate subdirectories of `parent`, parses their (string) names with `parse`,
+/// and returns them sorted descending by the parsed key.
+#[allow(dead_code)]
+async fn collect_dirs_desc<T, F>(parent: &Path, parse: F) -> io::Result<Vec<(T, PathBuf)>>
+where
+    T: Ord + Copy,
+    F: Fn(&str) -> Option<T>,
+{
+    let mut dir = tokio::fs::read_dir(parent).await?;
+    let mut vec: Vec<(T, PathBuf)> = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        if entry
+            .file_type()
+            .await
+            .map(|ft| ft.is_dir())
+            .unwrap_or(false)
+            && let Some(s) = entry.file_name().to_str()
+            && let Some(v) = parse(s)
+        {
+            vec.push((v, entry.path()));
+        }
+    }
+    vec.sort_by_key(|(v, _)| Reverse(*v));
+    Ok(vec)
+}
+
+/// Collects files in a directory and parses them with `parse`.
+#[allow(dead_code)]
+async fn collect_files<T, F>(parent: &Path, parse: F) -> io::Result<Vec<T>>
+where
+    F: Fn(&str, &Path) -> Option<T>,
+{
+    let mut dir = tokio::fs::read_dir(parent).await?;
+    let mut collected: Vec<T> = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        if entry
+            .file_type()
+            .await
+            .map(|ft| ft.is_file())
+            .unwrap_or(false)
+            && let Some(s) = entry.file_name().to_str()
+            && let Some(v) = parse(s, &entry.path())
+        {
+            collected.push(v);
+        }
+    }
+    Ok(collected)
+}
+
+async fn collect_flat_rollout_files(
+    root: &Path,
+    scanned_files: &mut usize,
+) -> io::Result<Vec<(OffsetDateTime, Uuid, PathBuf)>> {
+    let mut dir = tokio::fs::read_dir(root).await?;
+    let mut collected = Vec::new();
+    while let Some(entry) = dir.next_entry().await? {
+        if *scanned_files >= MAX_SCAN_FILES {
+            break;
+        }
+        if !entry
+            .file_type()
+            .await
+            .map(|ft| ft.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(name_str) = file_name.to_str() else {
+            continue;
+        };
+        if !name_str.ends_with(".jsonl") {
+            continue;
+        }
+        let Some((ts, id)) = parse_timestamp_uuid_from_filename(name_str) else {
+            continue;
+        };
+        *scanned_files += 1;
+        if *scanned_files > MAX_SCAN_FILES {
+            break;
+        }
+        collected.push((ts, id, entry.path()));
+    }
+    collected.sort_by_key(|(ts, sid, _path)| (Reverse(*ts), Reverse(*sid)));
+    Ok(collected)
+}
+
+#[allow(dead_code)]
+async fn collect_rollout_day_files(
+    day_path: &Path,
+) -> io::Result<Vec<(OffsetDateTime, Uuid, PathBuf)>> {
+    let mut day_files = collect_files(day_path, |name_str, path| {
+        if !name_str.ends_with(".jsonl") {
+            return None;
+        }
+
+        parse_timestamp_uuid_from_filename(name_str).map(|(ts, id)| (ts, id, path.to_path_buf()))
+    })
+    .await?;
+    // Stable ordering: (timestamp desc, uuid desc)
+    day_files.sort_by_key(|(ts, sid, _path)| (Reverse(*ts), Reverse(*sid)));
+    Ok(day_files)
+}
+
+pub(crate) fn parse_timestamp_uuid_from_filename(name: &str) -> Option<(OffsetDateTime, Uuid)> {
+    // Expected: <uuid>.jsonl (UUID v7)
+    let core = name.strip_suffix(".jsonl")?;
+
+    // Parse as UUID v7
+    let uuid = Uuid::parse_str(core).ok()?;
+
+    // Extract timestamp from UUID v7 (first 48 bits are Unix timestamp in milliseconds)
+    let uuid_bytes = uuid.as_bytes();
+    let timestamp_ms = u64::from_be_bytes([
+        0,
+        0,
+        uuid_bytes[0],
+        uuid_bytes[1],
+        uuid_bytes[2],
+        uuid_bytes[3],
+        uuid_bytes[4],
+        uuid_bytes[5],
+    ]);
+
+    // Convert milliseconds to seconds for OffsetDateTime
+    let timestamp_secs = timestamp_ms / 1000;
+    let ts = OffsetDateTime::from_unix_timestamp(timestamp_secs as i64).ok()?;
+
+    Some((ts, uuid))
+}
+
+struct SessionCandidate {
+    path: PathBuf,
+    id: Uuid,
+    updated_at: Option<OffsetDateTime>,
+}
+
+#[allow(dead_code)]
+async fn collect_files_by_updated_at(
+    root: &Path,
+    scanned_files: &mut usize,
+) -> io::Result<Vec<SessionCandidate>> {
+    let mut candidates = Vec::new();
+    let mut visitor = FilesByUpdatedAtVisitor {
+        candidates: &mut candidates,
+    };
+    walk_rollout_files(root, scanned_files, &mut visitor).await?;
+
+    Ok(candidates)
+}
+
+async fn collect_flat_files_by_updated_at(
+    root: &Path,
+    scanned_files: &mut usize,
+) -> io::Result<Vec<SessionCandidate>> {
+    let mut candidates = Vec::new();
+    let mut dir = tokio::fs::read_dir(root).await?;
+    while let Some(entry) = dir.next_entry().await? {
+        if *scanned_files >= MAX_SCAN_FILES {
+            break;
+        }
+        if !entry
+            .file_type()
+            .await
+            .map(|ft| ft.is_file())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(name_str) = file_name.to_str() else {
+            continue;
+        };
+        if !name_str.ends_with(".jsonl") {
+            continue;
+        }
+        let Some((_ts, id)) = parse_timestamp_uuid_from_filename(name_str) else {
+            continue;
+        };
+        *scanned_files += 1;
+        if *scanned_files > MAX_SCAN_FILES {
+            break;
+        }
+        let updated_at = file_modified_time(&entry.path()).await.unwrap_or(None);
+        candidates.push(SessionCandidate {
+            path: entry.path(),
+            id,
+            updated_at,
+        });
+    }
+
+    Ok(candidates)
+}
+
+#[allow(dead_code)]
+async fn walk_rollout_files(
+    root: &Path,
+    scanned_files: &mut usize,
+    visitor: &mut impl RolloutFileVisitor,
+) -> io::Result<()> {
+    // Read all .jsonl files directly in the sessions directory
+    let files = collect_flat_rollout_files(root, scanned_files).await?;
+
+    for (ts, id, path) in files.into_iter() {
+        if let ControlFlow::Break(()) = visitor.visit(ts, id, path, *scanned_files).await {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+struct ProviderMatcher<'a> {
+    filters: &'a [String],
+    matches_default_provider: bool,
+}
+
+impl<'a> ProviderMatcher<'a> {
+    fn new(filters: &'a [String], default_provider: &'a str) -> Option<Self> {
+        if filters.is_empty() {
+            return None;
+        }
+
+        let matches_default_provider = filters.iter().any(|provider| provider == default_provider);
+        Some(Self {
+            filters,
+            matches_default_provider,
+        })
+    }
+
+    fn matches(&self, session_provider: Option<&str>) -> bool {
+        match session_provider {
+            Some(provider) => self.filters.iter().any(|candidate| candidate == provider),
+            None => self.matches_default_provider,
+        }
+    }
+}
+
+async fn read_head_summary(path: &Path, head_limit: usize) -> io::Result<HeadTailSummary> {
+    use tokio::io::AsyncBufReadExt;
+
+    let file = tokio::fs::File::open(path).await?;
+    let reader = tokio::io::BufReader::new(file);
+    let mut lines = reader.lines();
+    let mut summary = HeadTailSummary::default();
+    let mut lines_scanned = 0usize;
+
+    while lines_scanned < head_limit
+        || (summary.saw_session_meta
+            && !summary.saw_user_event
+            && lines_scanned < head_limit + USER_EVENT_SCAN_LIMIT)
+    {
+        let line_opt = lines.next_line().await?;
+        let Some(line) = line_opt else { break };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        lines_scanned += 1;
+
+        let parsed: Result<RolloutLine, _> = serde_json::from_str(trimmed);
+        let Ok(rollout_line) = parsed else { continue };
+
+        match rollout_line.item {
+            RolloutItem::SessionMeta(session_meta_line) => {
+                summary.source = Some(session_meta_line.meta.source.clone());
+                summary.model_provider = session_meta_line
+                    .meta
+                    .model_provider_id()
+                    .map(str::to_string);
+                summary.created_at = Some(session_meta_line.meta.timestamp.clone());
+                summary.saw_session_meta = true;
+                if summary.head.len() < head_limit
+                    && let Ok(val) = serde_json::to_value(session_meta_line)
+                {
+                    summary.head.push(val);
+                }
+            }
+            RolloutItem::ResponseItem(item) => {
+                summary.created_at = summary
+                    .created_at
+                    .clone()
+                    .or_else(|| Some(rollout_line.timestamp.clone()));
+                if let savfox_protocol::models::ResponseItem::Message { role, content, .. } = &item
+                    && role == "user"
+                    && !UserInstructions::is_user_instructions(content.as_slice())
+                    && !is_session_prefix_content(content.as_slice())
+                {
+                    tracing::warn!("Item: {item:#?}");
+                    summary.saw_user_event = true;
+                }
+                if summary.head.len() < head_limit
+                    && let Ok(val) = serde_json::to_value(item)
+                {
+                    summary.head.push(val);
+                }
+            }
+            RolloutItem::TurnContext(_) => {
+                // Not included in `head`; skip.
+            }
+            RolloutItem::Compacted(_) => {
+                // Not included in `head`; skip.
+            }
+            RolloutItem::EventMsg(ev) => {
+                if matches!(ev, EventMsg::UserMessage(_)) {
+                    summary.saw_user_event = true;
+                }
+            }
+        }
+
+        if summary.saw_session_meta && summary.saw_user_event {
+            break;
+        }
+    }
+
+    Ok(summary)
+}
+
+/// Read up to `HEAD_RECORD_LIMIT` records from the start of the rollout file at `path`.
+/// This should be enough to produce a summary including the session meta line.
+pub async fn read_head_for_summary(path: &Path) -> io::Result<Vec<serde_json::Value>> {
+    let summary = read_head_summary(path, HEAD_RECORD_LIMIT).await?;
+    Ok(summary.head)
+}
+
+/// Read the SessionMetaLine from the head of a rollout file for reuse by
+/// callers that need the session metadata (e.g. to derive a cwd for config).
+pub async fn read_session_meta_line(path: &Path) -> io::Result<SessionMetaLine> {
+    let head = read_head_for_summary(path).await?;
+    let Some(first) = head.first() else {
+        return Err(io::Error::other(format!(
+            "rollout at {} is empty",
+            path.display()
+        )));
+    };
+    serde_json::from_value::<SessionMetaLine>(first.clone()).map_err(|_| {
+        io::Error::other(format!(
+            "rollout at {} does not start with session metadata",
+            path.display()
+        ))
+    })
+}
+
+async fn file_modified_time(path: &Path) -> io::Result<Option<OffsetDateTime>> {
+    let meta = tokio::fs::metadata(path).await?;
+    let modified = meta.modified().ok();
+    let Some(modified) = modified else {
+        return Ok(None);
+    };
+    let dt = OffsetDateTime::from(modified);
+    // Truncate to seconds so ordering and cursor comparisons align with the
+    // cursor timestamp format (which exposes seconds), keeping pagination stable.
+    Ok(truncate_to_seconds(dt))
+}
+
+fn format_rfc3339(dt: OffsetDateTime) -> Option<String> {
+    dt.format(&Rfc3339).ok()
+}
+
+fn truncate_to_seconds(dt: OffsetDateTime) -> Option<OffsetDateTime> {
+    dt.replace_nanosecond(0).ok()
+}
+
+async fn find_session_path_by_id_str_in_subdir(
+    savfox_home: &Path,
+    subdir: &str,
+    id_str: &str,
+) -> io::Result<Option<PathBuf>> {
+    // Validate UUID format early.
+    if Uuid::parse_str(id_str).is_err() {
+        return Ok(None);
+    }
+
+    let mut root = savfox_home.to_path_buf();
+    root.push(subdir);
+    if !root.exists() {
+        return Ok(None);
+    }
+    // This is safe because we know the values are valid.
+    #[allow(clippy::unwrap_used)]
+    let limit = NonZero::new(1).unwrap();
+    let options = file_search::FileSearchOptions {
+        limit,
+        compute_indices: false,
+        respect_gitignore: false,
+        ..Default::default()
+    };
+
+    let results = file_search::run(id_str, vec![root], options, None)
+        .map_err(|e| io::Error::other(format!("file search failed: {e}")))?;
+
+    let found = results.matches.into_iter().next().map(|m| m.full_path());
+
+    // Checking if DB is at parity.
+    // TODO(jif): sqlite migration phase 1
+    let archived_only = match subdir {
+        SESSIONS_SUBDIR => Some(false),
+        ARCHIVED_SESSIONS_SUBDIR => Some(true),
+        _ => None,
+    };
+    let state_db_ctx = state_db::open_if_present(savfox_home, "").await;
+    if let Some(state_db_ctx) = state_db_ctx.as_deref()
+        && let Ok(session_id) = SessionId::from_string(id_str)
+    {
+        let db_path = state_db::find_rollout_path_by_id(
+            Some(state_db_ctx),
+            session_id,
+            archived_only,
+            "find_path_query",
+        )
+        .await;
+        let canonical_path = found.as_deref();
+        if db_path.as_deref() != canonical_path {
+            tracing::warn!(
+                "state db path mismatch for session {session_id:?}: canonical={canonical_path:?} db={db_path:?}"
+            );
+            state_db::record_discrepancy("find_session_path_by_id_str_in_subdir", "path_mismatch");
+        }
+    }
+    Ok(found)
+}
+
+/// Locate a recorded session rollout file by its UUID string using the existing
+/// paginated listing implementation. Returns `Ok(Some(path))` if found, `Ok(None)` if not present
+/// or the id is invalid.
+pub async fn find_session_path_by_id_str(
+    savfox_home: &Path,
+    id_str: &str,
+) -> io::Result<Option<PathBuf>> {
+    find_session_path_by_id_str_in_subdir(savfox_home, SESSIONS_SUBDIR, id_str).await
+}
+
+/// Locate an archived session rollout file by its UUID string.
+pub async fn find_archived_session_path_by_id_str(
+    savfox_home: &Path,
+    id_str: &str,
+) -> io::Result<Option<PathBuf>> {
+    find_session_path_by_id_str_in_subdir(savfox_home, ARCHIVED_SESSIONS_SUBDIR, id_str).await
+}
+
+/// Extract the `YYYY/MM/DD` directory components from a rollout filename.
+/// This now returns the date from the UUID v7 timestamp.
+pub fn rollout_date_parts(file_name: &OsStr) -> Option<(String, String, String)> {
+    let name = file_name.to_string_lossy();
+    let core = name.strip_suffix(".jsonl")?;
+    let uuid = Uuid::parse_str(core).ok()?;
+
+    // Extract timestamp from UUID v7 (first 48 bits are Unix timestamp in milliseconds)
+    let uuid_bytes = uuid.as_bytes();
+    let timestamp_ms = u64::from_be_bytes([
+        0,
+        0,
+        uuid_bytes[0],
+        uuid_bytes[1],
+        uuid_bytes[2],
+        uuid_bytes[3],
+        uuid_bytes[4],
+        uuid_bytes[5],
+    ]);
+
+    // Convert to DateTime and extract year, month, day
+    let timestamp_secs = timestamp_ms / 1000;
+    let dt = OffsetDateTime::from_unix_timestamp(timestamp_secs as i64).ok()?;
+    let year = dt.year().to_string();
+    let month = format!("{:02}", u8::from(dt.month()));
+    let day = format!("{:02}", dt.day());
+    Some((year, month, day))
+}

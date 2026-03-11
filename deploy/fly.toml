@@ -1,0 +1,56 @@
+﻿# ---------------------------------------------------------------------------
+# Fly.io deployment configuration for the Savfox Gateway
+# ---------------------------------------------------------------------------
+# Deploy:   fly deploy -c deploy/fly.toml
+# Logs:     fly logs -c deploy/fly.toml
+# Status:   fly status -c deploy/fly.toml
+# Scale:    fly scale count 1 --region iad -c deploy/fly.toml
+#
+# Required secrets (set via `fly secrets set`):
+#   SAVFOX_GATEWAY_TOKEN   -- authentication token for WS/HTTP clients
+#   OPENAI_API_KEY         -- (optional) OpenAI provider key
+#   ANTHROPIC_API_KEY      -- (optional) Anthropic provider key
+# ---------------------------------------------------------------------------
+
+app = "savfox-gateway"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../Dockerfile"
+
+[env]
+  RUST_LOG = "info"
+  SAVFOX_HOME = "/data"
+
+[processes]
+  app = "savfox gateway --host 0.0.0.0 --port 18881"
+
+[http_service]
+  internal_port = 18881
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[mounts]
+  source = "savfox_data"
+  destination = "/data"
+
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    port = 18881
+    timeout = "5s"
+    type = "http"

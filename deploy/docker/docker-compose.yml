@@ -1,0 +1,37 @@
+﻿version: "3.9"
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: savfox-gateway
+    restart: unless-stopped
+    ports:
+      - "${SAVFOX_PORT:-18881}:18881"
+    environment:
+      - SAVFOX_HOME=/data/savfox
+      - RUST_LOG=${RUST_LOG:-info}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+    volumes:
+      - savfox-data:/data/savfox
+    command: ["gateway", "--port", "18881", "--host", "0.0.0.0", "--token", "${SAVFOX_TOKEN:-}"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18881/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  savfox-data:
+    driver: local

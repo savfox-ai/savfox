@@ -1,0 +1,9 @@
+---
+source: tui/src/chat_screen/tests.rs
+expression: combined
+---
+↳ Interacted with background terminal · just fix
+  └ pwd
+
+↳ Interacted with background terminal · just fix
+  └ (waited)

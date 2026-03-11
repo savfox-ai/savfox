@@ -1,0 +1,30 @@
+﻿[Unit]
+Description=Savfox AI Gateway Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=savfox
+Group=savfox
+ExecStart=/usr/local/bin/savfox gateway --port 18881
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+Environment=SAVFOX_HOME=/home/savfox/.savfox
+WorkingDirectory=/home/savfox
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/savfox/.savfox
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

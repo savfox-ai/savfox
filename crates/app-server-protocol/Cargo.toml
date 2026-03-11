@@ -1,0 +1,33 @@
+[package]
+name = "savfox-app-server-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_app_server_protocol"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+savfox-protocol = { workspace = true }
+savfox-experimental-api-macros = { workspace = true }
+savfox-utils = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+ts-rs = { workspace = true }
+inventory = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+pretty_assertions = { workspace = true }
+similar = { workspace = true }
+tempfile = { workspace = true }

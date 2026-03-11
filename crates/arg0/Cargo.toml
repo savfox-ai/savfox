@@ -1,0 +1,21 @@
+﻿[package]
+name = "savfox-arg0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_arg0"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+savfox-apply-patch = { workspace = true }
+savfox-core = { workspace = true }
+savfox-linux-sandbox = { workspace = true }
+dotenvy = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }

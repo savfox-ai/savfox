@@ -1,0 +1,418 @@
+[workspace]
+members = [
+    "crates/*",
+    "crates/utils",
+    "crates/app-server/tests/common",
+    "crates/core/tests/common",
+    "crates/exec-server/tests/common",
+    "crates/mcp-server/tests/common",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.3.0"
+authors = ["Chrislearn Young <chris@sonc.ai>"]
+edition = "2024"
+rust-version = "1.94"
+description = """
+Experimental AI API client library for Rust.
+"""
+homepage = "https://github.com/savfox-ai/savfox"
+repository = "https://github.com/savfox-ai/savfox"
+documentation = "https://docs.rs/savfox/"
+readme = "./README.md"
+categories = ["api-bindings", "web-programming", "asynchronous"]
+keywords = ["openai", "async", "openapi", "ai"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+savfox = { version = "0.3.0", path = "crates/savfox", default-features = true }
+savfox-app-server-protocol = { version = "0.3.0", path = "crates/app-server-protocol", default-features = true }
+savfox-app-server = { version = "0.3.0", path = "crates/app-server", default-features = true }
+savfox-arg0 = { version = "0.3.0", path = "crates/arg0", default-features = true }
+savfox-common = { version = "0.3.0", path = "crates/common", default-features = true }
+savfox-config = { version = "0.3.0", path = "crates/config", default-features = true }
+savfox-core = { version = "0.3.0", path = "crates/core", default-features = true }
+savfox-exec = { version = "0.3.0", path = "crates/exec", default-features = true }
+savfox-exec-policy = { version = "0.3.0", path = "crates/exec-policy", default-features = true }
+savfox-feedback = { version = "0.3.0", path = "crates/feedback", default-features = true }
+savfox-file-search = { version = "0.3.0", path = "crates/file-search", default-features = true }
+savfox-login-oauth = { version = "0.3.0", path = "crates/login-oauth", default-features = true }
+savfox-mcp-server = { version = "0.3.0", path = "crates/mcp-server", default-features = true }
+savfox-protocol = { version = "0.3.0", path = "crates/protocol", default-features = true }
+savfox-rmcp-client = { version = "0.3.0", path = "crates/rmcp-client", default-features = true }
+savfox-utils = { version = "0.3.0", path = "crates/utils", default-features = true }
+savfox-ansi-escape = { version = "0.3.0", path = "crates/ansi-escape", default-features = true }
+savfox-api-client = { version = "0.3.0", path = "crates/api-client", default-features = true }
+savfox-apply-patch = { version = "0.3.0", path = "crates/apply-patch", default-features = true }
+savfox-app-server-test-client = { version = "0.3.0", path = "crates/app-server-test-client", default-features = true }
+savfox-async-utils = { version = "0.3.0", path = "crates/async-utils", default-features = true }
+savfox-cli = { version = "0.3.0", path = "crates/savfox-cli", default-features = true }
+savfox-http-client = { version = "0.3.0", path = "crates/http-client", default-features = true }
+savfox-debug-client = { version = "0.3.0", path = "crates/debug-client", default-features = true }
+savfox-exec-server = { version = "0.3.0", path = "crates/exec-server", default-features = true }
+savfox-gateway-server = { version = "0.3.0", path = "crates/gateway-server", default-features = true }
+savfox-gateway-shared = { version = "0.3.0", path = "crates/gateway-shared", default-features = true }
+savfox-model = { version = "0.3.0", path = "crates/model", default-features = true }
+savfox-experimental-api-macros = { version = "0.3.0", path = "crates/experimental-api-macros", default-features = true }
+savfox-keyring-store = { version = "0.3.0", path = "crates/keyring-store", default-features = true }
+savfox-linux-sandbox = { version = "0.3.0", path = "crates/linux-sandbox", default-features = true }
+savfox-lmstudio = { version = "0.3.0", path = "crates/lmstudio", default-features = true }
+savfox-network-proxy = { version = "0.3.0", path = "crates/network-proxy", default-features = true }
+savfox-ollama = { version = "0.3.0", path = "crates/ollama", default-features = true }
+savfox-otel = { version = "0.3.0", path = "crates/otel", default-features = true }
+savfox-state = { version = "0.3.0", path = "crates/state", default-features = true }
+savfox-stdio-to-uds = { version = "0.3.0", path = "crates/stdio-to-uds", default-features = true }
+savfox-tui = { version = "0.3.0", path = "crates/tui", default-features = true }
+savfox-windows-sandbox = { version = "0.3.0", path = "crates/windows-sandbox", default-features = true }
+savfox-skill-registry = { version = "0.3.0", path = "crates/skill-registry", default-features = true }
+savfox-browser-automation = { version = "0.3.0", path = "crates/browser-automation", default-features = true }
+savfox-memory = { version = "0.3.0", path = "crates/memory", default-features = true }
+savfox-link-understanding = { version = "0.3.0", path = "crates/link-understanding", default-features = true }
+savfox-channels = { version = "0.3.0", path = "crates/channels", default-features = true }
+app_test_support = { version = "0.3.0", path = "crates/app-server/tests/common" }
+core_test_support = { version = "0.3.0", path = "crates/core/tests/common" }
+exec_server_test_support = { version = "0.3.0", path = "crates/exec-server/tests/common" }
+mcp_test_support = { version = "0.3.0", path = "crates/mcp-server/tests/common" }
+
+aead = "0.5"
+aes-gcm = "0.10"
+allocative = "0.3.3"
+ansi-to-tui = "8.0.1"
+anyhow = "1"
+arc-swap = "1.8.0"
+arboard = { version = "3", features = ["wayland-data-control"] }
+assert-json-diff = "2"
+assert_cmd = "2"
+assert_matches = "1.5.0"
+async-channel = "2.3.1"
+async-session = "3"
+async-stream = "0.3.6"
+async-trait = "0.1"
+salvo = { version = "0.89", default-features = false, features = [
+    "server",
+    "server-handle",
+    "http1",
+    "tower-compat",
+    "affix-state",
+    "websocket",
+    "sse",
+] }
+salvo_extra = { version = "0.89", default-features = false, features = [
+    "tower-compat",
+] }
+backoff = { version = "0.4" }
+base64 = "0.22"
+bcrypt = "0.18"
+bson = "3"
+bytes = "1"
+chacha20poly1305 = "0.10"
+chardetng = "0.1.17"
+chrono = "0.4"
+clap = "4"
+cron = "0.15"
+clap_complete = "4"
+color-eyre = "0.6.3"
+compact_str = { version = "0.9", features = ["serde"] }
+cookie = "0.18"
+core-foundation = "0.10"
+crossbeam-channel = "0.5.15"
+crossterm = "0.29.0"
+ctor = "0.6.3"
+derive_builder = "0.20.2"
+derive_more = "2"
+diffy = "0.4.2"
+dirs = "6"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+dirs-next = "2.0"
+dotenvy = "0.15.7"
+aws-lc-rs = "1"
+dunce = "1.0.4"
+email_address = "0.2"
+encoding_rs = "0.8"
+env-flags = "0.1.1"
+env_logger = "0.11.9"
+enumflags2 = "0.7"
+etag = "4"
+eventsource-stream = { version = "0.2", git = "https://github.com/chrislearn/eventsource-stream.git", branch = "next" }
+eyre = "0.6"
+fastrand = "2"
+filedescriptor = "0.8.3"
+form_urlencoded = "1"
+futures = { version = "0.3.31", default-features = false, features = ["alloc"] }
+futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false }
+fs_extra = "1.3"
+globset = "0.4"
+h3-datagram = "0.0.2"
+headers = "0.4"
+hex = { version = "0.4", default-features = false }
+hmac = { version = "0.12", default-features = false }
+hostname-validator = "1"
+html2text = "0.16"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["full"] }
+hyper-rustls = { version = "0.27", default-features = false, features = [
+    "aws-lc-rs",
+] }
+hyper-util = { version = "0.1", default-features = true }
+icu_decimal = "2.1"
+icu_locale_core = "2.1"
+icu_provider = { version = "2.1", features = ["sync"] }
+ignore = "0.4.23"
+image = { version = "^0.25.9", default-features = false }
+include_dir = "0.7.4"
+indexmap = "2"
+indoc = "2.0"
+insta = "1.46.0"
+inventory = "0.3.22"
+itertools = "0.14.0"
+jsonwebtoken = "10"
+keyring = { version = "3.6", default-features = false }
+landlock = "0.4.4"
+lazy_static = "1"
+libc = "0.2.182"
+log = "0.4"
+lopdf = "0.39"
+lru = "0.16.3"
+maplit = "1.0.2"
+matrix-bot-sdk = { version = "0.2.4", default-features = false }
+mime = "0.3"
+mime-infer = "4"
+mime_guess = "2.0.5"
+moka = "0.12"
+multer = "3"
+multimap = "0.10"
+native-tls = "0.2"
+nix = { version = "0.31", default-features = false }
+notify = "8.2.0"
+nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faabb4e5c6d81d946a5e35a90f87347ee" }
+oauth2 = "5"
+once_cell = "1.20.2"
+openssl-sys = "*"
+opentelemetry = { version = "0.31", default-features = false }
+opentelemetry-appender-tracing = "0.31.0"
+opentelemetry-http = { version = "0.31", default-features = false }
+opentelemetry-otlp = "0.31.0"
+opentelemetry-semantic-conventions = { version = "0.31", default-features = false }
+opentelemetry_sdk = "0.31.0"
+os_info = "3.12.0"
+owo-colors = "4.2.0"
+parking_lot = "0.12"
+paste = "1"
+path-absolutize = "3.1.1"
+path-slash = "0.2"
+pathdiff = "0.2"
+percent-encoding = "2"
+pin-project = "1"
+portable-pty = "0.9.0"
+predicates = "3"
+rama-core = { version = "=0.3.0-alpha.4" }
+rama-http = { version = "=0.3.0-alpha.4" }
+rama-http-backend = { version = "=0.3.0-alpha.4" }
+rama-net = { version = "=0.3.0-alpha.4" }
+rama-socks5 = { version = "=0.3.0-alpha.4" }
+rama-tcp = { version = "=0.3.0-alpha.4" }
+rama-tls-boring = { version = "=0.3.0-alpha.4" }
+rama-unix = { version = "=0.3.0-alpha.4" }
+pretty_assertions = "1.4.1"
+proc-macro-crate = { version = ">= 2, <= 4" }
+proc-macro2 = "1"
+proc-macro2-diagnostics = { version = "0.10", default-features = true }
+pulldown-cmark = "0.13"
+quinn = { version = "0.11", default-features = false }
+quote = "1"
+rand = "0.10"
+ratatui = "0.30.0"
+ratatui-image = { version = "10.0", default-features = false, features = ["crossterm"] }
+ratatui-macros = "0.7.0"
+rcgen = "0.14"
+regex = "1"
+regex-lite = "0.1.8"
+reqwest = { version = "0.13", default-features = false }
+reqwest-eventsource = { version = "0.6", git = "https://github.com/chrislearn/reqwest-eventsource", branch = "next" }
+ring = "0.17"
+rmcp = { version = "0.12.0", default-features = false }
+serenity = { version = "0.12", default-features = false, features = [
+    "client",
+    "gateway",
+    "rustls_backend",
+    "model",
+    "utils",
+    "cache",
+] }
+runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
+rust-embed = { version = ">= 6, <= 9" }
+rust_decimal = "1"
+rustls = { version = "0.23", features = ["aws-lc-rs"] }
+rustls-pemfile = "2"
+schemars = "0.8.22"
+seccompiler = "0.5.0"
+secrecy = "0.10"
+semver = "1.0"
+sentry = { version = "0.46", default-features = false }
+serde = "1"
+serde-xml-rs = "0.8"
+serde_json = "1"
+serde_norway = "0.9"
+serde_path_to_error = "0.1.20"
+serde_urlencoded = "0.7"
+serde_with = "3"
+teloxide = { version = "0.17", default-features = false, features = ["rustls"] }
+serde_yaml = "0.9"
+serial_test = "3.4.0"
+sha1 = "0.10.6"
+sha2 = { version = "0.10", default-features = false }
+shared_library = "0.1.9"
+shlex = "1.3.0"
+similar = "2.7.0"
+smallvec = "1"
+socket2 = "0.6"
+sqlx = { version = "0.8.6", default-features = false, features = [
+    "chrono",
+    "json",
+    "macros",
+    "migrate",
+    "runtime-tokio-rustls",
+    "sqlite",
+    "time",
+    "uuid",
+] }
+starlark = "0.13.0"
+strum = "0.28.0"
+strum_macros = "0.28.0"
+supports-color = "3.0.2"
+syn = "2"
+sync_wrapper = "1"
+sys-locale = "0.3.2"
+tempfile = "3.26.0"
+test-case = "3.3.1"
+test-log = "0.2.19"
+textwrap = "0.16.2"
+thiserror = "2"
+time = "0.3"
+tiny_http = "0.12"
+tokio = "1"
+tokio-native-tls = "0.3"
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "aws-lc-rs",
+] }
+tokio-stream = { version = "0.1", default-features = false }
+tokio-test = "0.4.4"
+tokio-tungstenite = { version = "0.27", default-features = false }
+tokio-util = "0.7"
+toml = "0.9.5"
+toml_edit = "0.24.0"
+tower = { version = "0.5", default-features = false }
+tracing = "0.1"
+tracing-appender = "0.2.3"
+tracing-opentelemetry = "0.32.0"
+tracing-subscriber = { version = "0.3" }
+tracing-test = "0.2.1"
+tree-sitter = "0.25.10"
+tree-sitter-bash = "0.25"
+tree-sitter-highlight = "0.25.10"
+ts-rs = "11"
+uds_windows = "1.1.0"
+ulid = { version = "1", default-features = false }
+unicode-segmentation = "1.12.0"
+unicode-width = "0.2"
+url = "2"
+urlencoding = "2.1"
+uuid = "1"
+vt100 = "0.15"
+walkdir = "2.5.0"
+webbrowser = "1.0"
+which = "8"
+winapi = "0.3.9"
+windows = "0.58"
+windows-sys = "0.52"
+winres = "0.1"
+winsplit = "0.1"
+wildmatch = "2.6.1"
+wiremock = "0.6"
+x509-parser = "0.18"
+zeroize = "1.8.2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+scraper = "0.25.0"
+feishu-sdk = { version = "0.1.2", features = ["websocket"] }
+dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", branch = "main" }
+
+# WASM dependencies for gateway-dioxus
+dioxus = { version = "0.7", default-features = false, features = [
+    "web",
+    "router",
+    "lib",
+    "launch",
+    "logger",
+] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+# Compress
+brotli = { version = "8", default-features = false }
+flate2 = { version = "1", default-features = false }
+zstd = { version = "0.13", default-features = false }
+
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+# missing_docs = "warn"
+unreachable_pub = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+await_holding_lock = "warn"
+dbg_macro = "warn"
+empty_enums = "warn"
+enum_glob_use = "warn"
+equatable_if_let = "warn"
+exit = "warn"
+filter_map_next = "warn"
+fn_params_excessive_bools = "warn"
+future_not_send = "warn"
+if_let_mutex = "warn"
+implicit_clone = "warn"
+imprecise_flops = "warn"
+inefficient_to_string = "warn"
+linkedlist = "warn"
+lossy_float_literal = "warn"
+macro_use_imports = "warn"
+manual_let_else = "warn"
+mem_forget = "warn"
+must_use_candidate = "warn"
+needless_borrow = "warn"
+needless_continue = "warn"
+needless_pass_by_ref_mut = "warn"
+option_option = "warn"
+redundant_clone = "warn"
+ref_option = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+return_self_not_must_use = "warn"
+single_match_else = "warn"
+str_to_string = "warn"
+suboptimal_flops = "warn"
+todo = "warn"
+trivially_copy_pass_by_ref = "warn"
+type_complexity = "allow"
+uninlined_format_args = "warn"
+unnested_or_patterns = "warn"
+unused_self = "warn"
+unwrap_used = "warn"
+use_self = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "warn"
+
+# ── Build profiles ──────────────────────────────────────────────────────────
+
+# Speed up debug builds: optimize dependencies but not workspace crates
+[profile.dev.package."*"]
+opt-level = 1
+
+# Faster debug builds: fewer codegen units = faster linking
+[profile.dev]
+debug = "line-tables-only"

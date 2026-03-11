@@ -1,0 +1,43 @@
+﻿# Fly.io deployment configuration
+# Deploy: fly deploy
+# Scale: fly scale count 1 --region iad
+
+app = "savfox"
+primary_region = "iad"
+
+[env]
+  RUST_LOG = "info"
+  SAVFOX_HOME = "/data"
+
+[processes]
+  app = "savfox gateway --port 3000 --bind 0.0.0.0"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2048mb"
+
+[mounts]
+  source = "savfox_data"
+  destination = "/data"
+
+[checks]
+  [checks.health]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    port = 3000
+    timeout = "5s"
+    type = "http"

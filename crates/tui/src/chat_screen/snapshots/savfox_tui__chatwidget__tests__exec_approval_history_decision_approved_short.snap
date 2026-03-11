@@ -1,0 +1,5 @@
+﻿---
+source: tui/src/chat_screen/tests.rs
+expression: lines_to_single_string(&decision)
+---
+✔ You approved savfox to run echo hello world this time

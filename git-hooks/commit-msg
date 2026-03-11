@@ -1,0 +1,28 @@
+#!/bin/sh
+# Commit message validation: enforce conventional commits format
+# Format: type(scope): description
+# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+
+commit_msg_file="$1"
+commit_msg=$(head -1 "$commit_msg_file")
+
+# Allow merge commits
+if echo "$commit_msg" | grep -qE '^Merge '; then
+    exit 0
+fi
+
+# Validate conventional commit format
+if ! echo "$commit_msg" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,}$'; then
+    echo "ERROR: Commit message does not follow Conventional Commits format."
+    echo ""
+    echo "Expected: type(scope): description"
+    echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+    echo ""
+    echo "Examples:"
+    echo "  feat(gateway): add WebSocket compression"
+    echo "  fix(core): resolve memory leak in session store"
+    echo "  docs: update gateway protocol specification"
+    echo ""
+    echo "Your message: $commit_msg"
+    exit 1
+fi

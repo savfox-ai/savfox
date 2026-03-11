@@ -1,0 +1,172 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "savfox-core"
+version.workspace = true
+build = "build.rs"
+
+[lib]
+doctest = false
+name = "savfox_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "savfox-write-config-schema"
+path = "src/bin/config_schema.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-channel = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chardetng = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
+cron = { workspace = true }
+savfox-api-client = { workspace = true }
+savfox-config = { workspace = true }
+savfox-app-server-protocol = { workspace = true }
+savfox-apply-patch = { workspace = true }
+savfox-async-utils = { workspace = true }
+savfox-http-client = { workspace = true }
+savfox-exec-policy = { workspace = true }
+savfox-file-search = { workspace = true }
+savfox-utils = { workspace = true }
+savfox-keyring-store = { workspace = true }
+savfox-otel = { workspace = true }
+savfox-model = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-rmcp-client = { workspace = true }
+savfox-state = { workspace = true }
+savfox-windows-sandbox = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+encoding_rs = { workspace = true }
+env-flags = { workspace = true }
+eventsource-stream = { workspace = true }
+futures = { workspace = true }
+html2text = { workspace = true }
+http = { workspace = true }
+include_dir = { workspace = true }
+indexmap = { workspace = true }
+indoc = { workspace = true }
+keyring = { workspace = true, features = ["crypto-rust"] }
+libc = { workspace = true }
+multimap = { workspace = true }
+once_cell = { workspace = true }
+os_info = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+regex-lite = { workspace = true }
+reqwest = { workspace = true, features = ["json", "stream"] }
+rmcp = { workspace = true, default-features = false, features = [
+    "base64",
+    "macros",
+    "schemars",
+    "server",
+] }
+schemars = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+serde_yaml = { workspace = true }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+shlex = { workspace = true }
+similar = { workspace = true }
+tempfile = { workspace = true }
+test-case = { workspace = true }
+test-log = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true, features = [
+    "formatting",
+    "parsing",
+    "local-offset",
+    "macros",
+] }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+tokio-util = { workspace = true, features = ["rt"] }
+tokio-tungstenite = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tree-sitter = { workspace = true }
+tree-sitter-bash = { workspace = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4", "v5"] }
+which = { workspace = true }
+wildmatch = { workspace = true }
+
+[features]
+deterministic_process_ids = []
+test-support = []
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true, features = ["user"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { workspace = true, features = ["linux-native-async-persistent"] }
+landlock = { workspace = true }
+seccompiler = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = { workspace = true }
+keyring = { workspace = true, features = ["apple-native"] }
+
+# Build OpenSSL from source for musl builds.
+[target.x86_64-unknown-linux-musl.dependencies]
+openssl-sys = { workspace = true, features = ["vendored"] }
+
+# Build OpenSSL from source for musl builds.
+[target.aarch64-unknown-linux-musl.dependencies]
+openssl-sys = { workspace = true, features = ["vendored"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
+
+[target.'cfg(any(target_os = "freebsd", target_os = "openbsd"))'.dependencies]
+keyring = { workspace = true, features = ["sync-secret-service"] }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+assert_matches = { workspace = true }
+savfox-arg0 = { workspace = true }
+savfox-core = { path = ".", default-features = false, features = [
+    "deterministic_process_ids",
+] }
+savfox-otel = { workspace = true, features = [
+    "disable-default-metrics-exporter",
+] }
+core_test_support = { workspace = true }
+ctor = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png"] }
+maplit = { workspace = true }
+predicates = { workspace = true }
+pretty_assertions = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = [
+    "experimental_metrics_custom_reader",
+    "metrics",
+] }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-test = { workspace = true, features = ["no-env-filter"] }
+walkdir = { workspace = true }
+wiremock = { workspace = true }
+zstd = { workspace = true }
+
+[package.metadata.cargo-shear]
+ignored = ["openssl-sys"]

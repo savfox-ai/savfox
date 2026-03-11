@@ -1,0 +1,364 @@
+//! Application-level events used to coordinate UI actions.
+//!
+//! `AppEvent` is the internal message bus between UI components and the top-level `App` loop.
+//! Widgets emit events to request actions that must be handled at the app layer (like opening
+//! pickers, persisting configuration, or shutting down the agent), without needing direct access to
+//! `App` internals.
+//!
+//! Exit is modelled explicitly via `AppEvent::Exit(ExitMode)` so callers can request shutdown-first
+//! quits without reaching into the app loop or coupling to shutdown/exit sequencing.
+
+use std::path::PathBuf;
+
+use savfox_common::permission_presets::PermissionPreset;
+use savfox_core::connectors::AppInfo;
+use savfox_core::features::Feature;
+use savfox_core::protocol::{AskForApproval, Event, RateLimitSnapshot, SandboxPolicy};
+use savfox_file_search::FileMatch;
+use savfox_protocol::SessionId;
+use savfox_protocol::config_types::{CollaborationModeMask, Personality};
+use savfox_protocol::openai_models::{ModelPreset, ReasoningEffort};
+
+use crate::bottom_pane::ApprovalRequest;
+use crate::history_cell::HistoryCell;
+use crate::provider_connect::ProviderConnectResult;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) enum WindowsSandboxEnableMode {
+    Elevated,
+    Legacy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) enum WindowsSandboxFallbackReason {
+    ElevationFailed,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ConnectorsSnapshot {
+    pub(crate) connectors: Vec<AppInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenAiConnectAuthMethod {
+    Browser,
+    Headless,
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub(crate) enum AppEvent {
+    SavfoxEvent(Event),
+    /// Open the agent picker for switching active sessions.
+    OpenAgentPicker,
+    /// Switch the active session to the selected agent.
+    SelectAgentSession(SessionId),
+
+    /// Start a new session.
+    NewSession,
+
+    /// Open the resume picker inside the running TUI session.
+    OpenResumePicker,
+
+    /// Fork the current session into a new session.
+    ForkCurrentSession,
+
+    /// Request to exit the application.
+    ///
+    /// Use `ShutdownFirst` for user-initiated quits so core cleanup runs and the
+    /// UI exits only after `ShutdownComplete`. `Immediate` is a last-resort
+    /// escape hatch that skips shutdown and may drop in-flight work (e.g.,
+    /// background tasks, rollout flush, or child process cleanup).
+    Exit(ExitMode),
+
+    /// Request to exit the application due to a fatal error.
+    FatalExitRequest(String),
+
+    /// Forward an `Op` to the Agent. Using an `AppEvent` for this avoids
+    /// bubbling channels through layers of widgets.
+    SavfoxOp(savfox_core::protocol::Op),
+
+    /// Kick off an asynchronous file search for the given query (text after
+    /// the `@`). Previous searches may be cancelled by the app layer so there
+    /// is at most one in-flight search.
+    StartFileSearch(String),
+
+    /// Result of a completed asynchronous file search. The `query` echoes the
+    /// original search term so the UI can decide whether the results are
+    /// still relevant.
+    FileSearchResult {
+        query: String,
+        matches: Vec<FileMatch>,
+    },
+
+    /// Result of refreshing rate limits
+    RateLimitSnapshotFetched(RateLimitSnapshot),
+
+    /// Result of prefetching connectors.
+    ConnectorsLoaded(Result<ConnectorsSnapshot, String>),
+
+    /// Open provider auth prompt for the `/connect` flow.
+    OpenConnectAuthPrompt {
+        provider_id: String,
+    },
+
+    /// Open API-key prompt for the `/connect` flow.
+    OpenConnectApiKeyPrompt {
+        provider_id: String,
+    },
+
+    /// Begin OpenAI ChatGPT auth (browser/headless) for `/connect`.
+    BeginOpenAiConnectAuth {
+        provider_id: String,
+        method: OpenAiConnectAuthMethod,
+    },
+
+    /// Show device-code instructions for headless ChatGPT auth.
+    OpenAiConnectDeviceCode {
+        verification_url: String,
+        user_code: String,
+    },
+
+    /// Result of OpenAI ChatGPT auth.
+    OpenAiConnectAuthCompleted {
+        provider_id: String,
+        method: OpenAiConnectAuthMethod,
+        result: Result<(), String>,
+    },
+
+    /// Start provider connection test and model discovery.
+    BeginProviderConnect {
+        provider_id: String,
+        api_key: Option<String>,
+    },
+
+    /// Result of provider connection test/model discovery.
+    ProviderConnectCompleted(Result<ProviderConnectResult, String>),
+
+    /// Finalize provider connection after the user has chosen an account name.
+    ProviderConnectNamed {
+        result: ProviderConnectResult,
+        account_name: String,
+    },
+
+    /// Result of computing a `/diff` command.
+    DiffResult(String),
+
+    /// Open the app link view in the bottom pane.
+    OpenAppLink {
+        title: String,
+        description: Option<String>,
+        instructions: String,
+        url: String,
+        is_installed: bool,
+    },
+
+    InsertHistoryCell(Box<dyn HistoryCell>),
+
+    StartCommitAnimation,
+    StopCommitAnimation,
+    CommitTick,
+
+    /// Update the current reasoning effort in the running app and widget.
+    UpdateReasoningEffort(Option<ReasoningEffort>),
+
+    /// Update the current model slug in the running app and widget.
+    UpdateModel(String),
+
+    /// Update the active collaboration mask in the running app and widget.
+    UpdateCollaborationMode(CollaborationModeMask),
+
+    /// Update the current personality in the running app and widget.
+    UpdatePersonality(Personality),
+
+    /// Persist the selected model and reasoning effort to the appropriate config.
+    PersistModelSelection {
+        model: String,
+        effort: Option<ReasoningEffort>,
+    },
+
+    /// Persist the selected personality to the appropriate config.
+    PersistPersonalitySelection {
+        personality: Personality,
+    },
+
+    /// Open the reasoning selection popup after picking a model.
+    OpenReasoningPopup {
+        model: ModelPreset,
+    },
+
+    /// Open the full model picker (non-auto models).
+    OpenAllModelsPopup {
+        models: Vec<ModelPreset>,
+    },
+
+    /// Open the confirmation prompt before enabling full access mode.
+    OpenFullAccessConfirmation {
+        preset: PermissionPreset,
+        return_to_permissions: bool,
+    },
+
+    /// Open the Windows world-writable directories warning.
+    /// If `preset` is `Some`, the confirmation will apply the provided
+    /// approval/sandbox configuration on Continue; if `None`, it performs no
+    /// policy change and only acknowledges/dismisses the warning.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    OpenWorldWritableWarningConfirmation {
+        preset: Option<PermissionPreset>,
+        /// Up to 3 sample world-writable directories to display in the warning.
+        sample_paths: Vec<String>,
+        /// If there are more than `sample_paths`, this carries the remaining count.
+        extra_count: usize,
+        /// True when the scan failed (e.g. ACL query error) and protections could not be verified.
+        failed_scan: bool,
+    },
+
+    /// Prompt to enable the Windows sandbox feature before using Agent mode.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    OpenWindowsSandboxEnablePrompt {
+        preset: PermissionPreset,
+    },
+
+    /// Open the Windows sandbox fallback prompt after declining or failing elevation.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    OpenWindowsSandboxFallbackPrompt {
+        preset: PermissionPreset,
+        reason: WindowsSandboxFallbackReason,
+    },
+
+    /// Begin the elevated Windows sandbox setup flow.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    BeginWindowsSandboxElevatedSetup {
+        preset: PermissionPreset,
+    },
+
+    /// Enable the Windows sandbox feature and switch to Agent mode.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    EnableWindowsSandboxForAgentMode {
+        preset: PermissionPreset,
+        mode: WindowsSandboxEnableMode,
+    },
+
+    /// Update the Windows sandbox feature mode without changing approval presets.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+
+    /// Update the current approval policy in the running app and widget.
+    UpdateAskForApprovalPolicy(AskForApproval),
+
+    /// Update the current sandbox policy in the running app and widget.
+    UpdateSandboxPolicy(SandboxPolicy),
+
+    /// Update feature flags and persist them to the top-level config.
+    UpdateFeatureFlags {
+        updates: Vec<(Feature, bool)>,
+    },
+
+    /// Update whether the full access warning prompt has been acknowledged.
+    UpdateFullAccessWarningAcknowledged(bool),
+
+    /// Update whether the world-writable directories warning has been acknowledged.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    UpdateWorldWritableWarningAcknowledged(bool),
+
+    /// Update whether the rate limit switch prompt has been acknowledged for the session.
+    UpdateRateLimitSwitchPromptHidden(bool),
+
+    /// Persist the acknowledgement flag for the full access warning prompt.
+    PersistFullAccessWarningAcknowledged,
+
+    /// Persist the acknowledgement flag for the world-writable directories warning.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    PersistWorldWritableWarningAcknowledged,
+
+    /// Persist the acknowledgement flag for the rate limit switch prompt.
+    PersistRateLimitSwitchPromptHidden,
+
+    /// Persist the acknowledgement flag for the model migration prompt.
+    PersistModelMigrationPromptAcknowledged {
+        from_model: String,
+        to_model: String,
+    },
+
+    /// Skip the next world-writable scan (one-shot) after a user-confirmed continue.
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    SkipNextWorldWritableScan,
+
+    /// Re-open the approval presets popup.
+    OpenApprovalsPopup,
+
+    /// Open the skills list popup.
+    OpenSkillsList,
+
+    /// Open the skills enable/disable picker.
+    OpenManageSkillsPopup,
+
+    /// Enable or disable a skill by path.
+    SetSkillEnabled {
+        path: PathBuf,
+        enabled: bool,
+    },
+
+    /// Notify that the manage skills popup was closed.
+    ManageSkillsClosed,
+
+    /// Re-open the permissions presets popup.
+    OpenPermissionsPopup,
+
+    /// Open the branch picker option from the review popup.
+    OpenReviewBranchPicker(PathBuf),
+
+    /// Open the commit picker option from the review popup.
+    OpenReviewCommitPicker(PathBuf),
+
+    /// Open the custom prompt option from the review popup.
+    OpenReviewCustomPrompt,
+
+    /// Submit a user message with an explicit collaboration mask.
+    SubmitUserMessageWithMode {
+        text: String,
+        collaboration_mode: CollaborationModeMask,
+    },
+
+    /// Open the approval popup.
+    FullScreenApprovalRequest(ApprovalRequest),
+
+    /// Open the feedback note entry overlay after the user selects a category.
+    OpenFeedbackNote {
+        category: FeedbackCategory,
+        include_logs: bool,
+    },
+
+    /// Open the upload consent popup for feedback after selecting a category.
+    OpenFeedbackConsent {
+        category: FeedbackCategory,
+    },
+
+    /// Launch the external editor after a normal draw has completed.
+    LaunchExternalEditor,
+}
+
+/// The exit strategy requested by the UI layer.
+///
+/// Most user-initiated exits should use `ShutdownFirst` so core cleanup runs and the UI exits only
+/// after core acknowledges completion. `Immediate` is an escape hatch for cases where shutdown has
+/// already completed (or is being bypassed) and the UI loop should terminate right away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExitMode {
+    /// Shutdown core and exit after completion.
+    ShutdownFirst,
+    /// Exit the UI loop immediately without waiting for shutdown.
+    ///
+    /// This skips `Op::Shutdown`, so any in-flight work may be dropped and
+    /// cleanup that normally runs before `ShutdownComplete` can be missed.
+    Immediate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FeedbackCategory {
+    BadResult,
+    GoodResult,
+    Bug,
+    Other,
+}

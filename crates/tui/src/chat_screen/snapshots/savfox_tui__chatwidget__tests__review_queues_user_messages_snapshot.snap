@@ -1,0 +1,22 @@
+﻿---
+source: tui/src/chat_screen/tests.rs
+expression: term.backend().vt100().screen().contents()
+---
+
+
+
+
+
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+  ↳ Queued while /review is running.
+    ⌥ + ↑ edit
+
+› Ask Savfox to do anything
+
+  ? for shortcuts                                            100% context left
