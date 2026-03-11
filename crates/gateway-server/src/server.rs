@@ -275,6 +275,7 @@ pub(crate) fn build_router(
     );
 
     router = router.push(channels::matrix::matrix_appservice_router());
+    router = router.push(channels::matrix::appservice_router());
 
     // Hook mapping endpoints (Phase 8).
     let hooks_router = Router::with_path("hooks")

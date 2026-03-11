@@ -16,6 +16,7 @@ use crate::session::{DmScope, SessionStore};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct StartThreadMeta {
     pub peer_id: Option<String>,
+    pub forced_agent_id: Option<String>,
     pub routing_group_id: Option<String>,
     pub routing_thread_id: Option<String>,
     pub group_id: Option<String>,
@@ -245,6 +246,15 @@ pub(super) async fn resolve_routed_agent(
     name: Option<&str>,
     meta: &StartThreadMeta,
 ) -> String {
+    if let Some(forced_agent_id) = meta
+        .forced_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return forced_agent_id.to_string();
+    }
+
     let mut role_values = Vec::new();
     role_values.extend(meta.role_ids.clone());
     role_values.extend(meta.slack_groups.clone());

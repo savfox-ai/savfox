@@ -10,7 +10,8 @@ use reqwest::Method;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 use savfox_channels::matrix::{
-    MatrixChannelConfig as MatrixPlatformConfig, MatrixCommandEvent, parse_inbound_payload_for_user,
+    MatrixChannelConfig as MatrixPlatformConfig, MatrixCommandEvent,
+    parse_appservice_message_event_for_user, parse_inbound_payload_for_user, parse_invite_event,
 };
 use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
@@ -395,6 +396,7 @@ struct MatrixAppserviceInner {
     alias_prefix: String,
     bot_user_id: String,
     client: MatrixClient,
+    room_users: Mutex<HashMap<String, String>>,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 }
@@ -481,6 +483,7 @@ impl MatrixAppserviceChannel {
                 alias_prefix: config.alias_prefix,
                 bot_user_id,
                 client,
+                room_users: Mutex::new(HashMap::new()),
                 gateway_channel,
                 session_store,
             }),
@@ -575,20 +578,120 @@ impl MatrixAppserviceChannel {
                 && sender.ends_with(&format!(":{}", self.inner.server_name)))
     }
 
-    async fn refresh_room_count(&self) {
-        if let Ok(joined_rooms) = self.inner.client.get_joined_rooms().await {
-            update_matrix_runtime_state(&self.inner.config_id, |state| {
-                state.room_count = Some(joined_rooms.len() as u32);
-            });
+    fn client_for_user_id(&self, user_id: &str) -> anyhow::Result<MatrixClient> {
+        let homeserver_url = url::Url::parse(&self.inner.homeserver)
+            .with_context(|| format!("invalid Matrix homeserver URL: {}", self.inner.homeserver))?;
+        let auth =
+            MatrixAuth::new(self.inner.appservice_token.clone()).with_user_id(user_id.to_string());
+        Ok(MatrixClient::new(homeserver_url, auth))
+    }
+
+    fn bind_room_user(&self, room_id: &str, user_id: &str) {
+        let room_id = room_id.trim();
+        let user_id = user_id.trim();
+        if room_id.is_empty() || user_id.is_empty() {
+            return;
+        }
+        if let Ok(mut room_users) = self.inner.room_users.lock() {
+            room_users.insert(room_id.to_string(), user_id.to_string());
         }
     }
 
-    pub(crate) async fn join_room(&self, room_id: &str) -> anyhow::Result<()> {
+    fn room_user_for(&self, room_id: &str) -> Option<String> {
+        let room_id = room_id.trim();
+        if room_id.is_empty() {
+            return None;
+        }
         self.inner
-            .client
+            .room_users
+            .lock()
+            .ok()
+            .and_then(|room_users| room_users.get(room_id).cloned())
+    }
+
+    fn effective_room_user_id(&self, room_id: &str) -> String {
+        self.room_user_for(room_id)
+            .unwrap_or_else(|| self.inner.bot_user_id.clone())
+    }
+
+    fn agent_id_for_user(&self, user_id: &str) -> Option<String> {
+        if user_id.eq_ignore_ascii_case(&self.inner.bot_user_id) {
+            return None;
+        }
+        if !user_id.ends_with(&format!(":{}", self.inner.server_name)) {
+            return None;
+        }
+        let localpart = matrix_localpart(user_id)?;
+        let agent_id = localpart.strip_prefix(&self.inner.user_prefix)?.trim();
+        if agent_id.is_empty() {
+            None
+        } else {
+            Some(agent_id.to_string())
+        }
+    }
+
+    fn joined_membership_user_for_event(&self, event: &Value) -> Option<(String, String)> {
+        if event.get("type").and_then(Value::as_str) != Some("m.room.member") {
+            return None;
+        }
+        let membership = event
+            .get("content")
+            .and_then(|content| content.get("membership"))
+            .and_then(Value::as_str)?;
+        if !membership.eq_ignore_ascii_case("join") {
+            return None;
+        }
+        let room_id = event
+            .get("room_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        let user_id = event
+            .get("state_key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        if !self.matches_user_id(user_id) {
+            return None;
+        }
+        Some((room_id.to_string(), user_id.to_string()))
+    }
+
+    async fn refresh_room_count(&self) {
+        let bound_count = self
+            .inner
+            .room_users
+            .lock()
+            .ok()
+            .map(|room_users| room_users.len() as u32)
+            .filter(|count| *count > 0);
+        let room_count = match bound_count {
+            Some(count) => Some(count),
+            None => self
+                .inner
+                .client
+                .get_joined_rooms()
+                .await
+                .ok()
+                .map(|rooms| rooms.len() as u32),
+        };
+        update_matrix_runtime_state(&self.inner.config_id, |state| {
+            state.room_count = room_count;
+        });
+    }
+
+    pub(crate) async fn join_room(&self, room_id: &str) -> anyhow::Result<()> {
+        let user_id = self.inner.bot_user_id.clone();
+        self.join_room_as_user(room_id, &user_id).await
+    }
+
+    async fn join_room_as_user(&self, room_id: &str, user_id: &str) -> anyhow::Result<()> {
+        let client = self.client_for_user_id(user_id)?;
+        client
             .join_room(room_id)
             .await
-            .with_context(|| format!("failed to auto-join Matrix room {room_id}"))?;
+            .with_context(|| format!("failed to auto-join Matrix room {room_id} as {user_id}"))?;
+        self.bind_room_user(room_id, user_id);
         self.refresh_room_count().await;
         Ok(())
     }
@@ -601,23 +704,35 @@ impl MatrixAppserviceChannel {
             matrix_event_count(body),
             matrix_event_preview(body),
         ));
-        let parsed = parse_inbound_payload_for_user(body, Some(&self.inner.bot_user_id));
+        let events = body
+            .get("events")
+            .and_then(Value::as_array)
+            .context("Matrix appservice transaction missing events array")?;
         update_matrix_runtime_state(&self.inner.config_id, |state| {
             state.connected = true;
             state.last_error = None;
         });
-        debug_matrix_appservice(format!(
-            "config='{}' txn='{}' parsed commands={} invites={}",
-            self.inner.config_id,
-            txn_id,
-            parsed.commands.len(),
-            parsed.rooms_to_auto_join.len(),
-        ));
+
+        let mut rooms_to_auto_join = Vec::new();
+        for event in events {
+            if let Some((room_id, invited_user_id)) = parse_invite_event(event, None)
+                && !rooms_to_auto_join.iter().any(
+                    |(existing_room_id, _): &(String, Option<String>)| {
+                        existing_room_id.eq_ignore_ascii_case(&room_id)
+                    },
+                )
+            {
+                rooms_to_auto_join.push((room_id, invited_user_id));
+            }
+            if let Some((room_id, user_id)) = self.joined_membership_user_for_event(event) {
+                self.bind_room_user(&room_id, &user_id);
+            }
+        }
 
         let mut joined_rooms = 0_u32;
         let mut skipped_invites = 0_u32;
 
-        for (room_id, invited_user_id) in parsed.rooms_to_auto_join {
+        for (room_id, invited_user_id) in &rooms_to_auto_join {
             if let Some(invited_user_id) = invited_user_id
                 .as_deref()
                 .and_then(|value| non_empty_trimmed(Some(value)))
@@ -630,18 +745,45 @@ impl MatrixAppserviceChannel {
                 ));
                 continue;
             }
-            self.join_room(&room_id).await?;
+            let join_user_id = invited_user_id
+                .as_deref()
+                .and_then(|value| non_empty_trimmed(Some(value)))
+                .unwrap_or(&self.inner.bot_user_id);
+            self.join_room_as_user(room_id, join_user_id).await?;
             joined_rooms = joined_rooms.saturating_add(1);
             debug_matrix_appservice(format!(
-                "config='{}' txn='{}' joined room='{}'",
-                self.inner.config_id, txn_id, room_id
+                "config='{}' txn='{}' joined room='{}' as_user='{}'",
+                self.inner.config_id, txn_id, room_id, join_user_id
             ));
         }
+
+        let mut commands = Vec::new();
+        for event in events {
+            let room_id = event
+                .get("room_id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            let room_user_id = self.effective_room_user_id(room_id);
+            if let Some(command) =
+                parse_appservice_message_event_for_user(event, Some(&room_user_id))
+            {
+                let forced_agent_id = self.agent_id_for_user(&room_user_id);
+                commands.push((command, forced_agent_id));
+            }
+        }
+        debug_matrix_appservice(format!(
+            "config='{}' txn='{}' parsed commands={} invites={}",
+            self.inner.config_id,
+            txn_id,
+            commands.len(),
+            rooms_to_auto_join.len(),
+        ));
 
         let mut ignored_senders = 0_u32;
         let mut ignored_duplicates = 0_u32;
         let mut dispatched_commands = 0_u32;
-        for command in parsed.commands {
+        for (command, forced_agent_id) in commands {
             if self.should_ignore_sender(&command.sender) {
                 ignored_senders = ignored_senders.saturating_add(1);
                 debug_matrix_appservice(format!(
@@ -663,8 +805,12 @@ impl MatrixAppserviceChannel {
             let session_store = Arc::clone(&self.inner.session_store);
             let config_id = self.inner.config_id.clone();
             debug_matrix_appservice(format!(
-                "config='{}' txn='{}' dispatching command room='{}' sender='{}'",
-                self.inner.config_id, txn_id, command.room_id, command.sender,
+                "config='{}' txn='{}' dispatching command room='{}' sender='{}' forced_agent='{}'",
+                self.inner.config_id,
+                txn_id,
+                command.room_id,
+                command.sender,
+                forced_agent_id.as_deref().unwrap_or(""),
             ));
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta_coordinated(
@@ -676,6 +822,7 @@ impl MatrixAppserviceChannel {
                     Some(command.sender.clone()),
                     Some(runtime::StartThreadMeta {
                         peer_id: Some(command.sender),
+                        forced_agent_id,
                         group_id: Some(command.room_id),
                         chat_type: Some("group".to_string()),
                         saved_channel_config_id: Some(config_id),
@@ -757,17 +904,19 @@ impl Channel for MatrixAppserviceChannel {
     }
 
     async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
-        self.inner
-            .client
+        let user_id = self.effective_room_user_id(channel);
+        self.client_for_user_id(&user_id)?
             .send_text(channel, message)
             .await
-            .with_context(|| format!("failed to send Matrix appservice message to room {channel}"))
+            .with_context(|| {
+                format!("failed to send Matrix appservice message to room {channel} as {user_id}")
+            })
             .map(|_| ())
     }
 
     async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()> {
-        self.inner
-            .client
+        let user_id = self.effective_room_user_id(channel);
+        self.client_for_user_id(&user_id)?
             .send_html_text(
                 channel,
                 &render_matrix_rich_text(&msg),
@@ -775,7 +924,7 @@ impl Channel for MatrixAppserviceChannel {
             )
             .await
             .with_context(|| {
-                format!("failed to send Matrix appservice rich message to room {channel}")
+                format!("failed to send Matrix appservice rich message to room {channel} as {user_id}")
             })
             .map(|_| ())
     }
@@ -1229,6 +1378,11 @@ pub(crate) fn matrix_appservice_router() -> Router {
                 .post(appservice_transaction),
         )
         .push(Router::with_path("ping").post(appservice_ping))
+}
+
+/// Compatibility routes mounted under `/appservices/matrix/{config_id}/...`.
+pub(crate) fn appservice_router() -> Router {
+    Router::with_path("appservices/matrix/{config_id}").push(matrix_appservice_router())
 }
 
 #[handler]

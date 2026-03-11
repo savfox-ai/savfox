@@ -44,6 +44,60 @@ pub struct MatrixWebhookParseResult {
     pub rooms_to_auto_join: Vec<(String, Option<String>)>,
 }
 
+fn parse_message_event_internal(
+    event: &Value,
+    room_id_hint: Option<&str>,
+    self_user_id: Option<&str>,
+    allow_plain_text: bool,
+) -> Option<MatrixCommandEvent> {
+    if event.get("type").and_then(Value::as_str) != Some("m.room.message") {
+        return None;
+    }
+    let room_id = event
+        .get("room_id")
+        .and_then(Value::as_str)
+        .or(room_id_hint)
+        .unwrap_or("");
+    let sender = event.get("sender").and_then(Value::as_str).unwrap_or("");
+    let content = event.get("content").unwrap_or(&Value::Null);
+    let msgtype = content.get("msgtype").and_then(Value::as_str).unwrap_or("");
+    if msgtype != "m.text" {
+        debug_matrix_message_ignored(room_id, sender, "unsupported_msgtype");
+        return None;
+    }
+    let text = content.get("body").and_then(Value::as_str).unwrap_or("");
+    debug_matrix_inbound_message(room_id, sender, text);
+    let prompt = match extract_prompt(content, self_user_id) {
+        Some(prompt) => prompt,
+        None if allow_plain_text => {
+            let prompt = text.trim();
+            if prompt.is_empty() {
+                debug_matrix_message_ignored(room_id, sender, "empty_body");
+                return None;
+            }
+            prompt.to_string()
+        }
+        None => {
+            debug_matrix_message_ignored(room_id, sender, "no_prefix_or_bot_mention");
+            return None;
+        }
+    };
+    if room_id.is_empty() {
+        debug_matrix_message_ignored(room_id, sender, "missing_room_id");
+        return None;
+    }
+    let dedupe_key = event
+        .get("event_id")
+        .and_then(Value::as_str)
+        .map(|id| format!("matrix:{id}"));
+    Some(MatrixCommandEvent {
+        room_id: room_id.to_owned(),
+        sender: sender.to_owned(),
+        prompt,
+        dedupe_key,
+    })
+}
+
 fn extract_prefixed_prompt(text: &str) -> Option<String> {
     let prompt = text
         .trim()
@@ -299,44 +353,14 @@ pub fn parse_command_event_for_user(
     room_id_hint: Option<&str>,
     self_user_id: Option<&str>,
 ) -> Option<MatrixCommandEvent> {
-    if event.get("type").and_then(Value::as_str) != Some("m.room.message") {
-        return None;
-    }
-    let room_id = event
-        .get("room_id")
-        .and_then(Value::as_str)
-        .or(room_id_hint)
-        .unwrap_or("");
-    let sender = event.get("sender").and_then(Value::as_str).unwrap_or("");
-    let content = event.get("content").unwrap_or(&Value::Null);
-    let msgtype = content.get("msgtype").and_then(Value::as_str).unwrap_or("");
-    if msgtype != "m.text" {
-        debug_matrix_message_ignored(room_id, sender, "unsupported_msgtype");
-        return None;
-    }
-    let text = content.get("body").and_then(Value::as_str).unwrap_or("");
-    debug_matrix_inbound_message(room_id, sender, text);
-    let prompt = match extract_prompt(content, self_user_id) {
-        Some(prompt) => prompt,
-        None => {
-            debug_matrix_message_ignored(room_id, sender, "no_prefix_or_bot_mention");
-            return None;
-        }
-    };
-    if room_id.is_empty() {
-        debug_matrix_message_ignored(room_id, sender, "missing_room_id");
-        return None;
-    }
-    let dedupe_key = event
-        .get("event_id")
-        .and_then(Value::as_str)
-        .map(|id| format!("matrix:{id}"));
-    Some(MatrixCommandEvent {
-        room_id: room_id.to_owned(),
-        sender: sender.to_owned(),
-        prompt,
-        dedupe_key,
-    })
+    parse_message_event_internal(event, room_id_hint, self_user_id, false)
+}
+
+pub fn parse_appservice_message_event_for_user(
+    event: &Value,
+    self_user_id: Option<&str>,
+) -> Option<MatrixCommandEvent> {
+    parse_message_event_internal(event, None, self_user_id, true)
 }
 
 pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
@@ -401,8 +425,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        MatrixWebhookParseResult, parse_inbound_payload, parse_inbound_payload_for_user,
-        parse_webhook_payload, parse_webhook_payload_for_user,
+        MatrixWebhookParseResult, parse_appservice_message_event_for_user, parse_inbound_payload,
+        parse_inbound_payload_for_user, parse_webhook_payload, parse_webhook_payload_for_user,
     };
 
     fn assert_start_thread(
@@ -636,5 +660,53 @@ mod tests {
 
         let parsed = parse_webhook_payload(&payload);
         assert!(matches!(parsed.action, ChannelAction::Ignore));
+    }
+
+    #[test]
+    fn appservice_messages_accept_plain_text_without_prefix() {
+        let event = json!({
+            "type": "m.room.message",
+            "room_id": "!joined:matrix.org",
+            "event_id": "$appservice-1",
+            "sender": "@user:matrix.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "hello"
+            }
+        });
+
+        let parsed = parse_appservice_message_event_for_user(
+            &event,
+            Some("@_savfox_default:127.0.0.1:6006"),
+        )
+        .expect("plain text appservice message should parse");
+        assert_eq!(parsed.room_id, "!joined:matrix.org");
+        assert_eq!(parsed.sender, "@user:matrix.org");
+        assert_eq!(parsed.prompt, "hello");
+        assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$appservice-1"));
+    }
+
+    #[test]
+    fn appservice_messages_still_strip_leading_mention_when_present() {
+        let event = json!({
+            "type": "m.room.message",
+            "room_id": "!joined:matrix.org",
+            "event_id": "$appservice-2",
+            "sender": "@user:matrix.org",
+            "content": {
+                "msgtype": "m.text",
+                "body": "_savfox_default: hi there",
+                "m.mentions": {
+                    "user_ids": ["@_savfox_default:127.0.0.1:6006"]
+                }
+            }
+        });
+
+        let parsed = parse_appservice_message_event_for_user(
+            &event,
+            Some("@_savfox_default:127.0.0.1:6006"),
+        )
+        .expect("mention appservice message should parse");
+        assert_eq!(parsed.prompt, "hi there");
     }
 }
