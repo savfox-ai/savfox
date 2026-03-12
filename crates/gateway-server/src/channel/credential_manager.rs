@@ -6,7 +6,7 @@ use savfox_channels::matrix::{
 };
 use savfox_core::channel::Channel;
 use serde_json::Value;
-use tracing::warn;
+use tracing::{debug, warn};
 use url::Url;
 
 use super::{GatewayChannel, ResolvedMatrixClient, non_empty_trimmed};
@@ -914,7 +914,7 @@ impl GatewayChannel {
                     token_source = "none";
                     None
                 };
-                println!("[telegram] Token resolved from: {token_source}");
+                debug!(source = token_source, "Token resolved");
                 if let Some(token) = token {
                     self.send_telegram_message(
                         &token,
@@ -925,8 +925,7 @@ impl GatewayChannel {
                     )
                     .await?;
                 } else {
-                    println!("[telegram] No token configured for channel: {channel}");
-                    warn!("Telegram token not configured for channel: {channel}");
+                    warn!(channel = %channel, "No token configured for channel");
                 }
             }
             "slack" => {

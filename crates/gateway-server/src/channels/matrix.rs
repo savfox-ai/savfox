@@ -16,7 +16,7 @@ use savfox_channels::matrix::{
 use savfox_core::channel::{Channel, ChannelAction, RichMessage};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{obtain_channel_and_store, parse_json_body, render_error, runtime};
 use crate::channel::GatewayChannel;
@@ -49,9 +49,8 @@ fn matrix_appservice_store() -> &'static Mutex<HashMap<String, MatrixAppserviceC
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[allow(clippy::print_stdout)]
 fn debug_matrix_appservice(message: impl AsRef<str>) {
-    println!("[matrix][appservice] {}", message.as_ref());
+    debug!("{}", message.as_ref());
 }
 
 fn appservice_token_state(token: Option<&str>) -> &'static str {
@@ -1655,10 +1654,10 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     let Some(body) = parse_json_body(req, res, "matrix").await else {
         return;
     };
-    println!(
-        "[matrix][webhook] request received event_count={} preview=[{}]",
-        matrix_event_count(&body),
-        matrix_event_preview(&body),
+    debug!(
+        event_count = matrix_event_count(&body),
+        preview = %matrix_event_preview(&body),
+        "Webhook request received"
     );
 
     let gateway_channel = depot.obtain::<Arc<GatewayChannel>>().ok().cloned();

@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use savfox_protocol::SessionId;
 use serde_json::{Value, json};
+use tracing::debug;
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use super::agent::apply_agent_permission_policy_to_config;
@@ -428,7 +429,7 @@ pub(crate) async fn handle_chat_send(
 
         match tokio::time::timeout_at(wait_until, thread.next_event()).await {
             Ok(Ok(event)) => {
-                eprintln!("[GW EVENT] {:?}", event.msg);
+                debug!(event = ?event.msg, "Gateway event received");
                 match &event.msg {
                     EventMsg::TokenCount(token_count) => {
                         if let Some(info) = &token_count.info {
@@ -919,9 +920,10 @@ pub(crate) async fn handle_chat_history(
         .map(str::trim)
         .filter(|v| !v.is_empty());
 
-    println!(
-        "[DEBUG] chat.history RPC called: session_id={}, limit={}",
-        session_id, limit
+    debug!(
+        session_id = %session_id,
+        limit = limit,
+        "chat.history RPC called"
     );
 
     if session_id.is_empty() {

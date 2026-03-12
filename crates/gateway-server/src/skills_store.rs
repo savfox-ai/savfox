@@ -15,6 +15,80 @@ const CATEGORY_BUILTIN: &str = "built-in";
 const CATEGORY_INSTALLED: &str = "installed";
 const CATEGORY_EXTRA: &str = "extra";
 
+// ── Skills state (persisted to skills-state.json) ───────────────────────────
+
+/// Per-skill persisted state — parsed from SKILL.md and saved here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkillState {
+    /// Skill name (from SKILL.md frontmatter).
+    name: String,
+
+    /// Human-readable description (from SKILL.md frontmatter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+
+    /// Version string (from SKILL.md frontmatter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+
+    /// Category (workspace, built-in, installed, extra).
+    #[serde(default)]
+    category: String,
+
+    /// Filesystem path to the folder containing SKILL.md.
+    #[serde(default)]
+    path: String,
+
+    /// Whether the skill is enabled by the user.
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for SkillState {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: None,
+            version: None,
+            category: String::new(),
+            path: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+/// Top-level persisted skills state file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SkillsState {
+    /// Additional root directories to scan for skills. Each entry is an
+    /// absolute path. These directories themselves are **not** treated as
+    /// skills — only their children are scanned.
+    #[serde(default)]
+    skill_roots: Vec<String>,
+
+    /// Per-skill enabled/disabled state keyed by skill name.
+    #[serde(default)]
+    skills: HashMap<String, SkillState>,
+}
+
+fn skills_state_path(savfox_home: &Path) -> PathBuf {
+    savfox_home.join("gateway").join("skills-state.json")
+}
+
+async fn load_skills_state(savfox_home: &Path) -> Result<SkillsState, String> {
+    json_store::load_json(&skills_state_path(savfox_home), "skills state").await
+}
+
+async fn save_skills_state(savfox_home: &Path, state: &SkillsState) -> Result<(), String> {
+    json_store::save_json(&skills_state_path(savfox_home), state, "skills state").await
+}
+
+// ── Env state ───────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SkillsEnvState {
     #[serde(default)]
@@ -32,6 +106,8 @@ async fn load_env_state(savfox_home: &Path) -> Result<SkillsEnvState, String> {
 async fn save_env_state(savfox_home: &Path, state: &SkillsEnvState) -> Result<(), String> {
     json_store::save_json(&env_state_path(savfox_home), state, "skills env state").await
 }
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 fn command_in_path(command: &str) -> bool {
     let Some(path_var) = std::env::var_os("PATH") else {
@@ -98,11 +174,49 @@ fn category_rank(category: &str) -> u8 {
     }
 }
 
+/// Derive a flock grouping label from a skill directory.
+///
+/// Given a skill at `{skills_dir}/github.com/org/repo/SKILL.md`, the flock is
+/// `github.com/org/repo`.  If the first path component contains a dot (looks
+/// like a domain), we take up to 3 components (domain/org/repo) as the flock.
+/// For flat installs like `{skills_dir}/my-skill/SKILL.md`, returns `None`.
+fn derive_flock(skill_dir: Option<&Path>, skills_dir: &Path) -> Option<String> {
+    let skill_dir = skill_dir?;
+    let rel = skill_dir.strip_prefix(skills_dir).ok()?;
+    let components: Vec<&str> = rel
+        .components()
+        .filter_map(|c| {
+            if let std::path::Component::Normal(s) = c {
+                s.to_str()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Need at least 2 components (domain/org) and the first must look like a
+    // domain (contains a dot) to qualify as a flock.
+    if components.len() >= 2 && components[0].contains('.') {
+        // Take up to 3 components: domain/org/repo
+        let flock_depth = components.len().min(3);
+        Some(components[..flock_depth].join("/"))
+    } else {
+        None
+    }
+}
+
+/// Collect SKILL.md manifests under `root`, up to `max_depth` levels deep.
+///
+/// When `skip_roots` is provided, directories whose names match any entry in
+/// the set are skipped (not treated as skills or descended into). This is used
+/// to exclude `skill_roots` directories themselves from being treated as skills
+/// when they live inside the skills folder.
 fn collect_skill_manifests(
     root: &Path,
     category: &str,
     max_depth: usize,
     skip_system_subtree: bool,
+    skip_roots: &HashSet<PathBuf>,
 ) -> Vec<(PathBuf, &'static str)> {
     let mut manifests = Vec::new();
     if !root.is_dir() {
@@ -125,6 +239,11 @@ fn collect_skill_manifests(
                     if skip_system_subtree && name == ".system" {
                         continue;
                     }
+                }
+                // Skip directories that are skill_roots (they are scan roots,
+                // not skills themselves).
+                if skip_roots.contains(&path) {
+                    continue;
                 }
                 stack.push((path, depth + 1));
             } else if path
@@ -178,16 +297,6 @@ async fn required_os_list(manifest_path: &Path) -> Vec<String> {
         .collect()
 }
 
-const DISABLED_MARKER: &str = ".disabled";
-
-/// Check whether a skill directory has the `.disabled` marker file.
-fn is_skill_disabled(manifest_path: &Path) -> bool {
-    manifest_path
-        .parent()
-        .map(|dir| dir.join(DISABLED_MARKER).exists())
-        .unwrap_or(false)
-}
-
 #[derive(Debug, Clone)]
 struct SkillBinRow {
     name: String,
@@ -204,7 +313,13 @@ struct SkillBinRow {
     allowlist_blocked: bool,
     /// The directory that contains this skill's SKILL.md.
     skill_dir: Option<PathBuf>,
+    /// Grouping label for skills that share the same source repository or
+    /// zip archive.  e.g. `"github.com/org/repo"`.  Empty for built-in /
+    /// workspace skills.
+    flock: Option<String>,
 }
+
+// ── Public API ──────────────────────────────────────────────────────────────
 
 /// Return summary counts derived purely from manifest discovery.
 pub(crate) async fn status(savfox_home: &Path) -> Result<Value, String> {
@@ -233,17 +348,30 @@ pub(crate) async fn status(savfox_home: &Path) -> Result<Value, String> {
     }))
 }
 
-/// Discover all skills from manifest directories. No `skills-state.json`.
+/// Discover all skills from manifest directories and persist their state to
+/// `skills-state.json`.
 ///
 /// "installed" is determined solely by the manifest's directory location:
 /// skills under `$SAVFOX_HOME/skills/` (non-.system) are installed.
 /// Skills under `.system/` are built-in.  Workspace & extra are discovered
 /// from their respective directories.
+///
+/// Newly discovered skills are enabled by default unless more than 10 new
+/// skills appear in a single scan — in that case they start disabled.
 pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
     let env_state = load_env_state(savfox_home).await?;
+    let mut skills_state = load_skills_state(savfox_home).await?;
     let keyring = DefaultKeyringStore;
     let allowlist = parse_allowlist();
     let current_os = std::env::consts::OS.to_ascii_lowercase();
+    let skills_dir = savfox_home.join("skills");
+
+    // Build set of skill_roots paths so we can skip them during scanning.
+    let skip_roots: HashSet<PathBuf> = skills_state
+        .skill_roots
+        .iter()
+        .map(PathBuf::from)
+        .collect();
 
     let mut discovered: Vec<(PathBuf, &'static str, bool)> = Vec::new();
     if let Ok(cwd) = std::env::current_dir() {
@@ -253,6 +381,7 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
                 CATEGORY_WORKSPACE,
                 4,
                 false,
+                &skip_roots,
             )
             .into_iter()
             .map(|(path, category)| (path, category, false)),
@@ -260,18 +389,25 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
     }
     discovered.extend(
         collect_skill_manifests(
-            &savfox_home.join("skills").join(".system"),
+            &skills_dir.join(".system"),
             CATEGORY_BUILTIN,
             4,
             false,
+            &skip_roots,
         )
         .into_iter()
         .map(|(path, category)| (path, category, true)),
     );
     discovered.extend(
-        collect_skill_manifests(&savfox_home.join("skills"), CATEGORY_INSTALLED, 6, true)
-            .into_iter()
-            .map(|(path, category)| (path, category, true)),
+        collect_skill_manifests(
+            &skills_dir,
+            CATEGORY_INSTALLED,
+            6,
+            true,
+            &skip_roots,
+        )
+        .into_iter()
+        .map(|(path, category)| (path, category, true)),
     );
     if let Some(home) = dirs::home_dir() {
         discovered.extend(
@@ -280,13 +416,25 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
                 CATEGORY_EXTRA,
                 4,
                 false,
+                &skip_roots,
             )
             .into_iter()
             .map(|(path, category)| (path, category, false)),
         );
     }
 
+    // Also scan each skill_root as an installed category.
+    for root_path in &skills_state.skill_roots {
+        let root = PathBuf::from(root_path);
+        discovered.extend(
+            collect_skill_manifests(&root, CATEGORY_INSTALLED, 6, false, &skip_roots)
+                .into_iter()
+                .map(|(path, category)| (path, category, true)),
+        );
+    }
+
     let mut rows: BTreeMap<String, (u8, SkillBinRow)> = BTreeMap::new();
+    let mut new_skill_names: HashSet<String> = HashSet::new();
     for (manifest_path, category, installed_by_location) in discovered {
         let Ok(manifest) = savfox_skill_registry::load_skill_manifest_async(&manifest_path).await
         else {
@@ -321,16 +469,36 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
         let env_set = primary_env
             .as_ref()
             .map(|key| env_value_present(key, &env_state, &keyring));
-        let user_disabled = is_skill_disabled(&manifest_path);
+
+        // Look up persisted enabled state. For new skills use true as a
+        // tentative default; this may be revised below if too many new
+        // skills are discovered at once.
+        let is_new = !skills_state.skills.contains_key(&name);
+        let persisted_enabled = skills_state
+            .skills
+            .get(&name)
+            .map(|s| s.enabled)
+            .unwrap_or(true);
+
         let disabled_reason = if allowlist_blocked {
             Some("blocked by allowlist".to_string())
-        } else if user_disabled {
+        } else if !persisted_enabled {
             Some("disabled by user".to_string())
         } else {
             None
         };
         let eligible = missing_deps.is_empty() && !allowlist_blocked;
-        let enabled = eligible && !user_disabled;
+        let enabled = eligible && persisted_enabled;
+
+        // Compute flock grouping for installed skills.
+        // For a skill at `skills/github.com/org/repo/SKILL.md` the flock is
+        // `github.com/org/repo`.  For `skills/my-skill/SKILL.md` there is no
+        // flock (flat install).
+        let flock = if category == CATEGORY_INSTALLED {
+            derive_flock(manifest_path.parent(), &skills_dir)
+        } else {
+            None
+        };
 
         let row = SkillBinRow {
             name: name.clone(),
@@ -350,8 +518,12 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
             disabled_reason,
             allowlist_blocked,
             skill_dir: manifest_path.parent().map(Path::to_path_buf),
+            flock,
         };
 
+        if is_new {
+            new_skill_names.insert(name.clone());
+        }
         let rank = category_rank(category);
         match rows.get(&name) {
             Some((current_rank, _)) if *current_rank <= rank => {}
@@ -359,6 +531,59 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
                 rows.insert(name, (rank, row));
             }
         }
+    }
+
+    // When more than 10 new skills appear at once (e.g. bulk git clone or
+    // zip install), disable them by default so they don't overwhelm the
+    // session. The user can enable them individually afterwards.
+    let auto_enable_new = new_skill_names.len() <= 10;
+    if !auto_enable_new {
+        for name in &new_skill_names {
+            if let Some((_, row)) = rows.get_mut(name) {
+                row.enabled = false;
+                if row.disabled_reason.is_none() {
+                    row.disabled_reason =
+                        Some("auto-disabled: too many new skills at once".to_string());
+                }
+            }
+        }
+    }
+
+    // Persist all discovered skills to skills-state.json.
+    // Existing skills keep their persisted enabled state but update
+    // name/description/version/category/path from the freshly parsed SKILL.md.
+    // New skills are enabled by default unless auto_enable_new is false.
+    let known_names: HashSet<&String> = rows.keys().collect();
+    let prev_len = skills_state.skills.len();
+    for (name, (_, row)) in &rows {
+        let persisted_enabled = skills_state
+            .skills
+            .get(name)
+            .map(|s| s.enabled)
+            .unwrap_or(auto_enable_new);
+        skills_state.skills.insert(
+            name.clone(),
+            SkillState {
+                name: row.name.clone(),
+                description: row.description.clone(),
+                version: row.version.clone(),
+                category: row.category.to_string(),
+                path: row
+                    .skill_dir
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                enabled: persisted_enabled,
+            },
+        );
+    }
+    // Remove skills from state that are no longer discovered.
+    skills_state
+        .skills
+        .retain(|name, _| known_names.contains(name));
+    // Always save — we update metadata on every scan.
+    if !rows.is_empty() || prev_len != skills_state.skills.len() {
+        let _ = save_skills_state(savfox_home, &skills_state).await;
     }
 
     let bins: Vec<Value> = rows
@@ -377,6 +602,7 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
                 "env_set": row.env_set,
                 "disabled_reason": row.disabled_reason,
                 "allowlist_blocked": row.allowlist_blocked,
+                "flock": row.flock,
                 "command": format!("savfox-skill-{}", row.name),
             })
         })
@@ -385,9 +611,7 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
     Ok(json!({ "bins": bins }))
 }
 
-/// Toggle a skill's enabled state by creating/removing a `.disabled` marker
-/// file in the skill's directory.  The skill is located by scanning all
-/// manifest directories for a matching name.
+/// Toggle a skill's enabled state. Persisted to `skills-state.json`.
 pub(crate) async fn set_enabled(
     savfox_home: &Path,
     name: &str,
@@ -398,31 +622,16 @@ pub(crate) async fn set_enabled(
         return Err("missing skill name".to_string());
     }
 
-    // Discover skill directories to find the matching skill.
-    let bins_val = bins(savfox_home).await?;
-    let _bins_arr = bins_val
-        .get("bins")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-
-    // We need to find the actual skill directory. Re-scan manifests to get paths.
-    let skill_dir = find_skill_dir(savfox_home, name);
-    let Some(dir) = skill_dir else {
-        return Err(format!("skill not found: {name}"));
-    };
-
-    let marker = dir.join(DISABLED_MARKER);
-    if enabled {
-        // Remove the .disabled marker if it exists.
-        let _ = tokio::fs::remove_file(&marker).await;
-    } else {
-        // Create the .disabled marker.
-        let _ = tokio::fs::create_dir_all(&dir).await;
-        if let Err(err) = tokio::fs::write(&marker, "disabled by user\n").await {
-            return Err(format!("failed to write disabled marker: {err}"));
-        }
-    }
+    let mut state = load_skills_state(savfox_home).await?;
+    state
+        .skills
+        .entry(name.to_string())
+        .or_insert_with(|| SkillState {
+            name: name.to_string(),
+            ..Default::default()
+        })
+        .enabled = enabled;
+    save_skills_state(savfox_home, &state).await?;
 
     let disabled_reason = if enabled {
         None
@@ -442,11 +651,13 @@ pub(crate) async fn set_enabled(
 fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
     let system_dir = savfox_home.join("skills").join(".system");
     let skills_dir = savfox_home.join("skills");
+    let empty_skip = HashSet::new();
 
     let dirs_to_scan: Vec<(&Path, bool)> = vec![(&system_dir, false), (&skills_dir, true)];
 
     for (root, skip_system) in dirs_to_scan {
-        for (manifest_path, _) in collect_skill_manifests(root, CATEGORY_INSTALLED, 4, skip_system)
+        for (manifest_path, _) in
+            collect_skill_manifests(root, CATEGORY_INSTALLED, 6, skip_system, &empty_skip)
         {
             if let Some(parsed_name) = quick_read_skill_name(&manifest_path) {
                 if parsed_name.eq_ignore_ascii_case(name) {
@@ -459,7 +670,9 @@ fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
     // Also check workspace and extra dirs.
     if let Ok(cwd) = std::env::current_dir() {
         let ws_dir = cwd.join(".savfox").join("skills");
-        for (manifest_path, _) in collect_skill_manifests(&ws_dir, CATEGORY_WORKSPACE, 4, false) {
+        for (manifest_path, _) in
+            collect_skill_manifests(&ws_dir, CATEGORY_WORKSPACE, 4, false, &empty_skip)
+        {
             if let Some(parsed_name) = quick_read_skill_name(&manifest_path) {
                 if parsed_name.eq_ignore_ascii_case(name) {
                     return manifest_path.parent().map(Path::to_path_buf);
@@ -539,15 +752,12 @@ mod tests {
         let tmp = tempdir().expect("tmpdir");
         let home = tmp.path().to_path_buf();
 
-        // No skills-state.json needed — bins should succeed with empty results.
         let bins_ret = bins(&home).await.expect("bins");
         let bins_arr = bins_ret
             .get("bins")
             .and_then(|v| v.as_array())
             .map_or(0, Vec::len);
         assert_eq!(bins_arr, 0);
-        // skills-state.json should NOT be created.
-        assert!(!home.join("skills-state.json").is_file());
     }
 
     #[tokio::test]
@@ -564,5 +774,80 @@ mod tests {
             .await
             .expect("get env");
         assert_eq!(env_status.get("set").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    #[tokio::test]
+    async fn set_enabled_persists_to_state() {
+        let tmp = tempdir().expect("tmpdir");
+        let home = tmp.path().to_path_buf();
+
+        // Create a skill manifest
+        let skill_dir = home.join("skills").join("test-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: test-skill\n---\nTest",
+        )
+        .unwrap();
+
+        // Scan to populate state
+        let _ = bins(&home).await.expect("bins");
+
+        // Verify skill is enabled by default in state file
+        let state = load_skills_state(&home).await.unwrap();
+        assert_eq!(state.skills.get("test-skill").unwrap().enabled, true);
+
+        // Disable
+        set_enabled(&home, "test-skill", false).await.unwrap();
+        let state = load_skills_state(&home).await.unwrap();
+        assert_eq!(state.skills.get("test-skill").unwrap().enabled, false);
+
+        // Re-enable
+        set_enabled(&home, "test-skill", true).await.unwrap();
+        let state = load_skills_state(&home).await.unwrap();
+        assert_eq!(state.skills.get("test-skill").unwrap().enabled, true);
+    }
+
+    #[tokio::test]
+    async fn bulk_new_skills_auto_disabled() {
+        let tmp = tempdir().expect("tmpdir");
+        let home = tmp.path().to_path_buf();
+
+        // Create 11 skill manifests (exceeds the threshold of 10).
+        for i in 0..11 {
+            let skill_dir = home.join("skills").join(format!("bulk-skill-{i}"));
+            std::fs::create_dir_all(&skill_dir).unwrap();
+            std::fs::write(
+                skill_dir.join("SKILL.md"),
+                format!("---\nname: bulk-skill-{i}\n---\nBulk test"),
+            )
+            .unwrap();
+        }
+
+        let result = bins(&home).await.expect("bins");
+        let bins_arr = result.get("bins").and_then(|v| v.as_array()).unwrap();
+
+        // All 11 new skills should be disabled.
+        for bin in bins_arr {
+            let name = bin.get("name").and_then(|v| v.as_str()).unwrap();
+            if name.starts_with("bulk-skill-") {
+                assert_eq!(
+                    bin.get("enabled").and_then(|v| v.as_bool()),
+                    Some(false),
+                    "skill {name} should be auto-disabled"
+                );
+            }
+        }
+
+        // Persisted state should also reflect disabled.
+        let state = load_skills_state(&home).await.unwrap();
+        for i in 0..11 {
+            let key = format!("bulk-skill-{i}");
+            assert_eq!(
+                state.skills.get(&key).unwrap().enabled,
+                false,
+                "{key} should be disabled in state"
+            );
+        }
     }
 }

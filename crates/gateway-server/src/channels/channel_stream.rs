@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::channel::GatewayChannel;
 
@@ -71,7 +71,7 @@ impl ChannelStreamWriter {
         let throttle = self.sink.throttle_interval();
         let max_len = self.sink.max_length();
 
-        println!("[{tag}-stream] Writer started");
+        debug!(platform = tag, "Stream writer started");
 
         loop {
             let event = tokio::time::timeout(throttle, rx.recv()).await;
@@ -144,9 +144,11 @@ impl ChannelStreamWriter {
         }
 
         let sent = message_id.is_some();
-        println!(
-            "[{tag}-stream] Writer finished, streamed={sent}, total_len={}",
-            buffer.len()
+        debug!(
+            platform = tag,
+            streamed = sent,
+            total_len = buffer.len(),
+            "Stream writer finished"
         );
 
         // If the final text exceeded the platform limit, delete the partial
@@ -181,11 +183,11 @@ impl ChannelStreamWriter {
         } else {
             match self.sink.send_initial(display_text).await {
                 Some(mid) => {
-                    println!("[{tag}-stream] Initial message sent, id={mid}");
+                    debug!(platform = tag, id = %mid, "Initial message sent");
                     *message_id = Some(mid);
                 }
                 None => {
-                    println!("[{tag}-stream] Initial send returned no id");
+                    debug!(platform = tag, "Initial send returned no id");
                 }
             }
         }

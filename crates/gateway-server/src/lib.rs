@@ -12,9 +12,9 @@ use savfox_core::config_loader::CloudRequirementsLoader;
 use savfox_feedback::SavfoxFeedback;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Layer};
 
 mod agent_routing;
 mod approval_policy_store;
@@ -39,6 +39,7 @@ pub mod gateway_cli;
 pub mod hooks;
 pub mod identity_links;
 mod json_store;
+mod log_level;
 mod log_store;
 pub(crate) mod maintenance;
 pub mod media_store;
@@ -96,18 +97,24 @@ pub async fn run_main(
     gateway_config: GatewayConfig,
     savfox_linux_sandbox_exe: Option<PathBuf>,
 ) -> IoResult<()> {
-    println!("[startup] Savfox Gateway Server starting...");
-    println!("[startup] Initializing logging and configuration...");
-
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // Install tracing subscriber.
-    let stderr_fmt = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
-        .with_filter(EnvFilter::from_default_env());
+    // Install tracing subscriber with a reloadable filter so the log level
+    // can be changed at runtime via the `log.set_level` RPC.
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let (filter_layer, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let _ = tracing_subscriber::registry().with(stderr_fmt).try_init();
+    let stderr_fmt = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr);
+
+    let _ = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(stderr_fmt)
+        .try_init();
+
+    log_level::set_reload_handle(reload_handle);
+
+    info!("Savfox Gateway Server starting...");
 
     // Load configuration.
     let cloud_requirements = CloudRequirementsLoader::default();
@@ -132,8 +139,7 @@ pub async fn run_main(
     let config = Arc::new(config);
     let feedback = SavfoxFeedback::new();
 
-    println!("[startup] Configuration loaded successfully");
-    println!("[startup] Savfox home: {:?}", config.savfox_home);
+    info!(savfox_home = %config.savfox_home.display(), "configuration loaded");
 
     // Set up the gateway token.
     let token = gateway_config
@@ -146,7 +152,6 @@ pub async fn run_main(
     let channel_registry = channels::create_channel_registry();
     let session_store = Arc::new(SessionStore::from_home(&config.savfox_home));
     info!("session store initialized");
-    println!("[startup] Session store initialized");
 
     // Create the channel outgoing channel.
     let (outgoing_tx, _outgoing_rx) = mpsc::channel::<BridgeOutgoing>(128);
@@ -163,7 +168,7 @@ pub async fn run_main(
         channel_registry: channel_registry.clone(),
     }));
 
-    println!("[startup] Gateway channel created");
+    info!("gateway channel created");
 
     // Inject API keys from per-provider files into the runtime env-override
     // map so the core engine can authenticate without a restart.
@@ -174,7 +179,6 @@ pub async fn run_main(
     cron_service.init().await;
     let _cron_shutdown = cron_service.start(Arc::clone(&channel));
     info!("cron service started");
-    println!("[startup] Cron service started");
 
     // Spawn a background task to periodically prune stale sessions (every 5 minutes).
     {
@@ -191,15 +195,14 @@ pub async fn run_main(
         });
     }
 
-    println!("[startup] Loading and logging channel configurations...");
+    info!("loading channel configurations");
     if let Err(err) = channels::log_all_configured_channels(&config.savfox_home).await {
-        warn!(error = %err, "Failed to load channel configs for startup logging");
-        println!("[startup] WARNING: Failed to load channel configs: {}", err);
+        warn!(error = %err, "failed to load channel configs for startup logging");
     }
-    println!("[startup] Channel configuration logging complete");
+    info!("channel configuration logging complete");
 
-    // Initialize and start configured channels
-    println!("[startup] Initializing channel instances...");
+    // Initialize and start configured channels.
+    info!("initializing channel instances");
     if let Err(err) = channels::initialize_and_start_channels(
         &config.savfox_home,
         channel_registry.clone(),
@@ -208,13 +211,9 @@ pub async fn run_main(
     )
     .await
     {
-        warn!(error = %err, "Failed to initialize some channels");
-        println!(
-            "[startup] WARNING: Some channels failed to initialize: {}",
-            err
-        );
+        warn!(error = %err, "some channels failed to initialize");
     }
-    println!("[startup] Channel initialization complete");
+    info!("channel initialization complete");
 
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {
@@ -239,18 +238,22 @@ pub async fn run_main(
     );
     info!("Token: {token}");
 
-    // Also print to stderr for the operator.
-    eprintln!("Savfox Gateway Server v{}", env!("CARGO_PKG_VERSION"));
-    eprintln!(
-        "  WebSocket: {scheme}://{}:{}/ws",
-        gateway_config.host, gateway_config.port
-    );
-    eprintln!(
-        "  Health:    {http_scheme}://{}:{}/health",
-        gateway_config.host, gateway_config.port
-    );
-    eprintln!("  Token:     {token}");
-    eprintln!();
+    // Also print to stderr for the operator (intentional — shown before
+    // tracing is fully active so the operator always sees connection info).
+    #[allow(clippy::print_stderr)]
+    {
+        eprintln!("Savfox Gateway Server v{}", env!("CARGO_PKG_VERSION"));
+        eprintln!(
+            "  WebSocket: {scheme}://{}:{}/ws",
+            gateway_config.host, gateway_config.port
+        );
+        eprintln!(
+            "  Health:    {http_scheme}://{}:{}/health",
+            gateway_config.host, gateway_config.port
+        );
+        eprintln!("  Token:     {token}");
+        eprintln!();
+    }
 
     // Start the HTTP/WebSocket server (blocks until shutdown).
     server::start_server(

@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::api::ws::WsRpc;
 
-/// Settings page — theme, notifications, default model, gateway URL.
+/// Settings page — theme, notifications, default model, gateway URL, log level.
 /// Preferences are stored in localStorage.
 #[component]
 pub fn Settings() -> Element {
@@ -14,6 +14,8 @@ pub fn Settings() -> Element {
     let mut gateway_url = use_signal(|| String::new());
     let mut saved_msg = use_signal(|| Option::<String>::None);
     let mut models_list = use_signal(|| Vec::<String>::new());
+    let mut log_level = use_signal(|| "info".to_string());
+    let mut log_status = use_signal(|| Option::<String>::None);
 
     // Load settings from localStorage on mount
     use_effect(move || {
@@ -53,6 +55,22 @@ pub fn Settings() -> Element {
                         .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
                         .collect();
                     models_list.set(ids);
+                }
+            }
+        });
+    });
+
+    // Fetch current log level from gateway
+    let ws_log = ws.clone();
+    use_effect(move || {
+        let ws = ws_log.clone();
+        spawn(async move {
+            if let Ok(resp) = ws
+                .call::<serde_json::Value>("log.get_level", None)
+                .await
+            {
+                if let Some(level) = resp.get("level").and_then(|v| v.as_str()) {
+                    log_level.set(level.to_string());
                 }
             }
         });
@@ -139,6 +157,77 @@ pub fn Settings() -> Element {
                         oninput: move |e| gateway_url.set(e.value()),
                     }
                     small { class: "form-help", "Leave empty to use the default (same host)." }
+                }
+            }
+
+            div { class: "card",
+                h3 { class: "card-title", "Logging" }
+                div { class: "form-group",
+                    label { "Log Level" }
+                    div { style: "display:flex;gap:8px;align-items:center;",
+                        select {
+                            class: "form-select",
+                            value: "{log_level}",
+                            onchange: {
+                                let ws = ws.clone();
+                                move |e: Event<FormData>| {
+                                    let new_level = e.value();
+                                    log_level.set(new_level.clone());
+                                    log_status.set(None);
+                                    let ws = ws.clone();
+                                    spawn(async move {
+                                        match ws.call::<serde_json::Value>(
+                                            "log.set_level",
+                                            Some(json!({ "level": new_level })),
+                                        ).await {
+                                            Ok(_) => log_status.set(Some("applied".to_string())),
+                                            Err(e) => log_status.set(Some(format!("error: {e}"))),
+                                        }
+                                    });
+                                }
+                            },
+                            option { value: "error", "Error" }
+                            option { value: "warn", "Warn" }
+                            option { value: "info", "Info" }
+                            option { value: "debug", "Debug" }
+                            option { value: "trace", "Trace" }
+                        }
+                        if let Some(ref status) = log_status() {
+                            span { style: "font-size:12px;color:var(--text-muted);", "{status}" }
+                        }
+                    }
+                    small { class: "form-help", "Changes take effect immediately. Accepts RUST_LOG syntax (e.g. \"savfox_gateway_server=debug,info\")." }
+                }
+                div { class: "form-group",
+                    label { "Custom filter" }
+                    div { style: "display:flex;gap:8px;align-items:center;",
+                        input {
+                            class: "form-input",
+                            r#type: "text",
+                            placeholder: "e.g. savfox_gateway_server=debug,info",
+                            value: "{log_level}",
+                            oninput: move |e| log_level.set(e.value()),
+                            onkeydown: {
+                                let ws = ws.clone();
+                                move |e: Event<KeyboardData>| {
+                                    if e.key() == Key::Enter {
+                                        let filter = log_level();
+                                        let ws = ws.clone();
+                                        log_status.set(None);
+                                        spawn(async move {
+                                            match ws.call::<serde_json::Value>(
+                                                "log.set_level",
+                                                Some(json!({ "level": filter })),
+                                            ).await {
+                                                Ok(_) => log_status.set(Some("applied".to_string())),
+                                                Err(e) => log_status.set(Some(format!("error: {e}"))),
+                                            }
+                                        });
+                                    }
+                                }
+                            },
+                        }
+                    }
                 }
             }
 

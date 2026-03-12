@@ -8,7 +8,7 @@ use savfox_channels::discord::{
     parse_start_meta,
 };
 use serde_json::{Value, json};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{obtain_channel_and_store, render_error, runtime};
 use crate::auto_reply::CommandRegistry;
@@ -50,7 +50,7 @@ p {{ font-size: 16px; color: #b9bbbe; margin: 0 0 24px; }}
 /// Query params: `code`, `guild_id` (optional), `permissions` (optional).
 #[handler]
 pub(crate) async fn oauth_callback_handler(req: &mut Request, res: &mut Response) {
-    println!("[discord:oauth] callback received, uri={}", req.uri());
+    debug!(target: "discord::oauth", uri = %req.uri(), "callback received");
     let code = req.query::<String>("code");
     let guild_id = req.query::<String>("guild_id");
     let error = req.query::<String>("error");
@@ -59,8 +59,7 @@ pub(crate) async fn oauth_callback_handler(req: &mut Request, res: &mut Response
         let description = req
             .query::<String>("error_description")
             .unwrap_or_else(|| "Authorization was denied.".to_string());
-        println!("[discord:oauth] ERROR: {err} - {description}");
-        warn!("Discord OAuth callback error: {err} - {description}");
+        warn!(target: "discord::oauth", error = %err, description = %description, "OAuth callback error");
         res.render(Text::Html(callback_html(
             "Authorization Failed",
             &description,
@@ -70,8 +69,7 @@ pub(crate) async fn oauth_callback_handler(req: &mut Request, res: &mut Response
     }
 
     if code.is_none() {
-        println!("[discord:oauth] missing code parameter");
-        warn!("Discord OAuth callback: missing code parameter");
+        warn!(target: "discord::oauth", "missing code parameter");
         res.render(Text::Html(callback_html(
             "Missing Authorization Code",
             "No authorization code was received from Discord.",
@@ -85,11 +83,8 @@ pub(crate) async fn oauth_callback_handler(req: &mut Request, res: &mut Response
         .map(|id| format!(" to guild {id}"))
         .unwrap_or_default();
 
-    println!(
-        "[discord:oauth] bot authorized{guild_msg}, code={}",
-        code.as_deref().unwrap_or("?")
-    );
-    info!("Discord OAuth callback: bot authorized{guild_msg}");
+    debug!(target: "discord::oauth", guild_msg = %guild_msg, code = %code.as_deref().unwrap_or("?"), "bot authorized");
+    info!(target: "discord::oauth", "bot authorized{guild_msg}");
     res.render(Text::Html(callback_html(
         "Bot Authorized",
         &format!(
@@ -229,19 +224,14 @@ pub(crate) fn discord_sink(
 
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    println!(
-        "[discord:webhook] incoming request, method={}, uri={}",
-        req.method(),
-        req.uri()
-    );
+    debug!(target: "discord::webhook", method = %req.method(), uri = %req.uri(), "incoming request");
     let raw_body = match req.payload().await {
         Ok(bytes) => {
-            println!("[discord:webhook] body received, {} bytes", bytes.len());
+            debug!(target: "discord::webhook", bytes = bytes.len(), "body received");
             bytes.clone()
         }
         Err(err) => {
-            println!("[discord:webhook] failed to read body: {err}");
-            warn!("Discord webhook: failed to read body: {err}");
+            warn!(target: "discord::webhook", error = %err, "failed to read body");
             render_error(
                 res,
                 StatusCode::BAD_REQUEST,
@@ -259,14 +249,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|d| d.get("name"))
                 .and_then(|n| n.as_str())
                 .unwrap_or("?");
-            println!(
-                "[discord:webhook] parsed payload: interaction_type={interaction_type}, command={interaction_name}"
-            );
+            debug!(target: "discord::webhook", interaction_type = interaction_type, command = interaction_name, "parsed payload");
             v
         }
         Err(err) => {
-            println!("[discord:webhook] JSON parse error: {err}");
-            warn!("Discord webhook: failed to parse body: {err}");
+            warn!(target: "discord::webhook", error = %err, "JSON parse error");
             render_error(
                 res,
                 StatusCode::BAD_REQUEST,
@@ -287,10 +274,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .and_then(|b| b.application_public_key.clone())
         })
         .or_else(|| std::env::var("DISCORD_APPLICATION_PUBLIC_KEY").ok());
-    println!(
-        "[discord:webhook] public_key configured={}",
-        public_key.is_some()
-    );
+    debug!(target: "discord::webhook", configured = public_key.is_some(), "public_key status");
     if let Some(public_key) = public_key {
         let signature = req
             .headers()
@@ -304,11 +288,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             .unwrap_or_default();
 
         if signature.is_empty() || timestamp.is_empty() {
-            println!(
-                "[discord:webhook] REJECT: missing signature headers (sig_empty={}, ts_empty={})",
-                signature.is_empty(),
-                timestamp.is_empty()
-            );
+            warn!(target: "discord::webhook", sig_empty = signature.is_empty(), ts_empty = timestamp.is_empty(), "REJECT: missing signature headers");
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -318,7 +298,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
         if !verify_discord_signature(&public_key, signature, timestamp, raw_body.as_ref()) {
-            println!("[discord:webhook] REJECT: signature verification failed");
+            warn!(target: "discord::webhook", "REJECT: signature verification failed");
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -327,23 +307,22 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             );
             return;
         }
-        println!("[discord:webhook] signature verified OK");
+        debug!(target: "discord::webhook", "signature verified OK");
     }
 
     if body.get("type").and_then(|t| t.as_u64()) == Some(1) {
-        println!("[discord:webhook] PING received, responding with PONG");
+        debug!(target: "discord::webhook", "PING received, responding with PONG");
         res.render(Text::Json(json!({"type": 1}).to_string()));
         return;
     }
 
     let action = match parse_interaction_with_resolver(&body, build_registry_prompt) {
         Ok(action) => {
-            println!("[discord:webhook] parsed action: {action:?}");
+            debug!(target: "discord::webhook", action = ?action, "parsed action");
             action
         }
         Err(err) => {
-            println!("[discord:webhook] parse interaction error: {err}");
-            warn!("Discord webhook: failed to parse interaction: {err}");
+            warn!(target: "discord::webhook", error = %err, "failed to parse interaction");
             render_error(
                 res,
                 StatusCode::BAD_REQUEST,
@@ -359,17 +338,14 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             channel: channel_id,
             prompt,
         } => {
-            println!(
-                "[discord:webhook] StartThread channel={channel_id}, prompt_len={}",
-                prompt.len()
-            );
+            debug!(target: "discord::webhook", channel = %channel_id, prompt_len = prompt.len(), "StartThread");
             info!(channel = %channel_id, "Discord: starting thread with prompt: {prompt}");
             let interaction_id = body
                 .get("id")
                 .and_then(|v| v.as_str())
                 .map(|id| format!("discord:{id}"));
             if runtime::should_drop_duplicate(interaction_id).await {
-                println!("[discord:webhook] dropping duplicate interaction");
+                debug!(target: "discord::webhook", "dropping duplicate interaction");
                 res.render(Text::Json(json!({"type": 1}).to_string()));
                 return;
             }
@@ -382,10 +358,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             res.render(Text::Json(json!({"type": 5}).to_string()));
 
             let start_meta = to_runtime_start_meta(parse_start_meta(&body));
-            println!(
-                "[discord:webhook] spawning thread pipeline, peer_id={:?}, guild_id={:?}",
-                start_meta.peer_id, start_meta.guild_id
-            );
+            debug!(target: "discord::webhook", peer_id = ?start_meta.peer_id, guild_id = ?start_meta.guild_id, "spawning thread pipeline");
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                     gateway_channel,
@@ -403,12 +376,12 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             thread_id,
             decision,
         } => {
-            println!("[discord:webhook] Approve thread_id={thread_id}, decision={decision}");
+            debug!(target: "discord::webhook", thread_id = %thread_id, decision = %decision, "Approve");
             info!(thread_id = %thread_id, decision = %decision, "Discord: approval response");
             res.render(Text::Json(json!({"type": 6}).to_string()));
         }
         ChannelAction::Ignore | ChannelAction::SendToThread { .. } => {
-            println!("[discord:webhook] action ignored (Ignore/SendToThread)");
+            debug!(target: "discord::webhook", "action ignored (Ignore/SendToThread)");
             res.render(Text::Json(json!({"type": 1}).to_string()));
         }
     }

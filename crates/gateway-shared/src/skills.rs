@@ -15,6 +15,7 @@ pub struct SkillEntry {
     pub description: Option<String>,
     pub disabled_reason: Option<String>,
     pub allowlist_blocked: Option<bool>,
+    pub flock: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,4 +44,5 @@ pub struct SkillDetail {
     pub description: Option<String>,
     pub disabled_reason: Option<String>,
     pub allowlist_blocked: Option<bool>,
+    pub flock: Option<String>,
 }

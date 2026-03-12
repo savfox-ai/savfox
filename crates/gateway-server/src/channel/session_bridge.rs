@@ -5,7 +5,7 @@ use savfox_core::{
     SESSIONS_SUBDIR, find_archived_session_path_by_id_str, find_session_path_by_id_str,
 };
 use savfox_protocol::SessionId;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::{AgentInvocationResult, GatewayChannel, ResolvedAgentSession};
 
@@ -406,9 +406,10 @@ impl GatewayChannel {
                     if let Ok(session) = self.session_manager.get_session(active_thread_id).await {
                         let status = session.agent_status().await;
                         if matches!(status, AgentStatus::Running | AgentStatus::PendingInit) {
-                            println!(
-                                "[invocation] Session {} is busy ({:?}), forking for concurrent invocation",
-                                active_thread_id, status
+                            debug!(
+                                session_id = %active_thread_id,
+                                status = ?status,
+                                "Session is busy, forking for concurrent invocation"
                             );
                             return self
                                 .fork_concurrent_session(config, session.rollout_path())
@@ -482,9 +483,9 @@ impl GatewayChannel {
                 .await
                 .map_err(|err| anyhow::anyhow!("failed to start fresh concurrent session: {err}"))?
         };
-        println!(
-            "[invocation] Forked concurrent session: {}",
-            forked.session_id
+        debug!(
+            session_id = %forked.session_id,
+            "Forked concurrent session"
         );
         Ok(ResolvedAgentSession {
             session_id: forked.session_id,

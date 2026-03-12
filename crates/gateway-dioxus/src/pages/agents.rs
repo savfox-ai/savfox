@@ -2790,6 +2790,7 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
                                 description: None,
                                 disabled_reason: None,
                                 allowlist_blocked: None,
+                                flock: None,
                             })
                             .collect()
                     })

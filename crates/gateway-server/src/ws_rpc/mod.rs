@@ -233,6 +233,10 @@ pub(crate) async fn dispatch_rpc(
         "tts.setVoice" => handle_tts_set_voice(&params, channel).await,
         "tts.settings" => handle_tts_settings(&params, channel).await,
 
+        // ── Log level ──────────────────────────────────────────────────
+        "log.get_level" => handle_log_get_level().await,
+        "log.set_level" => handle_log_set_level(&params).await,
+
         // ── Skills ──────────────────────────────────────────────────────
         "skills.status" => handle_skills_status(channel).await,
         "skills.bins" => handle_skills_bins(channel).await,
@@ -715,6 +719,20 @@ pub(crate) async fn save_node_invoke_result(record: NodeInvokeRecord) {
 pub(crate) async fn get_node_invoke_result(request_id: &str) -> Option<NodeInvokeRecord> {
     let lock = node_invoke_store().lock().await;
     lock.get(request_id).cloned()
+}
+
+// ── Log level handlers ────────────────────────────────────────────────────
+
+async fn handle_log_get_level() -> RpcResult {
+    crate::log_level::get_level().map_err(|e| (INTERNAL_ERROR, e))
+}
+
+async fn handle_log_set_level(params: &Value) -> RpcResult {
+    let filter = params
+        .get("level")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'level' parameter".to_string()))?;
+    crate::log_level::set_level(filter).map_err(|e| (INVALID_REQUEST, e))
 }
 
 // ── Sub-module handler groups ──────────────────────────────────────────────

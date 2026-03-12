@@ -7,7 +7,7 @@ use savfox_channels::telegram::{
     parse_update_with_resolver,
 };
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::{render_error, runtime};
 use crate::auto_reply::CommandRegistry;
@@ -99,15 +99,14 @@ async fn process_update_payload(
         .and_then(|v| v.as_i64())
         .map(|id| format!("telegram:{id}"));
     let (kind, chat_id, from_id, preview) = telegram_update_summary(&body);
-    println!(
-        "[telegram] Processing update: update_id={:?}, kind={}, chat_id={}, from_id={}, preview={}",
-        update_id, kind, chat_id, from_id, preview
+    debug!(
+        ?update_id, %kind, %chat_id, %from_id, %preview,
+        "Processing update"
     );
     let action = match parse_update_with_resolver(&body, resolve_registry_command_name) {
         Ok(action) => action,
         Err(err) => {
-            println!("[telegram] Failed to parse update: {err}");
-            warn!("Telegram update: failed to parse update: {err}");
+            warn!("Failed to parse update: {err}");
             return;
         }
     };
@@ -117,27 +116,28 @@ async fn process_update_payload(
             channel: channel_id,
             prompt,
         } => {
-            println!("[telegram] Inbound message: chat_id={channel_id}, prompt={prompt}");
-            info!(chat_id = %channel_id, "Telegram: starting thread with prompt: {prompt}");
+            debug!(chat_id = %channel_id, %prompt, "Inbound message");
+            info!(chat_id = %channel_id, "Starting thread with prompt: {prompt}");
             if runtime::should_drop_duplicate(update_id.clone()).await {
-                println!(
-                    "[telegram] Duplicate update ignored before thread start: update_id={:?}",
-                    update_id
+                debug!(
+                    ?update_id,
+                    "Duplicate update ignored before thread start"
                 );
                 return;
             }
 
             let meta = to_runtime_start_meta(parse_start_meta(&body));
             let name = parse_display_name(&body);
-            println!(
-                "[telegram] StartThread accepted: update_id={:?}, channel_id={}, peer_id={:?}, thread_id={:?}, reply_target={:?}, sender_name={:?}",
-                update_id, channel_id, meta.peer_id, meta.thread_id, meta.reply_target, name
+            debug!(
+                ?update_id, %channel_id, peer_id = ?meta.peer_id, thread_id = ?meta.thread_id,
+                reply_target = ?meta.reply_target, sender_name = ?name,
+                "StartThread accepted"
             );
 
             tokio::spawn(async move {
-                println!(
-                    "[telegram] Spawning runtime pipeline: channel_id={}, thread_id={:?}, reply_target={:?}",
-                    channel_id, meta.thread_id, meta.reply_target
+                debug!(
+                    %channel_id, thread_id = ?meta.thread_id, reply_target = ?meta.reply_target,
+                    "Spawning runtime pipeline"
                 );
                 runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                     gateway_channel,
@@ -155,14 +155,14 @@ async fn process_update_payload(
             thread_id,
             decision,
         } => {
-            println!("[telegram] Approval response: thread_id={thread_id}, decision={decision}");
-            info!(thread_id = %thread_id, decision = %decision, "Telegram: approval response");
+            debug!(%thread_id, %decision, "Approval response");
+            info!(thread_id = %thread_id, decision = %decision, "Approval response");
         }
         ChannelAction::Ignore => {
-            println!("[telegram] Update ignored (no actionable content)");
+            debug!("Update ignored (no actionable content)");
         }
         ChannelAction::SendToThread { .. } => {
-            println!("[telegram] SendToThread action received");
+            debug!("SendToThread action received");
         }
     }
 }
@@ -188,7 +188,7 @@ pub(crate) fn telegram_sink(
     channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) -> Arc<dyn TelegramUpdateSink> {
-    println!("[telegram] Creating runtime sink for polling updates");
+    debug!("Creating runtime sink for polling updates");
     Arc::new(TelegramRuntimeSink {
         channel,
         session_store,
@@ -197,7 +197,7 @@ pub(crate) fn telegram_sink(
 
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    println!("[telegram] Webhook request received");
+    debug!("Webhook request received");
 
     let expected_secret = depot
         .obtain::<Arc<GatewayConfig>>()
@@ -216,7 +216,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
         if !verify_telegram_webhook_secret(&expected_secret, received_secret) {
-            println!("[telegram] Webhook secret verification FAILED");
+            warn!("Webhook secret verification FAILED");
             render_error(
                 res,
                 StatusCode::UNAUTHORIZED,
@@ -225,16 +225,16 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             );
             return;
         }
-        println!("[telegram] Webhook secret verified OK");
+        debug!("Webhook secret verified OK");
     }
 
     let Some(body) = super::parse_json_body(req, res, "telegram").await else {
         return;
     };
 
-    println!(
-        "[telegram] Received webhook update payload: {}",
-        telegram_log_preview(&body.to_string(), 220)
+    debug!(
+        payload_preview = %telegram_log_preview(&body.to_string(), 220),
+        "Received webhook update payload"
     );
     let Some((gateway_channel, session_store)) = super::obtain_channel_and_store(depot, res) else {
         return;

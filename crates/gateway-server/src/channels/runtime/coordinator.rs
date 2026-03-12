@@ -15,6 +15,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tracing::debug;
 
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
@@ -172,8 +173,10 @@ async fn run_coordinator(session_key: String, mut inbox: mpsc::Receiver<InboundT
             // "⬆️" to indicate it was the earlier task. Currently the prefix
             // is applied inside the pipeline via send_with_retry, so this is
             // a future enhancement point.  For now we just log.
-            println!(
-                "[coordinator] session={session_key}: overflow was served during primary for {primary_outbound}"
+            debug!(
+                session_key = %session_key,
+                outbound = %primary_outbound,
+                "Overflow was served during primary"
             );
         }
     }

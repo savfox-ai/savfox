@@ -195,10 +195,41 @@ pub(crate) async fn handle_skills_install_url(
         .map_err(|e| (INTERNAL_ERROR, format!("install failed: {e}")))?;
 
     if result.success {
+        // Rescan to discover new skills and persist their state.
+        let savfox_home = &channel.config().savfox_home;
+        let bins_val = skills_store::bins(savfox_home)
+            .await
+            .unwrap_or_else(|_| json!({ "bins": [] }));
+        let new_skills: Vec<&Value> = bins_val
+            .get("bins")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter(|b| {
+                        b.get("flock")
+                            .and_then(|f| f.as_str())
+                            .is_some_and(|f| f == name)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let new_count = new_skills.len();
+        let auto_disabled = new_skills
+            .iter()
+            .any(|b| b.get("enabled").and_then(|v| v.as_bool()) == Some(false));
+        let skill_names: Vec<&str> = new_skills
+            .iter()
+            .filter_map(|b| b.get("name").and_then(|v| v.as_str()))
+            .collect();
+
         Ok(json!({
             "name": result.name,
             "status": "installed",
             "path": result.install_path.display().to_string(),
+            "flock": name,
+            "new_skills_count": new_count,
+            "new_skills": skill_names,
+            "auto_disabled": auto_disabled,
         }))
     } else {
         Err((
@@ -231,10 +262,28 @@ pub(crate) async fn handle_skills_install_zip(
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("zip install failed: {e}")))?;
 
+    // Rescan to discover new skills and persist their state.
+    let savfox_home = &channel.config().savfox_home;
+    let bins_val = skills_store::bins(savfox_home)
+        .await
+        .unwrap_or_else(|_| json!({ "bins": [] }));
+    let auto_disabled = bins_val
+        .get("bins")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter().any(|b| {
+                b.get("disabled_reason")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|r| r.contains("too many new skills"))
+            })
+        })
+        .unwrap_or(false);
+
     Ok(json!({
         "installed": result.installed,
         "skipped": result.skipped,
         "errors": result.errors,
+        "auto_disabled": auto_disabled,
     }))
 }
 

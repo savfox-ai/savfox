@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use tracing::{debug, warn};
+
 use savfox_core::{
     RolloutRecorder, find_archived_session_path_by_id_str, find_session_path_by_id_str,
 };
@@ -56,8 +58,8 @@ pub(crate) async fn build_history_payload(
         });
     };
 
-    println!(
-        "[DEBUG] Loading rollout history from file: {}",
+    debug!(
+        "Loading rollout history from file: {}",
         path.display()
     );
     match RolloutRecorder::get_rollout_history(&path).await {
@@ -67,8 +69,8 @@ pub(crate) async fn build_history_payload(
             let total = all_messages.len();
             let filtered = attach_provenance(all_messages, entry.as_ref(), source_channel);
             let messages = tail_limit(filtered, limit);
-            println!(
-                "[DEBUG] Successfully loaded rollout: rollout_items={}, messages={}",
+            debug!(
+                "Successfully loaded rollout: rollout_items={}, messages={}",
                 items.len(),
                 messages.len()
             );
@@ -85,8 +87,8 @@ pub(crate) async fn build_history_payload(
             })
         }
         Err(err) => {
-            println!(
-                "[DEBUG] Failed to load rollout history: path={}, error={}",
+            warn!(
+                "Failed to load rollout history: path={}, error={}",
                 path.display(),
                 err
             );
@@ -176,8 +178,8 @@ async fn resolve_rollout_path(
     session_ref: &str,
     entry: Option<&SessionEntry>,
 ) -> Result<Option<PathBuf>, String> {
-    println!(
-        "[DEBUG] resolve_rollout_path called: session_ref={}",
+    debug!(
+        "resolve_rollout_path called: session_ref={}",
         session_ref
     );
 
@@ -190,13 +192,13 @@ async fn resolve_rollout_path(
                 .join("sessions")
                 .join(format!("{}.jsonl", session_file))
         };
-        println!(
-            "[DEBUG] Trying session_file from entry: path={}",
+        debug!(
+            "Trying session_file from entry: path={}",
             absolute.display()
         );
         if tokio::fs::try_exists(&absolute).await.unwrap_or(false) {
-            println!(
-                "[DEBUG] Found rollout file from session_file: {}",
+            debug!(
+                "Found rollout file from session_file: {}",
                 absolute.display()
             );
             return Ok(Some(absolute));
@@ -211,8 +213,8 @@ async fn resolve_rollout_path(
         }
     }
 
-    println!(
-        "[DEBUG] Searching for rollout with {:#?} candidate IDs",
+    debug!(
+        "Searching for rollout with {:#?} candidate IDs",
         candidates
     );
     for candidate in candidates {
@@ -221,13 +223,13 @@ async fn resolve_rollout_path(
             let direct_path = savfox_home
                 .join("sessions")
                 .join(format!("{}.jsonl", candidate));
-            println!(
-                "[DEBUG] Trying direct UUID v7 path: {}",
+            debug!(
+                "Trying direct UUID v7 path: {}",
                 direct_path.display()
             );
             if tokio::fs::try_exists(&direct_path).await.unwrap_or(false) {
-                println!(
-                    "[DEBUG] Found rollout file by direct UUID lookup: {}",
+                debug!(
+                    "Found rollout file by direct UUID lookup: {}",
                     direct_path.display()
                 );
                 return Ok(Some(direct_path));
@@ -235,25 +237,25 @@ async fn resolve_rollout_path(
         }
 
         // Fall back to the old search methods for compatibility
-        println!("[DEBUG] Searching for rollout with thread_id={}", candidate);
+        debug!("Searching for rollout with thread_id={}", candidate);
         if let Some(path) = find_session_path_by_id_str(savfox_home, &candidate)
             .await
             .map_err(|err| format!("failed to locate rollout by thread id: {err}"))?
         {
-            println!("[DEBUG] Found rollout file: {}", path.display());
+            debug!("Found rollout file: {}", path.display());
             return Ok(Some(path));
         }
         if let Some(path) = find_archived_session_path_by_id_str(savfox_home, &candidate)
             .await
             .map_err(|err| format!("failed to locate archived rollout by thread id: {err}"))?
         {
-            println!("[DEBUG] Found archived rollout file: {}", path.display());
+            debug!("Found archived rollout file: {}", path.display());
             return Ok(Some(path));
         }
     }
 
-    println!(
-        "[DEBUG] No rollout file found for session_ref={}",
+    debug!(
+        "No rollout file found for session_ref={}",
         session_ref
     );
     Ok(None)

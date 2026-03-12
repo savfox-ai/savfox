@@ -200,7 +200,6 @@ pub(crate) async fn initialize_and_start_channels(
     channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    println!("[startup] Initializing channel instances...");
     info!("Initializing channel instances");
 
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
@@ -216,10 +215,6 @@ pub(crate) async fn initialize_and_start_channels(
         let channel_id = config.id.clone();
         let kind = config.kind.to_lowercase();
 
-        println!(
-            "[startup] Starting channel '{}' of type '{}'...",
-            channel_id, kind
-        );
         info!("Starting channel '{}' of type '{}'", channel_id, kind);
 
         let result = match kind.as_str() {
@@ -235,10 +230,6 @@ pub(crate) async fn initialize_and_start_channels(
                 start_feishu_channel(&config, &registry, channel, session_store).await
             }
             _ => {
-                println!(
-                    "[startup]   Channel type '{}' not yet implemented for persistent connections",
-                    kind
-                );
                 info!(
                     "Channel type '{}' not yet implemented for persistent connections",
                     kind
@@ -250,27 +241,15 @@ pub(crate) async fn initialize_and_start_channels(
         match result {
             Ok(()) => {
                 started_count += 1;
-                println!(
-                    "[startup]   ✓ Channel '{}' started successfully",
-                    channel_id
-                );
                 info!("Channel '{}' started successfully", channel_id);
             }
             Err(err) => {
                 failed_count += 1;
-                println!(
-                    "[startup]   ✗ Failed to start channel '{}': {}",
-                    channel_id, err
-                );
                 warn!("Failed to start channel '{}': {}", channel_id, err);
             }
         }
     }
 
-    println!(
-        "[startup] Channel startup complete: {} started, {} failed",
-        started_count, failed_count
-    );
     info!(
         "Channel startup complete: {} started, {} failed",
         started_count, failed_count
@@ -294,13 +273,13 @@ pub(crate) async fn start_matrix_channel(
         MatrixMode::User => "user",
         MatrixMode::Appservice => "appservice",
     };
-    println!(
-        "[startup][matrix] channel '{}' validated in mode='{}'",
+    info!(
+        "matrix: channel '{}' validated in mode='{}'",
         config.id, mode_label
     );
     if matches!(matrix_config.mode, MatrixMode::Appservice) {
-        println!(
-            "[startup][matrix]   appservice public_url='{}' sender_localpart='{}' server_name='{}' user_prefix='{}'",
+        info!(
+            "matrix: appservice public_url='{}' sender_localpart='{}' server_name='{}' user_prefix='{}'",
             matrix_config.public_url.as_deref().unwrap_or("NOT SET"),
             matrix_config
                 .sender_localpart
@@ -325,15 +304,15 @@ pub(crate) async fn start_matrix_channel(
     };
 
     channel.start().await?;
-    println!(
-        "[startup][matrix] channel '{}' start() completed and is being registered",
+    info!(
+        "matrix: channel '{}' start() completed and is being registered",
         config.id
     );
 
     let mut registry = registry.write().await;
     registry.insert(config.id.clone(), channel);
-    println!(
-        "[startup][matrix] channel '{}' registered in channel registry",
+    info!(
+        "matrix: channel '{}' registered in channel registry",
         config.id
     );
 
@@ -357,13 +336,13 @@ async fn start_discord_channel(
             config.id.clone(),
         );
         savfox_channels::discord::start_discord_stream(&config.id, &discord_config, sink).await?;
-        println!(
-            "[startup]   Discord channel '{}' started in stream mode",
+        info!(
+            "Discord channel '{}' started in stream mode",
             config.id
         );
     } else {
-        println!(
-            "[startup]   Discord channel '{}' configured in webhook mode; interaction webhook remains enabled",
+        info!(
+            "Discord channel '{}' configured in webhook mode; interaction webhook remains enabled",
             config.id
         );
         warn!(
@@ -410,8 +389,8 @@ async fn start_telegram_channel(
         .get("bot_token")
         .and_then(|v| v.as_str())
         .is_some_and(|v| !v.trim().is_empty());
-    println!(
-        "[telegram] Channel '{}' initialized ({} mode), bot_token={}",
+    info!(
+        "telegram: Channel '{}' initialized ({} mode), bot_token={}",
         config.id,
         if telegram_config.polling {
             "polling"
@@ -429,10 +408,10 @@ async fn start_telegram_channel(
             .await?;
     }
     if let Some(dm) = &config.dm_policy {
-        println!("[telegram]   DM policy: {:?}", dm.mode);
+        info!("telegram: DM policy: {:?}", dm.mode);
     }
     if let Some(grp) = &config.group_policy {
-        println!("[telegram]   Group policy: {:?}", grp.mode);
+        info!("telegram: Group policy: {:?}", grp.mode);
     }
     Ok(())
 }
@@ -442,19 +421,13 @@ async fn start_slack_channel(
     _registry: &ChannelRegistry,
     _channel: &Arc<GatewayChannel>,
 ) -> anyhow::Result<()> {
-    println!(
-        "[startup]   Slack channel persistent connection not yet implemented - using webhook mode"
-    );
+    info!("Slack channel persistent connection not yet implemented - using webhook mode");
     Ok(())
 }
 
 async fn start_webhook_only_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
 ) -> anyhow::Result<()> {
-    println!(
-        "[startup]   {} channel '{}' is enabled in webhook mode",
-        config.kind, config.id
-    );
     info!(
         "Channel '{}' of type '{}' is enabled in webhook mode",
         config.id, config.kind
@@ -475,8 +448,8 @@ async fn start_feishu_channel(
     let feishu_config = FeishuChannelConfig::from_channel_config(config)
         .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
 
-    println!(
-        "[startup]   Starting Feishu channel with config: {:#?}",
+    info!(
+        "Starting Feishu channel with config: {:#?}",
         feishu_config
     );
     if feishu_config.stream_enabled() {
@@ -494,22 +467,13 @@ async fn start_feishu_channel(
 }
 
 pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow::Result<()> {
-    println!(
-        "[startup] Loading channel configurations from {:?}...",
-        savfox_home
-    );
     info!("Loading channel configurations from {:?}", savfox_home);
 
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home).await?;
 
-    println!(
-        "[startup] Found {} total channel configuration(s)",
-        all_configs.len()
-    );
     info!("Found {} total channel configuration(s)", all_configs.len());
 
     if all_configs.is_empty() {
-        println!("[startup] No channel configurations found");
         warn!("No channel configurations found in {:?}", savfox_home);
         return Ok(());
     }
@@ -530,22 +494,16 @@ pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow
         }
     }
 
-    println!(
-        "[startup] Channel summary: {} enabled, {} disabled",
-        enabled_count, disabled_count
-    );
     info!(
         "Channel summary: {} enabled, {} disabled",
         enabled_count, disabled_count
     );
 
     for (kind, configs) in &by_kind {
-        println!("[startup] {} channel(s) of type '{}':", configs.len(), kind);
         info!("{} channel(s) of type '{}'", configs.len(), kind);
 
         for (id, enabled) in configs {
             let status = if *enabled { "ENABLED" } else { "DISABLED" };
-            println!("[startup]   - {} [{}]", id, status);
             info!("  - {} [{}]", id, status);
 
             if *enabled && kind.eq_ignore_ascii_case("matrix") {
@@ -581,32 +539,26 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
             savfox_channels::matrix::MatrixMode::Appservice => "appservice",
         };
 
-        println!("[startup]     Matrix channel details:");
-        println!("[startup]       Mode: {}", mode);
-        println!("[startup]       Homeserver: {}", config.homeserver);
+        info!("Matrix channel details:");
+        info!("  Mode: {}", mode);
+        info!("  Homeserver: {}", config.homeserver);
         if matches!(config.mode, savfox_channels::matrix::MatrixMode::User) {
-            println!(
-                "[startup]       Access token: {}",
+            info!(
+                "  Access token: {}",
                 if has_token { "configured" } else { "NOT SET" }
             );
         }
         if matches!(config.mode, savfox_channels::matrix::MatrixMode::Appservice) {
-            println!(
-                "[startup]       Appservice URL: {}",
+            info!(
+                "  Appservice URL: {}",
                 config.public_url.as_deref().unwrap_or("NOT SET")
             );
-            println!(
-                "[startup]       Sender localpart: {}",
+            info!(
+                "  Sender localpart: {}",
                 config.sender_localpart.as_deref().unwrap_or("NOT SET")
             );
         }
-        println!("[startup]       Configured rooms: {}", rooms_str);
-        info!(
-            "Matrix channel starting with homeserver URL: {}",
-            config.homeserver
-        );
         info!("  Channel ID: {}", channel_id);
-        info!("  Mode: {}", mode);
         info!("  Configured rooms: {}", rooms_str);
         break;
     }

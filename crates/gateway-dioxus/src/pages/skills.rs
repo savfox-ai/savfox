@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use base64::Engine;
 use dioxus::prelude::*;
@@ -81,6 +81,7 @@ pub fn Skills() -> Element {
                                 description: b.description,
                                 disabled_reason: b.disabled_reason,
                                 allowlist_blocked: b.allowlist_blocked,
+                                flock: b.flock,
                             })
                             .collect()
                     })
@@ -213,9 +214,7 @@ pub fn Skills() -> Element {
                                     installing.set(false);
                                     match result {
                                         Ok(v) => {
-                                            let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
-                                            let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
-                                            install_status.set(Some((true, format!("{name}: {status}"))));
+                                            install_status.set(Some((true, format_install_result(&v))));
                                             install_url.set(String::new());
                                             refresh_tick += 1;
                                         }
@@ -249,9 +248,7 @@ pub fn Skills() -> Element {
                                 installing.set(false);
                                 match result {
                                     Ok(v) => {
-                                        let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
-                                        let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
-                                        install_status.set(Some((true, format!("{name}: {status}"))));
+                                        install_status.set(Some((true, format_install_result(&v))));
                                         install_url.set(String::new());
                                         refresh_tick += 1;
                                     }
@@ -365,10 +362,38 @@ fn render_skill_group(
     ws: WsRpc,
     mut refresh_tick: Signal<u32>,
 ) -> Element {
+    // Separate skills by flock for sub-grouping.
+    let mut no_flock: Vec<&SkillDetail> = Vec::new();
+    let mut by_flock: BTreeMap<String, Vec<&SkillDetail>> = BTreeMap::new();
+    for skill in skills {
+        if let Some(ref flock) = skill.flock {
+            by_flock.entry(flock.clone()).or_default().push(skill);
+        } else {
+            no_flock.push(skill);
+        }
+    }
+
     rsx! {
         div { style: "display:flex;flex-direction:column;gap:8px;",
-            for skill in skills.iter() {
+            // Render un-flocked skills first.
+            for skill in no_flock.iter() {
                 { render_skill_row(skill, ws.clone(), refresh_tick) }
+            }
+            // Render each flock as a sub-group with a label.
+            for (flock_name, flock_skills) in by_flock.iter() {
+                div {
+                    style: "border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;",
+                    div {
+                        style: "padding:6px 12px;background:var(--bg-secondary);font-size:12px;font-weight:600;color:var(--text-muted);display:flex;align-items:center;gap:6px;",
+                        span { "Flock({flock_name})" }
+                        Chip { label: format!("{}", flock_skills.len()), variant: ChipVariant::Info }
+                    }
+                    div { style: "display:flex;flex-direction:column;gap:4px;padding:4px;",
+                        for skill in flock_skills.iter() {
+                            { render_skill_row(skill, ws.clone(), refresh_tick) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -647,10 +672,18 @@ fn UploadZipButton(
                                     let installed: Vec<String> = v.get("installed")
                                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                                         .unwrap_or_default();
+                                    let auto_disabled = v.get("auto_disabled")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false);
                                     let msg = if installed.is_empty() {
                                         "No skills installed".into()
                                     } else {
-                                        format!("Installed: {}", installed.join(", "))
+                                        let base = format!("Installed: {}", installed.join(", "));
+                                        if auto_disabled {
+                                            format!("{base} (auto-disabled: >10 new skills, enable individually)")
+                                        } else {
+                                            base
+                                        }
                                     };
                                     install_status.set(Some((true, msg)));
                                     on_installed.call(());
@@ -684,6 +717,31 @@ fn UploadZipButton(
             "Upload ZIP"
         }
     }
+}
+
+/// Build a human-readable message from a `skills.install_url` response.
+fn format_install_result(v: &serde_json::Value) -> String {
+    let flock = v
+        .get("flock")
+        .and_then(|f| f.as_str())
+        .unwrap_or("skill");
+    let count = v
+        .get("new_skills_count")
+        .and_then(|c| c.as_u64())
+        .unwrap_or(0);
+    let auto_disabled = v
+        .get("auto_disabled")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let mut msg = if count > 0 {
+        format!("Flock({flock}): {count} skill(s) installed")
+    } else {
+        format!("{flock}: installed")
+    };
+    if auto_disabled {
+        msg.push_str(" (auto-disabled: >10 new skills, enable individually)");
+    }
+    msg
 }
 
 const ACTION_BTN: &str = "action-btn";
