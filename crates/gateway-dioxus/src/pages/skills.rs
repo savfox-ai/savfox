@@ -301,14 +301,11 @@ pub fn Skills() -> Element {
             } else if filtered.is_empty() {
                 p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
             } else {
-                // Built-in skills (flat, no wrapper)
-                if !builtin.is_empty() {
-                    { render_skill_group(&builtin, ws.clone(), refresh_tick) }
-                }
                 // Collapsible groups with localStorage-persisted state
                 {
                     let groups: Vec<(&str, &Vec<&SkillDetail>, bool)> = vec![
                         ("Workspace", &workspace, true),
+                        ("Built-in", &builtin, true),
                         ("Installed", &installed_group, true),
                         ("Extra", &extra, false),
                         ("Other", &other, false),

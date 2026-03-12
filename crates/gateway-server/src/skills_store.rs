@@ -121,10 +121,8 @@ fn collect_skill_manifests(
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|v| v.to_str()) {
-                    // Skip dot-prefixed directories at the skills root level.
-                    if skip_system_subtree
-                        && (name == ".system" || name == ".registry")
-                    {
+                    // Skip the .system directory at the skills root level.
+                    if skip_system_subtree && name == ".system" {
                         continue;
                     }
                 }

@@ -62,24 +62,24 @@ pub struct RegistrySearchResult {
 
 /// Git-based skill registry that clones a remote repository locally.
 ///
-/// The registry is stored at `{skills_dir}/.registry/{domain}/{restpath}/`.
+/// The registry is stored at `{savfox_home}/registry/{domain}/{restpath}/`.
 #[derive(Debug)]
 pub struct GitRegistry {
-    skills_dir: PathBuf,
+    savfox_home: PathBuf,
     config: RegistryConfig,
 }
 
 impl GitRegistry {
-    pub fn new(skills_dir: PathBuf, config: RegistryConfig) -> Self {
-        Self { skills_dir, config }
+    pub fn new(savfox_home: PathBuf, config: RegistryConfig) -> Self {
+        Self { savfox_home, config }
     }
 
     /// Path to the local clone of this registry, derived from the git URL.
     ///
-    /// e.g. `https://github.com/savfox-ai/registry.git` → `.registry/github.com/savfox-ai/registry`
+    /// e.g. `https://github.com/savfox-ai/registry.git` → `registry/github.com/savfox-ai/registry`
     pub fn registry_path(&self) -> PathBuf {
         let dir_name = Self::dir_from_url(&self.config.git);
-        self.skills_dir.join(".registry").join(dir_name)
+        self.savfox_home.join("registry").join(dir_name)
     }
 
     /// Derive `{domain}/{restpath}` from a git URL.

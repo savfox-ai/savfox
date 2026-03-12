@@ -66,7 +66,7 @@ pub(crate) fn install_system_skills(
         && read_marker(&marker_path).is_ok_and(|marker| marker == expected_fingerprint)
     {
         // System skills are up to date. Still ensure the default registry is cloned.
-        ensure_default_registry_cloned(skills_root_dir.as_path(), registry_config);
+        ensure_default_registry_cloned(savfox_home.as_path(), registry_config);
         return Ok(());
     }
 
@@ -105,21 +105,21 @@ fn registry_dir_from_url(git_url: &str) -> String {
 
 /// Clone the skill registry if its folder doesn't exist yet.
 ///
-/// The registry is cloned to `.registry/{domain}/{org}/{repo}` derived from
-/// the git URL. Uses the config if provided, otherwise falls back to the
-/// default registry URL.
+/// The registry is cloned to `{savfox_home}/registry/{domain}/{org}/{repo}`
+/// derived from the git URL. Uses the config if provided, otherwise falls
+/// back to the default registry URL.
 ///
 /// This is a best-effort operation — failures are logged but do not
 /// prevent startup.
 fn ensure_default_registry_cloned(
-    skills_root: &Path,
+    savfox_home: &Path,
     registry_config: Option<&savfox_config::types::RegistryConfig>,
 ) {
     let default_config = savfox_config::types::RegistryConfig::default();
     let config = registry_config.unwrap_or(&default_config);
     let git_url = &config.git;
     let dir_name = registry_dir_from_url(git_url);
-    let registry_dir = skills_root.join(".registry").join(&dir_name);
+    let registry_dir = savfox_home.join("registry").join(&dir_name);
     if registry_dir.is_dir() {
         return;
     }

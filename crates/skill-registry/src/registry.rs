@@ -25,7 +25,7 @@ impl SkillRegistry {
         let skills_dir = savfox_home.join("skills");
         Self {
             skills_dir: skills_dir.clone(),
-            git_registry: GitRegistry::new(skills_dir.clone(), config),
+            git_registry: GitRegistry::new(savfox_home.to_path_buf(), config),
             installer: SkillInstaller::new(skills_dir),
             installed_cache: RwLock::new(HashMap::new()),
         }
