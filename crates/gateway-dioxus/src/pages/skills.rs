@@ -178,78 +178,31 @@ pub fn Skills() -> Element {
     let ws_install = ws.clone();
 
     rsx! {
-        div { style: "padding:24px;max-width:960px;",
-            div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;",
-                h2 { style: "font-size:20px;font-weight:600;", "Skills" }
-                div { style: "display:flex;gap:8px;align-items:center;",
-                    SearchInput {
-                        value: search_query(),
-                        on_change: move |v: String| search_query.set(v),
-                        placeholder: "Search...".to_string(),
-                        match_count: match_count,
-                    }
-                    button {
-                        onclick: move |_| refresh_tick += 1,
-                        class: "{ACTION_BTN}",
-                        "Refresh"
-                    }
+        div { class: "skills-page",
+            // Toolbar: Title, Search, Install URL, Install btn, Upload ZIP, Refresh
+            div { class: "skills-toolbar",
+                h2 { style: "font-size:20px;font-weight:600;white-space:nowrap;margin:0;", "Skills" }
+                SearchInput {
+                    value: search_query(),
+                    on_change: move |v: String| search_query.set(v),
+                    placeholder: "Search...".to_string(),
+                    match_count: match_count,
                 }
-            }
-
-            // Install from URL or ZIP
-            div { class: "skill-url-install",
-                div { class: "skill-url-install__row",
-                    input {
-                        class: "skill-url-install__input",
-                        r#type: "text",
-                        placeholder: "Git URL to install...",
-                        value: "{install_url}",
-                        oninput: move |e: Event<FormData>| {
-                            install_url.set(e.value());
-                            install_status.set(None);
-                        },
-                        onkeydown: {
-                            let ws = ws_install.clone();
-                            move |e: Event<KeyboardData>| {
-                                if e.key() == Key::Enter && !install_url().trim().is_empty() && !installing() {
-                                    let ws = ws.clone();
-                                    let url = install_url().trim().to_string();
-                                    installing.set(true);
-                                    install_status.set(None);
-                                    spawn(async move {
-                                        let result = ws.call::<serde_json::Value>(
-                                            "skills.install_url",
-                                            Some(json!({ "url": url })),
-                                        ).await;
-                                        installing.set(false);
-                                        match result {
-                                            Ok(v) => {
-                                                let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
-                                                let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
-                                                install_status.set(Some((true, format!("{name}: {status}"))));
-                                                install_url.set(String::new());
-                                                refresh_tick += 1;
-                                            }
-                                            Err(e) => {
-                                                install_status.set(Some((false, format!("{e}"))));
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        },
-                        spellcheck: false,
-                        autocomplete: "off",
-                    }
-                    button {
-                        class: "skill-url-install__btn",
-                        disabled: install_url().trim().is_empty() || installing(),
-                        onclick: {
-                            let ws = ws_install.clone();
-                            move |_| {
+                input {
+                    class: "skill-url-install__input",
+                    r#type: "text",
+                    placeholder: "Git URL...",
+                    value: "{install_url}",
+                    oninput: move |e: Event<FormData>| {
+                        install_url.set(e.value());
+                        install_status.set(None);
+                    },
+                    onkeydown: {
+                        let ws = ws_install.clone();
+                        move |e: Event<KeyboardData>| {
+                            if e.key() == Key::Enter && !install_url().trim().is_empty() && !installing() {
                                 let ws = ws.clone();
                                 let url = install_url().trim().to_string();
-                                if url.is_empty() { return; }
                                 installing.set(true);
                                 install_status.set(None);
                                 spawn(async move {
@@ -272,32 +225,71 @@ pub fn Skills() -> Element {
                                     }
                                 });
                             }
-                        },
-                        if installing() { "Installing..." } else { "Install" }
-                    }
-                    // Upload ZIP button
-                    {
-                        let ws_zip = ws.clone();
-                        rsx! {
-                            UploadZipButton {
-                                ws: ws_zip,
-                                installing: installing,
-                                install_status: install_status,
-                                on_installed: move |_| refresh_tick += 1,
-                            }
+                        }
+                    },
+                    spellcheck: false,
+                    autocomplete: "off",
+                }
+                button {
+                    class: "skill-url-install__btn",
+                    disabled: install_url().trim().is_empty() || installing(),
+                    onclick: {
+                        let ws = ws_install.clone();
+                        move |_| {
+                            let ws = ws.clone();
+                            let url = install_url().trim().to_string();
+                            if url.is_empty() { return; }
+                            installing.set(true);
+                            install_status.set(None);
+                            spawn(async move {
+                                let result = ws.call::<serde_json::Value>(
+                                    "skills.install_url",
+                                    Some(json!({ "url": url })),
+                                ).await;
+                                installing.set(false);
+                                match result {
+                                    Ok(v) => {
+                                        let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
+                                        let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
+                                        install_status.set(Some((true, format!("{name}: {status}"))));
+                                        install_url.set(String::new());
+                                        refresh_tick += 1;
+                                    }
+                                    Err(e) => {
+                                        install_status.set(Some((false, format!("{e}"))));
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    if installing() { "Installing..." } else { "Install" }
+                }
+                {
+                    let ws_zip = ws.clone();
+                    rsx! {
+                        UploadZipButton {
+                            ws: ws_zip,
+                            installing: installing,
+                            install_status: install_status,
+                            on_installed: move |_| refresh_tick += 1,
                         }
                     }
                 }
-                if let Some((ok, ref msg)) = install_status() {
-                    span {
-                        class: if ok { "skill-url-install__msg skill-url-install__msg--ok" } else { "skill-url-install__msg skill-url-install__msg--err" },
-                        "{msg}"
-                    }
+                button {
+                    onclick: move |_| refresh_tick += 1,
+                    class: "{ACTION_BTN}",
+                    "Refresh"
+                }
+            }
+            if let Some((ok, ref msg)) = install_status() {
+                span {
+                    class: if ok { "skill-url-install__msg skill-url-install__msg--ok" } else { "skill-url-install__msg skill-url-install__msg--err" },
+                    "{msg}"
                 }
             }
 
             // Summary cards
-            div { style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px;",
+            div { class: "skills-stats-grid",
                 { stat_card("Installed", &installed_count.to_string()) }
                 { stat_card("Available", &available_count.to_string()) }
                 { stat_card("Enabled", &enabled_count.to_string()) }
@@ -309,11 +301,14 @@ pub fn Skills() -> Element {
             } else if filtered.is_empty() {
                 p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
             } else {
+                // Built-in skills (flat, no wrapper)
+                if !builtin.is_empty() {
+                    { render_skill_group(&builtin, ws.clone(), refresh_tick) }
+                }
                 // Collapsible groups with localStorage-persisted state
                 {
                     let groups: Vec<(&str, &Vec<&SkillDetail>, bool)> = vec![
                         ("Workspace", &workspace, true),
-                        ("Built-in", &builtin, true),
                         ("Installed", &installed_group, true),
                         ("Extra", &extra, false),
                         ("Other", &other, false),

@@ -3371,24 +3371,37 @@ select:focus-visible {
   border-radius: 4px;
 }
 
-/* Skill URL install */
-.skill-url-install {
-  margin-bottom: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* Skills toolbar */
+.skills-page {
+  width: 100%;
+  max-width: 960px;
+  padding: 24px;
+  box-sizing: border-box;
 }
 
-.skill-url-install__row {
+.skills-toolbar {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.skills-toolbar .search-input-wrap {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.skills-toolbar .search-input {
+  width: 100%;
+  min-width: 0;
 }
 
 .skill-url-install__input {
-  flex: 1;
-  min-width: 0;
-  max-width: 340px;
+  flex: 1.2 1 280px;
+  min-width: 220px;
+  max-width: none;
   height: 34px;
   padding: 0 10px;
   font-size: 13px;
@@ -3449,6 +3462,14 @@ select:focus-visible {
 
 .skill-url-install__msg--err {
   color: var(--danger);
+}
+
+.skills-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 24px;
 }
 
 /* Stat card (skills page) */
