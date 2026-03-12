@@ -2,8 +2,8 @@
 
 use super::*;
 
-impl Savfox {
-    /// Spawn a new [`Savfox`] and initialize the session.
+impl SessionHandle {
+    /// Spawn a new [`SessionHandle`] and initialize the session.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn spawn(
         mut config: Config,
@@ -14,7 +14,7 @@ impl Savfox {
         session_source: SessionSource,
         agent_control: AgentControl,
         dynamic_tools: Vec<DynamicToolSpec>,
-    ) -> SavfoxResult<SavfoxSpawnOk> {
+    ) -> SavfoxResult<SessionSpawnResult> {
         let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (tx_event, rx_event) = async_channel::unbounded();
 
@@ -132,7 +132,7 @@ impl Savfox {
             tool_access_policy: config.tool_access_policy.clone(),
         };
 
-        // Generate a unique ID for the lifetime of this Savfox session.
+        // Generate a unique ID for the lifetime of this session.
         let session_source_clone = session_configuration.session_source.clone();
         let (agent_status_tx, agent_status_rx) = watch::channel(AgentStatus::PendingInit);
 
@@ -164,7 +164,7 @@ impl Savfox {
             task_coordinator::submission_loop(Arc::clone(&session), config, rx_sub)
                 .instrument(session_loop_span),
         );
-        let savfox = Savfox {
+        let handle = SessionHandle {
             next_id: AtomicU64::new(0),
             tx_sub,
             rx_event,
@@ -172,7 +172,7 @@ impl Savfox {
             session,
         };
 
-        Ok(SavfoxSpawnOk { savfox, session_id })
+        Ok(SessionSpawnResult { handle, session_id })
     }
 }
 

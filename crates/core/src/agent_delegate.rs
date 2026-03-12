@@ -18,9 +18,11 @@ use crate::AuthManager;
 use crate::config::Config;
 use crate::error::SavfoxError;
 use crate::models_manager::manager::ModelsManager;
-use crate::savfox::{SUBMISSION_CHANNEL_CAPACITY, Savfox, SavfoxSpawnOk, Session, TurnContext};
+use crate::savfox::{
+    SUBMISSION_CHANNEL_CAPACITY, Session, SessionHandle, SessionSpawnResult, TurnContext,
+};
 
-/// Start an interactive sub-Savfox session and return IO channels.
+/// Start an interactive sub-agent session and return IO channels.
 ///
 /// The returned `events_rx` yields non-approval events emitted by the sub-agent.
 /// Approval requests are handled via `parent_session` and are not surfaced.
@@ -33,11 +35,11 @@ pub(crate) async fn run_savfox_session_interactive(
     parent_ctx: Arc<TurnContext>,
     cancel_token: CancellationToken,
     initial_history: Option<InitialHistory>,
-) -> Result<Savfox, SavfoxError> {
+) -> Result<SessionHandle, SavfoxError> {
     let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
     let (tx_ops, rx_ops) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
 
-    let SavfoxSpawnOk { savfox, .. } = Savfox::spawn(
+    let SessionSpawnResult { handle, .. } = SessionHandle::spawn(
         config,
         auth_manager,
         models_manager,
@@ -48,7 +50,7 @@ pub(crate) async fn run_savfox_session_interactive(
         Vec::new(),
     )
     .await?;
-    let savfox = Arc::new(savfox);
+    let handle = Arc::new(handle);
 
     // Use a child token so parent cancel cascades but we can scope it to this task
     let cancel_token_events = cancel_token.child_token();
@@ -58,10 +60,10 @@ pub(crate) async fn run_savfox_session_interactive(
     // routing them to the parent session for decisions.
     let parent_session_clone = Arc::clone(&parent_session);
     let parent_ctx_clone = Arc::clone(&parent_ctx);
-    let savfox_for_events = Arc::clone(&savfox);
+    let handle_for_events = Arc::clone(&handle);
     tokio::spawn(async move {
         forward_events(
-            savfox_for_events,
+            handle_for_events,
             tx_sub,
             parent_session_clone,
             parent_ctx_clone,
@@ -71,17 +73,17 @@ pub(crate) async fn run_savfox_session_interactive(
     });
 
     // Forward ops from the caller to the sub-agent.
-    let savfox_for_ops = Arc::clone(&savfox);
+    let handle_for_ops = Arc::clone(&handle);
     tokio::spawn(async move {
-        forward_ops(savfox_for_ops, rx_ops, cancel_token_ops).await;
+        forward_ops(handle_for_ops, rx_ops, cancel_token_ops).await;
     });
 
-    Ok(Savfox {
+    Ok(SessionHandle {
         next_id: AtomicU64::new(0),
         tx_sub: tx_ops,
         rx_event: rx_sub,
-        agent_status: savfox.agent_status.clone(),
-        session: Arc::clone(&savfox.session),
+        agent_status: handle.agent_status.clone(),
+        session: Arc::clone(&handle.session),
     })
 }
 
@@ -98,7 +100,7 @@ pub(crate) async fn run_savfox_session_one_shot(
     parent_ctx: Arc<TurnContext>,
     cancel_token: CancellationToken,
     initial_history: Option<InitialHistory>,
-) -> Result<Savfox, SavfoxError> {
+) -> Result<SessionHandle, SavfoxError> {
     // Use a child token so we can stop the delegate after completion without
     // requiring the caller to cancel the parent token.
     let child_cancel = cancel_token.child_token();
@@ -152,7 +154,7 @@ pub(crate) async fn run_savfox_session_one_shot(
     let (tx_closed, rx_closed) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
     drop(rx_closed);
 
-    Ok(Savfox {
+    Ok(SessionHandle {
         next_id: AtomicU64::new(0),
         rx_event: rx_channel,
         tx_sub: tx_closed,
@@ -162,7 +164,7 @@ pub(crate) async fn run_savfox_session_one_shot(
 }
 
 async fn forward_events(
-    savfox: Arc<Savfox>,
+    handle: Arc<SessionHandle>,
     tx_sub: Sender<Event>,
     parent_session: Arc<Session>,
     parent_ctx: Arc<TurnContext>,
@@ -174,10 +176,10 @@ async fn forward_events(
     loop {
         tokio::select! {
             _ = &mut cancelled => {
-                shutdown_delegate(&savfox).await;
+                shutdown_delegate(&handle).await;
                 break;
             }
-            event = savfox.next_event() => {
+            event = handle.next_event() => {
                 let event = match event {
                     Ok(event) => event,
                     Err(_) => break,
@@ -206,7 +208,7 @@ async fn forward_events(
                     } => {
                         // Initiate approval via parent session; do not surface to consumer.
                         handle_exec_approval(
-                            &savfox,
+                            &handle,
                             id,
                             &parent_session,
                             &parent_ctx,
@@ -220,7 +222,7 @@ async fn forward_events(
                         msg: EventMsg::ApplyPatchApprovalRequest(event),
                     } => {
                         handle_patch_approval(
-                            &savfox,
+                            &handle,
                             id,
                             &parent_session,
                             &parent_ctx,
@@ -234,7 +236,7 @@ async fn forward_events(
                         msg: EventMsg::RequestUserInput(event),
                     } => {
                         handle_request_user_input(
-                            &savfox,
+                            &handle,
                             id,
                             &parent_session,
                             &parent_ctx,
@@ -247,7 +249,7 @@ async fn forward_events(
                         match tx_sub.send(other).or_cancel(&cancel_token).await {
                             Ok(Ok(())) => {}
                             _ => {
-                                shutdown_delegate(&savfox).await;
+                                shutdown_delegate(&handle).await;
                                 break;
                             }
                         }
@@ -259,12 +261,12 @@ async fn forward_events(
 }
 
 /// Ask the delegate to stop and drain its events so background sends do not hit a closed channel.
-async fn shutdown_delegate(savfox: &Savfox) {
-    let _ = savfox.submit(Op::Interrupt).await;
-    let _ = savfox.submit(Op::Shutdown {}).await;
+async fn shutdown_delegate(handle: &SessionHandle) {
+    let _ = handle.submit(Op::Interrupt).await;
+    let _ = handle.submit(Op::Shutdown {}).await;
 
     let _ = timeout(Duration::from_millis(500), async {
-        while let Ok(event) = savfox.next_event().await {
+        while let Ok(event) = handle.next_event().await {
             if matches!(
                 event.msg,
                 EventMsg::TurnAborted(_) | EventMsg::TurnComplete(_)
@@ -278,7 +280,7 @@ async fn shutdown_delegate(savfox: &Savfox) {
 
 /// Forward ops from a caller to a sub-agent, respecting cancellation.
 async fn forward_ops(
-    savfox: Arc<Savfox>,
+    handle: Arc<SessionHandle>,
     rx_ops: Receiver<Submission>,
     cancel_token_ops: CancellationToken,
 ) {
@@ -287,13 +289,13 @@ async fn forward_ops(
             Ok(Ok(Submission { id: _, op })) => op,
             Ok(Err(_)) | Err(_) => break,
         };
-        let _ = savfox.submit(op).await;
+        let _ = handle.submit(op).await;
     }
 }
 
 /// Handle an ExecApprovalRequest by consulting the parent session and replying.
 async fn handle_exec_approval(
-    savfox: &Savfox,
+    handle: &SessionHandle,
     id: String,
     parent_session: &Session,
     parent_ctx: &TurnContext,
@@ -317,12 +319,12 @@ async fn handle_exec_approval(
     )
     .await;
 
-    let _ = savfox.submit(Op::ExecApproval { id, decision }).await;
+    let _ = handle.submit(Op::ExecApproval { id, decision }).await;
 }
 
 /// Handle an ApplyPatchApprovalRequest by consulting the parent session and replying.
 async fn handle_patch_approval(
-    savfox: &Savfox,
+    handle: &SessionHandle,
     id: String,
     parent_session: &Session,
     parent_ctx: &TurnContext,
@@ -345,11 +347,11 @@ async fn handle_patch_approval(
         cancel_token,
     )
     .await;
-    let _ = savfox.submit(Op::PatchApproval { id, decision }).await;
+    let _ = handle.submit(Op::PatchApproval { id, decision }).await;
 }
 
 async fn handle_request_user_input(
-    savfox: &Savfox,
+    handle: &SessionHandle,
     id: String,
     parent_session: &Session,
     parent_ctx: &TurnContext,
@@ -368,7 +370,7 @@ async fn handle_request_user_input(
         cancel_token,
     )
     .await;
-    let _ = savfox.submit(Op::UserInputAnswer { id, response }).await;
+    let _ = handle.submit(Op::UserInputAnswer { id, response }).await;
 }
 
 async fn await_user_input_with_cancel<F>(
@@ -439,7 +441,7 @@ mod tests {
         let (tx_sub, rx_sub) = bounded(SUBMISSION_CHANNEL_CAPACITY);
         let (_agent_status_tx, agent_status) = watch::channel(AgentStatus::PendingInit);
         let (session, ctx, _rx_evt) = crate::savfox::make_session_and_context_with_rx().await;
-        let savfox = Arc::new(Savfox {
+        let handle = Arc::new(SessionHandle {
             next_id: AtomicU64::new(0),
             tx_sub,
             rx_event: rx_events,
@@ -460,7 +462,7 @@ mod tests {
 
         let cancel = CancellationToken::new();
         let forward = tokio::spawn(forward_events(
-            Arc::clone(&savfox),
+            Arc::clone(&handle),
             tx_out.clone(),
             session,
             ctx,

@@ -24,7 +24,7 @@ use crate::error::{Result as SavfoxResult, SavfoxError};
 use crate::models_manager::manager::ModelsManager;
 use crate::protocol::{Event, EventMsg, SessionConfiguredEvent};
 use crate::rollout::{RolloutRecorder, truncation};
-use crate::savfox::{INITIAL_SUBMIT_ID, Savfox, SavfoxSpawnOk};
+use crate::savfox::{INITIAL_SUBMIT_ID, SessionHandle, SessionSpawnResult};
 use crate::savfox_session::SavfoxSession;
 use crate::skills::SkillsManager;
 
@@ -379,9 +379,9 @@ impl SessionManagerState {
         session_source: SessionSource,
         dynamic_tools: Vec<savfox_protocol::dynamic_tools::DynamicToolSpec>,
     ) -> SavfoxResult<NewSession> {
-        let SavfoxSpawnOk {
-            savfox, session_id, ..
-        } = Savfox::spawn(
+        let SessionSpawnResult {
+            handle, session_id, ..
+        } = SessionHandle::spawn(
             config,
             auth_manager,
             Arc::clone(&self.models_manager),
@@ -392,15 +392,15 @@ impl SessionManagerState {
             dynamic_tools,
         )
         .await?;
-        self.finalize_session_spawn(savfox, session_id).await
+        self.finalize_session_spawn(handle, session_id).await
     }
 
     async fn finalize_session_spawn(
         &self,
-        savfox: Savfox,
+        handle: SessionHandle,
         session_id: SessionId,
     ) -> SavfoxResult<NewSession> {
-        let event = savfox.next_event().await?;
+        let event = handle.next_event().await?;
         let session_configured = match event {
             Event {
                 id,
@@ -412,7 +412,7 @@ impl SessionManagerState {
         };
 
         let session = Arc::new(SavfoxSession::new(
-            savfox,
+            handle,
             session_configured.rollout_path.clone(),
         ));
         let mut sessions = self.sessions.write().await;

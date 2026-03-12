@@ -136,9 +136,9 @@ mod tool_orchestrator;
 pub(crate) use task_coordinator::spawn_review_session;
 pub(crate) use tool_orchestrator::{get_last_assistant_message_from_turn, run_turn};
 
-/// The high-level interface to the Savfox system.
-/// It operates as a queue pair where you send submissions and receive events.
-pub struct Savfox {
+/// Handle for interacting with a running agent session.
+/// Operates as a queue pair: send submissions and receive events.
+pub struct SessionHandle {
     pub(crate) next_id: AtomicU64,
     pub(crate) tx_sub: Sender<Submission>,
     pub(crate) rx_event: Receiver<Event>,
@@ -147,11 +147,10 @@ pub struct Savfox {
     pub(crate) session: Arc<Session>,
 }
 
-/// Wrapper returned by [`Savfox::spawn`] containing the spawned [`Savfox`],
-/// the submission id for the initial `ConfigureSession` request and the
-/// unique session id.
-pub struct SavfoxSpawnOk {
-    pub savfox: Savfox,
+/// Result of [`SessionHandle::spawn`] containing the spawned handle and
+/// the unique session id.
+pub struct SessionSpawnResult {
+    pub handle: SessionHandle,
     pub session_id: SessionId,
 }
 
@@ -182,7 +181,7 @@ fn maybe_push_chat_wire_api_deprecation(
     // });
 }
 
-impl Savfox {
+impl SessionHandle {
     /// Submit the `op` wrapped in a `Submission` with a unique ID.
     pub async fn submit(&self, op: Op) -> SavfoxResult<String> {
         let id = self
@@ -194,7 +193,7 @@ impl Savfox {
         Ok(id)
     }
 
-    /// Use sparingly: prefer `submit()` so Savfox is responsible for generating
+    /// Use sparingly: prefer `submit()` so the session handle is responsible for generating
     /// unique IDs for each submission.
     pub async fn submit_with_id(&self, sub: Submission) -> SavfoxResult<()> {
         self.tx_sub
