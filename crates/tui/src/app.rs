@@ -2845,6 +2845,7 @@ impl App {
                 path: None,
                 registry: None,
                 checksum: None,
+                subdir: None,
             },
             installed: false,
             installed_version: None,

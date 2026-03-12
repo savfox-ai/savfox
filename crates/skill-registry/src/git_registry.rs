@@ -118,6 +118,7 @@ impl GitRegistry {
                     "clone",
                     "--depth",
                     "1",
+                    "--single-branch",
                     &git_url,
                     &target.to_string_lossy(),
                 ])

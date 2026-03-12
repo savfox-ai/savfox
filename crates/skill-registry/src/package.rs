@@ -94,6 +94,11 @@ pub struct SkillSource {
     pub path: Option<PathBuf>,
     pub registry: Option<String>,
     pub checksum: Option<String>,
+    /// Sub-directory within the repository that contains the skill.
+    /// When set (and not `.` or `./`), a sparse checkout is used so only
+    /// this directory is materialised on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

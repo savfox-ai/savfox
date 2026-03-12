@@ -338,6 +338,15 @@ impl SkillInstaller {
         let package_version = package.manifest.version.to_string();
         let manifest = package.manifest.clone();
 
+        // Determine if we need a sparse checkout (subdir is set and meaningful).
+        let subdir = package
+            .source
+            .subdir
+            .as_deref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && *s != "." && *s != "./");
+        let subdir_owned = subdir.map(|s| s.to_string());
+
         let result = tokio::task::spawn_blocking(move || {
             if install_path.exists() {
                 if let Err(err) = std::fs::remove_dir_all(&install_path) {
@@ -351,18 +360,16 @@ impl SkillInstaller {
                 }
             }
 
-            let output = std::process::Command::new("git")
-                .args([
-                    "clone",
-                    "--depth",
-                    "1",
-                    &url,
-                    &install_path.to_string_lossy(),
-                ])
-                .output();
+            let clone_result = if let Some(ref subdir) = subdir_owned {
+                // Sparse checkout: only materialise the target sub-directory.
+                git_sparse_clone(&url, &install_path, subdir)
+            } else {
+                // Full shallow clone.
+                git_shallow_clone(&url, &install_path)
+            };
 
-            match output {
-                Ok(o) if o.status.success() => {
+            match clone_result {
+                Ok(()) => {
                     let manifest_path = install_path.join(".savfox-manifest.json");
                     if let Ok(json) = serde_json::to_string_pretty(&manifest) {
                         let _ = std::fs::write(&manifest_path, json);
@@ -375,19 +382,12 @@ impl SkillInstaller {
                         error: None,
                     }
                 }
-                Ok(o) => InstallResult {
-                    success: false,
-                    name: package_name,
-                    version: package_version,
-                    install_path: install_path.clone(),
-                    error: Some(String::from_utf8_lossy(&o.stderr).to_string()),
-                },
                 Err(err) => InstallResult {
                     success: false,
                     name: package_name,
                     version: package_version,
                     install_path: install_path.clone(),
-                    error: Some(format!("failed to run git: {err}")),
+                    error: Some(err),
                 },
             }
         })
@@ -592,4 +592,70 @@ impl SkillInstaller {
             let _ = tx.send(progress).await;
         }
     }
+}
+
+// ── Git clone helpers ────────────────────────────────────────────────────────
+
+/// Shallow clone a repository (single branch, depth 1).
+fn git_shallow_clone(url: &str, dest: &Path) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--single-branch",
+            url,
+            &dest.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+/// Shallow-clone a repository with sparse checkout so only `subdir` is
+/// materialised on disk.
+///
+/// Steps:
+/// 1. `git clone --depth 1 --single-branch --filter=blob:none --sparse <url> <dest>`
+/// 2. `git sparse-checkout set <subdir>`   (inside the clone)
+fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> {
+    // Step 1 — clone with sparse checkout enabled and blobs filtered out.
+    let output = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--single-branch",
+            "--filter=blob:none",
+            "--sparse",
+            url,
+            &dest.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run git: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    // Step 2 — narrow the checkout to only the requested sub-directory.
+    let output = std::process::Command::new("git")
+        .args(["sparse-checkout", "set", subdir])
+        .current_dir(dest)
+        .output()
+        .map_err(|e| format!("failed to run git sparse-checkout: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git sparse-checkout set failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(())
 }
