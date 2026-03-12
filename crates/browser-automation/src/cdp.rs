@@ -165,17 +165,18 @@ struct CdpResponse {
     params: Option<Value>,
     #[serde(default)]
     result: Option<Value>,
-    // #[serde(default)]
-    // error: Option<CdpError>,
+    #[serde(default)]
+    error: Option<CdpError>,
 }
 
-// #[derive(Debug, Deserialize)]
-// struct CdpError {
-//     #[serde(default)]
-//     code: i64,
-//     #[serde(default)]
-//     message: String,
-// }
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct CdpError {
+    #[serde(default)]
+    code: i64,
+    #[serde(default)]
+    message: String,
+}
 
 pub async fn discover_websocket_url(port: u16) -> Result<String> {
     let http = HttpClient::new();

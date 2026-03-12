@@ -626,8 +626,8 @@ const MODELS_STYLES: &str = r#"
     }
 
     .models-toggle--on {
-        background: color-mix(in srgb, var(--text-primary) 16%, var(--bg-hover) 84%);
-        border-color: color-mix(in srgb, var(--text-primary) 38%, var(--border) 62%);
+        background: var(--accent);
+        border-color: var(--accent);
     }
 
     .models-toggle--on .models-toggle__thumb {
