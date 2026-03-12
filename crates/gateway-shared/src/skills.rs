@@ -27,6 +27,14 @@ pub struct SkillsStatusResponse {
 #[derive(Debug, Deserialize)]
 pub struct SkillsBinsResponse {
     pub bins: Vec<SkillEntry>,
+    #[serde(default)]
+    pub page: Option<u64>,
+    #[serde(default)]
+    pub page_size: Option<u64>,
+    #[serde(default)]
+    pub total: Option<u64>,
+    #[serde(default)]
+    pub total_pages: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

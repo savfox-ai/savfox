@@ -18,6 +18,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod agent_routing;
 mod approval_policy_store;
+mod cached_db;
 pub mod audit;
 pub mod auth;
 pub mod auto_reply;

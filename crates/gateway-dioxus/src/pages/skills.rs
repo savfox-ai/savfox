@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use base64::Engine;
 use dioxus::prelude::*;
@@ -9,12 +9,18 @@ use wasm_bindgen::prelude::*;
 use crate::api::types::{SkillDetail, SkillsBinsResponse, SkillsStatusResponse};
 use crate::api::ws::WsRpc;
 use crate::components::chip::{Chip, ChipVariant};
-use crate::components::collapsible_group::CollapsibleGroup;
+use crate::components::pagination::Pagination;
 use crate::components::search_input::SearchInput;
 use crate::components::skeleton::*;
 use crate::components::toggle_switch::ToggleSwitch;
 
-const COLLAPSED_STORAGE_KEY: &str = "savfox_skills_collapsed";
+const CATEGORIES: &[(&str, &str)] = &[
+    ("", "All"),
+    ("workspace", "Workspace"),
+    ("built-in", "Built-in"),
+    ("installed", "Installed"),
+    ("extra", "Extra"),
+];
 
 #[component]
 pub fn Skills() -> Element {
@@ -22,23 +28,16 @@ pub fn Skills() -> Element {
     let ws_connected = use_context::<Signal<bool>>();
     let mut refresh_tick = use_signal(|| 0u32);
     let mut search_query = use_signal(String::new);
+    let mut active_category = use_signal(String::new);
+    let mut current_page = use_signal(|| 1usize);
 
-    // T081: Collapse state persisted to localStorage
-    let mut collapsed_groups: Signal<HashSet<String>> = use_signal(HashSet::new);
-
-    // Load collapsed state from localStorage on mount
-    use_effect(move || {
-        let doc = web_sys::window()
-            .and_then(|w| w.local_storage().ok())
-            .flatten();
-        if let Some(storage) = doc {
-            if let Ok(Some(raw)) = storage.get_item(COLLAPSED_STORAGE_KEY) {
-                if let Ok(names) = serde_json::from_str::<Vec<String>>(&raw) {
-                    collapsed_groups.set(names.into_iter().collect());
-                }
-            }
-        }
-    });
+    // Debounce: when search changes, reset to page 1
+    let mut last_search = use_signal(String::new);
+    let query = search_query();
+    if query != last_search() {
+        last_search.set(query.clone());
+        current_page.set(1);
+    }
 
     let ws_status = ws.clone();
     let status_data = use_resource(move || {
@@ -56,98 +55,62 @@ pub fn Skills() -> Element {
     let bins_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
+        let page = current_page();
+        let category = active_category();
+        let search = search_query();
         let ws = ws_bins.clone();
         async move {
-            ws.call::<SkillsBinsResponse>("skills.bins", None)
+            let mut params = json!({ "page": page, "page_size": 50 });
+            if !category.is_empty() {
+                params["category"] = json!(category);
+            }
+            if !search.is_empty() {
+                params["search"] = json!(search);
+            }
+            ws.call::<SkillsBinsResponse>("skills.bins", Some(params))
                 .await
-                .map(|r| {
-                    // Try to deserialize as SkillDetail for richer data
-                    serde_json::from_value::<Vec<SkillDetail>>(
-                        serde_json::to_value(&r.bins).unwrap_or_default(),
-                    )
-                    .unwrap_or_else(|_| {
-                        r.bins
-                            .into_iter()
-                            .map(|b| SkillDetail {
-                                name: b.name,
-                                version: b.version,
-                                installed: b.installed,
-                                category: b.category,
-                                eligible: b.eligible,
-                                missing_deps: b.missing_deps,
-                                primary_env: b.primary_env,
-                                env_set: b.env_set,
-                                enabled: b.enabled.or(b.installed),
-                                description: b.description,
-                                disabled_reason: b.disabled_reason,
-                                allowlist_blocked: b.allowlist_blocked,
-                                flock: b.flock,
-                            })
-                            .collect()
-                    })
-                })
-                .unwrap_or_default()
+                .ok()
         }
     });
 
     let status_read = status_data.read();
     let status = status_read.as_ref().and_then(|s| s.as_ref());
-    let all_skills: Vec<SkillDetail> = bins_data.read().as_ref().cloned().unwrap_or_default();
+    let bins_read = bins_data.read();
+    let bins_resp = bins_read.as_ref().and_then(|r| r.as_ref());
     let is_loading = bins_data.read().is_none();
 
-    // Filter by search
-    let query = search_query().to_lowercase();
-    let filtered: Vec<SkillDetail> = if query.is_empty() {
-        all_skills.clone()
-    } else {
-        all_skills
-            .iter()
-            .filter(|s| {
-                s.name.to_lowercase().contains(&query)
-                    || s.description
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
-                    || s.category
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&query)
+    let all_skills: Vec<SkillDetail> = bins_resp
+        .map(|r| {
+            serde_json::from_value::<Vec<SkillDetail>>(
+                serde_json::to_value(&r.bins).unwrap_or_default(),
+            )
+            .unwrap_or_else(|_| {
+                r.bins
+                    .iter()
+                    .map(|b| SkillDetail {
+                        name: b.name.clone(),
+                        version: b.version.clone(),
+                        installed: b.installed,
+                        category: b.category.clone(),
+                        eligible: b.eligible,
+                        missing_deps: b.missing_deps.clone(),
+                        primary_env: b.primary_env.clone(),
+                        env_set: b.env_set,
+                        enabled: b.enabled.or(b.installed),
+                        description: b.description.clone(),
+                        disabled_reason: b.disabled_reason.clone(),
+                        allowlist_blocked: b.allowlist_blocked,
+                        flock: b.flock.clone(),
+                    })
+                    .collect()
             })
-            .cloned()
-            .collect()
-    };
+        })
+        .unwrap_or_default();
 
-    // Group by category
-    let workspace: Vec<&SkillDetail> = filtered
-        .iter()
-        .filter(|s| s.category.as_deref() == Some("workspace"))
-        .collect();
-    let builtin: Vec<&SkillDetail> = filtered
-        .iter()
-        .filter(|s| s.category.as_deref() == Some("built-in"))
-        .collect();
-    let installed_group: Vec<&SkillDetail> = filtered
-        .iter()
-        .filter(|s| {
-            s.category.as_deref() == Some("installed")
-                || (s.installed == Some(true) && s.category.is_none())
-        })
-        .collect();
-    let extra: Vec<&SkillDetail> = filtered
-        .iter()
-        .filter(|s| s.category.as_deref() == Some("extra"))
-        .collect();
-    let other: Vec<&SkillDetail> = filtered
-        .iter()
-        .filter(|s| {
-            !matches!(
-                s.category.as_deref(),
-                Some("workspace") | Some("built-in") | Some("installed") | Some("extra")
-            ) && s.installed != Some(true)
-        })
-        .collect();
+    let total_pages = bins_resp
+        .and_then(|r| r.total_pages)
+        .unwrap_or(1) as usize;
+    let total = bins_resp.and_then(|r| r.total).unwrap_or(0);
 
     // Summary stats
     let installed_count = status.and_then(|s| s.installed_count).unwrap_or_else(|| {
@@ -167,10 +130,10 @@ pub fn Skills() -> Element {
         .iter()
         .filter(|s| s.eligible == Some(false))
         .count();
-    let match_count = if query.is_empty() {
+    let match_count = if search_query().is_empty() {
         None
     } else {
-        Some(filtered.len())
+        Some(total as usize)
     };
 
     let mut install_url = use_signal(String::new);
@@ -179,7 +142,7 @@ pub fn Skills() -> Element {
     let ws_install = ws.clone();
 
     rsx! {
-        div { class: "skills-page",
+        div { class: "page-content skills-page",
             // Toolbar: Title, Search, Install URL, Install btn, Upload ZIP, Refresh
             div { class: "skills-toolbar",
                 h2 { style: "font-size:20px;font-weight:600;white-space:nowrap;margin:0;", "Skills" }
@@ -293,74 +256,54 @@ pub fn Skills() -> Element {
                 { stat_card("Blocked", &blocked_count.to_string()) }
             }
 
-            if is_loading {
-                SkeletonLines { count: 4 }
-            } else if filtered.is_empty() {
-                p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
-            } else {
-                // Collapsible groups with localStorage-persisted state
-                {
-                    let groups: Vec<(&str, &Vec<&SkillDetail>, bool)> = vec![
-                        ("Workspace", &workspace, true),
-                        ("Built-in", &builtin, true),
-                        ("Installed", &installed_group, true),
-                        ("Extra", &extra, false),
-                        ("Other", &other, false),
-                    ];
-                    rsx! {
-                        for (title, skills, default_open) in groups.into_iter() {
-                            if !skills.is_empty() {
-                                {
-                                    let title_str = title.to_string();
-                                    let collapsed = collapsed_groups();
-                                    let is_open = if collapsed.is_empty() {
-                                        default_open
-                                    } else {
-                                        !collapsed.contains(title)
-                                    };
-                                    let title_for_toggle = title_str.clone();
-                                    rsx! {
-                                        CollapsibleGroup {
-                                            title: title_str,
-                                            count: skills.len(),
-                                            is_open: is_open,
-                                            on_toggle: move |open: bool| {
-                                                let mut current = collapsed_groups();
-                                                if open {
-                                                    current.remove(title_for_toggle.as_str());
-                                                } else {
-                                                    current.insert(title_for_toggle.clone());
-                                                }
-                                                // Persist to localStorage
-                                                let names: Vec<&str> = current.iter().map(|s| s.as_str()).collect();
-                                                if let Some(storage) = web_sys::window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                {
-                                                    let _ = storage.set_item(
-                                                        COLLAPSED_STORAGE_KEY,
-                                                        &serde_json::to_string(&names).unwrap_or_default(),
-                                                    );
-                                                }
-                                                collapsed_groups.set(current);
-                                            },
-                                            { render_skill_group(skills, ws.clone(), refresh_tick) }
-                                        }
-                                    }
-                                }
+            // Category filter chips
+            div { class: "skills-category-filters",
+                for (value, label) in CATEGORIES.iter() {
+                    {
+                        let is_active = active_category() == *value;
+                        let cls = if is_active {
+                            "skills-category-chip skills-category-chip--active"
+                        } else {
+                            "skills-category-chip"
+                        };
+                        let val = value.to_string();
+                        rsx! {
+                            button {
+                                key: "{value}",
+                                class: "{cls}",
+                                onclick: move |_| {
+                                    active_category.set(val.clone());
+                                    current_page.set(1);
+                                },
+                                "{label}"
                             }
                         }
                     }
+                }
+            }
+
+            if is_loading {
+                SkeletonLines { count: 4 }
+            } else if all_skills.is_empty() {
+                p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
+            } else {
+                { render_skill_list(&all_skills, ws.clone(), refresh_tick) }
+
+                // Pagination controls
+                Pagination {
+                    current_page: current_page(),
+                    total_pages: total_pages,
+                    on_page: move |page: usize| current_page.set(page),
                 }
             }
         }
     }
 }
 
-fn render_skill_group(
-    skills: &[&SkillDetail],
+fn render_skill_list(
+    skills: &[SkillDetail],
     ws: WsRpc,
-    mut refresh_tick: Signal<u32>,
+    refresh_tick: Signal<u32>,
 ) -> Element {
     // Separate skills by flock for sub-grouping.
     let mut no_flock: Vec<&SkillDetail> = Vec::new();

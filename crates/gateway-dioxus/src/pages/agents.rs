@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
     AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentsResponse, ModelInfo,
-    ModelsResponse, SkillDetail, SkillsBinsResponse,
+    ModelsResponse, SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::empty_state::EmptyState;
@@ -450,21 +450,16 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
         }
     });
 
-    // Fetch skills count
+    // Fetch skills count via lightweight status endpoint instead of loading all bins
     let ws_skills_count = ws.clone();
     let skills_count_data = use_resource(move || {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_skills_count.clone();
         async move {
-            ws.call::<SkillsBinsResponse>("skills.bins", None)
+            ws.call::<SkillsStatusResponse>("skills.status", None)
                 .await
-                .map(|r| {
-                    r.bins
-                        .iter()
-                        .filter(|b| b.installed.unwrap_or(false))
-                        .count()
-                })
+                .map(|r| r.installed_count.unwrap_or(0) as usize)
                 .unwrap_or(0)
         }
     });

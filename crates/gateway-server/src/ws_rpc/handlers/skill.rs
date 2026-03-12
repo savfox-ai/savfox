@@ -103,8 +103,8 @@ pub(crate) async fn handle_skills_status(channel: &Arc<GatewayChannel>) -> RpcRe
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-pub(crate) async fn handle_skills_bins(channel: &Arc<GatewayChannel>) -> RpcResult {
-    skills_store::bins(&channel.config().savfox_home)
+pub(crate) async fn handle_skills_bins(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
+    skills_store::bins(&channel.config().savfox_home, Some(params))
         .await
         .map_err(|err| (INTERNAL_ERROR, err))
 }
@@ -183,6 +183,7 @@ pub(crate) async fn handle_skills_install_url(
             path: None,
             registry: None,
             checksum: None,
+            subdir: params.get("subdir").and_then(|v| v.as_str()).map(|s| s.to_string()),
         },
         installed: false,
         installed_version: None,
@@ -197,7 +198,7 @@ pub(crate) async fn handle_skills_install_url(
     if result.success {
         // Rescan to discover new skills and persist their state.
         let savfox_home = &channel.config().savfox_home;
-        let bins_val = skills_store::bins(savfox_home)
+        let bins_val = skills_store::bins(savfox_home, None)
             .await
             .unwrap_or_else(|_| json!({ "bins": [] }));
         let new_skills: Vec<&Value> = bins_val
@@ -264,7 +265,7 @@ pub(crate) async fn handle_skills_install_zip(
 
     // Rescan to discover new skills and persist their state.
     let savfox_home = &channel.config().savfox_home;
-    let bins_val = skills_store::bins(savfox_home)
+    let bins_val = skills_store::bins(savfox_home, None)
         .await
         .unwrap_or_else(|_| json!({ "bins": [] }));
     let auto_disabled = bins_val

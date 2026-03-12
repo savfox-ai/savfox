@@ -239,7 +239,7 @@ pub(crate) async fn dispatch_rpc(
 
         // ── Skills ──────────────────────────────────────────────────────
         "skills.status" => handle_skills_status(channel).await,
-        "skills.bins" => handle_skills_bins(channel).await,
+        "skills.bins" => handle_skills_bins(&params, channel).await,
         "skills.update" => handle_skills_update(&params, channel).await,
         "skills.setEnv" => handle_skills_set_env(&params, channel).await,
         "skills.install_url" => handle_skills_install_url(&params, channel).await,
