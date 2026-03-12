@@ -188,7 +188,7 @@ pub fn build_provider_catalog(models: &[ModelInfo]) -> ProviderCatalog {
             .entry(account_id.clone())
             .or_insert_with(|| ProviderItem {
                 id: account_id.clone(),
-                name: display_name,
+                name: display_name.clone(),
                 account_slug: account_slug.clone(),
                 source: "custom".to_string(),
                 env: vec![],
@@ -196,6 +196,12 @@ pub fn build_provider_catalog(models: &[ModelInfo]) -> ProviderCatalog {
                 options: HashMap::new(),
                 models: BTreeMap::new(),
             });
+        // Pre-populated known-provider entries have empty account_slug / generic
+        // name.  Update them with the richer data from the model config file.
+        if provider.account_slug.is_empty() && !account_slug.is_empty() {
+            provider.account_slug = account_slug.clone();
+            provider.name = display_name;
+        }
 
         let model_id = normalize_model_id(model, &account_id);
         let model_name = model

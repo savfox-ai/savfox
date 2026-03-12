@@ -169,9 +169,14 @@ pub fn Skills() -> Element {
         Some(filtered.len())
     };
 
+    let mut install_url = use_signal(String::new);
+    let mut install_status = use_signal(|| Option::<(bool, String)>::None);
+    let mut installing = use_signal(|| false);
+    let ws_install = ws.clone();
+
     rsx! {
         div { style: "padding:24px;max-width:960px;",
-            div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;",
+            div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;",
                 h2 { style: "font-size:20px;font-weight:600;", "Skills" }
                 div { style: "display:flex;gap:8px;align-items:center;",
                     SearchInput {
@@ -184,6 +189,94 @@ pub fn Skills() -> Element {
                         onclick: move |_| refresh_tick += 1,
                         class: "{ACTION_BTN}",
                         "Refresh"
+                    }
+                }
+            }
+
+            // Install from URL
+            div { class: "skill-url-install",
+                div { class: "skill-url-install__row",
+                    input {
+                        class: "skill-url-install__input",
+                        r#type: "text",
+                        placeholder: "Git URL or skill URL to install...",
+                        value: "{install_url}",
+                        oninput: move |e: Event<FormData>| {
+                            install_url.set(e.value());
+                            install_status.set(None);
+                        },
+                        onkeydown: {
+                            let ws = ws_install.clone();
+                            move |e: Event<KeyboardData>| {
+                                if e.key() == Key::Enter && !install_url().trim().is_empty() && !installing() {
+                                    let ws = ws.clone();
+                                    let url = install_url().trim().to_string();
+                                    installing.set(true);
+                                    install_status.set(None);
+                                    spawn(async move {
+                                        let result = ws.call::<serde_json::Value>(
+                                            "skills.install_url",
+                                            Some(json!({ "url": url })),
+                                        ).await;
+                                        installing.set(false);
+                                        match result {
+                                            Ok(v) => {
+                                                let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
+                                                let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
+                                                install_status.set(Some((true, format!("{name}: {status}"))));
+                                                install_url.set(String::new());
+                                                refresh_tick += 1;
+                                            }
+                                            Err(e) => {
+                                                install_status.set(Some((false, format!("{e}"))));
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        },
+                        spellcheck: false,
+                        autocomplete: "off",
+                    }
+                    button {
+                        class: "skill-url-install__btn",
+                        disabled: install_url().trim().is_empty() || installing(),
+                        onclick: {
+                            let ws = ws_install.clone();
+                            move |_| {
+                                let ws = ws.clone();
+                                let url = install_url().trim().to_string();
+                                if url.is_empty() { return; }
+                                installing.set(true);
+                                install_status.set(None);
+                                spawn(async move {
+                                    let result = ws.call::<serde_json::Value>(
+                                        "skills.install_url",
+                                        Some(json!({ "url": url })),
+                                    ).await;
+                                    installing.set(false);
+                                    match result {
+                                        Ok(v) => {
+                                            let name = v.get("name").and_then(|v| v.as_str()).unwrap_or("skill");
+                                            let status = v.get("status").and_then(|v| v.as_str()).unwrap_or("done");
+                                            install_status.set(Some((true, format!("{name}: {status}"))));
+                                            install_url.set(String::new());
+                                            refresh_tick += 1;
+                                        }
+                                        Err(e) => {
+                                            install_status.set(Some((false, format!("{e}"))));
+                                        }
+                                    }
+                                });
+                            }
+                        },
+                        if installing() { "Installing..." } else { "Install" }
+                    }
+                }
+                if let Some((ok, ref msg)) = install_status() {
+                    span {
+                        class: if ok { "skill-url-install__msg skill-url-install__msg--ok" } else { "skill-url-install__msg skill-url-install__msg--err" },
+                        "{msg}"
                     }
                 }
             }

@@ -35,6 +35,7 @@ savfox-common = { workspace = true, features = [
     "sandbox_summary",
 ] }
 savfox-core = { workspace = true }
+savfox-skill-registry = { workspace = true }
 savfox-feedback = { workspace = true }
 savfox-file-search = { workspace = true }
 savfox-login-oauth = { workspace = true }

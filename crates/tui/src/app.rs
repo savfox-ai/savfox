@@ -37,6 +37,8 @@ use savfox_login_oauth::{
 };
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
+use savfox_skill_registry::package::SkillSourceType;
+use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 use savfox_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use savfox_protocol::config_types::WindowsSandboxLevel;
@@ -2575,6 +2577,12 @@ impl App {
             AppEvent::OpenManageSkillsPopup => {
                 self.chat_screen.open_manage_skills_popup();
             }
+            AppEvent::OpenInstallSkillFromUrl => {
+                self.chat_screen.open_install_skill_from_url();
+            }
+            AppEvent::InstallSkillFromUrl { url } => {
+                self.install_skill_from_url(url).await;
+            }
             AppEvent::SetSkillEnabled { path, enabled } => {
                 let edits = [ConfigEdit::SetSkillConfig {
                     path: path.clone(),
@@ -2805,6 +2813,62 @@ impl App {
         match personality {
             Personality::Friendly => "Friendly",
             Personality::Pragmatic => "Pragmatic",
+        }
+    }
+
+    async fn install_skill_from_url(&mut self, url: String) {
+        let name = url
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .rsplit('/')
+            .next()
+            .unwrap_or("skill")
+            .to_string();
+
+        if name.is_empty() || name == "." || name == ".." {
+            self.chat_screen
+                .add_error_message("Could not derive skill name from URL.".to_string());
+            return;
+        }
+
+        let skills_dir = self.config.savfox_home.join("skills");
+        let installer = SkillInstaller::new(skills_dir);
+
+        let package = SkillPackage {
+            manifest: SkillManifest {
+                name: name.clone(),
+                ..Default::default()
+            },
+            source: SkillSource {
+                source_type: SkillSourceType::Git,
+                url: Some(url),
+                path: None,
+                registry: None,
+                checksum: None,
+            },
+            installed: false,
+            installed_version: None,
+            install_path: None,
+        };
+
+        match installer.install(&package, None).await {
+            Ok(result) if result.success => {
+                self.chat_screen.add_info_message(
+                    format!("Skill '{}' installed.", result.name),
+                    Some(result.install_path.display().to_string()),
+                );
+            }
+            Ok(result) => {
+                self.chat_screen.add_error_message(
+                    result
+                        .error
+                        .unwrap_or_else(|| "unknown error".to_string()),
+                );
+            }
+            Err(err) => {
+                self.chat_screen
+                    .add_error_message(format!("Install failed: {err}"));
+            }
         }
     }
 

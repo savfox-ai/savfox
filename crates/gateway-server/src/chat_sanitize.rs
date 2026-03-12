@@ -39,12 +39,15 @@ fn neutralize_dangerous_urls(input: &str) -> String {
     let mut output = input.to_string();
 
     for scheme in &dangerous_schemes {
-        // Case-insensitive replacement
-        let lower = output.to_lowercase();
-        while let Some(pos) = lower.find(scheme) {
-            let end = pos + scheme.len();
-            output.replace_range(pos..end, &"_".repeat(scheme.len()));
-            break; // re-check after replacement
+        // Case-insensitive replacement; re-lowercase after each replacement.
+        loop {
+            let lower = output.to_lowercase();
+            if let Some(pos) = lower.find(scheme) {
+                let end = pos + scheme.len();
+                output.replace_range(pos..end, &"_".repeat(scheme.len()));
+            } else {
+                break;
+            }
         }
     }
     output

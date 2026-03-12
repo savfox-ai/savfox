@@ -51,7 +51,7 @@ lint:
 
 # Format entire workspace
 fmt:
-    cargo fmt --all
+    cargo +nightly fmt --all
 
 # Run all tests
 test:

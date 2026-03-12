@@ -3371,6 +3371,79 @@ select:focus-visible {
   border-radius: 4px;
 }
 
+/* Skill URL install */
+.skill-url-install {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skill-url-install__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.skill-url-install__input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  outline: none;
+  font-family: var(--font-mono);
+}
+
+.skill-url-install__input:focus {
+  border-color: var(--accent);
+}
+
+.skill-url-install__input::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-sans, sans-serif);
+}
+
+.skill-url-install__btn {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.skill-url-install__btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.skill-url-install__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.skill-url-install__msg {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.skill-url-install__msg--ok {
+  color: var(--success);
+}
+
+.skill-url-install__msg--err {
+  color: var(--danger);
+}
+
 /* Stat card (skills page) */
 .stat-card {
   background: var(--bg-secondary);

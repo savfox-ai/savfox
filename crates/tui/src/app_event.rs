@@ -303,6 +303,12 @@ pub(crate) enum AppEvent {
     /// Notify that the manage skills popup was closed.
     ManageSkillsClosed,
 
+    /// Open the "install skill from URL" prompt.
+    OpenInstallSkillFromUrl,
+
+    /// Install a skill from the given git URL.
+    InstallSkillFromUrl { url: String },
+
     /// Re-open the permissions presets popup.
     OpenPermissionsPopup,
 

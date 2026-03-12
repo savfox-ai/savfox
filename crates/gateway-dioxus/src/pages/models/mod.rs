@@ -127,11 +127,21 @@ pub fn Models() -> Element {
             // When account_slug is present, show just the base provider name
             // (e.g. "OpenAI") since the account label is rendered separately.
             let title = if !provider.account_slug.is_empty() {
-                provider.name.split(" / ").next().unwrap_or(&provider.name).to_string()
+                provider
+                    .name
+                    .split(" / ")
+                    .next()
+                    .unwrap_or(&provider.name)
+                    .to_string()
             } else {
                 provider.name.clone()
             };
-            grouped_models.push((provider.id.clone(), title, provider.account_slug.clone(), provider_rows));
+            grouped_models.push((
+                provider.id.clone(),
+                title,
+                provider.account_slug.clone(),
+                provider_rows,
+            ));
         }
     }
 
@@ -532,11 +542,11 @@ const MODELS_STYLES: &str = r#"
     }
 
     .models-group__account {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--text-muted);
-        padding: 2px 8px;
-        border: 1px solid var(--border);
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--accent);
+        background: var(--accent-bg);
+        padding: 2px 10px;
         border-radius: 6px;
         white-space: nowrap;
     }

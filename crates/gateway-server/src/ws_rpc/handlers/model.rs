@@ -567,9 +567,6 @@ fn model_test_http_failure_message(prefix: &str, response: &RemoteModelsHttpResp
     if !body_preview.is_empty() {
         message.push_str(&format!(": {body_preview}"));
     }
-    if let Some(request_id) = response.request_id.as_deref() {
-        message.push_str(&format!(", request id: {request_id}"));
-    }
     message
 }
 
@@ -838,14 +835,11 @@ pub(crate) async fn handle_models_test(params: &Value, channel: &Arc<GatewayChan
         let model_count = serde_json::from_str::<Value>(&response.body)
             .ok()
             .and_then(|payload| model_test_extract_count(&payload));
-        let mut message = if let Some(count) = model_count {
+        let message = if let Some(count) = model_count {
             format!("Connection successful. Retrieved {count} model(s).")
         } else {
             "Connection successful.".to_string()
         };
-        if let Some(request_id) = response.request_id.as_deref() {
-            message.push_str(&format!(" request id: {request_id}"));
-        }
 
         return Ok(json!({
             "ok": true,

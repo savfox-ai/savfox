@@ -13,6 +13,9 @@ use crate::exec_approval::{
     persist_pending_approval, persist_resolved_approval,
 };
 use crate::session::GatewaySessionManager;
+use savfox_skill_registry::{SkillInstaller, SkillPackage, SkillSource, SkillManifest};
+use savfox_skill_registry::package::SkillSourceType;
+
 use crate::{approval_policy_store, skills_store, tts_service};
 
 // ── TTS (text-to-speech) ────────────────────────────────────────────────────
@@ -127,6 +130,69 @@ pub(crate) async fn handle_skills_set_env(
     skills_store::set_env(&channel.config().savfox_home, key, value)
         .await
         .map_err(|err| (INVALID_REQUEST, err))
+}
+
+pub(crate) async fn handle_skills_install_url(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let url = require_str(params, "url")?.trim().to_string();
+    if url.is_empty() {
+        return Err((INVALID_PARAMS, "url must not be empty".to_string()));
+    }
+
+    // Derive a skill folder name from the URL.
+    let name = url
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .rsplit('/')
+        .next()
+        .unwrap_or("skill")
+        .to_string();
+    if name.is_empty() || name == "." || name == ".." {
+        return Err((
+            INVALID_PARAMS,
+            "could not derive skill name from url".to_string(),
+        ));
+    }
+
+    let skills_dir = channel.config().savfox_home.join("skills");
+    let installer = SkillInstaller::new(skills_dir);
+
+    let package = SkillPackage {
+        manifest: SkillManifest {
+            name: name.clone(),
+            ..Default::default()
+        },
+        source: SkillSource {
+            source_type: SkillSourceType::Git,
+            url: Some(url),
+            path: None,
+            registry: None,
+            checksum: None,
+        },
+        installed: false,
+        installed_version: None,
+        install_path: None,
+    };
+
+    let result = installer
+        .install(&package, None)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, format!("install failed: {e}")))?;
+
+    if result.success {
+        Ok(json!({
+            "name": result.name,
+            "status": "installed",
+            "path": result.install_path.display().to_string(),
+        }))
+    } else {
+        Err((
+            INTERNAL_ERROR,
+            result.error.unwrap_or_else(|| "unknown error".to_string()),
+        ))
+    }
 }
 
 // ── Exec approvals ──────────────────────────────────────────────────────────

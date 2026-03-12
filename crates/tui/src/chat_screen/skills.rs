@@ -11,6 +11,7 @@ use savfox_core::skills::model::{
 
 use super::ChatScreen;
 use crate::app_event::AppEvent;
+use crate::bottom_pane::custom_prompt_view::CustomPromptView;
 use crate::bottom_pane::popup_consts::standard_popup_hint_line;
 use crate::bottom_pane::{SelectionItem, SelectionViewParams, SkillsToggleItem, SkillsToggleView};
 use crate::skills_helpers::{skill_description, skill_name};
@@ -40,6 +41,15 @@ impl ChatScreen {
                 dismiss_on_select: true,
                 ..Default::default()
             },
+            SelectionItem {
+                name: "Install from URL".to_string(),
+                description: Some("Install a skill from a git repository URL.".to_string()),
+                actions: vec![Box::new(|tx| {
+                    tx.send(AppEvent::OpenInstallSkillFromUrl);
+                })],
+                dismiss_on_select: true,
+                ..Default::default()
+            },
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
@@ -49,6 +59,22 @@ impl ChatScreen {
             items,
             ..Default::default()
         });
+    }
+
+    pub(crate) fn open_install_skill_from_url(&mut self) {
+        let tx = self.app_event_tx.clone();
+        let view = CustomPromptView::new(
+            "Install skill from URL".to_string(),
+            "https://github.com/user/my-skill.git".to_string(),
+            Some("Enter a git repository URL".to_string()),
+            Box::new(move |url: String| {
+                let url = url.trim().to_string();
+                if !url.is_empty() {
+                    tx.send(AppEvent::InstallSkillFromUrl { url });
+                }
+            }),
+        );
+        self.bottom_pane.show_view(Box::new(view));
     }
 
     pub(crate) fn open_manage_skills_popup(&mut self) {
