@@ -28,13 +28,13 @@ pub struct ZipInstallResult {
     pub errors: Vec<(String, String)>,
 }
 
-/// Install skills from zip bytes into the `.custom/` directory.
+/// Install skills from zip bytes into the skills directory.
 ///
 /// The zip is inspected for top-level folders:
 /// - If there is a single top-level folder named "skills", its children are used.
 /// - Otherwise, all top-level folders are treated as individual skills.
 ///
-/// Each folder is installed to `{skills_dir}/.custom/{folder_name}`.
+/// Each folder is installed to `{skills_dir}/{folder_name}`.
 pub async fn install_from_zip_bytes(
     zip_bytes: Vec<u8>,
     skills_dir: PathBuf,
@@ -44,7 +44,7 @@ pub async fn install_from_zip_bytes(
 }
 
 /// Detect which top-level folders are present in a zip and return conflicts.
-pub fn detect_conflicts(zip_bytes: &[u8], custom_dir: &Path) -> anyhow::Result<Vec<ZipConflict>> {
+pub fn detect_conflicts(zip_bytes: &[u8], skills_dir: &Path) -> anyhow::Result<Vec<ZipConflict>> {
     let reader = Cursor::new(zip_bytes);
     let archive = ZipArchive::new(reader)?;
     // Use the same archive reference trick: collect_top_level_folders only
@@ -67,7 +67,7 @@ pub fn detect_conflicts(zip_bytes: &[u8], custom_dir: &Path) -> anyhow::Result<V
 
     let mut conflicts = Vec::new();
     for name in &effective {
-        let target = custom_dir.join(name);
+        let target = skills_dir.join(name);
         if target.exists() {
             conflicts.push(ZipConflict {
                 name: name.clone(),
@@ -83,8 +83,7 @@ fn install_zip_sync(
     skills_dir: &Path,
     strategy: ConflictStrategy,
 ) -> anyhow::Result<ZipInstallResult> {
-    let custom_dir = skills_dir.join(".custom");
-    std::fs::create_dir_all(&custom_dir)?;
+    std::fs::create_dir_all(skills_dir)?;
 
     let reader = Cursor::new(zip_bytes);
     let mut archive = ZipArchive::new(reader)?;
@@ -106,7 +105,7 @@ fn install_zip_sync(
     };
 
     for skill_name in &effective {
-        let target = custom_dir.join(skill_name);
+        let target = skills_dir.join(skill_name);
         if target.exists() {
             match strategy {
                 ConflictStrategy::Skip => {
@@ -251,14 +250,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.installed, vec!["my-skill"]);
-        assert!(skills_dir.join(".custom/my-skill/SKILL.md").exists());
+        assert!(skills_dir.join("my-skill/SKILL.md").exists());
     }
 
     #[tokio::test]
     async fn install_zip_skip_conflict() {
         let tmp = tempfile::tempdir().unwrap();
         let skills_dir = tmp.path().to_path_buf();
-        let custom = skills_dir.join(".custom").join("existing");
+        let custom = skills_dir.join("existing");
         std::fs::create_dir_all(&custom).unwrap();
         std::fs::write(custom.join("SKILL.md"), "old").unwrap();
 
@@ -272,7 +271,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.skipped, vec!["existing"]);
-        let content = std::fs::read_to_string(skills_dir.join(".custom/existing/SKILL.md")).unwrap();
+        let content = std::fs::read_to_string(skills_dir.join("existing/SKILL.md")).unwrap();
         assert_eq!(content, "old");
     }
 }

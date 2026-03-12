@@ -1844,7 +1844,7 @@ mod tests {
 
         let mut state = SessionState::new(session_configuration.clone());
         mark_state_initial_context_seeded(&mut state);
-        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone()));
+        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone(), config.registry.as_ref()));
 
         let services = SessionServices {
             mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::default())),
@@ -1965,7 +1965,7 @@ mod tests {
 
         let mut state = SessionState::new(session_configuration.clone());
         mark_state_initial_context_seeded(&mut state);
-        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone()));
+        let skills_manager = Arc::new(SkillsManager::new(config.savfox_home.clone(), config.registry.as_ref()));
 
         let services = SessionServices {
             mcp_connection_manager: Arc::new(RwLock::new(McpConnectionManager::default())),

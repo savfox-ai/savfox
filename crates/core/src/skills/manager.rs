@@ -19,8 +19,11 @@ pub struct SkillsManager {
 }
 
 impl SkillsManager {
-    pub fn new(savfox_home: PathBuf) -> Self {
-        if let Err(err) = install_system_skills(&savfox_home) {
+    pub fn new(
+        savfox_home: PathBuf,
+        registry_config: Option<&savfox_config::types::RegistryConfig>,
+    ) -> Self {
+        if let Err(err) = install_system_skills(&savfox_home, registry_config) {
             tracing::error!("failed to install system skills: {err}");
         }
 
@@ -193,7 +196,7 @@ mod tests {
             .await
             .expect("defaults for test should always succeed");
 
-        let skills_manager = SkillsManager::new(savfox_home.path().to_path_buf());
+        let skills_manager = SkillsManager::new(savfox_home.path().to_path_buf(), None);
 
         write_user_skill(&savfox_home, "a", "skill-a", "from a");
         let outcome1 = skills_manager.skills_for_config(&cfg);

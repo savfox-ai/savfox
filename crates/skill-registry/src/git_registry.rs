@@ -62,7 +62,7 @@ pub struct RegistrySearchResult {
 
 /// Git-based skill registry that clones a remote repository locally.
 ///
-/// The registry is stored at `{skills_dir}/.registry/{config.id}/`.
+/// The registry is stored at `{skills_dir}/.registry/{domain}/{restpath}/`.
 #[derive(Debug)]
 pub struct GitRegistry {
     skills_dir: PathBuf,
@@ -74,9 +74,28 @@ impl GitRegistry {
         Self { skills_dir, config }
     }
 
-    /// Path to the local clone of this registry.
+    /// Path to the local clone of this registry, derived from the git URL.
+    ///
+    /// e.g. `https://github.com/savfox-ai/registry.git` → `.registry/github.com/savfox-ai/registry`
     pub fn registry_path(&self) -> PathBuf {
-        self.skills_dir.join(".registry").join(&self.config.id)
+        let dir_name = Self::dir_from_url(&self.config.git);
+        self.skills_dir.join(".registry").join(dir_name)
+    }
+
+    /// Derive `{domain}/{restpath}` from a git URL.
+    fn dir_from_url(git_url: &str) -> String {
+        let stripped = git_url
+            .trim_end_matches('/')
+            .trim_end_matches(".git");
+        let after_scheme = stripped
+            .split("://")
+            .nth(1)
+            .unwrap_or(stripped);
+        after_scheme
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("/")
     }
 
     /// Clone the registry if it doesn't already exist locally.

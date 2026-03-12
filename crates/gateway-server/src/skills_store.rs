@@ -123,7 +123,7 @@ fn collect_skill_manifests(
                 if let Some(name) = path.file_name().and_then(|v| v.to_str()) {
                     // Skip dot-prefixed directories at the skills root level.
                     if skip_system_subtree
-                        && (name == ".system" || name == ".registry" || name == ".custom")
+                        && (name == ".system" || name == ".registry")
                     {
                         continue;
                     }
@@ -271,17 +271,7 @@ pub(crate) async fn bins(savfox_home: &Path) -> Result<Value, String> {
         .map(|(path, category)| (path, category, true)),
     );
     discovered.extend(
-        collect_skill_manifests(
-            &savfox_home.join("skills").join(".custom"),
-            CATEGORY_INSTALLED,
-            4,
-            false,
-        )
-        .into_iter()
-        .map(|(path, category)| (path, category, true)),
-    );
-    discovered.extend(
-        collect_skill_manifests(&savfox_home.join("skills"), CATEGORY_INSTALLED, 4, true)
+        collect_skill_manifests(&savfox_home.join("skills"), CATEGORY_INSTALLED, 6, true)
             .into_iter()
             .map(|(path, category)| (path, category, true)),
     );

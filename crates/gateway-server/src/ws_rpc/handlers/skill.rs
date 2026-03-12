@@ -143,36 +143,23 @@ pub(crate) async fn handle_skills_install_url(
         return Err((INVALID_PARAMS, "url must not be empty".to_string()));
     }
 
-    // Derive a skill folder name from the URL, preserving org/repo structure
-    // e.g. "https://github.com/org-name/repo-name.git" → "org-name/repo-name"
+    // Derive a skill folder name from the URL as {domain}/{restpath}
+    // e.g. "https://github.com/org/repo.git" → "github.com/org/repo"
     let name = {
         let stripped = url
             .trim_end_matches('/')
             .trim_end_matches(".git");
-        // Find the host-relative path: everything after the domain
-        // For "https://github.com/org/repo" we want "org/repo"
-        let path_part = stripped
+        // Extract "domain/rest/path" from "https://domain/rest/path"
+        let after_scheme = stripped
             .split("://")
             .nth(1)
             .unwrap_or(stripped);
-        // Skip the hostname, take the remaining path segments
-        let after_host: Vec<&str> = path_part
-            .splitn(2, '/')
-            .nth(1)
-            .unwrap_or("")
+        // Clean up: filter empty segments, rejoin
+        let segments: Vec<&str> = after_scheme
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
-        if after_host.len() >= 2 {
-            // Keep org/repo (last two meaningful segments)
-            let org = after_host[after_host.len() - 2];
-            let repo = after_host[after_host.len() - 1];
-            format!("{org}/{repo}")
-        } else if let Some(last) = after_host.last() {
-            last.to_string()
-        } else {
-            String::new()
-        }
+        segments.join("/")
     };
     if name.is_empty() || name == "." || name == ".." {
         return Err((
@@ -184,7 +171,7 @@ pub(crate) async fn handle_skills_install_url(
     let skills_dir = channel.config().savfox_home.join("skills");
     let installer = SkillInstaller::new(skills_dir);
 
-    // Git URL installs use SkillSourceType::Git which the installer routes to .custom/
+    // Git URL installs use SkillSourceType::Git → skills/{domain}/{org}/{repo}
     let package = SkillPackage {
         manifest: SkillManifest {
             name: name.clone(),

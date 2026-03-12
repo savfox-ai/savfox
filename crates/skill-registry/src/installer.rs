@@ -60,17 +60,12 @@ impl SkillInstaller {
         }
     }
 
-    /// Returns the install path for a package based on its source type.
+    /// Returns the install path for a package.
     ///
-    /// Git and HTTP installs go to `.custom/{name}`, while registry and
-    /// embedded installs go directly to `{skills_dir}/{name}`.
+    /// The name may contain path separators (e.g. `github.com/org/repo`)
+    /// which `PathBuf::join` will resolve into nested directories.
     fn install_path_for(&self, package: &SkillPackage) -> PathBuf {
-        match package.source.source_type {
-            SkillSourceType::Git | SkillSourceType::Http => {
-                self.skills_dir.join(".custom").join(&package.manifest.name)
-            }
-            _ => self.skills_dir.join(&package.manifest.name),
-        }
+        self.skills_dir.join(&package.manifest.name)
     }
 
     pub async fn install(
@@ -82,14 +77,9 @@ impl SkillInstaller {
         let version = package.manifest.version.to_string();
         let install_path = self.install_path_for(package);
 
-        // Ensure .custom directory exists for git/http installs.
-        if matches!(
-            package.source.source_type,
-            SkillSourceType::Git | SkillSourceType::Http
-        ) {
-            if let Some(parent) = install_path.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
+        // Ensure parent directories exist (e.g. github.com/org/).
+        if let Some(parent) = install_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         info!(name = %name, version = %version, "installing skill");
