@@ -2,10 +2,9 @@ use dioxus::prelude::*;
 use serde_json::json;
 
 use crate::api::client::fetch_json;
-use crate::api::types::AgentsResponse;
 use crate::api::types::{
-    LogEntry, LogsResponse, ModelInfo, ModelsResponse, SessionEntry, SessionsResponse,
-    StatusResponse, UsageStatus,
+    AgentsResponse, LogEntry, LogsResponse, ModelInfo, ModelsResponse, SessionEntry,
+    SessionsResponse, StatusResponse, UsageStatus,
 };
 use crate::api::ws::WsRpc;
 use crate::components::copy_button::CopyButton;

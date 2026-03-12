@@ -610,7 +610,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
-        Some(Subcommand::Exec(mut exec_cli)) => {
+        Some(Subcommand::Exec(exec_cli)) => {
             savfox_exec::run_main(exec_cli, savfox_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Review(review_args)) => {
@@ -621,7 +621,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         Some(Subcommand::McpServer) => {
             savfox_mcp_server::run_main(savfox_linux_sandbox_exe).await?;
         }
-        Some(Subcommand::Mcp(mut mcp_cli)) => {
+        Some(Subcommand::Mcp(mcp_cli)) => {
             mcp_cli.run().await?;
         }
         Some(Subcommand::AppServer(app_server_cli)) => match app_server_cli.subcommand {
@@ -690,7 +690,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
             let exit_info = run_interactive_tui(interactive, savfox_linux_sandbox_exe).await?;
             handle_app_exit(exit_info)?;
         }
-        Some(Subcommand::Login(mut login_cli)) => match login_cli.action {
+        Some(Subcommand::Login(login_cli)) => match login_cli.action {
             Some(LoginSubcommand::Status) => {
                 run_login_status().await;
             }

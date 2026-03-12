@@ -1,11 +1,9 @@
 pub mod client;
 pub mod config;
 
-use serde_json::Value;
-
-use savfox_core::channel::ChannelAction;
-
 pub use config::{LineChannelConfig, resolve_line_channel_secret, resolve_line_outbound_token};
+use savfox_core::channel::ChannelAction;
+use serde_json::Value;
 
 /// Metadata extracted from a LINE webhook event for thread routing.
 #[derive(Debug, Clone, Default)]

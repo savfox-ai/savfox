@@ -86,10 +86,10 @@ pub mod review_format;
 pub mod review_prompts;
 mod session_manager;
 pub mod web_search;
-pub use savfox_protocol::protocol::InitialHistory;
-pub use session_manager::{NewSession, SessionManager};
 // Re-export common auth types for workspace consumers
 pub use auth::{AuthManager, SavfoxAuth};
+pub use savfox_protocol::protocol::InitialHistory;
+pub use session_manager::{NewSession, SessionManager};
 pub mod default_client;
 pub mod project_doc;
 pub mod rollout;

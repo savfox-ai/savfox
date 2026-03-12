@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
+use savfox_core::channel::ChannelAction;
 use serde_json::{Map, Value, json};
 use tracing::warn;
-
-use savfox_core::channel::ChannelAction;
 
 fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| {

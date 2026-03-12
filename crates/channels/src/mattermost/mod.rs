@@ -2,16 +2,15 @@ pub mod client;
 pub mod config;
 
 use async_trait::async_trait;
+pub use config::{
+    MattermostChannelConfig, resolve_mattermost_outbound_config,
+    resolve_mattermost_verification_token,
+};
 use savfox_core::channel::{Channel, ChannelAction};
 use serde_json::{Value, json};
 use tracing::info;
 
 use crate::http::warn_on_error;
-
-pub use config::{
-    MattermostChannelConfig, resolve_mattermost_outbound_config,
-    resolve_mattermost_verification_token,
-};
 
 #[derive(Debug)]
 pub struct MattermostChannel {

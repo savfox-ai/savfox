@@ -515,8 +515,8 @@ fn highlight_json(json_str: &str) -> String {
         format!(r#"<span style="color:var(--accent);">{}</span>:"#, &caps[1])
     });
 
-    // String values: quoted strings that are NOT inside a <span> (i.e. not already highlighted as keys).
-    // We match &quot;...&quot; only when preceded by ": " or start-of-value contexts.
+    // String values: quoted strings that are NOT inside a <span> (i.e. not already highlighted as
+    // keys). We match &quot;...&quot; only when preceded by ": " or start-of-value contexts.
     let re_str = Regex::new(r#":\s*(&quot;[^&]*?&quot;)"#).unwrap();
     let result = re_str.replace_all(&result, |caps: &regex_lite::Captures| {
         format!(

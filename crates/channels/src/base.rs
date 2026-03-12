@@ -145,8 +145,8 @@ pub async fn resolve_outbound_token<C: ChannelConfig>(
 ///
 /// 1. POST JSON to `url`.
 /// 2. Attach an `Authorization` (or other) header if `auth_header` is provided.
-/// 3. Check whether the response indicates success; if not, bail with the
-///    status code and response body.
+/// 3. Check whether the response indicates success; if not, bail with the status code and response
+///    body.
 ///
 /// For more nuanced error handling (e.g. treating some errors as warnings),
 /// use the lower-level [`crate::http::check_response`] or

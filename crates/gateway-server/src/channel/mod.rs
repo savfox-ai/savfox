@@ -141,7 +141,8 @@ impl GatewayChannel {
         let session_manager = Arc::new(SessionManager::new(
             args.config.savfox_home.clone(),
             auth_manager.clone(),
-            savfox_protocol::protocol::SessionSource::VSCode, // Gateway acts similarly to app-server
+            savfox_protocol::protocol::SessionSource::VSCode, /* Gateway acts similarly to
+                                                               * app-server */
         ));
 
         let config_service = ConfigService::new(
@@ -239,12 +240,10 @@ impl GatewayChannel {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        GatewayChannel, credential_manager::escape_telegram_html_text,
-        credential_manager::is_slack_timestamp_fresh, credential_manager::verify_discord_signature,
-        credential_manager::verify_slack_signature,
-        credential_manager::verify_telegram_webhook_secret,
-        credential_manager::verify_webhook_hmac,
+    use super::GatewayChannel;
+    use super::credential_manager::{
+        escape_telegram_html_text, is_slack_timestamp_fresh, verify_discord_signature,
+        verify_slack_signature, verify_telegram_webhook_secret, verify_webhook_hmac,
     };
 
     #[test]

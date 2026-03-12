@@ -2044,7 +2044,7 @@ fn render_channel_card(
     let is_enabled = config_entry
         .map(|(_, _, enabled)| *enabled)
         .unwrap_or(is_running || is_connected);
-    let config_id = config_entry.map(|(id, _, _)| id.as_str());
+    let config_id = config_entry.map(|(id, ..)| id.as_str());
     let config_name = config_entry.map(|(_, name, _)| name.as_str());
 
     let last_error = channel_data

@@ -1,14 +1,12 @@
 pub mod client;
 pub mod config;
 
-use serde_json::Value;
-
-use savfox_core::channel::ChannelAction;
-
 pub use config::{
     WhatsAppSavedConfig, resolve_whatsapp_app_secret, resolve_whatsapp_outbound_config,
     resolve_whatsapp_verify_token,
 };
+use savfox_core::channel::ChannelAction;
+use serde_json::Value;
 
 /// Metadata extracted from a WhatsApp webhook event for thread routing.
 #[derive(Debug, Clone, Default)]

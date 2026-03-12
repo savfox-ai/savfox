@@ -722,14 +722,13 @@ use self::handlers::channel::*;
 use self::handlers::config::*;
 use self::handlers::config_core::*;
 use self::handlers::cron::*;
+// Re-export for crate-level access (used by lib.rs)
+pub(crate) use self::handlers::model::inject_all_provider_auth;
 use self::handlers::model::*;
 use self::handlers::node::*;
 use self::handlers::session::*;
 use self::handlers::skill::*;
 use self::handlers::system::*;
-
-// Re-export for crate-level access (used by lib.rs)
-pub(crate) use self::handlers::model::inject_all_provider_auth;
 
 #[cfg(test)]
 mod tests {

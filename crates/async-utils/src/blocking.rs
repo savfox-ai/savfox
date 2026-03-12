@@ -43,10 +43,7 @@ where
 ///
 /// ```rust
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let content = savfox_async_utils::spawn_io(|| {
-///     std::fs::read_to_string("Cargo.toml")
-/// })
-/// .await??;
+/// let content = savfox_async_utils::spawn_io(|| std::fs::read_to_string("Cargo.toml")).await??;
 /// # Ok(())
 /// # }
 /// ```

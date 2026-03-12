@@ -11,8 +11,7 @@ use tracing::{info, warn};
 
 use super::{render_error, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::channel::GatewayChannel;
-use crate::channel::verify_telegram_webhook_secret;
+use crate::channel::{GatewayChannel, verify_telegram_webhook_secret};
 use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;

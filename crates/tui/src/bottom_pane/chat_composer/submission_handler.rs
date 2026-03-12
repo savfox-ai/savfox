@@ -14,7 +14,8 @@ use crate::app_event::AppEvent;
 use crate::bottom_pane::chat_composer_history::HistoryEntry;
 use crate::bottom_pane::prompt_args::{expand_custom_prompt, parse_slash_name};
 use crate::bottom_pane::slash_commands;
-use crate::{history_cell, slash_command::SlashCommand};
+use crate::history_cell;
+use crate::slash_command::SlashCommand;
 
 impl ChatComposer {
     pub(super) fn trim_text_elements(

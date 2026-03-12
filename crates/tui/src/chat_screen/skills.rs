@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use savfox_core::connectors::AppInfo;
-use savfox_core::connectors::connector_mention_slug;
+use savfox_core::connectors::{AppInfo, connector_mention_slug};
 use savfox_core::protocol::{
     ListSkillsResponseEvent, SkillMetadata as ProtocolSkillMetadata, SkillsListEntry,
 };

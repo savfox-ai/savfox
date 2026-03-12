@@ -2,10 +2,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
+use savfox_utils::string::normalize_slug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use savfox_utils::string::normalize_slug;
 
 use crate::model_provider_info::ModelProviderInfo;
 use crate::token_data::TokenData;

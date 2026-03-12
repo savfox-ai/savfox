@@ -6,6 +6,13 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use savfox_common::fuzzy_match::fuzzy_match;
+use savfox_core::connectors;
+use savfox_core::connectors::AppInfo;
+use savfox_file_search::FileMatch;
+use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
+
 use super::{
     ActivePopup, ChatComposer, InputResult, PromptSelectionAction, PromptSelectionMode,
     prompt_selection_action,
@@ -18,12 +25,6 @@ use crate::bottom_pane::prompt_args::{expand_if_numeric_with_positional_args, pa
 use crate::bottom_pane::skill_popup::{MentionItem, SkillPopup};
 use crate::bottom_pane::slash_commands;
 use crate::slash_command::SlashCommand;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use savfox_common::fuzzy_match::fuzzy_match;
-use savfox_core::connectors;
-use savfox_core::connectors::AppInfo;
-use savfox_file_search::FileMatch;
-use savfox_protocol::custom_prompts::{CustomPrompt, PROMPTS_CMD_PREFIX};
 
 impl ChatComposer {
     /// Handle a key event coming from the main UI.

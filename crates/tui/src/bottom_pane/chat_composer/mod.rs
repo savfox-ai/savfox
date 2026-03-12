@@ -615,31 +615,28 @@ fn prompt_selection_action(
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    // ── Test includes ──
+    use std::time::{Duration, Instant};
 
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use image::{ImageBuffer, Rgba};
     use pretty_assertions::assert_eq;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use savfox_protocol::models::local_image_label_text;
+    use savfox_protocol::user_input::ByteRange;
     use tempfile::tempdir;
     use tokio::sync::mpsc::unbounded_channel;
 
     use super::*;
     use crate::app_event::AppEvent;
     use crate::bottom_pane::chat_composer::{AttachedImage, LARGE_PASTE_CHAR_THRESHOLD};
-    use crate::bottom_pane::prompt_args::{PromptArg, extract_positional_args_for_prompt_line};
-    use crate::bottom_pane::textarea::TextArea;
-    use crate::bottom_pane::{AppEventSender, ChatComposer, InputResult};
-
-    // ── Test includes ──
-    use std::time::{Duration, Instant};
-
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    use ratatui::buffer::Buffer;
-    use ratatui::layout::Rect;
-    use savfox_protocol::models::local_image_label_text;
-    use savfox_protocol::user_input::ByteRange;
-
     use crate::bottom_pane::chat_composer_history::HistoryEntry;
     use crate::bottom_pane::footer::{FooterMode, footer_height};
     use crate::bottom_pane::paste_burst::PasteBurst;
+    use crate::bottom_pane::prompt_args::{PromptArg, extract_positional_args_for_prompt_line};
+    use crate::bottom_pane::textarea::TextArea;
+    use crate::bottom_pane::{AppEventSender, ChatComposer, InputResult};
     use crate::render::renderable::Renderable;
 
     #[test]

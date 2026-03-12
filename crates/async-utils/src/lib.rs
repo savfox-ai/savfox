@@ -7,8 +7,8 @@
 //!
 //! - **Cancellation Support**: [`OrCancelExt`] trait for cancelable futures
 //! - **Error Types**: [`CancelErr`] for cancellation errors
-//! - **Blocking Helpers**: [`spawn_cpu_bound`] and [`spawn_io`] for offloading
-//!   blocking work to the Tokio blocking thread pool
+//! - **Blocking Helpers**: [`spawn_cpu_bound`] and [`spawn_io`] for offloading blocking work to the
+//!   Tokio blocking thread pool
 //!
 //! # Example
 //!
@@ -33,11 +33,10 @@
 
 mod blocking;
 
-pub use blocking::{spawn_cpu_bound, spawn_io};
-
 use std::future::Future;
 
 use async_trait::async_trait;
+pub use blocking::{spawn_cpu_bound, spawn_io};
 use tokio_util::sync::CancellationToken;
 
 /// Error returned when an operation is cancelled.

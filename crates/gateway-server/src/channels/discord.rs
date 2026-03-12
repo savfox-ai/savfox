@@ -12,8 +12,7 @@ use tracing::{info, warn};
 
 use super::{obtain_channel_and_store, render_error, runtime};
 use crate::auto_reply::CommandRegistry;
-use crate::channel::GatewayChannel;
-use crate::channel::verify_discord_signature;
+use crate::channel::{GatewayChannel, verify_discord_signature};
 use crate::config::GatewayConfig;
 use crate::protocol::ChannelAction;
 use crate::session::SessionStore;

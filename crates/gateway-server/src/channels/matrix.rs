@@ -603,7 +603,8 @@ impl MatrixAppserviceChannel {
             segments.pop_if_empty();
             segments.extend(path_segments);
         }
-        if let Some(acting_user_id) = acting_user_id.and_then(|value| non_empty_trimmed(Some(value)))
+        if let Some(acting_user_id) =
+            acting_user_id.and_then(|value| non_empty_trimmed(Some(value)))
         {
             url.query_pairs_mut().append_pair("user_id", acting_user_id);
         }
@@ -832,8 +833,9 @@ impl MatrixAppserviceChannel {
         {
             Ok(response) => response,
             Err(err) => {
-                let err =
-                    err.context(format!("failed to auto-join Matrix room {room_id} as {user_id}"));
+                let err = err.context(format!(
+                    "failed to auto-join Matrix room {room_id} as {user_id}"
+                ));
                 debug_matrix_appservice(format!(
                     "config='{}' room='{}' join_request='failed' as_user='{}' error='{}'",
                     self.inner.config_id, room_id, user_id, err,
@@ -845,10 +847,7 @@ impl MatrixAppserviceChannel {
             let err = anyhow::anyhow!(
                 "failed to auto-join Matrix room {room_id} as {user_id}: status={} errcode='{}' error='{}' body={}",
                 status.as_u16(),
-                payload
-                    .get("errcode")
-                    .and_then(Value::as_str)
-                    .unwrap_or(""),
+                payload.get("errcode").and_then(Value::as_str).unwrap_or(""),
                 payload.get("error").and_then(Value::as_str).unwrap_or(""),
                 payload,
             );
@@ -858,10 +857,7 @@ impl MatrixAppserviceChannel {
                 room_id,
                 user_id,
                 status.as_u16(),
-                payload
-                    .get("errcode")
-                    .and_then(Value::as_str)
-                    .unwrap_or(""),
+                payload.get("errcode").and_then(Value::as_str).unwrap_or(""),
                 payload.get("error").and_then(Value::as_str).unwrap_or(""),
                 payload,
             ));
@@ -919,10 +915,7 @@ impl MatrixAppserviceChannel {
             anyhow::bail!(
                 "failed to send Matrix appservice message to room {room_id} as {user_id}: status={} errcode='{}' error='{}' body={}",
                 status.as_u16(),
-                payload
-                    .get("errcode")
-                    .and_then(Value::as_str)
-                    .unwrap_or(""),
+                payload.get("errcode").and_then(Value::as_str).unwrap_or(""),
                 payload.get("error").and_then(Value::as_str).unwrap_or(""),
                 payload,
             );
@@ -972,7 +965,9 @@ impl MatrixAppserviceChannel {
                 .and_then(|room_id| {
                     rooms_to_auto_join
                         .iter()
-                        .find(|(candidate_room_id, _)| candidate_room_id.eq_ignore_ascii_case(room_id))
+                        .find(|(candidate_room_id, _)| {
+                            candidate_room_id.eq_ignore_ascii_case(room_id)
+                        })
                         .and_then(|(_, invited_user_id)| {
                             match invited_user_id
                                 .as_deref()
@@ -1752,12 +1747,12 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    use salvo::Service;
     use salvo::conn::SocketAddr;
     use salvo::http::Method;
     use salvo::http::uri::{Scheme, Uri};
-    use salvo::Service;
+
+    use super::*;
 
     #[handler]
     async fn spa_fallback() -> &'static str {
@@ -1828,5 +1823,4 @@ mod tests {
 
         assert_eq!(res.status_code.unwrap(), StatusCode::UNAUTHORIZED);
     }
-
 }

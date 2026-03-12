@@ -1,6 +1,7 @@
+use std::collections::HashSet;
+
 use dioxus::prelude::*;
 use serde_json::json;
-use std::collections::HashSet;
 
 use crate::api::types::{SkillDetail, SkillsBinsResponse, SkillsStatusResponse};
 use crate::api::ws::WsRpc;

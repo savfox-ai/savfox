@@ -56,7 +56,8 @@ fn route_group(route: &Route) -> NavGroup {
         | Route::Cron {}
         | Route::CronNew {}
         | Route::CronDetail { .. }
-        | Route::ConnectProvider {} => NavGroup::Manage,
+        | Route::ConnectProvider {}
+        | Route::Skills {} => NavGroup::Manage,
         Route::Tts {} | Route::Voice {} => NavGroup::Media,
         _ => NavGroup::System,
     }
@@ -657,6 +658,7 @@ pub fn Layout() -> Element {
                         { nav_link(&current_route,Route::Models {}, "Models", "M") }
                         { nav_link(&current_route,Route::Channels {}, "Channels", "\u{25CE}") }
                         { nav_link(&current_route,Route::Cron {}, "Cron Jobs", "\u{23F1}") }
+                        { nav_link(&current_route,Route::Skills {}, "Skills", "\u{2605}") }
                     }
 
                     // Media group
@@ -675,7 +677,6 @@ pub fn Layout() -> Element {
                         { nav_link(&current_route,Route::Usage {}, "Usage", "$") }
                         { nav_link_with_badge(&current_route,Route::Approvals {}, "Approvals", "!", approvals_count) }
                         { nav_link(&current_route,Route::Nodes {}, "Nodes", "\u{25CB}") }
-                        { nav_link(&current_route,Route::Skills {}, "Skills", "\u{2605}") }
                         { nav_link(&current_route,Route::Debug {}, "Debug", "?") }
                     }
                 }

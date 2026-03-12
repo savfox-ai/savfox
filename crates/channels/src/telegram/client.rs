@@ -44,7 +44,8 @@ pub fn verify_webhook_secret(expected_secret: &str, received_secret: &str) -> bo
 // Bot token resolution
 // ---------------------------------------------------------------------------
 
-/// Resolve the Telegram bot token by chaining: saved channel config -> `TELEGRAM_BOT_TOKEN` env var.
+/// Resolve the Telegram bot token by chaining: saved channel config -> `TELEGRAM_BOT_TOKEN` env
+/// var.
 ///
 /// This calls [`resolve_telegram_outbound_token`] for the saved-config lookup and
 /// falls back to the `TELEGRAM_BOT_TOKEN` environment variable.

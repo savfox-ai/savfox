@@ -1,12 +1,12 @@
 use std::path::Path;
 
+use savfox_config::types::RawMcpServerConfig;
 use schemars::r#gen::{SchemaGenerator, SchemaSettings};
 use schemars::schema::{InstanceType, ObjectValidation, RootSchema, Schema, SchemaObject};
 use serde_json::{Map, Value};
 
 use crate::config::ConfigToml;
 use crate::features::FEATURES;
-use savfox_config::types::RawMcpServerConfig;
 
 /// Schema for the `[features]` map with known + legacy keys only.
 pub(crate) fn features_schema(schema_gen: &mut SchemaGenerator) -> Schema {

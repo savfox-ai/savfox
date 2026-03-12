@@ -5,8 +5,8 @@
 //! The coordinator uses `tokio::select!` to monitor both the running agent
 //! and the inbox, enabling queue-mode behaviours inspired by crew-rs:
 //!
-//! - **Speculative** (default): spawn a concurrent overflow task for the new
-//!   message while the primary continues, delivering both results.
+//! - **Speculative** (default): spawn a concurrent overflow task for the new message while the
+//!   primary continues, delivering both results.
 //! - **Interrupt**: cancel the running primary and start the new message.
 //! - **Followup**: queue the new message and process it after the primary.
 

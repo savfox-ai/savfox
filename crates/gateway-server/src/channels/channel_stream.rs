@@ -111,7 +111,8 @@ impl ChannelStreamWriter {
                     if buffer.len() > flushed_len
                         && (message_id.is_some() || buffer.len() >= MIN_FIRST_CHARS)
                     {
-                        // Delete status if we haven't yet (first content arriving via timeout path).
+                        // Delete status if we haven't yet (first content arriving via timeout
+                        // path).
                         if !status_deleted {
                             if let Some(ref sid) = self.status_msg_id {
                                 self.sink.delete_message(sid).await;

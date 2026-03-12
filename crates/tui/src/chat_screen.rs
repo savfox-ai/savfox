@@ -38,7 +38,6 @@ use savfox_core::config::provider_store::{
 };
 use savfox_core::config::types::Notifications;
 use savfox_core::config::{Config, ConstraintResult};
-use savfox_core::connectors;
 use savfox_core::features::{FEATURES, Feature};
 use savfox_core::git_info::{current_branch_name, local_git_branches};
 use savfox_core::models_manager::manager::ModelsManager;
@@ -61,7 +60,7 @@ use savfox_core::skills::model::SkillMetadata;
 #[cfg(target_os = "windows")]
 use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
 use savfox_core::{
-    ModelProviderInfo, built_in_model_providers, canonical_provider_id,
+    ModelProviderInfo, built_in_model_providers, canonical_provider_id, connectors,
     parse_provider_prefixed_model, provider_model_info,
 };
 use savfox_otel::OtelManager;

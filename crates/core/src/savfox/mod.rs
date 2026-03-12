@@ -134,8 +134,7 @@ mod tool_orchestrator;
 
 // Re-export everything that was previously accessible from this module
 pub(crate) use task_coordinator::spawn_review_session;
-pub(crate) use tool_orchestrator::get_last_assistant_message_from_turn;
-pub(crate) use tool_orchestrator::run_turn;
+pub(crate) use tool_orchestrator::{get_last_assistant_message_from_turn, run_turn};
 
 /// The high-level interface to the Savfox system.
 /// It operates as a queue pair where you send submissions and receive events.
