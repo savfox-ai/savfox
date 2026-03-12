@@ -62,6 +62,8 @@ pub(crate) fn install_system_skills(savfox_home: &Path) -> Result<(), SystemSkil
     if dest_system.as_path().is_dir()
         && read_marker(&marker_path).is_ok_and(|marker| marker == expected_fingerprint)
     {
+        // System skills are up to date. Still ensure the default registry is cloned.
+        ensure_default_registry_cloned(skills_root_dir.as_path());
         return Ok(());
     }
 
@@ -73,7 +75,54 @@ pub(crate) fn install_system_skills(savfox_home: &Path) -> Result<(), SystemSkil
     write_embedded_dir(&SYSTEM_SKILLS_DIR, &dest_system)?;
     fs::write(marker_path.as_path(), format!("{expected_fingerprint}\n"))
         .map_err(|source| SystemSkillsError::io("write system skills marker", source))?;
+
+    // Clone the default registry on first install.
+    ensure_default_registry_cloned(skills_root_dir.as_path());
+
     Ok(())
+}
+
+/// Clone the default skill registry if `.registry/` doesn't exist yet.
+///
+/// This is a best-effort operation — failures are logged but do not
+/// prevent startup.
+fn ensure_default_registry_cloned(skills_root: &Path) {
+    let registry_dir = skills_root.join(".registry").join("savfox");
+    if registry_dir.is_dir() {
+        return;
+    }
+
+    let git_url = "https://github.com/savfox-ai/registry.git";
+    tracing::info!(url = %git_url, path = %registry_dir.display(), "cloning default skill registry");
+
+    if let Some(parent) = registry_dir.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            tracing::warn!(error = %err, "failed to create .registry dir");
+            return;
+        }
+    }
+
+    match std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            git_url,
+            &registry_dir.to_string_lossy(),
+        ])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            tracing::info!("default skill registry cloned successfully");
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(error = %stderr.trim(), "failed to clone default registry");
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "git not available, skipping registry clone");
+        }
+    }
 }
 
 fn read_marker(path: &AbsolutePathBuf) -> Result<String, SystemSkillsError> {

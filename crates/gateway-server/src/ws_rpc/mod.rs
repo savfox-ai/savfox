@@ -239,6 +239,7 @@ pub(crate) async fn dispatch_rpc(
         "skills.update" => handle_skills_update(&params, channel).await,
         "skills.setEnv" => handle_skills_set_env(&params, channel).await,
         "skills.install_url" => handle_skills_install_url(&params, channel).await,
+        "skills.install_zip" => handle_skills_install_zip(&params, channel).await,
 
         // ── Exec approvals ──────────────────────────────────────────────
         "exec.approvals.get" => handle_exec_approvals_get(channel).await,

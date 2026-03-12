@@ -1,10 +1,13 @@
-pub mod index;
+pub mod config;
+pub mod git_registry;
 pub mod installer;
 pub mod manifest;
 pub mod package;
 pub mod registry;
+pub mod zip_installer;
 
-pub use index::RemoteIndex;
+pub use config::RegistryConfig;
+pub use git_registry::{GitRegistry, RegistrySearchResult, SkillEntry, SkillsIndex};
 pub use installer::{InstallProgress, InstallResult, SkillInstaller};
 pub use manifest::{
     InstallKind, ManifestError, SavfoxMetadata, SkillInstallMethod,
@@ -13,3 +16,4 @@ pub use manifest::{
 };
 pub use package::{SkillManifest, SkillPackage, SkillSource};
 pub use registry::SkillRegistry;
+pub use zip_installer::{ConflictStrategy, ZipConflict, ZipInstallResult};

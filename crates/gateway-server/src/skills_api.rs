@@ -182,13 +182,11 @@ pub async fn skills_refresh_handler(depot: &mut Depot, res: &mut Response) {
         }
     };
 
-    match state.registry.refresh_index(true).await {
-        Ok(index) => {
+    match state.registry.sync_registry().await {
+        Ok(()) => {
             res.render(Text::Json(
                 json!({
                     "status": "refreshed",
-                    "skills_count": index.skills.len(),
-                    "updated_at": index.updated_at,
                 })
                 .to_string(),
             ));

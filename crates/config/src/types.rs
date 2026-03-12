@@ -528,6 +528,34 @@ pub struct SkillsConfig {
     pub config: Vec<SkillConfig>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct RegistryConfig {
+    /// Registry identifier. Must not start with '.', must be a valid directory name.
+    #[serde(default = "default_registry_id")]
+    pub id: String,
+    /// Git URL to clone for the registry.
+    #[serde(default = "default_registry_git")]
+    pub git: String,
+}
+
+impl Default for RegistryConfig {
+    fn default() -> Self {
+        Self {
+            id: default_registry_id(),
+            git: default_registry_git(),
+        }
+    }
+}
+
+fn default_registry_id() -> String {
+    "savfox".to_string()
+}
+
+fn default_registry_git() -> String {
+    "https://github.com/savfox-ai/registry.git".to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct SandboxWorkspaceWrite {

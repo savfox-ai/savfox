@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use base64::Engine as _;
+use base64::engine::general_purpose;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
@@ -159,6 +161,7 @@ pub(crate) async fn handle_skills_install_url(
     let skills_dir = channel.config().savfox_home.join("skills");
     let installer = SkillInstaller::new(skills_dir);
 
+    // Git URL installs use SkillSourceType::Git which the installer routes to .custom/
     let package = SkillPackage {
         manifest: SkillManifest {
             name: name.clone(),
@@ -193,6 +196,36 @@ pub(crate) async fn handle_skills_install_url(
             result.error.unwrap_or_else(|| "unknown error".to_string()),
         ))
     }
+}
+
+pub(crate) async fn handle_skills_install_zip(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    use savfox_skill_registry::zip_installer;
+    use savfox_skill_registry::ConflictStrategy;
+
+    // Expect base64-encoded zip data.
+    let data_b64 = require_str(params, "data")?;
+    let zip_bytes = general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|e| (INVALID_PARAMS, format!("invalid base64 data: {e}")))?;
+
+    let strategy = match params.get("conflict_strategy").and_then(|v| v.as_str()) {
+        Some("skip") => ConflictStrategy::Skip,
+        _ => ConflictStrategy::Overwrite,
+    };
+
+    let skills_dir = channel.config().savfox_home.join("skills");
+    let result = zip_installer::install_from_zip_bytes(zip_bytes, skills_dir, strategy)
+        .await
+        .map_err(|e| (INTERNAL_ERROR, format!("zip install failed: {e}")))?;
+
+    Ok(json!({
+        "installed": result.installed,
+        "skipped": result.skipped,
+        "errors": result.errors,
+    }))
 }
 
 // ── Exec approvals ──────────────────────────────────────────────────────────

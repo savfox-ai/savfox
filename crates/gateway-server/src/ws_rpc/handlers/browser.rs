@@ -1142,12 +1142,27 @@ pub(crate) async fn handle_skills_registry_search(
     channel: &GatewayChannel,
 ) -> RpcResult {
     let query = params["query"].as_str().unwrap_or("");
-    let registry = crate::skill_registry::SkillRegistry::new(&channel.config().savfox_home, None);
+    let registry = savfox_skill_registry::SkillRegistry::new(&channel.config().savfox_home);
     let results = registry
         .search(query)
         .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-    Ok(json!({ "skills": results }))
+        .map_err(|e| (INTERNAL_ERROR, e.to_string()))?;
+    let items: Vec<Value> = results
+        .iter()
+        .map(|p| {
+            json!({
+                "name": p.manifest.name,
+                "version": p.manifest.version.to_string(),
+                "description": p.manifest.description,
+                "shortDescription": p.manifest.short_description,
+                "author": p.manifest.author,
+                "keywords": p.manifest.keywords,
+                "categories": p.manifest.categories,
+                "installed": p.installed,
+            })
+        })
+        .collect();
+    Ok(json!({ "skills": items }))
 }
 
 pub(crate) async fn handle_skills_registry_install(
@@ -1157,17 +1172,27 @@ pub(crate) async fn handle_skills_registry_install(
     let name = params["name"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
-    let registry = crate::skill_registry::SkillRegistry::new(&channel.config().savfox_home, None);
-    let manifest = registry
-        .get_manifest(name)
+    let registry = savfox_skill_registry::SkillRegistry::new(&channel.config().savfox_home);
+    let packages = registry
+        .search(name)
         .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-    let install_path = channel.config().savfox_home.join("skills").join(name);
-    registry
-        .record_install(manifest, install_path)
+        .map_err(|e| (INTERNAL_ERROR, e.to_string()))?;
+    let package = packages
+        .iter()
+        .find(|p| p.manifest.name == name)
+        .ok_or((INTERNAL_ERROR, format!("skill not found: {name}")))?;
+    let result = registry
+        .install(package, None)
         .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-    Ok(json!({ "name": name, "status": "installed" }))
+        .map_err(|e| (INTERNAL_ERROR, e.to_string()))?;
+    if result.success {
+        Ok(json!({ "name": name, "status": "installed", "path": result.install_path.display().to_string() }))
+    } else {
+        Err((
+            INTERNAL_ERROR,
+            result.error.unwrap_or_else(|| "install failed".to_string()),
+        ))
+    }
 }
 
 pub(crate) async fn handle_skills_registry_uninstall(
@@ -1177,12 +1202,16 @@ pub(crate) async fn handle_skills_registry_uninstall(
     let name = params["name"]
         .as_str()
         .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
-    let registry = crate::skill_registry::SkillRegistry::new(&channel.config().savfox_home, None);
-    registry
-        .record_uninstall(name)
+    let registry = savfox_skill_registry::SkillRegistry::new(&channel.config().savfox_home);
+    let removed = registry
+        .uninstall(name)
         .await
-        .map_err(|e| (INTERNAL_ERROR, e))?;
-    Ok(json!({ "name": name, "status": "uninstalled" }))
+        .map_err(|e| (INTERNAL_ERROR, e.to_string()))?;
+    if removed {
+        Ok(json!({ "name": name, "status": "uninstalled" }))
+    } else {
+        Err((INTERNAL_ERROR, format!("skill not installed: {name}")))
+    }
 }
 
 // ─── DM Policy handlers ────────────────────────────────────────────────────

@@ -60,7 +60,6 @@ pub mod security_audit;
 pub mod send_policy;
 mod server;
 pub mod session;
-pub mod skill_registry;
 pub mod skills_api;
 mod skills_store;
 pub mod ssrf;

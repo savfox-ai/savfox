@@ -3,75 +3,48 @@ use std::path::{Path, PathBuf};
 
 use tokio::sync::RwLock;
 
-use crate::index::{RemoteIndex, RemoteIndexClient, get_builtin_skills};
+use crate::config::RegistryConfig;
+use crate::git_registry::{GitRegistry, RegistrySearchResult};
 use crate::installer::{InstallProgress, InstallResult, SkillInstaller};
 use crate::package::{SkillPackage, SkillSource, SkillSourceType};
 
 #[derive(Debug)]
 pub struct SkillRegistry {
     skills_dir: PathBuf,
-    index_client: RwLock<RemoteIndexClient>,
+    git_registry: GitRegistry,
     installer: SkillInstaller,
     installed_cache: RwLock<HashMap<String, SkillPackage>>,
 }
 
 impl SkillRegistry {
     pub fn new(savfox_home: &Path) -> Self {
+        Self::with_config(savfox_home, RegistryConfig::default())
+    }
+
+    pub fn with_config(savfox_home: &Path, config: RegistryConfig) -> Self {
         let skills_dir = savfox_home.join("skills");
         Self {
             skills_dir: skills_dir.clone(),
-            index_client: RwLock::new(RemoteIndexClient::new()),
+            git_registry: GitRegistry::new(skills_dir.clone(), config),
             installer: SkillInstaller::new(skills_dir),
             installed_cache: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn with_index_url(savfox_home: &Path, index_url: String) -> Self {
-        let skills_dir = savfox_home.join("skills");
-        Self {
-            skills_dir: skills_dir.clone(),
-            index_client: RwLock::new(RemoteIndexClient::with_url(index_url)),
-            installer: SkillInstaller::new(skills_dir),
-            installed_cache: RwLock::new(HashMap::new()),
-        }
+    /// Sync the git registry (pull latest changes).
+    pub async fn sync_registry(&self) -> anyhow::Result<()> {
+        self.git_registry.sync().await
     }
 
-    pub async fn refresh_index(&self, force: bool) -> anyhow::Result<RemoteIndex> {
-        let mut client = self.index_client.write().await;
-        client.fetch_index(force).await
-    }
-
+    /// Search for skills in the git registry.
     pub async fn search(&self, query: &str) -> anyhow::Result<Vec<SkillPackage>> {
-        let client = self.index_client.read().await;
+        let results = self.git_registry.search(query).await?;
         let installed = self.installed_cache.read().await;
 
-        let mut results = Vec::new();
-
-        if let Some(index) = client.cached_index() {
-            for entry in client.search(query, index) {
-                let mut pkg = client.entry_to_package(entry);
-                if let Some(installed_pkg) = installed.get(&pkg.manifest.name) {
-                    pkg.installed = true;
-                    pkg.installed_version = installed_pkg.manifest.version.clone().into();
-                    pkg.install_path = installed_pkg.install_path.clone();
-                }
-                results.push(pkg);
-            }
-        }
-
-        Ok(results)
-    }
-
-    pub async fn list_available(&self, force_refresh: bool) -> anyhow::Result<Vec<SkillPackage>> {
-        let mut client = self.index_client.write().await;
-        let index = client.fetch_index(force_refresh).await?;
-        let installed = self.installed_cache.read().await;
-
-        let mut packages: Vec<SkillPackage> = index
-            .skills
-            .iter()
-            .map(|entry| {
-                let mut pkg = client.entry_to_package(entry);
+        let packages = results
+            .into_iter()
+            .map(|r| {
+                let mut pkg = search_result_to_package(&r);
                 if let Some(installed_pkg) = installed.get(&pkg.manifest.name) {
                     pkg.installed = true;
                     pkg.installed_version = installed_pkg.manifest.version.clone().into();
@@ -81,17 +54,13 @@ impl SkillRegistry {
             })
             .collect();
 
-        let builtin = get_builtin_skills();
-        for mut pkg in builtin {
-            if let Some(installed_pkg) = installed.get(&pkg.manifest.name) {
-                pkg.installed = true;
-                pkg.installed_version = installed_pkg.manifest.version.clone().into();
-                pkg.install_path = installed_pkg.install_path.clone();
-            }
-            packages.push(pkg);
-        }
-
         Ok(packages)
+    }
+
+    /// List all available skills from the git registry.
+    pub async fn list_available(&self, _force_refresh: bool) -> anyhow::Result<Vec<SkillPackage>> {
+        // Search with empty query returns all skills.
+        self.search("").await
     }
 
     pub async fn list_installed(&self) -> anyhow::Result<Vec<SkillPackage>> {
@@ -189,6 +158,44 @@ impl SkillRegistry {
     }
 }
 
+/// Convert a git registry search result into a `SkillPackage`.
+fn search_result_to_package(result: &RegistrySearchResult) -> SkillPackage {
+    let entry = &result.entry;
+    let version = entry
+        .version
+        .as_deref()
+        .and_then(|v| semver::Version::parse(v).ok())
+        .unwrap_or(semver::Version::new(0, 0, 0));
+
+    SkillPackage {
+        manifest: crate::package::SkillManifest {
+            name: entry.name.clone(),
+            version,
+            description: entry
+                .description
+                .clone()
+                .or_else(|| entry.summary.clone())
+                .unwrap_or_default(),
+            short_description: entry.summary.clone(),
+            author: entry.author.clone(),
+            keywords: entry.keywords.clone(),
+            categories: entry.categories.clone(),
+            repository: entry.git.clone(),
+            ..Default::default()
+        },
+        source: SkillSource {
+            source_type: SkillSourceType::Registry,
+            url: entry.git.clone(),
+            path: None,
+            registry: Some(format!("{}/{}", result.realm, result.flock)),
+            checksum: None,
+        },
+        installed: false,
+        installed_version: None,
+        install_path: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -198,6 +205,8 @@ mod tests {
     #[tokio::test]
     async fn registry_creation() {
         let tmp = TempDir::new().unwrap();
+        let skills_dir = tmp.path().join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
         let registry = SkillRegistry::new(tmp.path());
         assert!(registry.skills_dir().exists());
     }

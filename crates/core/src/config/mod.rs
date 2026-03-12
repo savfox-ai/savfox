@@ -6,8 +6,8 @@ use savfox_app_server_protocol::{Tools, UserSavedConfig};
 use savfox_config::types::{
     DEFAULT_OTEL_ENVIRONMENT, History, McpServerConfig, McpServerDisabledReason,
     McpServerTransportConfig, Notice, NotificationMethod, Notifications, OtelConfig,
-    OtelConfigToml, OtelExporterKind, SandboxWorkspaceWrite, ShellEnvironmentPolicy,
-    ShellEnvironmentPolicyToml, SkillsConfig, Tui, UriBasedFileOpener,
+    OtelConfigToml, OtelExporterKind, RegistryConfig, SandboxWorkspaceWrite,
+    ShellEnvironmentPolicy, ShellEnvironmentPolicyToml, SkillsConfig, Tui, UriBasedFileOpener,
 };
 pub use savfox_config::{
     CONFIG_JSON_FILE, CONFIG_TOML_FILE, CONFIG_YAML_FILE, CONFIG_YML_FILE, Constrained,
@@ -1003,6 +1003,9 @@ pub struct ConfigToml {
 
     /// User-level skill config entries keyed by SKILL.md path.
     pub skills: Option<SkillsConfig>,
+
+    /// Git-based skill registry configuration.
+    pub registry: Option<RegistryConfig>,
 
     /// Centralized feature flags (new). Prefer this over individual toggles.
     #[serde(default)]
