@@ -20,7 +20,7 @@ use crate::utils::download::trigger_download;
 use crate::utils::provider_registry::{canonical_provider_id, provider_display_name};
 
 // ---------------------------------------------------------------------------
-// TASK-012: Agent status indicator helper
+// Agent status indicator helper
 // ---------------------------------------------------------------------------
 
 fn agent_status_color(entry: &AgentEntry) -> &'static str {
@@ -57,7 +57,7 @@ fn agent_status_label(entry: &AgentEntry) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// TASK-029: Agent templates
+// Agent templates
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
@@ -542,7 +542,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 class: None,
                             }
                         }
-                        // TASK-030: Import agent from JSON file
+                        // Import agent from JSON file
                         button {
                             onclick: {
                                 let ws = ws.clone();
@@ -683,7 +683,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 style: "padding:10px 16px;border-bottom:1px solid var(--border);cursor:pointer;background:{bg};",
                                                 div { style: "display:flex;justify-content:space-between;align-items:center;",
                                                     div { style: "display:flex;align-items:center;gap:8px;min-width:0;",
-                                                        // TASK-012: Status indicator dot
+                                                        // Status indicator dot
                                                         {
                                                             let color = agent_status_color(agent);
                                                             let label = agent_status_label(agent);
@@ -917,7 +917,7 @@ fn AgentCreateForm(
         div { style: "padding:24px;",
             h3 { style: "font-size:18px;margin-bottom:16px;", "New Agent" }
 
-            // TASK-029: Template selection cards
+            // Template selection cards
             div { style: "margin-bottom:20px;",
                 p { style: "font-size:13px;color:var(--text-muted);margin-bottom:10px;", "Start from a template or configure from scratch:" }
                 div { style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;",
@@ -1576,7 +1576,7 @@ fn AgentOverviewTab(
                             "Clone"
                         }
                     }
-                    // TASK-030: Export agent as JSON
+                    // Export agent as JSON
                     button {
                         onclick: {
                             let export_entry = entry.clone();

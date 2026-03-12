@@ -249,10 +249,10 @@ pub fn Layout() -> Element {
     let mut pending_approvals = use_signal(|| Vec::<ExecApprovalFull>::new());
     let mut palette_open = use_signal(|| false);
 
-    // TASK-009: Signal to auto-show the approval modal when a new WS event arrives
+    // Signal to auto-show the approval modal when a new WS event arrives
     let mut show_approval_modal = use_signal(|| false);
 
-    // TASK-007: Request browser notification permission on first render
+    // Request browser notification permission on first render
     use_effect(move || {
         notifications::request_notification_permission();
     });
@@ -395,7 +395,7 @@ pub fn Layout() -> Element {
         }
     });
 
-    // TASK-009: Listen for new exec approval events from WebSocket.
+    // Listen for new exec approval events from WebSocket.
     // When a new approval request arrives, auto-show the modal and send a
     // browser notification so the user notices even when the tab is in the
     // background.
@@ -539,7 +539,7 @@ pub fn Layout() -> Element {
                     }
                 }
                 div { class: "top-header__right",
-                    // TASK-008: Notification bell with unread badge
+                    // Notification bell with unread badge
                     Link {
                         to: Route::Approvals {},
                         class: "top-header__bell",
