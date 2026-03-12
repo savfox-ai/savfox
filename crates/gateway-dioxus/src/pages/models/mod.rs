@@ -85,6 +85,7 @@ pub fn Models() -> Element {
     let mut grouped_models: Vec<(
         String,
         String,
+        String,
         Vec<(ModelKey, String, String, String, bool)>,
     )> = vec![];
     let mut total_models = 0usize;
@@ -123,7 +124,14 @@ pub fn Models() -> Element {
 
         provider_rows.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.1.cmp(&b.1)));
         if !provider_rows.is_empty() {
-            grouped_models.push((provider.id.clone(), provider.name.clone(), provider_rows));
+            // When account_slug is present, show just the base provider name
+            // (e.g. "OpenAI") since the account label is rendered separately.
+            let title = if !provider.account_slug.is_empty() {
+                provider.name.split(" / ").next().unwrap_or(&provider.name).to_string()
+            } else {
+                provider.name.clone()
+            };
+            grouped_models.push((provider.id.clone(), title, provider.account_slug.clone(), provider_rows));
         }
     }
 
@@ -193,9 +201,10 @@ pub fn Models() -> Element {
                     } else if grouped_models.is_empty() {
                         div { class: "models-state models-state--muted", "No matching models" }
                     } else {
-                        for (provider_id, provider_name, provider_models) in grouped_models.iter() {
+                        for (provider_id, provider_name, account_slug, provider_models) in grouped_models.iter() {
                             {
                                 let provider_title = provider_name.clone();
+                                let account_label = account_slug.clone();
                                 let pid = provider_id.clone();
                                 let pid_for_btn = provider_id.clone();
                                 let test_state = test_states().get(&pid).cloned().unwrap_or((false, None));
@@ -205,8 +214,20 @@ pub fn Models() -> Element {
                                 rsx! {
                                     section { class: "models-group",
                                         div { class: "models-group__header",
-                                            h3 { class: "models-group__title", "{provider_title}" }
+                                            div { class: "models-group__title-row",
+                                                h3 { class: "models-group__title", "{provider_title}" }
+                                                if !account_label.is_empty() {
+                                                    span { class: "models-group__account", "{account_label}" }
+                                                }
+                                            }
                                             div { class: "models-group__test",
+                                                if let Some((ok, ref msg)) = test_result {
+                                                    span {
+                                                        class: if ok { "models-test-result models-test-result--ok" } else { "models-test-result models-test-result--err" },
+                                                        if ok { "\u{2713} " } else { "\u{2717} " }
+                                                        "{msg}"
+                                                    }
+                                                }
                                                 button {
                                                     class: "models-test-btn",
                                                     disabled: is_testing,
@@ -239,13 +260,6 @@ pub fn Models() -> Element {
                                                         });
                                                     },
                                                     if is_testing { "Testing..." } else { "Test" }
-                                                }
-                                                if let Some((ok, ref msg)) = test_result {
-                                                    span {
-                                                        class: if ok { "models-test-result models-test-result--ok" } else { "models-test-result models-test-result--err" },
-                                                        if ok { "\u{2713} " } else { "\u{2717} " }
-                                                        "{msg}"
-                                                    }
                                                 }
                                             }
                                         }
@@ -500,6 +514,13 @@ const MODELS_STYLES: &str = r#"
         gap: 10px;
     }
 
+    .models-group__title-row {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        min-width: 0;
+    }
+
     .models-group__title {
         margin: 0;
         font-size: 28px;
@@ -507,13 +528,24 @@ const MODELS_STYLES: &str = r#"
         color: color-mix(in srgb, var(--accent) 50%, var(--text-secondary) 50%);
         letter-spacing: -0.02em;
         font-weight: 650;
+        flex-shrink: 0;
+    }
+
+    .models-group__account {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-muted);
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        white-space: nowrap;
     }
 
     .models-group__test {
         display: flex;
         align-items: center;
         gap: 8px;
-        flex-shrink: 0;
+        min-width: 0;
     }
 
     .models-test-btn {
@@ -526,6 +558,7 @@ const MODELS_STYLES: &str = r#"
         color: var(--text-secondary);
         cursor: pointer;
         transition: border-color 0.15s, color 0.15s;
+        flex-shrink: 0;
     }
 
     .models-test-btn:hover:not(:disabled) {
@@ -542,6 +575,9 @@ const MODELS_STYLES: &str = r#"
         font-size: 12px;
         font-weight: 500;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
     }
 
     .models-test-result--ok {
