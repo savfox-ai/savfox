@@ -143,14 +143,37 @@ pub(crate) async fn handle_skills_install_url(
         return Err((INVALID_PARAMS, "url must not be empty".to_string()));
     }
 
-    // Derive a skill folder name from the URL.
-    let name = url
-        .trim_end_matches('/')
-        .trim_end_matches(".git")
-        .rsplit('/')
-        .next()
-        .unwrap_or("skill")
-        .to_string();
+    // Derive a skill folder name from the URL, preserving org/repo structure
+    // e.g. "https://github.com/org-name/repo-name.git" → "org-name/repo-name"
+    let name = {
+        let stripped = url
+            .trim_end_matches('/')
+            .trim_end_matches(".git");
+        // Find the host-relative path: everything after the domain
+        // For "https://github.com/org/repo" we want "org/repo"
+        let path_part = stripped
+            .split("://")
+            .nth(1)
+            .unwrap_or(stripped);
+        // Skip the hostname, take the remaining path segments
+        let after_host: Vec<&str> = path_part
+            .splitn(2, '/')
+            .nth(1)
+            .unwrap_or("")
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if after_host.len() >= 2 {
+            // Keep org/repo (last two meaningful segments)
+            let org = after_host[after_host.len() - 2];
+            let repo = after_host[after_host.len() - 1];
+            format!("{org}/{repo}")
+        } else if let Some(last) = after_host.last() {
+            last.to_string()
+        } else {
+            String::new()
+        }
+    };
     if name.is_empty() || name == "." || name == ".." {
         return Err((
             INVALID_PARAMS,
