@@ -270,14 +270,8 @@ similar = "2.7.0"
 smallvec = "1"
 socket2 = "0.6"
 sqlx = { version = "0.8.6", default-features = false, features = [
-    "chrono",
-    "json",
-    "macros",
-    "migrate",
     "runtime-tokio-rustls",
     "sqlite",
-    "time",
-    "uuid",
 ] }
 starlark = "0.13.0"
 strum = "0.28.0"
