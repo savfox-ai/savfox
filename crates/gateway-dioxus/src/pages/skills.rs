@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 
+use base64::Engine;
 use dioxus::prelude::*;
 use serde_json::json;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 
 use crate::api::types::{SkillDetail, SkillsBinsResponse, SkillsStatusResponse};
 use crate::api::ws::WsRpc;
@@ -182,7 +185,7 @@ pub fn Skills() -> Element {
                     SearchInput {
                         value: search_query(),
                         on_change: move |v: String| search_query.set(v),
-                        placeholder: "Filter skills...".to_string(),
+                        placeholder: "Search...".to_string(),
                         match_count: match_count,
                     }
                     button {
@@ -193,13 +196,13 @@ pub fn Skills() -> Element {
                 }
             }
 
-            // Install from URL
+            // Install from URL or ZIP
             div { class: "skill-url-install",
                 div { class: "skill-url-install__row",
                     input {
                         class: "skill-url-install__input",
                         r#type: "text",
-                        placeholder: "Git URL or skill URL to install...",
+                        placeholder: "Git URL to install...",
                         value: "{install_url}",
                         oninput: move |e: Event<FormData>| {
                             install_url.set(e.value());
@@ -271,6 +274,18 @@ pub fn Skills() -> Element {
                             }
                         },
                         if installing() { "Installing..." } else { "Install" }
+                    }
+                    // Upload ZIP button
+                    {
+                        let ws_zip = ws.clone();
+                        rsx! {
+                            UploadZipButton {
+                                ws: ws_zip,
+                                installing: installing,
+                                install_status: install_status,
+                                on_installed: move |_| refresh_tick += 1,
+                            }
+                        }
                     }
                 }
                 if let Some((ok, ref msg)) = install_status() {
@@ -387,6 +402,10 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
                         span { style: "font-weight:500;font-size:14px;", "{skill.name}" }
                         if let Some(ref ver) = skill.version {
                             span { style: "font-size:11px;color:var(--text-muted);", "v{ver}" }
+                        }
+                        // Category label
+                        if let Some(ref cat) = skill.category {
+                            Chip { label: cat.clone(), variant: ChipVariant::Info }
                         }
                         if is_eligible {
                             Chip { label: "Eligible".to_string(), variant: ChipVariant::Success }
@@ -576,6 +595,101 @@ fn SkillApiKeyInput(
                 },
                 _ => rsx! {},
             }
+        }
+    }
+}
+
+/// Upload a .zip file to install a skill via `skills.install_zip`.
+#[component]
+fn UploadZipButton(
+    ws: WsRpc,
+    mut installing: Signal<bool>,
+    mut install_status: Signal<Option<(bool, String)>>,
+    on_installed: EventHandler<()>,
+) -> Element {
+    rsx! {
+        button {
+            class: "skill-url-install__btn skill-url-install__btn--upload",
+            disabled: installing(),
+            onclick: move |_| {
+                let ws = ws.clone();
+                let Some(window) = web_sys::window() else { return };
+                let Some(doc) = window.document() else { return };
+                let Ok(input) = doc.create_element("input") else { return };
+                let _ = input.set_attribute("type", "file");
+                let _ = input.set_attribute("accept", ".zip,application/zip");
+                let _ = input.set_attribute("style", "display:none");
+
+                let cb = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                    let Some(target) = event.target() else { return };
+                    let Ok(input): Result<web_sys::HtmlInputElement, _> = target.dyn_into() else { return };
+                    let Some(files) = input.files() else { return };
+                    let Some(file) = files.get(0) else { return };
+                    let Ok(reader) = web_sys::FileReader::new() else { return };
+
+                    installing.set(true);
+                    install_status.set(None);
+
+                    let reader_clone = reader.clone();
+                    let ws_inner = ws.clone();
+                    let onload = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                        let Ok(result) = reader_clone.result() else {
+                            installing.set(false);
+                            install_status.set(Some((false, "Failed to read file".into())));
+                            return;
+                        };
+                        let buf = js_sys::Uint8Array::new(&result);
+                        let mut bytes = vec![0u8; buf.length() as usize];
+                        buf.copy_to(&mut bytes);
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+                        let ws_spawn = ws_inner.clone();
+                        spawn(async move {
+                            let result = ws_spawn.call::<serde_json::Value>(
+                                "skills.install_zip",
+                                Some(json!({ "data": b64 })),
+                            ).await;
+                            installing.set(false);
+                            match result {
+                                Ok(v) => {
+                                    let installed: Vec<String> = v.get("installed")
+                                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                        .unwrap_or_default();
+                                    let msg = if installed.is_empty() {
+                                        "No skills installed".into()
+                                    } else {
+                                        format!("Installed: {}", installed.join(", "))
+                                    };
+                                    install_status.set(Some((true, msg)));
+                                    on_installed.call(());
+                                }
+                                Err(e) => {
+                                    install_status.set(Some((false, format!("{e}"))));
+                                }
+                            }
+                        });
+                    }) as Box<dyn FnMut(web_sys::Event)>);
+
+                    reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                    onload.forget();
+                    let _ = reader.read_as_array_buffer(&file);
+
+                    if let Some(parent) = input.parent_node() {
+                        let _ = parent.remove_child(&input);
+                    }
+                }) as Box<dyn FnMut(web_sys::Event)>);
+
+                let _ = input.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref());
+                cb.forget();
+
+                if let Some(body) = doc.body() {
+                    let _ = body.append_child(&input);
+                    if let Some(el) = input.dyn_ref::<web_sys::HtmlElement>() {
+                        el.click();
+                    }
+                }
+            },
+            "Upload ZIP"
         }
     }
 }

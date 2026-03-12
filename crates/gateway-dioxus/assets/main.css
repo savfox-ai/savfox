@@ -3388,6 +3388,7 @@ select:focus-visible {
 .skill-url-install__input {
   flex: 1;
   min-width: 0;
+  max-width: 340px;
   height: 34px;
   padding: 0 10px;
   font-size: 13px;
@@ -3429,6 +3430,12 @@ select:focus-visible {
 .skill-url-install__btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.skill-url-install__btn--upload {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
 }
 
 .skill-url-install__msg {

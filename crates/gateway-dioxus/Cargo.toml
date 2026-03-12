@@ -71,3 +71,4 @@ regex-lite = { workspace = true }
 savfox-utils = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
+base64 = { workspace = true }
