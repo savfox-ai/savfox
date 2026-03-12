@@ -447,7 +447,7 @@ pub fn Overview() -> Element {
     let ws_clear = ws.clone();
 
     rsx! {
-        div { class: "overview-page",
+        div { class: "page-content overview-page",
             h2 { class: "page-title", "Overview" }
 
             // ── Onboarding stepper (first-use) ────────────────────
@@ -855,9 +855,7 @@ fn InfoRow(label: String, value: String, #[props(default)] copy_value: Option<St
 
 const STYLE: &str = r#"
     .overview-page {
-        padding: 24px;
-        max-width: 900px;
-        margin: 0 auto;
+        /* Layout handled by .page-content */
     }
 
     .page-title {
@@ -1343,7 +1341,7 @@ const STYLE: &str = r#"
 
     @media screen and (max-width: 768px) {
         .overview-page {
-            padding: 16px;
+            /* responsive padding handled by .page-content */
         }
 
         .page-title {

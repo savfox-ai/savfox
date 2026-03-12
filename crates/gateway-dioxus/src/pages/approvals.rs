@@ -57,7 +57,7 @@ pub fn Approvals() -> Element {
     let has_selection = selected_count > 0;
 
     rsx! {
-        div { style: "padding:24px;max-width:900px;",
+        div { class: "page-content",
             div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;",
                 h2 { style: "font-size:20px;font-weight:600;", "Approvals" }
                 button {

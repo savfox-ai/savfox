@@ -3371,12 +3371,20 @@ select:focus-visible {
   border-radius: 4px;
 }
 
-/* Skills toolbar */
-.skills-page {
+/* ── Unified page content container ── */
+.page-content {
   width: 100%;
-  max-width: 960px;
+  max-width: 1200px;
+  margin: 0 auto;
   padding: 24px;
   box-sizing: border-box;
+}
+@media (max-width: 768px) { .page-content { padding: 16px; } }
+@media (max-width: 480px) { .page-content { padding: 12px; } }
+
+/* Skills toolbar */
+.skills-page {
+  /* Layout handled by .page-content */
 }
 
 .skills-toolbar {
@@ -3492,6 +3500,37 @@ select:focus-visible {
   font-size: 22px;
   font-weight: 600;
   font-family: var(--font-mono);
+}
+
+/* Skills category filter chips */
+.skills-category-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.skills-category-chip {
+  padding: 5px 14px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast) ease, color var(--transition-fast) ease, border-color var(--transition-fast) ease;
+}
+
+.skills-category-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.skills-category-chip--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 /* Default agent badge */

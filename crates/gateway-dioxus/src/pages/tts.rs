@@ -132,7 +132,7 @@ pub fn Tts() -> Element {
         .unwrap_or_default();
 
     rsx! {
-        div { style: "padding:24px;max-width:800px;",
+        div { class: "page-content",
             div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;",
                 h2 { style: "font-size:20px;font-weight:600;", "Text-to-Speech" }
                 button {

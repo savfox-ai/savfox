@@ -466,7 +466,7 @@ fn render_create_form(
     ];
 
     rsx! {
-        div { style: "padding:24px;max-width:700px;",
+        div { class: "page-content",
             h3 { style: "font-size:18px;margin-bottom:16px;", "New Cron Job" }
             div { style: "display:flex;flex-direction:column;gap:16px;",
                 // Name

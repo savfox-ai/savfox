@@ -38,8 +38,8 @@ pub fn DevicePair() -> Element {
 
     rsx! {
         div {
-            class: "page-container",
-            style: "padding: 24px; max-width: 600px; margin: 0 auto; text-align: center;",
+            class: "page-content",
+            style: "text-align: center;",
 
             h2 {
                 style: "margin-bottom: 16px;",
