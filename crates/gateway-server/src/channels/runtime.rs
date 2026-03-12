@@ -521,15 +521,22 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .await;
     }
     // Set up streaming for channels that support progressive message editing.
-    // Supported: Telegram, Discord, Slack, Mattermost, Feishu/Lark.
+    // Supported: Telegram, Discord, Slack, Mattermost, Feishu/Lark, DingTalk.
     use super::channel_stream::{
-        ChannelStreamWriter, StreamEvent, create_stream_sink, send_status_message,
+        ChannelStreamWriter, StreamEvent, StreamSinkContext, create_stream_sink,
+        send_status_message,
+    };
+    let sink_ctx = StreamSinkContext {
+        peer_id: start_meta.peer_id.as_deref(),
+        thread_id: start_meta.thread_id.as_deref(),
+        chat_type: start_meta.chat_type.as_deref(),
     };
     let (stream_tx, stream_handle) = if let Some(sink) = create_stream_sink(
         platform,
         &channel_id,
         tracked.reply_target.as_deref(),
         &gateway_channel,
+        Some(&sink_ctx),
     )
     .await
     {

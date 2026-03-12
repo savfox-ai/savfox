@@ -448,7 +448,6 @@ pub(crate) async fn chat_completions_handler(
     };
 
     if body.stream {
-        println!("DEBUG: body.handle_streaming");
         handle_streaming(
             res,
             channel,
@@ -461,7 +460,6 @@ pub(crate) async fn chat_completions_handler(
         )
         .await;
     } else {
-        println!("DEBUG: body.handle_non_streaming");
         handle_non_streaming(
             res,
             channel,
@@ -616,7 +614,6 @@ async fn handle_streaming(
         let model_for_delta = m.clone();
         let tx_for_delta = tx.clone();
         let emit_delta = move |delta_text: &str| {
-            println!("DEBUG: emit_delta called with delta_text: '{}'", delta_text);
             if delta_text.is_empty() {
                 return;
             }
@@ -625,9 +622,9 @@ async fn handle_streaming(
                     continue;
                 }
                 tracing::info!(
-                    "[SSE DELTA] Sending delta at {:?}: '{}'",
+                    "[SSE DELTA] Sending delta at {:?}, chars={}",
                     std::time::Instant::now(),
-                    segment.text
+                    segment.text.chars().count(),
                 );
                 let (content, reasoning_content) = match segment.kind {
                     EmbeddedDeltaKind::Text => (Some(segment.text), None),
@@ -649,7 +646,6 @@ async fn handle_streaming(
                     }],
                 };
                 if let Ok(json) = serde_json::to_string(&chunk) {
-                    println!("DEBUG: tx_for_delta send json: '{}'", json);
                     let _ = tx_for_delta.send(Ok(SseEvent::default().text(json)));
                 }
             }

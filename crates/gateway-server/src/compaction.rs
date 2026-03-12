@@ -360,7 +360,6 @@ fn build_summary(messages: &[&Value], config: &CompactionConfig) -> String {
             ""
         };
 
-        println!("build_summary 2: role={}, text={}", role, truncated);
         parts.push(format!("[{role}] {truncated}{ellipsis}"));
     }
 

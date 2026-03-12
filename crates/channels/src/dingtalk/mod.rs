@@ -1,4 +1,5 @@
 mod channel;
+pub mod client;
 mod config;
 mod inbound;
 mod parse;

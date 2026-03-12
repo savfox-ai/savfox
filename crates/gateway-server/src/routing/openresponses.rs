@@ -197,7 +197,6 @@ fn extract_prompt(input: &ResponsesInput) -> String {
                         .join("\n"),
                     ResponsesContent::Empty => continue,
                 };
-                println!("Extracted message part 1: role={}, text={}", msg.role, text);
                 parts.push(format!("[{}]: {text}", msg.role));
             }
             parts.join("\n\n")

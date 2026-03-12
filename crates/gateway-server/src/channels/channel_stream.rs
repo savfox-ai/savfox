@@ -604,7 +604,162 @@ impl StreamSink for FeishuSink {
     }
 }
 
+/// DingTalk streaming sink.
+///
+/// DingTalk does not support editing text messages after sending, so
+/// `edit_message` is implemented as "recall old message + send new message".
+pub(crate) struct DingtalkSink {
+    client: reqwest::Client,
+    openapi_host: String,
+    access_token: String,
+    robot_code: String,
+    target: DingtalkTarget,
+    /// Track the current processQueryKey so we can recall-and-resend.
+    current_key: tokio::sync::Mutex<Option<String>>,
+}
+
+pub(crate) enum DingtalkTarget {
+    Dm { user_id: String },
+    Group { conversation_id: String },
+}
+
+impl DingtalkSink {
+    pub fn new(
+        client: reqwest::Client,
+        openapi_host: String,
+        access_token: String,
+        robot_code: String,
+        target: DingtalkTarget,
+    ) -> Self {
+        Self {
+            client,
+            openapi_host,
+            access_token,
+            robot_code,
+            target,
+            current_key: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    async fn send_text(&self, text: &str) -> Option<String> {
+        let result = match &self.target {
+            DingtalkTarget::Dm { user_id } => {
+                savfox_channels::dingtalk::client::send_dm_message_returning_id(
+                    &self.client,
+                    &self.openapi_host,
+                    &self.access_token,
+                    &self.robot_code,
+                    user_id,
+                    text,
+                )
+                .await
+            }
+            DingtalkTarget::Group { conversation_id } => {
+                savfox_channels::dingtalk::client::send_group_message_returning_id(
+                    &self.client,
+                    &self.openapi_host,
+                    &self.access_token,
+                    &self.robot_code,
+                    conversation_id,
+                    text,
+                )
+                .await
+            }
+        };
+        match result {
+            Ok(key) => key,
+            Err(err) => {
+                warn!("[dingtalk-stream] send failed: {err}");
+                None
+            }
+        }
+    }
+
+    async fn recall(&self, process_query_key: &str) {
+        let result = match &self.target {
+            DingtalkTarget::Dm { .. } => {
+                savfox_channels::dingtalk::client::recall_dm_message(
+                    &self.client,
+                    &self.openapi_host,
+                    &self.access_token,
+                    &self.robot_code,
+                    process_query_key,
+                )
+                .await
+            }
+            DingtalkTarget::Group { conversation_id } => {
+                savfox_channels::dingtalk::client::recall_group_message(
+                    &self.client,
+                    &self.openapi_host,
+                    &self.access_token,
+                    &self.robot_code,
+                    conversation_id,
+                    process_query_key,
+                )
+                .await
+            }
+        };
+        if let Err(err) = result {
+            warn!("[dingtalk-stream] recall failed: {err}");
+        }
+    }
+}
+
+#[async_trait]
+impl StreamSink for DingtalkSink {
+    async fn send_initial(&self, text: &str) -> Option<String> {
+        let key = self.send_text(text).await?;
+        *self.current_key.lock().await = Some(key.clone());
+        Some(key)
+    }
+
+    async fn edit_message(&self, _message_id: &str, text: &str) {
+        // DingTalk doesn't support editing text messages.
+        // Recall the current message and send a replacement.
+        let mut current = self.current_key.lock().await;
+        if let Some(old_key) = current.take() {
+            drop(current);
+            self.recall(&old_key).await;
+        } else {
+            drop(current);
+        }
+        if let Some(new_key) = self.send_text(text).await {
+            *self.current_key.lock().await = Some(new_key);
+        }
+    }
+
+    async fn delete_message(&self, message_id: &str) {
+        self.recall(message_id).await;
+        // Clear current_key if it matches the deleted message.
+        let mut current = self.current_key.lock().await;
+        if current.as_deref() == Some(message_id) {
+            *current = None;
+        }
+    }
+
+    fn max_length(&self) -> usize {
+        20000
+    }
+
+    fn throttle_interval(&self) -> Duration {
+        // Longer throttle to avoid rate limits: each "edit" = recall + send = 2 API calls.
+        Duration::from_millis(5000)
+    }
+
+    fn platform_tag(&self) -> &'static str {
+        "dingtalk"
+    }
+}
+
 // ── Sink factory ─────────────────────────────────────────────────────
+
+/// Extra context for sink creation that some platforms need beyond the
+/// basic `channel_id` and `reply_target`.
+pub(crate) struct StreamSinkContext<'a> {
+    pub peer_id: Option<&'a str>,
+    pub thread_id: Option<&'a str>,
+    pub chat_type: Option<&'a str>,
+}
 
 /// Create a `StreamSink` for the given platform, resolving tokens as needed.
 /// Returns `None` if the platform doesn't support editing or tokens are missing.
@@ -613,6 +768,7 @@ pub(crate) async fn create_stream_sink(
     channel_id: &str,
     reply_target: Option<&str>,
     gw: &Arc<GatewayChannel>,
+    ctx: Option<&StreamSinkContext<'_>>,
 ) -> Option<Box<dyn StreamSink>> {
     let client = gw.http_client().clone();
 
@@ -695,13 +851,74 @@ pub(crate) async fn create_stream_sink(
                     .ok()?
             };
 
-            let receive_id_type = cfg.receive_id_type.clone();
+            let receive_id_type = savfox_channels::feishu::client::infer_receive_id_type(
+                channel_id,
+                &cfg.receive_id_type,
+            );
             Some(Box::new(FeishuSink::new(
                 client,
                 cfg.base_url.clone(),
                 tenant_token,
                 channel_id.to_owned(),
                 receive_id_type,
+            )))
+        }
+        "dingtalk" => {
+            // DingTalk uses the Open API for send/recall. Requires client_id/client_secret
+            // from the channel config to obtain an access token.
+            let config =
+                savfox_channels::dingtalk::load_dingtalk_channel_config(&gw.config().savfox_home)
+                    .await
+                    .ok()?;
+            let cfg = config?;
+            let client_id = cfg
+                .client_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())?;
+            let client_secret = cfg
+                .client_secret
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())?;
+
+            let access_token = savfox_channels::dingtalk::client::fetch_access_token(
+                &client,
+                &cfg.openapi_host,
+                client_id,
+                client_secret,
+            )
+            .await
+            .ok()?;
+
+            // Determine target: DM (need user_id) or group (need conversation_id).
+            let chat_type = ctx.and_then(|c| c.chat_type);
+            let target = match chat_type {
+                Some("dm") | Some("private") | Some("direct") | Some("single") => {
+                    let user_id = ctx
+                        .and_then(|c| c.peer_id)
+                        .filter(|v| !v.trim().is_empty())?;
+                    DingtalkTarget::Dm {
+                        user_id: user_id.to_string(),
+                    }
+                }
+                _ => {
+                    // Group chat or unknown — use conversation_id from thread_id.
+                    let conversation_id = ctx
+                        .and_then(|c| c.thread_id)
+                        .filter(|v| !v.trim().is_empty())?;
+                    DingtalkTarget::Group {
+                        conversation_id: conversation_id.to_string(),
+                    }
+                }
+            };
+
+            Some(Box::new(DingtalkSink::new(
+                client,
+                cfg.openapi_host.clone(),
+                access_token,
+                client_id.to_string(),
+                target,
             )))
         }
         _ => None,

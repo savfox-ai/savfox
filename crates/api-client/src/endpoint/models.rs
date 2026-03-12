@@ -4,6 +4,7 @@ use http::header::ETAG;
 use http::{HeaderMap, Method};
 use savfox_http_client::{HttpTransport, RequestTelemetry};
 use savfox_protocol::openai_models::{ModelInfo, ModelsResponse};
+use serde_json::Value;
 
 use crate::auth::{AuthProvider, add_auth_headers};
 use crate::error::ApiError;
@@ -65,15 +66,48 @@ impl<T: HttpTransport, A: AuthProvider> ModelsClient<T, A> {
             .and_then(|value| value.to_str().ok())
             .map(ToString::to_string);
 
-        let ModelsResponse { models } = serde_json::from_slice::<ModelsResponse>(&resp.body)
-            .map_err(|e| {
-                ApiError::Stream(format!(
-                    "failed to decode models response: {e}; body: {}",
-                    String::from_utf8_lossy(&resp.body)
-                ))
-            })?;
+        let ModelsResponse { models } = decode_models_response(&resp.body)?;
 
         Ok((models, header_etag))
+    }
+}
+
+fn decode_models_response(body: &[u8]) -> Result<ModelsResponse, ApiError> {
+    let mut payload: Value = serde_json::from_slice(body).map_err(|e| {
+        ApiError::Stream(format!(
+            "failed to decode models response: {e}; body: {}",
+            String::from_utf8_lossy(body)
+        ))
+    })?;
+    normalize_missing_model_names(&mut payload);
+    serde_json::from_value(payload).map_err(|e| {
+        ApiError::Stream(format!(
+            "failed to decode models response: {e}; body: {}",
+            String::from_utf8_lossy(body)
+        ))
+    })
+}
+
+fn normalize_missing_model_names(payload: &mut Value) {
+    let Some(models) = payload.get_mut("models").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    for model in models {
+        let Some(model) = model.as_object_mut() else {
+            continue;
+        };
+        let slug = model
+            .get("slug")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        if !model.contains_key("name")
+            && let Some(slug) = slug
+        {
+            model.insert("name".to_string(), Value::String(slug));
+        }
     }
 }
 
@@ -245,6 +279,24 @@ mod tests {
         assert_eq!(models[0].slug, "gpt-test");
         assert_eq!(models[0].supported_in_api, true);
         assert_eq!(models[0].priority, 1);
+    }
+
+    #[test]
+    fn decode_models_response_uses_slug_when_name_missing() {
+        let body = serde_json::to_vec(&json!({
+            "models": [
+                {
+                    "slug": "gpt-test"
+                }
+            ]
+        }))
+        .unwrap();
+
+        let decoded = decode_models_response(&body).expect("response should decode");
+
+        assert_eq!(decoded.models.len(), 1);
+        assert_eq!(decoded.models[0].slug, "gpt-test");
+        assert_eq!(decoded.models[0].name, "gpt-test");
     }
 
     #[tokio::test]
