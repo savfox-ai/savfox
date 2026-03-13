@@ -2836,11 +2836,34 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
         .cloned()
         .unwrap_or_default();
 
-    // Only show skills that are globally installed AND enabled.
-    let available_skills: Vec<SkillDetail> = all_skills
-        .into_iter()
-        .filter(|s| s.installed.unwrap_or(false) && s.enabled.unwrap_or(false))
-        .collect();
+    // Only show skills that are globally installed AND enabled,
+    // deduplicated by name (highest priority source wins per name).
+    let available_skills: Vec<SkillDetail> = {
+        let mut by_name: std::collections::BTreeMap<String, SkillDetail> = std::collections::BTreeMap::new();
+        for s in all_skills.into_iter().filter(|s| s.installed.unwrap_or(false) && s.enabled.unwrap_or(false)) {
+            let rank = match s.category.as_deref() {
+                Some("workspace") => 0u8,
+                Some("installed") => 1,
+                Some("built-in") => 2,
+                Some("extra") => 3,
+                _ => 10,
+            };
+            let dominated = by_name.get(&s.name).is_some_and(|existing| {
+                let existing_rank = match existing.category.as_deref() {
+                    Some("workspace") => 0u8,
+                    Some("installed") => 1,
+                    Some("built-in") => 2,
+                    Some("extra") => 3,
+                    _ => 10,
+                };
+                existing_rank <= rank
+            });
+            if !dominated {
+                by_name.insert(s.name.clone(), s);
+            }
+        }
+        by_name.into_values().collect()
+    };
 
     // Filter by search
     let query = search_query().to_lowercase();
