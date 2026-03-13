@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::types::{ModelInfo, ModelsResponse};
 use crate::api::ws::WsRpc;
+use crate::i18n::use_i18n;
 use crate::route::Route;
 use crate::utils::model_visibility::{
     ModelKey, is_model_visible, load_model_preferences, push_recent_model, save_model_preferences,
@@ -16,6 +17,7 @@ const DEFAULT_MODEL_STORAGE_KEY: &str = "savfox_default_model";
 fn fallback_model_display_name(full_id: &str) -> String {
     let trimmed = full_id.trim();
     if trimmed.is_empty() {
+        // Fallback; the translated label is used by the component
         return "Default Model".to_string();
     }
     if let Some((_, model_id)) = trimmed.split_once('/') {
@@ -65,6 +67,7 @@ fn load_saved_default_model_id() -> Option<String> {
 
 #[component]
 pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element {
+    let (_locale_sig, t) = use_i18n();
     let ws = use_context::<WsRpc>();
     let ws_connected = use_context::<Signal<bool>>();
     let nav = use_navigator();
@@ -132,8 +135,9 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                 .or_else(|| models_snapshot.first())
                 .map(model_info_display_name)
         })
-        .unwrap_or_else(|| "Default Model".to_string());
-    let default_model_label = format!("{default_model_name} (Default)");
+        .unwrap_or_else(|| t("model_selector.default_model"));
+    let default_suffix = t("model_selector.default_suffix");
+    let default_model_label = format!("{default_model_name} {default_suffix}");
 
     let selected_label = if value == "default" {
         default_model_label.clone()
@@ -184,6 +188,18 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
         visible_count += 1;
     }
 
+    let ms_choose = t("model_selector.choose_model");
+    let ms_search = t("model_selector.search_models");
+    let ms_connect = t("model_selector.connect_provider");
+    let ms_manage_providers = t("model_selector.manage_providers");
+    let ms_manage = t("model_selector.manage");
+    let ms_loading = t("model_selector.loading_models");
+    let ms_failed = t("model_selector.failed_to_load");
+    let ms_retry = t("model_selector.retry");
+    let ms_no_matching = t("model_selector.no_matching");
+    let ms_default_group = t("model_selector.default_group");
+    let ms_follow_default = t("model_selector.follow_system_default");
+
     rsx! {
         div { class: "model-selector",
             button {
@@ -192,7 +208,7 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                 } else {
                     "model-selector__trigger"
                 },
-                title: "Choose model",
+                title: "{ms_choose}",
                 onclick: move |_| {
                     if dropdown_open() {
                         dropdown_open.set(false);
@@ -219,13 +235,13 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                             class: "model-selector__search",
                             value: "{search}",
                             oninput: move |e: Event<FormData>| search.set(e.value()),
-                            placeholder: "Search models",
-                            aria_label: "Search models",
+                            placeholder: "{ms_search}",
+                            aria_label: "{ms_search}",
                         }
                         button {
                             class: "model-selector__tool-btn",
-                            title: "Connect Provider",
-                            aria_label: "Connect Provider",
+                            title: "{ms_connect}",
+                            aria_label: "{ms_connect}",
                             onclick: move |e| {
                                 e.stop_propagation();
                                 dropdown_open.set(false);
@@ -236,38 +252,38 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                         }
                         button {
                             class: "model-selector__tool-btn model-selector__tool-btn--manage",
-                            title: "Manage Providers",
-                            aria_label: "Manage Providers",
+                            title: "{ms_manage_providers}",
+                            aria_label: "{ms_manage_providers}",
                             onclick: move |e| {
                                 e.stop_propagation();
                                 dropdown_open.set(false);
                                 search.set(String::new());
                                 nav.push(Route::ConfigSection { section: "models".to_string() });
                             },
-                            "Manage"
+                            "{ms_manage}"
                         }
                     }
 
                     div { class: "model-selector__list",
                         if loading {
-                            div { class: "model-selector__empty", "Loading models..." }
+                            div { class: "model-selector__empty", "{ms_loading}" }
                         } else if models_failed {
                             div { class: "model-selector__empty model-selector__empty--stack",
-                                span { "Failed to load models." }
+                                span { "{ms_failed}" }
                                 button {
                                     class: "model-selector__retry",
                                     onclick: move |_| {
                                         models.restart();
                                     },
-                                    "Retry"
+                                    "{ms_retry}"
                                 }
                             }
                         } else if visible_count == 0 {
-                            div { class: "model-selector__empty", "No matching models" }
+                            div { class: "model-selector__empty", "{ms_no_matching}" }
                         } else {
                             if default_row_visible {
                                 div { class: "model-selector__group",
-                                    div { class: "model-selector__group-title", "Default" }
+                                    div { class: "model-selector__group-title", "{ms_default_group}" }
                                     button {
                                         class: if value == "default" {
                                             "model-selector__item model-selector__item--active"
@@ -281,7 +297,7 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                                         },
                                         div { class: "model-selector__item-main",
                                             div { class: "model-selector__item-name", "{default_model_name}" }
-                                            div { class: "model-selector__item-id", "Follow system default" }
+                                            div { class: "model-selector__item-id", "{ms_follow_default}" }
                                         }
                                         if value == "default" {
                                             span { class: "model-selector__check", "v" }

@@ -2,15 +2,18 @@ use dioxus::prelude::*;
 
 use crate::api::client::validate_token;
 use crate::api::ws::set_token;
+use crate::i18n::{self, Locale, save_locale, use_i18n};
 
 const SAVFOX_LOGO: Asset = asset!("/assets/savfox.svg");
 
 #[component]
 pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
+    let (mut locale_sig, t) = use_i18n();
     let mut token_input = use_signal(String::new);
     let mut error = use_signal(String::new);
     let mut loading = use_signal(|| false);
 
+    let error_key = i18n::t(locale_sig(), "auth.invalid_token");
     let handle_submit = move |e: Event<FormData>| {
         e.prevent_default();
         let val = token_input().trim().to_string();
@@ -19,12 +22,13 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
         }
         loading.set(true);
         error.set(String::new());
+        let error_msg = error_key.clone();
         spawn(async move {
             if validate_token(&val).await {
                 set_token(&val);
                 on_authenticated(());
             } else {
-                error.set("Invalid token".into());
+                error.set(error_msg);
             }
             loading.set(false);
         });
@@ -43,21 +47,40 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
         "auth-btn"
     };
 
+    let auth_title = t("auth.title");
+    let auth_subtitle = t("auth.subtitle");
+    let auth_placeholder = t("auth.placeholder");
+    let auth_validating = t("auth.validating");
+    let auth_connect = t("auth.connect");
+
     rsx! {
         div { class: "auth-container",
             div { class: "auth-card",
                 div { class: "auth-logo",
                     img { src: SAVFOX_LOGO, alt: "Savfox", class: "auth-logo-img" }
                 }
-                h1 { class: "auth-title", "Savfox Gateway" }
-                p { class: "auth-subtitle", "Enter your gateway token to continue" }
+                // Language switcher
+                div { class: "auth-lang-switcher",
+                    for locale_option in Locale::ALL {
+                        button {
+                            class: if *locale_option == locale_sig() { "auth-lang-btn active" } else { "auth-lang-btn" },
+                            onclick: move |_| {
+                                locale_sig.set(*locale_option);
+                                save_locale(*locale_option);
+                            },
+                            "{locale_option.label()}"
+                        }
+                    }
+                }
+                h1 { class: "auth-title", "{auth_title}" }
+                p { class: "auth-subtitle", "{auth_subtitle}" }
                 form { class: "auth-form", onsubmit: handle_submit,
                     input {
                         r#type: "password",
                         class: "{input_class}",
                         value: "{token_input}",
                         oninput: move |e| token_input.set(e.value()),
-                        placeholder: "Gateway token",
+                        placeholder: "{auth_placeholder}",
                         autofocus: true,
                     }
                     if has_error {
@@ -67,7 +90,7 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                         r#type: "submit",
                         class: "{btn_class}",
                         disabled: btn_disabled,
-                        if loading() { "Validating..." } else { "Connect" }
+                        if loading() { "{auth_validating}" } else { "{auth_connect}" }
                     }
                 }
             }
@@ -208,6 +231,35 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 }
             }
             
+            .auth-lang-switcher {
+                display: flex;
+                justify-content: center;
+                gap: 4px;
+                margin-bottom: 12px;
+            }
+
+            .auth-lang-btn {
+                padding: 4px 12px;
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                background: transparent;
+                color: var(--text-secondary);
+                font-size: 13px;
+                cursor: pointer;
+                transition: all 0.15s ease;
+            }
+
+            .auth-lang-btn:hover {
+                border-color: var(--accent);
+                color: var(--text-primary);
+            }
+
+            .auth-lang-btn.active {
+                background: var(--accent);
+                border-color: var(--accent);
+                color: #fff;
+            }
+
             @media (hover: none) and (pointer: coarse) {
                 .auth-input {
                     font-size: 16px;

@@ -5,6 +5,7 @@ use wasm_bindgen::prelude::*;
 use crate::api::types::{AgentEntry, ChatAttachment};
 use crate::components::image_attachment::AttachmentPreview;
 use crate::components::model_selector::ModelSelector;
+use crate::i18n::use_i18n;
 
 /// ID used to locate the textarea in the DOM for height adjustment and IME listeners.
 const TEXTAREA_ID: &str = "chat-input-textarea";
@@ -394,10 +395,12 @@ pub fn ChatInput(
     let handle_pick_images = move |_| {
         open_image_picker(attachments, image_quality());
     };
+    let (_locale_sig, t) = use_i18n();
+
     let model_display_name = {
         let raw = model_value.trim().to_string();
         if raw.is_empty() || raw == "default" {
-            "Default model".to_string()
+            t("chat.default_model")
         } else {
             raw
         }
@@ -410,12 +413,25 @@ pub fn ChatInput(
             .map(|a| a.name.clone())
             .unwrap_or_else(|| {
                 if raw.is_empty() || raw == "default" {
-                    "Default".to_string()
+                    t("chat.default")
                 } else {
                     raw
                 }
             })
     };
+
+    let chat_placeholder = t("chat.placeholder");
+    let chat_agent_label = t("chat.agent_label");
+    let chat_model_label = t("chat.model_label");
+    let chat_attach = t("chat.attach_image");
+    let chat_select_agent = t("chat.select_agent");
+    let chat_reasoning = t("chat.reasoning_default");
+    let chat_reasoning_effort = t("chat.reasoning_effort");
+    let chat_hint = t("chat.send_hint");
+    let chat_send = t("chat.send_message");
+    let chat_stop = t("chat.stop_generation");
+    let chat_default_suffix = t("chat.default_suffix");
+    let aria_session_input = t("aria.session_input");
 
     rsx! {
         div { class: "chat-input-area",
@@ -427,10 +443,10 @@ pub fn ChatInput(
 
             div { class: "chat-input",
                 div { class: "chat-input-model-badge",
-                    span { class: "chat-input-model-badge__label", "Agent:" }
+                    span { class: "chat-input-model-badge__label", "{chat_agent_label}" }
                     span { class: "chat-input-model-badge__name", "{agent_display_name}" }
                     span { class: "chat-input-model-badge__sep", "|" }
-                    span { class: "chat-input-model-badge__label", "Model:" }
+                    span { class: "chat-input-model-badge__label", "{chat_model_label}" }
                     span { class: "chat-input-model-badge__name", "{model_display_name}" }
                 }
                 textarea {
@@ -438,25 +454,25 @@ pub fn ChatInput(
                     value: "{text}",
                     oninput: handle_input,
                     onkeydown: handle_keydown,
-                    placeholder: "Type your message... (Enter to send, Shift+Enter for newline)",
+                    placeholder: "{chat_placeholder}",
                     rows: 3,
                     class: "chat-textarea",
-                    aria_label: "Session message input",
+                    aria_label: "{aria_session_input}",
                 }
                 div { class: "chat-input-actions",
                     div { class: "chat-input-actions-left",
                         button {
                             onclick: handle_pick_images,
                             class: "chat-icon-btn chat-icon-btn-attach",
-                            title: "Attach image",
-                            aria_label: "Attach image",
+                            title: "{chat_attach}",
+                            aria_label: "{chat_attach}",
                             "+"
                         }
                         div { class: "chat-agent-select-wrap",
                             select {
                                 class: "chat-agent-select",
                                 value: "{agent_value}",
-                                aria_label: "Select agent",
+                                aria_label: "{chat_select_agent}",
                                 onchange: move |e: Event<FormData>| on_agent_change(e.value()),
                                 for agent in agents.iter() {
                                     {
@@ -464,7 +480,7 @@ pub fn ChatInput(
                                             .filter(|id| !id.trim().is_empty())
                                             .unwrap_or(&agent.name);
                                         let label = if agent.is_default.unwrap_or(false) {
-                                            format!("{} (default)", agent.name)
+                                            format!("{} {}", agent.name, chat_default_suffix)
                                         } else {
                                             agent.name.clone()
                                         };
@@ -487,18 +503,18 @@ pub fn ChatInput(
                         }
                         button {
                             class: "chat-effort-btn",
-                            title: "Reasoning effort",
-                            aria_label: "Reasoning effort",
-                            "Reasoning: Default"
+                            title: "{chat_reasoning_effort}",
+                            aria_label: "{chat_reasoning_effort}",
+                            "{chat_reasoning}"
                         }
                     }
                     div { class: "chat-input-actions-right",
-                        div { class: "chat-input-hint", "Enter to send • Shift+Enter for new line" }
+                        div { class: "chat-input-hint", "{chat_hint}" }
                         if streaming {
                             button {
                                 onclick: move |_| on_abort(()),
                                 class: "chat-icon-btn chat-icon-btn-stop",
-                                aria_label: "Stop generation",
+                                aria_label: "{chat_stop}",
                                 "■"
                             }
                         } else {
@@ -514,8 +530,8 @@ pub fn ChatInput(
                                         onclick: handle_submit,
                                         disabled: "{disabled}",
                                         class: "{class}",
-                                        aria_label: "Send message",
-                                        title: "Send message",
+                                        aria_label: "{chat_send}",
+                                        title: "{chat_send}",
                                         "↑"
                                     }
                                 }

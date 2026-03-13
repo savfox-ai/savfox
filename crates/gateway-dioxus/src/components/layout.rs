@@ -7,6 +7,7 @@ use crate::api::ws::WsRpc;
 use crate::components::command_palette::CommandPalette;
 use crate::components::exec_approval_modal::ExecApprovalModal;
 use crate::components::toast::{ToastContainer, Toaster};
+use crate::i18n::{self, Locale, save_locale, use_i18n};
 use crate::route::Route;
 use crate::utils::notifications;
 
@@ -21,12 +22,12 @@ enum NavGroup {
 }
 
 impl NavGroup {
-    fn label(&self) -> &'static str {
+    fn label(&self, locale: Locale) -> String {
         match self {
-            NavGroup::Main => "Dashboard",
-            NavGroup::Manage => "Manage",
-            NavGroup::Media => "Media",
-            NavGroup::System => "System",
+            NavGroup::Main => i18n::t(locale, "nav.dashboard"),
+            NavGroup::Manage => i18n::t(locale, "nav.manage"),
+            NavGroup::Media => i18n::t(locale, "nav.media"),
+            NavGroup::System => i18n::t(locale, "nav.system"),
         }
     }
 }
@@ -226,6 +227,9 @@ fn install_swipe_handler(mut sidebar_open: Signal<bool>) {
 
 #[component]
 pub fn Layout() -> Element {
+    let (mut locale_sig, t) = use_i18n();
+    let locale = locale_sig();
+
     let ws_connected = use_signal(|| false);
     let ws_reconnect_epoch = use_signal(|| 0u64);
     let ws = use_signal(WsRpc::new);
@@ -411,8 +415,8 @@ pub fn Layout() -> Element {
                 show_approval_modal.set(true);
                 // Fire a browser notification
                 notifications::send_notification(
-                    "Exec Approval Required",
-                    "A new command requires your approval.",
+                    &i18n::t(locale, "notifications.exec_approval_required"),
+                    &i18n::t(locale, "notifications.new_command_approval"),
                 );
             });
         });
@@ -495,9 +499,9 @@ pub fn Layout() -> Element {
     let route_render_epoch = ws_reconnect_epoch();
 
     let health_label = if ws_connected() {
-        "Health OK"
+        t("header.health_ok")
     } else {
-        "Offline"
+        t("header.offline")
     };
     let health_class = if ws_connected() {
         "top-header__health top-header__health--ok"
@@ -515,23 +519,28 @@ pub fn Layout() -> Element {
         a {
             class: "skip-nav",
             href: "#main-content",
-            "Skip to main content"
+            {t("nav.skip_to_content")}
         }
         div { class: "app-layout",
             // ── Persistent top header ──
             header { class: "top-header",
                 div { class: "top-header__left",
-                    button {
-                        class: "{hamburger_class}",
-                        aria_label: if sidebar_open() { "Close navigation menu" } else { "Open navigation menu" },
-                        aria_expanded: "{sidebar_open}",
-                        onclick: move |_| {
-                            let current = sidebar_open();
-                            sidebar_open.set(!current);
-                        },
-                        span { class: "hamburger-line", aria_hidden: "true" }
-                        span { class: "hamburger-line", aria_hidden: "true" }
-                        span { class: "hamburger-line", aria_hidden: "true" }
+                    {
+                        let aria_nav = if sidebar_open() { t("aria.close_nav") } else { t("aria.open_nav") };
+                        rsx! {
+                            button {
+                                class: "{hamburger_class}",
+                                aria_label: "{aria_nav}",
+                                aria_expanded: "{sidebar_open}",
+                                onclick: move |_| {
+                                    let current = sidebar_open();
+                                    sidebar_open.set(!current);
+                                },
+                                span { class: "hamburger-line", aria_hidden: "true" }
+                                span { class: "hamburger-line", aria_hidden: "true" }
+                                span { class: "hamburger-line", aria_hidden: "true" }
+                            }
+                        }
                     }
                     div { class: "top-header__brand",
                         img {
@@ -540,33 +549,38 @@ pub fn Layout() -> Element {
                             style: "width: 24px; height: 24px; object-fit: contain;",
                         }
                         span { class: "top-header__title", style: "color: var(--accent);", "SAVFOX" }
-                        span { class: "top-header__subtitle", "AI ASSISTANT" }
+                        span { class: "top-header__subtitle", {t("header.ai_assistant")} }
                     }
                 }
                 div { class: "top-header__right",
                     // Notification bell with unread badge
-                    Link {
-                        to: Route::Approvals {},
-                        class: "top-header__bell",
-                        aria_label: if approvals_count > 0 {
-                            format!("{approvals_count} pending approvals")
+                    {
+                        let approvals_aria = if approvals_count > 0 {
+                            i18n::t_args(locale, "header.pending_approvals", &[("count", &approvals_count.to_string())])
                         } else {
-                            "No pending approvals".to_string()
-                        },
-                        title: "Approvals",
-                        // Bell SVG icon (Feather-style)
-                        svg {
-                            width: "18", height: "18", view_box: "0 0 24 24",
-                            fill: "none", stroke: "currentColor", stroke_width: "2",
-                            stroke_linecap: "round", stroke_linejoin: "round",
-                            path { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }
-                            path { d: "M13.73 21a2 2 0 0 1-3.46 0" }
-                        }
-                        if approvals_count > 0 {
-                            span {
-                                class: "top-header__bell-badge",
-                                aria_hidden: "true",
-                                "{approvals_count}"
+                            t("header.no_pending_approvals")
+                        };
+                        let approvals_title = t("nav.approvals");
+                        rsx! {
+                            Link {
+                                to: Route::Approvals {},
+                                class: "top-header__bell",
+                                aria_label: "{approvals_aria}",
+                                title: "{approvals_title}",
+                                svg {
+                                    width: "18", height: "18", view_box: "0 0 24 24",
+                                    fill: "none", stroke: "currentColor", stroke_width: "2",
+                                    stroke_linecap: "round", stroke_linejoin: "round",
+                                    path { d: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" }
+                                    path { d: "M13.73 21a2 2 0 0 1-3.46 0" }
+                                }
+                                if approvals_count > 0 {
+                                    span {
+                                        class: "top-header__bell-badge",
+                                        aria_hidden: "true",
+                                        "{approvals_count}"
+                                    }
+                                }
                             }
                         }
                     }
@@ -578,55 +592,73 @@ pub fn Layout() -> Element {
                         span { class: "top-header__health-dot", aria_hidden: "true" }
                         "{health_label}"
                     }
+                    // Language selector
+                    div { class: "top-header__lang-group",
+                        for locale_option in Locale::ALL {
+                            button {
+                                class: if *locale_option == locale { "top-header__lang-btn active" } else { "top-header__lang-btn" },
+                                onclick: move |_| {
+                                    locale_sig.set(*locale_option);
+                                    save_locale(*locale_option);
+                                },
+                                "{locale_option.label()}"
+                            }
+                        }
+                    }
                     // Theme button group: System | Light | Dark
-                    div { class: "top-header__theme-group", role: "radiogroup", aria_label: "Theme",
-                        button {
-                            class: if theme() == "system" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
-                            title: "Follow system theme",
-                            aria_label: "Follow system theme",
-                            onclick: move |_| theme.set("system".to_string()),
-                            // Monitor icon
-                            svg {
-                                width: "16", height: "16", view_box: "0 0 24 24",
-                                fill: "none", stroke: "currentColor", stroke_width: "2",
-                                stroke_linecap: "round", stroke_linejoin: "round",
-                                rect { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }
-                                line { x1: "8", y1: "21", x2: "16", y2: "21" }
-                                line { x1: "12", y1: "17", x2: "12", y2: "21" }
-                            }
-                        }
-                        button {
-                            class: if theme() == "light" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
-                            title: "Light theme",
-                            aria_label: "Light theme",
-                            onclick: move |_| theme.set("light".to_string()),
-                            // Sun icon
-                            svg {
-                                width: "16", height: "16", view_box: "0 0 24 24",
-                                fill: "none", stroke: "currentColor", stroke_width: "2",
-                                stroke_linecap: "round", stroke_linejoin: "round",
-                                circle { cx: "12", cy: "12", r: "5" }
-                                line { x1: "12", y1: "1", x2: "12", y2: "3" }
-                                line { x1: "12", y1: "21", x2: "12", y2: "23" }
-                                line { x1: "4.22", y1: "4.22", x2: "5.64", y2: "5.64" }
-                                line { x1: "18.36", y1: "18.36", x2: "19.78", y2: "19.78" }
-                                line { x1: "1", y1: "12", x2: "3", y2: "12" }
-                                line { x1: "21", y1: "12", x2: "23", y2: "12" }
-                                line { x1: "4.22", y1: "19.78", x2: "5.64", y2: "18.36" }
-                                line { x1: "18.36", y1: "5.64", x2: "19.78", y2: "4.22" }
-                            }
-                        }
-                        button {
-                            class: if theme() == "dark" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
-                            title: "Dark theme",
-                            aria_label: "Dark theme",
-                            onclick: move |_| theme.set("dark".to_string()),
-                            // Moon icon
-                            svg {
-                                width: "16", height: "16", view_box: "0 0 24 24",
-                                fill: "none", stroke: "currentColor", stroke_width: "2",
-                                stroke_linecap: "round", stroke_linejoin: "round",
-                                path { d: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" }
+                    {
+                        let theme_system = t("header.follow_system_theme");
+                        let theme_light = t("header.light_theme");
+                        let theme_dark = t("header.dark_theme");
+                        let theme_aria = t("aria.theme");
+                        rsx! {
+                            div { class: "top-header__theme-group", role: "radiogroup", aria_label: "{theme_aria}",
+                                button {
+                                    class: if theme() == "system" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
+                                    title: "{theme_system}",
+                                    aria_label: "{theme_system}",
+                                    onclick: move |_| theme.set("system".to_string()),
+                                    svg {
+                                        width: "16", height: "16", view_box: "0 0 24 24",
+                                        fill: "none", stroke: "currentColor", stroke_width: "2",
+                                        stroke_linecap: "round", stroke_linejoin: "round",
+                                        rect { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }
+                                        line { x1: "8", y1: "21", x2: "16", y2: "21" }
+                                        line { x1: "12", y1: "17", x2: "12", y2: "21" }
+                                    }
+                                }
+                                button {
+                                    class: if theme() == "light" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
+                                    title: "{theme_light}",
+                                    aria_label: "{theme_light}",
+                                    onclick: move |_| theme.set("light".to_string()),
+                                    svg {
+                                        width: "16", height: "16", view_box: "0 0 24 24",
+                                        fill: "none", stroke: "currentColor", stroke_width: "2",
+                                        stroke_linecap: "round", stroke_linejoin: "round",
+                                        circle { cx: "12", cy: "12", r: "5" }
+                                        line { x1: "12", y1: "1", x2: "12", y2: "3" }
+                                        line { x1: "12", y1: "21", x2: "12", y2: "23" }
+                                        line { x1: "4.22", y1: "4.22", x2: "5.64", y2: "5.64" }
+                                        line { x1: "18.36", y1: "18.36", x2: "19.78", y2: "19.78" }
+                                        line { x1: "1", y1: "12", x2: "3", y2: "12" }
+                                        line { x1: "21", y1: "12", x2: "23", y2: "12" }
+                                        line { x1: "4.22", y1: "19.78", x2: "5.64", y2: "18.36" }
+                                        line { x1: "18.36", y1: "5.64", x2: "19.78", y2: "4.22" }
+                                    }
+                                }
+                                button {
+                                    class: if theme() == "dark" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
+                                    title: "{theme_dark}",
+                                    aria_label: "{theme_dark}",
+                                    onclick: move |_| theme.set("dark".to_string()),
+                                    svg {
+                                        width: "16", height: "16", view_box: "0 0 24 24",
+                                        fill: "none", stroke: "currentColor", stroke_width: "2",
+                                        stroke_linecap: "round", stroke_linejoin: "round",
+                                        path { d: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" }
+                                    }
+                                }
                             }
                         }
                     }
@@ -644,45 +676,45 @@ pub fn Layout() -> Element {
                 // Sidebar
                 nav {
                     class: "{sidebar_class}",
-                    aria_label: "Main navigation",
+                    aria_label: "{t(\"aria.main_nav\")}",
                     role: "navigation",
 
                     // Nav links
                     div { class: "sidebar-nav",
                     // Dashboard group
-                    { nav_group_header("Dashboard", expanded_main(), move |_| expanded_main.toggle()) }
+                    { nav_group_header(&t("nav.dashboard"), expanded_main(), move |_| expanded_main.toggle()) }
                     if expanded_main() {
-                        { nav_link(&current_route,Route::Overview {}, "Overview", "\u{2302}") }
-                        { nav_link(&current_route,Route::Sessions {}, "Sessions", "\u{00BB}") }
+                        { nav_link(&current_route,Route::Overview {}, &t("nav.overview"), "\u{2302}") }
+                        { nav_link(&current_route,Route::Sessions {}, &t("nav.sessions"), "\u{00BB}") }
                     }
 
                     // Manage group
-                    { nav_group_header("Manage", expanded_manage(), move |_| expanded_manage.toggle()) }
+                    { nav_group_header(&t("nav.manage"), expanded_manage(), move |_| expanded_manage.toggle()) }
                     if expanded_manage() {
-                        { nav_link(&current_route,Route::Agents {}, "Agents", "&") }
-                        { nav_link(&current_route,Route::Models {}, "Models", "M") }
-                        { nav_link(&current_route,Route::Channels {}, "Channels", "\u{25CE}") }
-                        { nav_link(&current_route,Route::Cron {}, "Cron Jobs", "\u{23F1}") }
-                        { nav_link(&current_route,Route::Skills {}, "Skills", "\u{2605}") }
+                        { nav_link(&current_route,Route::Agents {}, &t("nav.agents"), "&") }
+                        { nav_link(&current_route,Route::Models {}, &t("nav.models"), "M") }
+                        { nav_link(&current_route,Route::Channels {}, &t("nav.channels"), "\u{25CE}") }
+                        { nav_link(&current_route,Route::Cron {}, &t("nav.cron_jobs"), "\u{23F1}") }
+                        { nav_link(&current_route,Route::Skills {}, &t("nav.skills"), "\u{2605}") }
                     }
 
                     // Media group
-                    { nav_group_header("Media", expanded_media(), move |_| expanded_media.toggle()) }
+                    { nav_group_header(&t("nav.media"), expanded_media(), move |_| expanded_media.toggle()) }
                     if expanded_media() {
-                        { nav_link(&current_route,Route::Tts {}, "TTS", "\u{25B6}") }
-                        { nav_link(&current_route,Route::Voice {}, "Voice", "\u{266A}") }
+                        { nav_link(&current_route,Route::Tts {}, &t("nav.tts"), "\u{25B6}") }
+                        { nav_link(&current_route,Route::Voice {}, &t("nav.voice"), "\u{266A}") }
                     }
 
                     // System group
-                    { nav_group_header("System", expanded_system(), move |_| expanded_system.toggle()) }
+                    { nav_group_header(&t("nav.system"), expanded_system(), move |_| expanded_system.toggle()) }
                     if expanded_system() {
-                        { nav_link(&current_route,Route::Config {}, "Config", "\u{2699}") }
-                        { nav_link(&current_route,Route::Instances {}, "Instances", "\u{25CF}") }
-                        { nav_link(&current_route,Route::Logs {}, "Logs", "\u{2630}") }
-                        { nav_link(&current_route,Route::Usage {}, "Usage", "$") }
-                        { nav_link_with_badge(&current_route,Route::Approvals {}, "Approvals", "!", approvals_count) }
-                        { nav_link(&current_route,Route::Nodes {}, "Nodes", "\u{25CB}") }
-                        { nav_link(&current_route,Route::Debug {}, "Debug", "?") }
+                        { nav_link(&current_route,Route::Config {}, &t("nav.config"), "\u{2699}") }
+                        { nav_link(&current_route,Route::Instances {}, &t("nav.instances"), "\u{25CF}") }
+                        { nav_link(&current_route,Route::Logs {}, &t("nav.logs"), "\u{2630}") }
+                        { nav_link(&current_route,Route::Usage {}, &t("nav.usage"), "$") }
+                        { nav_link_with_badge(&current_route,Route::Approvals {}, &t("nav.approvals"), "!", approvals_count) }
+                        { nav_link(&current_route,Route::Nodes {}, &t("nav.nodes"), "\u{25CB}") }
+                        { nav_link(&current_route,Route::Debug {}, &t("nav.debug"), "?") }
                     }
                 }
 
@@ -691,7 +723,7 @@ pub fn Layout() -> Element {
                     button {
                         class: "sidebar-palette-btn",
                         onclick: move |_| palette_open.set(true),
-                        span { class: "sidebar-palette-label", "Command Palette" }
+                        span { class: "sidebar-palette-label", {t("nav.command_palette")} }
                         span { class: "sidebar-palette-shortcut", "Ctrl+K" }
                     }
                 }
@@ -705,20 +737,20 @@ pub fn Layout() -> Element {
                     // WS disconnection / reconnection banner (T034)
                     if !ws_connected() && ws_ever_connected() {
                         div { class: "ws-banner ws-banner--disconnected",
-                            span { "Connection lost. Reconnecting\u{2026}" }
+                            span { {t("ws.connection_lost")} }
                             button {
                                 class: "ws-banner__btn",
                                 onclick: move |_| {
                                     let ws_ref = ws.read();
                                     ws_ref.connect(ws_connected, ws_reconnect_epoch);
                                 },
-                                "Reconnect Now"
+                                {t("ws.reconnect_now")}
                             }
                         }
                     }
                     if show_reconnected() {
                         div { class: "ws-banner ws-banner--connected",
-                            span { "Connected" }
+                            span { {t("ws.connected")} }
                         }
                     }
                     if ws_ever_connected() {
@@ -729,7 +761,7 @@ pub fn Layout() -> Element {
                         }
                     } else {
                         div { class: "main-content__connecting",
-                            "Connecting to server\u{2026}"
+                            {t("ws.connecting")}
                         }
                     }
                 }
@@ -744,7 +776,7 @@ pub fn Layout() -> Element {
                             to: Route::Overview {},
                             class: if tab_overview_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
                             span { class: "bottom-tab-bar__icon", "\u{2302}" }
-                            span { class: "bottom-tab-bar__label", "Overview" }
+                            span { class: "bottom-tab-bar__label", {t("nav.overview")} }
                         }
                     }
                     // Tab: Session
@@ -753,7 +785,7 @@ pub fn Layout() -> Element {
                             to: Route::Sessions {},
                             class: if tab_sessions_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
                             span { class: "bottom-tab-bar__icon", "\u{00BB}" }
-                            span { class: "bottom-tab-bar__label", "Session" }
+                            span { class: "bottom-tab-bar__label", {t("nav.session")} }
                         }
                     }
                     // Tab: Agents
@@ -762,7 +794,7 @@ pub fn Layout() -> Element {
                             to: Route::Agents {},
                             class: if tab_agents_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
                             span { class: "bottom-tab-bar__icon", "&" }
-                            span { class: "bottom-tab-bar__label", "Agents" }
+                            span { class: "bottom-tab-bar__label", {t("nav.agents")} }
                         }
                     }
                     // Tab: Channels
@@ -771,7 +803,7 @@ pub fn Layout() -> Element {
                             to: Route::Channels {},
                             class: if tab_channels_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
                             span { class: "bottom-tab-bar__icon", "\u{25CE}" }
-                            span { class: "bottom-tab-bar__label", "Channels" }
+                            span { class: "bottom-tab-bar__label", {t("nav.channels")} }
                         }
                     }
                     // Tab: More (opens bottom sheet)
@@ -783,7 +815,7 @@ pub fn Layout() -> Element {
                                 more_open.set(!current);
                             },
                             span { class: "bottom-tab-bar__icon", "\u{2026}" }
-                            span { class: "bottom-tab-bar__label", "More" }
+                            span { class: "bottom-tab-bar__label", {t("nav.more")} }
                         }
                     }
                 }
@@ -798,22 +830,22 @@ pub fn Layout() -> Element {
             // ---- "More" bottom sheet with remaining nav items ----
             div { class: "{more_sheet_class}",
                 div { class: "more-sheet__handle" }
-                div { class: "more-sheet__title", "Navigation" }
+                div { class: "more-sheet__title", {t("nav.navigation")} }
                 div { class: "more-sheet__nav",
-                    { more_sheet_link(&current_route, more_open, Route::Models {}, "Models", "M") }
-                    { more_sheet_link(&current_route, more_open, Route::Channels {}, "Channels", "\u{25CE}") }
-                    { more_sheet_link(&current_route, more_open, Route::Cron {}, "Cron Jobs", "\u{23F1}") }
-                    { more_sheet_link(&current_route, more_open, Route::Config {}, "Config", "\u{2699}") }
-                    { more_sheet_link(&current_route, more_open, Route::Instances {}, "Instances", "\u{25CF}") }
-                    { more_sheet_link(&current_route, more_open, Route::Logs {}, "Logs", "\u{2630}") }
-                    { more_sheet_link(&current_route, more_open, Route::Usage {}, "Usage", "$") }
-                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, "Approvals", "!") }
-                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, "Nodes", "\u{25CB}") }
-                    { more_sheet_link(&current_route, more_open, Route::Skills {}, "Skills", "\u{2605}") }
-                    { more_sheet_link(&current_route, more_open, Route::Tts {}, "TTS", "\u{25B6}") }
-                    { more_sheet_link(&current_route, more_open, Route::Voice {}, "Voice", "\u{266A}") }
-                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, "Connect Provider", "\u{26A1}") }
-                    { more_sheet_link(&current_route, more_open, Route::Debug {}, "Debug", "?") }
+                    { more_sheet_link(&current_route, more_open, Route::Models {}, &t("nav.models"), "M") }
+                    { more_sheet_link(&current_route, more_open, Route::Channels {}, &t("nav.channels"), "\u{25CE}") }
+                    { more_sheet_link(&current_route, more_open, Route::Cron {}, &t("nav.cron_jobs"), "\u{23F1}") }
+                    { more_sheet_link(&current_route, more_open, Route::Config {}, &t("nav.config"), "\u{2699}") }
+                    { more_sheet_link(&current_route, more_open, Route::Instances {}, &t("nav.instances"), "\u{25CF}") }
+                    { more_sheet_link(&current_route, more_open, Route::Logs {}, &t("nav.logs"), "\u{2630}") }
+                    { more_sheet_link(&current_route, more_open, Route::Usage {}, &t("nav.usage"), "$") }
+                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, &t("nav.approvals"), "!") }
+                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, &t("nav.nodes"), "\u{25CB}") }
+                    { more_sheet_link(&current_route, more_open, Route::Skills {}, &t("nav.skills"), "\u{2605}") }
+                    { more_sheet_link(&current_route, more_open, Route::Tts {}, &t("nav.tts"), "\u{25B6}") }
+                    { more_sheet_link(&current_route, more_open, Route::Voice {}, &t("nav.voice"), "\u{266A}") }
+                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, &t("nav.connect_provider"), "\u{26A1}") }
+                    { more_sheet_link(&current_route, more_open, Route::Debug {}, &t("nav.debug"), "?") }
                 }
             }
 
@@ -832,20 +864,21 @@ pub fn Layout() -> Element {
     }
 }
 
-fn nav_group_header<F: FnMut(MouseEvent) + 'static>(
-    label: &'static str,
+fn nav_group_header(
+    label: &str,
     is_expanded: bool,
-    mut onclick: F,
+    mut onclick: impl FnMut(MouseEvent) + 'static,
 ) -> Element {
     let chevron = if is_expanded { "\u{25BE}" } else { "\u{25B8}" };
+    let label_owned = label.to_string();
     rsx! {
         button {
             class: "nav-group-header",
             aria_expanded: "{is_expanded}",
-            aria_label: "Toggle {label} navigation group",
+            aria_label: "Toggle {label_owned} navigation group",
             onclick: move |e| onclick(e),
             span { class: "nav-group-chevron", aria_hidden: "true", "{chevron}" }
-            "{label}"
+            "{label_owned}"
         }
     }
 }

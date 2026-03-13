@@ -1,0 +1,111 @@
+# English translations for Savfox Gateway UI
+
+[app]
+title = "Savfox - Your AI assistant"
+
+[auth]
+title = "Savfox Gateway"
+subtitle = "Enter your gateway token to continue"
+placeholder = "Gateway token"
+validating = "Validating..."
+connect = "Connect"
+invalid_token = "Invalid token"
+
+[nav]
+dashboard = "Dashboard"
+manage = "Manage"
+media = "Media"
+system = "System"
+overview = "Overview"
+sessions = "Sessions"
+session = "Session"
+agents = "Agents"
+models = "Models"
+channels = "Channels"
+cron_jobs = "Cron Jobs"
+skills = "Skills"
+tts = "TTS"
+voice = "Voice"
+config = "Config"
+instances = "Instances"
+logs = "Logs"
+usage = "Usage"
+approvals = "Approvals"
+nodes = "Nodes"
+debug = "Debug"
+more = "More"
+navigation = "Navigation"
+connect_provider = "Connect Provider"
+command_palette = "Command Palette"
+skip_to_content = "Skip to main content"
+settings = "Settings"
+
+[header]
+ai_assistant = "AI ASSISTANT"
+health_ok = "Health OK"
+offline = "Offline"
+follow_system_theme = "Follow system theme"
+light_theme = "Light theme"
+dark_theme = "Dark theme"
+pending_approvals = "{count} pending approvals"
+no_pending_approvals = "No pending approvals"
+
+[ws]
+connection_lost = "Connection lost. Reconnecting\u2026"
+reconnect_now = "Reconnect Now"
+connected = "Connected"
+connecting = "Connecting to server\u2026"
+
+[chat]
+placeholder = "Type your message... (Enter to send, Shift+Enter for newline)"
+agent_label = "Agent:"
+model_label = "Model:"
+default_model = "Default model"
+default = "Default"
+attach_image = "Attach image"
+select_agent = "Select agent"
+reasoning_effort = "Reasoning effort"
+reasoning_default = "Reasoning: Default"
+send_hint = "Enter to send \u2022 Shift+Enter for new line"
+send_message = "Send message"
+stop_generation = "Stop generation"
+default_suffix = "(default)"
+
+[model_selector]
+default_model = "Default Model"
+default_suffix = "(Default)"
+choose_model = "Choose model"
+search_models = "Search models"
+connect_provider = "Connect Provider"
+manage_providers = "Manage Providers"
+manage = "Manage"
+loading_models = "Loading models..."
+failed_to_load = "Failed to load models."
+retry = "Retry"
+no_matching = "No matching models"
+default_group = "Default"
+follow_system_default = "Follow system default"
+
+[common]
+confirm = "Confirm"
+cancel = "Cancel"
+save = "Save"
+delete = "Delete"
+search = "Search..."
+matches = "{count} matches"
+close = "Close"
+refresh = "Refresh"
+loading = "Loading..."
+
+[notifications]
+exec_approval_required = "Exec Approval Required"
+new_command_approval = "A new command requires your approval."
+
+[aria]
+close_nav = "Close navigation menu"
+open_nav = "Open navigation menu"
+main_nav = "Main navigation"
+theme = "Theme"
+toggle_nav_group = "Toggle {group} navigation group"
+session_input = "Session message input"
+pending_items = "{count} pending items"
