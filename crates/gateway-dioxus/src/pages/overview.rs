@@ -44,6 +44,7 @@ struct ChannelHealthInfo {
     connected: usize,
     total: usize,
     has_error: bool,
+    channel_name: Option<String>,
 }
 
 fn platform_icon(platform: &str) -> &'static str {
@@ -114,12 +115,19 @@ fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
         };
 
         if is_configured || is_running {
+            let channel_name = info
+                .get("channelName")
+                .and_then(|v| v.as_str())
+                .or_else(|| info.get("bot_username").and_then(|v| v.as_str()))
+                .or_else(|| info.get("user_id").and_then(|v| v.as_str()))
+                .map(|s| s.to_string());
             result.push(ChannelHealthInfo {
                 platform: platform.clone(),
                 icon: platform_icon(platform).to_string(),
                 connected: connected_count,
                 total: accounts.max(1),
                 has_error,
+                channel_name,
             });
         }
     }
@@ -609,7 +617,12 @@ pub fn Overview() -> Element {
                                         div { class: "ov-channel-card", style: "{card_style}",
                                             div { class: "ov-channel-icon", style: "{icon_style}", "{ch.icon}" }
                                             div { class: "ov-channel-info",
-                                                div { class: "ov-channel-name", "{ch.platform}" }
+                                                div { class: "ov-channel-name",
+                                                    "{ch.platform}"
+                                                    if let Some(ref name) = ch.channel_name {
+                                                        span { style: "font-weight:400;color:var(--text-muted);margin-left:6px;font-size:11px;", "{name}" }
+                                                    }
+                                                }
                                                 div { class: "ov-channel-status", style: "color:{status_color};",
                                                     span { class: "ov-status-dot ov-status-dot--sm", style: "background:{status_color};" }
                                                     "{status_text}"
