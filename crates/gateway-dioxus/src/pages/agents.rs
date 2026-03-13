@@ -526,7 +526,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     };
 
     rsx! {
-        div { class: "split-view {detail_class}", style: "max-width:1200px;width:100%;",
+        div { class: "split-view {detail_class}",
             // ── Left sidebar: agent list (~30%) ──
             div { class: "split-view__list",
                 div { style: "padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;",
