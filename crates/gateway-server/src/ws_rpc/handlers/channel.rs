@@ -460,6 +460,11 @@ fn insert_saved_channel_metadata(
     }
 
     info.insert("enabled".to_string(), json!(saved_state.enabled));
+    if let Some(ref cfg) = saved_state.config {
+        if !cfg.id.is_empty() {
+            info.insert("id".to_string(), json!(cfg.id));
+        }
+    }
     if let Some(name) = saved_state.channel_name.as_ref() {
         info.insert("channel_name".to_string(), json!(name));
     }

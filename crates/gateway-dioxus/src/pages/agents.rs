@@ -2836,34 +2836,52 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
         .cloned()
         .unwrap_or_default();
 
-    // Only show skills that are globally installed AND enabled,
-    // deduplicated by name (highest priority source wins per name).
-    let available_skills: Vec<SkillDetail> = {
-        let mut by_name: std::collections::BTreeMap<String, SkillDetail> = std::collections::BTreeMap::new();
-        for s in all_skills.into_iter().filter(|s| s.installed.unwrap_or(false) && s.enabled.unwrap_or(false)) {
-            let rank = match s.category.as_deref() {
-                Some("workspace") => 0u8,
-                Some("installed") => 1,
-                Some("built-in") => 2,
-                Some("extra") => 3,
+    // Show all globally installed AND enabled skills (including name conflicts).
+    let available_skills: Vec<SkillDetail> = all_skills
+        .into_iter()
+        .filter(|s| s.installed.unwrap_or(false) && s.enabled.unwrap_or(false))
+        .collect();
+
+    // Build winner map: for each skill name, determine the highest-priority category.
+    // This is used as the default "selected source" for name-conflicting skills.
+    let mut winner_categories: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for s in available_skills.iter() {
+        let cat = s.category.as_deref().unwrap_or("");
+        let rank = match cat {
+            "workspace" => 0u8,
+            "installed" => 1,
+            "built-in" => 2,
+            "extra" => 3,
+            _ => 10,
+        };
+        let is_new_winner = winner_categories.get(&s.name).map_or(true, |existing_cat| {
+            let existing_rank = match existing_cat.as_str() {
+                "workspace" => 0u8,
+                "installed" => 1,
+                "built-in" => 2,
+                "extra" => 3,
                 _ => 10,
             };
-            let dominated = by_name.get(&s.name).is_some_and(|existing| {
-                let existing_rank = match existing.category.as_deref() {
-                    Some("workspace") => 0u8,
-                    Some("installed") => 1,
-                    Some("built-in") => 2,
-                    Some("extra") => 3,
-                    _ => 10,
-                };
-                existing_rank <= rank
-            });
-            if !dominated {
-                by_name.insert(s.name.clone(), s);
-            }
+            rank < existing_rank
+        });
+        if is_new_winner {
+            winner_categories.insert(s.name.clone(), cat.to_string());
         }
-        by_name.into_values().collect()
-    };
+    }
+
+    // Track which names have conflicts (more than one source).
+    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for s in available_skills.iter() {
+        *name_counts.entry(s.name.clone()).or_insert(0) += 1;
+    }
+    let conflict_names: std::collections::HashSet<String> = name_counts
+        .into_iter()
+        .filter(|(_, count)| *count > 1)
+        .map(|(name, _)| name)
+        .collect();
+
+    // Track user's selected source per conflicting name. Defaults to winner (highest priority).
+    let mut selected_source = use_signal(|| std::collections::HashMap::<String, String>::new());
 
     // Filter by search
     let query = search_query().to_lowercase();
@@ -2930,15 +2948,15 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
             } else {
                 // Workspace group
                 if !workspace.is_empty() {
-                    { render_skill_group_section("Workspace", &workspace, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
+                    { render_skill_group_section("Workspace", &workspace, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster, &conflict_names, &winner_categories, selected_source) }
                 }
                 // Built-in group
                 if !builtin.is_empty() {
-                    { render_skill_group_section("Built-in", &builtin, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
+                    { render_skill_group_section("Built-in", &builtin, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster, &conflict_names, &winner_categories, selected_source) }
                 }
                 // Third-party group
                 if !third_party.is_empty() {
-                    { render_skill_group_section("Third-party", &third_party, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster) }
+                    { render_skill_group_section("Third-party", &third_party, &agent_enabled_skills, ws.clone(), refresh_tick, agent_id.clone(), toaster, &conflict_names, &winner_categories, selected_source) }
                 }
             }
         }
@@ -2953,6 +2971,9 @@ fn render_skill_group_section(
     mut refresh_tick: Signal<u32>,
     agent_id: String,
     mut toaster: Toaster,
+    conflict_names: &std::collections::HashSet<String>,
+    winner_categories: &std::collections::HashMap<String, String>,
+    mut selected_source: Signal<std::collections::HashMap<String, String>>,
 ) -> Element {
     rsx! {
         div { class: "{SECTION_CARD}",
@@ -2960,13 +2981,29 @@ fn render_skill_group_section(
             div { style: "display:flex;flex-direction:column;gap:4px;",
                 for skill in skills.iter() {
                     {
-                        let is_enabled = enabled_skills.contains(&skill.name);
+                        let has_conflict = conflict_names.contains(&skill.name);
+                        let skill_cat = skill.category.as_deref().unwrap_or("").to_string();
+
+                        // For conflicting skills, determine which source is "selected".
+                        // User selection takes precedence, otherwise default to highest priority.
+                        let is_enabled = if has_conflict {
+                            let active_cat = selected_source.read()
+                                .get(&skill.name)
+                                .cloned()
+                                .unwrap_or_else(|| winner_categories.get(&skill.name).cloned().unwrap_or_default());
+                            enabled_skills.contains(&skill.name) && skill_cat == active_cat
+                        } else {
+                            enabled_skills.contains(&skill.name)
+                        };
+
                         let skill_name = skill.name.clone();
+                        let skill_cat_toggle = skill_cat.clone();
                         let ws_toggle = ws.clone();
                         let agent = agent_id.clone();
+                        let has_conflict_toggle = has_conflict;
                         rsx! {
                             div {
-                                key: "{skill.name}",
+                                key: "{skill.name}-{skill.category.as_deref().unwrap_or(\"\")}",
                                 style: "display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);",
                                 div { style: "flex:1;min-width:0;",
                                     div { style: "display:flex;align-items:center;gap:6px;flex-wrap:wrap;",
@@ -2977,7 +3014,7 @@ fn render_skill_group_section(
                                         if let Some(ref cat) = skill.category {
                                             span { style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(59,130,246,0.1);color:var(--accent);", "{cat}" }
                                         }
-                                        if skill.conflicts.as_ref().is_some_and(|c| c.len() > 1) {
+                                        if has_conflict {
                                             span {
                                                 style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.1);color:var(--danger);",
                                                 title: skill.conflicts.as_ref().map(|c| {
@@ -3004,7 +3041,13 @@ fn render_skill_group_section(
                                         let ws = ws_toggle.clone();
                                         let name = skill_name.clone();
                                         let agent = agent.clone();
+                                        let cat = skill_cat_toggle.clone();
                                         spawn(async move {
+                                            // For conflicting skills: enabling this source sets it
+                                            // as the selected one and disables others with same name.
+                                            if has_conflict_toggle && enabled {
+                                                selected_source.write().insert(name.clone(), cat);
+                                            }
                                             let res = ws.call::<serde_json::Value>(
                                                 "agents.skills.set",
                                                 Some(json!({

@@ -45,6 +45,7 @@ struct ChannelHealthInfo {
     total: usize,
     has_error: bool,
     channel_name: Option<String>,
+    channel_id: Option<String>,
 }
 
 fn platform_icon(platform: &str) -> &'static str {
@@ -122,6 +123,10 @@ fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
                 .or_else(|| info.get("bot_username").and_then(|v| v.as_str()))
                 .or_else(|| info.get("user_id").and_then(|v| v.as_str()))
                 .map(|s| s.to_string());
+            let channel_id = info
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             result.push(ChannelHealthInfo {
                 platform: platform.clone(),
                 icon: platform_icon(platform).to_string(),
@@ -129,6 +134,7 @@ fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
                 total: accounts.max(1),
                 has_error,
                 channel_name,
+                channel_id,
             });
         }
     }
@@ -148,6 +154,11 @@ pub fn Overview() -> Element {
 
     // Collapsible state for recent errors
     let mut errors_expanded = use_signal(|| Option::<usize>::None);
+
+    // Security audit detail expansion
+    let mut security_expanded = use_signal(|| false);
+    let mut security_report = use_signal(|| None::<serde_json::Value>);
+    let mut security_loading = use_signal(|| false);
 
     // --- Data resources (all re-fetch on refresh_tick) ---
 
@@ -546,13 +557,79 @@ pub fn Overview() -> Element {
                 }
                 if let Some(_sec) = security {
                     div {
-                        style: "margin-top:12px;padding:10px 14px;background:rgba({security_color_bg(security_color)});border:1px solid {security_color};border-radius:var(--radius);",
-                        div { style: "font-size:13px;color:{security_color};font-weight:500;margin-bottom:4px;",
-                            "Security audit: {security_label}"
+                        style: "margin-top:12px;padding:10px 14px;background:rgba({security_color_bg(security_color)});border:1px solid {security_color};border-radius:var(--radius);cursor:pointer;",
+                        onclick: move |_| {
+                            let expanded = !security_expanded();
+                            security_expanded.set(expanded);
+                            if expanded && security_report.read().is_none() {
+                                let ws = ws.clone();
+                                spawn(async move {
+                                    security_loading.set(true);
+                                    if let Ok(report) = ws.call::<serde_json::Value>("security.audit", None).await {
+                                        security_report.set(Some(report));
+                                    }
+                                    security_loading.set(false);
+                                });
+                            }
+                        },
+                        div { style: "display:flex;justify-content:space-between;align-items:center;",
+                            div {
+                                div { style: "font-size:13px;color:{security_color};font-weight:500;",
+                                    "Security audit: {security_label}"
+                                }
+                                if info_count > 0 && !security_expanded() {
+                                    div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;",
+                                        "{info_count} info items. Click to view details."
+                                    }
+                                }
+                            }
+                            span { style: "font-size:12px;color:var(--text-muted);",
+                                if security_expanded() { "Hide" } else { "Details" }
+                            }
                         }
-                        if info_count > 0 {
-                            div { style: "font-size:12px;color:var(--text-muted);",
-                                "{info_count} info items. Run security audit for details."
+                        if security_expanded() {
+                            if *security_loading.read() {
+                                div { style: "margin-top:10px;font-size:12px;color:var(--text-muted);", "Loading audit report..." }
+                            }
+                            if let Some(ref report) = *security_report.read() {
+                                div { style: "margin-top:10px;display:flex;flex-direction:column;gap:8px;",
+                                    {
+                                        let checks = report.get("checks")
+                                            .and_then(|v| v.as_array())
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        rsx! {
+                                            for (i, check) in checks.iter().enumerate() {
+                                                {
+                                                    let name = check.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                                                    let status = check.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                                                    let details = check.get("details").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let suggestion = check.get("suggestion").and_then(|v| v.as_str());
+                                                    let (dot_color, status_label) = match status {
+                                                        "fail" => ("var(--danger)", "Critical"),
+                                                        "warn" => ("var(--warning)", "Warning"),
+                                                        _ => ("var(--success)", "Pass"),
+                                                    };
+                                                    rsx! {
+                                                        div {
+                                                            key: "{i}",
+                                                            style: "padding:8px 10px;background:var(--bg-secondary);border-radius:var(--radius);",
+                                                            div { style: "display:flex;align-items:center;gap:6px;margin-bottom:4px;",
+                                                                span { style: "width:8px;height:8px;border-radius:50%;background:{dot_color};flex-shrink:0;" }
+                                                                span { style: "font-size:12px;font-weight:600;", "{name}" }
+                                                                span { style: "font-size:11px;color:{dot_color};", "{status_label}" }
+                                                            }
+                                                            div { style: "font-size:12px;color:var(--text-secondary);margin-left:14px;", "{details}" }
+                                                            if let Some(suggestion) = suggestion {
+                                                                div { style: "font-size:11px;color:var(--accent);margin-left:14px;margin-top:4px;", "Fix: {suggestion}" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -623,6 +700,9 @@ pub fn Overview() -> Element {
                                                     if let Some(ref name) = ch.channel_name {
                                                         span { style: "font-weight:400;color:var(--text-muted);margin-left:6px;font-size:11px;", "{name}" }
                                                     }
+                                                }
+                                                if let Some(ref id) = ch.channel_id {
+                                                    div { style: "font-size:10px;color:var(--text-muted);opacity:0.7;", "{id}" }
                                                 }
                                                 div { class: "ov-channel-status", style: "color:{status_color};",
                                                     span { class: "ov-status-dot ov-status-dot--sm", style: "background:{status_color};" }
