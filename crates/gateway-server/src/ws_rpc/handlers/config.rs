@@ -787,8 +787,7 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
         "yaml" => serde_yaml::from_str(&source_content)
             .map_err(|e| (INVALID_PARAMS, format!("invalid YAML input: {e}")))?,
         "toml" => {
-            let toml_val: toml::Value = source_content
-                .parse()
+            let toml_val: toml::Value = toml::from_str(&source_content)
                 .map_err(|e| (INVALID_PARAMS, format!("invalid TOML input: {e}")))?;
             serde_json::to_value(&toml_val)
                 .map_err(|e| (INTERNAL_ERROR, format!("TOML->JSON conversion failed: {e}")))?

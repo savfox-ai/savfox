@@ -38,8 +38,7 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFil
             "yaml" => serde_yaml::from_str::<Value>(&content)
                 .map_err(|e| format!("invalid YAML in {}: {e}", path.display()))?,
             "toml" => {
-                let toml_value: toml::Value = content
-                    .parse()
+                let toml_value: toml::Value = toml::from_str(&content)
                     .map_err(|e| format!("invalid TOML in {}: {e}", path.display()))?;
                 serde_json::to_value(toml_value)
                     .map_err(|e| format!("TOML->JSON conversion failed: {e}"))?
