@@ -963,10 +963,9 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                 models_provider_display_name(&file_provider_id)
             };
             let has_distinct_account = account_id != file_provider_id;
-            let canonical_provider =
-                savfox_core::canonical_provider_id(&file_provider_id);
             for mut model in file.models {
-                // ChatGPT OAuth files store "slug" without "id"; synthesize it.
+                // Ensure every model has an `id` field.  ChatGPT OAuth files
+                // store "slug" without "id", so synthesize it from account_id.
                 if model.get("id").and_then(Value::as_str).is_none() {
                     let slug = model
                         .get("slug")
@@ -977,13 +976,26 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                         if let Value::Object(ref mut map) = model {
                             map.insert(
                                 "id".to_string(),
-                                json!(format!("{canonical_provider}/{slug}")),
+                                json!(format!("{account_id}/{slug}")),
                             );
-                            map.entry("provider".to_string())
-                                .or_insert_with(|| json!(canonical_provider.as_str()));
                         }
                     }
                 }
+
+                // Normalise the id prefix and provider to the account_id
+                // (the file-level "id" from models/*.json) so that the
+                // frontend writes the correct provider value to config.toml.
+                if let Value::Object(ref mut map) = model {
+                    if let Some(current_id) = map.get("id").and_then(|v| v.as_str()).map(String::from) {
+                        if let Some((_, model_slug)) = current_id.split_once('/') {
+                            if !current_id.starts_with(&format!("{account_id}/")) {
+                                map.insert("id".to_string(), json!(format!("{account_id}/{model_slug}")));
+                            }
+                        }
+                    }
+                    map.insert("provider".to_string(), json!(account_id.as_str()));
+                }
+
                 let Some(id) = model.get("id").and_then(Value::as_str) else {
                     continue;
                 };

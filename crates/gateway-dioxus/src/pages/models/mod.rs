@@ -80,9 +80,13 @@ pub fn Models() -> Element {
                 return None;
             };
             // config.get returns { config: { model: { slug, provider } } }
+            // After normalization, provider may be a string OR an object with "id".
             let model_obj = cfg.get("config").and_then(|c| c.get("model"))?;
             let slug = model_obj.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let provider = model_obj.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let provider = model_obj.get("provider").and_then(|v| {
+                v.as_str().map(String::from)
+                    .or_else(|| v.get("id").and_then(|id| id.as_str()).map(String::from))
+            }).unwrap_or_default();
             if slug.is_empty() {
                 None
             } else {
