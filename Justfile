@@ -57,6 +57,14 @@ fmt:
 test:
     cargo test --workspace
 
+# ── Install ─────────────────────────────────────────────────────────────────
+
+# Build release and install savfox CLI tools to ~/bin
+install:
+    cargo build
+    New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
+    Get-ChildItem target/release -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
+
 # ── Utilities ────────────────────────────────────────────────────────────────
 
 # Print available recipes

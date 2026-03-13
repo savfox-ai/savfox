@@ -23,7 +23,7 @@ enum NavGroup {
 impl NavGroup {
     fn label(&self) -> &'static str {
         match self {
-            NavGroup::Main => "Main",
+            NavGroup::Main => "Dashboard",
             NavGroup::Manage => "Manage",
             NavGroup::Media => "Media",
             NavGroup::System => "System",
@@ -644,8 +644,8 @@ pub fn Layout() -> Element {
 
                     // Nav links
                     div { class: "sidebar-nav",
-                    // Main group
-                    { nav_group_header("Main", expanded_main(), move |_| expanded_main.toggle()) }
+                    // Dashboard group
+                    { nav_group_header("Dashboard", expanded_main(), move |_| expanded_main.toggle()) }
                     if expanded_main() {
                         { nav_link(&current_route,Route::Overview {}, "Overview", "\u{2302}") }
                         { nav_link(&current_route,Route::Sessions {}, "Sessions", "\u{00BB}") }
