@@ -1087,8 +1087,6 @@ const USAGE_STYLES: &str = r#"
     .usage-cost-hero__label {
         font-size: 12px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         margin-bottom: 4px;
     }
 
@@ -1122,8 +1120,6 @@ const USAGE_STYLES: &str = r#"
     .usage-cost-hero__item-label {
         font-size: 11px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
     }
 
     .usage-cost-hero__item-value {
@@ -1150,8 +1146,6 @@ const USAGE_STYLES: &str = r#"
     .usage-stat-card__label {
         font-size: 11px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         margin-bottom: 4px;
     }
 
@@ -1175,8 +1169,6 @@ const USAGE_STYLES: &str = r#"
         font-weight: 600;
         margin-bottom: 14px;
         color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
 
     .usage-card__title--inline {
@@ -1226,8 +1218,6 @@ const USAGE_STYLES: &str = r#"
         font-size: 11px;
         font-weight: 600;
         color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         background: var(--bg-tertiary);
         white-space: nowrap;
     }

@@ -22,7 +22,7 @@ const CATEGORIES: &[(&str, &str)] = &[
     ("extra", "Extra"),
 ];
 
-const PAGE_SIZE_OPTIONS: &[usize] = &[20, 50, 100, 200];
+const PAGE_SIZE_OPTIONS: &[usize] = &[10, 20, 50, 100, 200];
 const PAGE_SIZE_STORAGE_KEY: &str = "savfox_skills_page_size";
 
 fn load_page_size() -> usize {
@@ -138,6 +138,8 @@ pub fn Skills() -> Element {
                         disabled_reason: b.disabled_reason.clone(),
                         allowlist_blocked: b.allowlist_blocked,
                         flock: b.flock.clone(),
+                        path: b.path.clone(),
+                        conflicts: b.conflicts.clone(),
                     })
                     .collect()
             })
@@ -180,15 +182,9 @@ pub fn Skills() -> Element {
 
     rsx! {
         div { class: "page-content skills-page",
-            // Toolbar: Title, Search, Install URL, Install btn, Upload ZIP, Refresh
+            // Toolbar: Title, Install URL, Install btn, Upload ZIP, Search, Refresh
             div { class: "skills-toolbar",
                 h2 { style: "font-size:20px;font-weight:600;white-space:nowrap;margin:0;", "Skills" }
-                SearchInput {
-                    value: search_query(),
-                    on_change: move |v: String| search_query.set(v),
-                    placeholder: "Search...".to_string(),
-                    match_count: match_count,
-                }
                 input {
                     class: "skill-url-install__input",
                     r#type: "text",
@@ -271,6 +267,12 @@ pub fn Skills() -> Element {
                             on_installed: move |_| refresh_tick += 1,
                         }
                     }
+                }
+                SearchInput {
+                    value: search_query(),
+                    on_change: move |v: String| search_query.set(v),
+                    placeholder: "Search...".to_string(),
+                    match_count: match_count,
                 }
                 button {
                     onclick: move |_| refresh_tick += 1,
@@ -410,6 +412,7 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
     let allowlist_blocked = skill.allowlist_blocked.unwrap_or(false);
     let name = skill.name.clone();
     let name_toggle = skill.name.clone();
+    let skill_path = skill.path.clone();
     let ws_toggle = ws.clone();
     let ws_action = ws.clone();
 
@@ -423,6 +426,39 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
                         span { style: "font-weight:500;font-size:14px;", "{skill.name}" }
                         if let Some(ref ver) = skill.version {
                             span { style: "font-size:11px;color:var(--text-muted);", "v{ver}" }
+                        }
+                        if let Some(ref p) = skill_path {
+                            {
+                                let path_for_title = p.clone();
+                                let path_for_copy = p.clone();
+                                rsx! {
+                                    button {
+                                        class: "skill-copy-path-btn",
+                                        title: "{path_for_title}",
+                                        onclick: move |_| {
+                                            let p = path_for_copy.clone();
+                                            spawn(async move {
+                                                copy_to_clipboard(&p).await;
+                                            });
+                                        },
+                                        // clipboard / copy icon (SVG)
+                                        svg {
+                                            width: "14",
+                                            height: "14",
+                                            view_box: "0 0 24 24",
+                                            fill: "none",
+                                            stroke: "currentColor",
+                                            stroke_width: "2",
+                                            stroke_linecap: "round",
+                                            stroke_linejoin: "round",
+                                            // back rectangle
+                                            rect { x: "9", y: "9", width: "13", height: "13", rx: "2", ry: "2" }
+                                            // front path
+                                            path { d: "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         // Category label
                         if let Some(ref cat) = skill.category {
@@ -448,11 +484,6 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
                     }
                     if let Some(ref desc) = skill.description {
                         p { style: "font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.4;", "{desc}" }
-                    }
-                    if let Some(ref reason) = skill.disabled_reason {
-                        if !reason.is_empty() {
-                            p { style: "font-size:11px;color:var(--danger);margin-top:4px;line-height:1.4;", "Disabled reason: {reason}" }
-                        }
                     }
                     // Missing deps
                     if let Some(ref deps) = skill.missing_deps {
@@ -746,6 +777,13 @@ fn format_install_result(v: &serde_json::Value) -> String {
         msg.push_str(" (auto-disabled: >10 new skills, enable individually)");
     }
     msg
+}
+
+async fn copy_to_clipboard(text: &str) {
+    if let Some(window) = web_sys::window() {
+        let clipboard = window.navigator().clipboard();
+        let _ = wasm_bindgen_futures::JsFuture::from(clipboard.write_text(text)).await;
+    }
 }
 
 const ACTION_BTN: &str = "action-btn";

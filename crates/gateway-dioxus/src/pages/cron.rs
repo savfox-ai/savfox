@@ -908,7 +908,7 @@ fn render_job_detail(
 
             // Run history
             div { style: "flex:1;padding:16px;overflow:auto;",
-                h4 { style: "font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;", "Run History" }
+                h4 { style: "font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;", "Run History" }
                 if runs.is_empty() {
                     div { style: "display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 16px;color:var(--text-muted);",
                         div { style: "font-size:32px;margin-bottom:8px;opacity:0.5;", "---" }

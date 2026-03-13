@@ -396,8 +396,6 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         font-size: 12px;
         font-weight: 600;
         color: var(--accent);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
         margin-bottom: 8px;
         display: flex;
         align-items: center;
@@ -706,8 +704,6 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         background: color-mix(in srgb, var(--accent) 15%, transparent);
         color: var(--accent);
         border-radius: 4px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         white-space: nowrap;
     }
 

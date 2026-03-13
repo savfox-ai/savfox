@@ -1410,8 +1410,6 @@ const SESSION_STYLES: &str = r#"
     .chat-sidebar__title {
         font-size: 13px;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         color: var(--text-secondary);
     }
 

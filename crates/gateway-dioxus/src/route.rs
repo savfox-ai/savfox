@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::components::layout::Layout;
-use crate::pages::agents::{Agents, AgentsDetail, AgentsNew};
+use crate::pages::agents::{Agents, AgentsDetail, AgentsDetailTab, AgentsNew};
 use crate::pages::approvals::Approvals;
 use crate::pages::channels::dingtalk::DingtalkChannel;
 use crate::pages::channels::discord::DiscordChannel;
@@ -55,6 +55,8 @@ pub enum Route {
         AgentsNew {},
         #[route("/agents/:agent_id")]
         AgentsDetail { agent_id: String },
+        #[route("/agents/:agent_id/:tab")]
+        AgentsDetailTab { agent_id: String, tab: String },
         #[route("/channels")]
         Channels {},
         #[route("/channels/add")]

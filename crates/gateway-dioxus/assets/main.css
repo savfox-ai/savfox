@@ -160,7 +160,6 @@ code, pre {
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  text-transform: uppercase;
 }
 
 .top-header__right {
@@ -324,8 +323,6 @@ code, pre {
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .nav-group-header {
@@ -339,8 +336,6 @@ code, pre {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   cursor: pointer;
   transition: color var(--transition-fast) ease;
   margin-top: 12px;
@@ -1500,8 +1495,6 @@ code, pre {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .collapsible-group__header:hover {
@@ -2953,8 +2946,6 @@ select:focus-visible {
   font-weight: 600;
   margin-bottom: 12px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 /* ============== Page Header ============== */
@@ -3224,8 +3215,6 @@ select:focus-visible {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 8px;
 }
 
@@ -3245,8 +3234,6 @@ select:focus-visible {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 /* Cron page TH (slightly different padding) */
@@ -3256,8 +3243,6 @@ select:focus-visible {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 /* Table data cell */
@@ -3343,6 +3328,84 @@ select:focus-visible {
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* Skills copy path button */
+.skill-copy-path-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color var(--transition-fast) ease, background var(--transition-fast) ease;
+}
+
+.skill-copy-path-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+/* Skills conflict section */
+.skill-conflict-section {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius);
+  background: rgba(239, 68, 68, 0.04);
+}
+.skill-conflict-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 6px;
+}
+.skill-conflict-source {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 4px;
+  background: var(--bg-secondary);
+}
+.skill-conflict-source--active {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 59, 130, 246), 0.06);
+}
+.skill-conflict-source__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.skill-conflict-indicator {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.skill-conflict-indicator--active {
+  color: var(--accent);
+}
+.skill-conflict-active-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.skill-conflict-source__path {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  margin-left: 20px;
+  word-break: break-all;
+}
+.skill-conflict-source__desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  margin-left: 20px;
 }
 
 /* Skills missing dep badge */
@@ -3491,8 +3554,6 @@ select:focus-visible {
 .stat-card__label {
   font-size: 12px;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: 4px;
 }
 
@@ -3573,8 +3634,6 @@ select:focus-visible {
 .agent-default-badge {
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--accent);
@@ -3612,8 +3671,6 @@ select:focus-visible {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
 }

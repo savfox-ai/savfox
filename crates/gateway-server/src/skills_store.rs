@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
@@ -212,6 +212,13 @@ struct SkillBinRow {
     flock: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct SkillConflictSource {
+    category: String,
+    path: Option<String>,
+    description: Option<String>,
+}
+
 /// Load skill_roots from the DB.
 async fn load_skill_roots(pool: &SqlitePool) -> Vec<String> {
     sqlx::query_as::<_, (String,)>("SELECT path FROM skill_roots")
@@ -367,6 +374,8 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
     }
 
     let mut rows: BTreeMap<String, (u8, SkillBinRow)> = BTreeMap::new();
+    let mut all_rows: Vec<SkillBinRow> = Vec::new();
+    let mut conflicts: HashMap<String, Vec<SkillConflictSource>> = HashMap::new();
     let mut new_skill_names: HashSet<String> = HashSet::new();
     for (manifest_path, category, installed_by_location) in discovered {
         let Ok(manifest) = savfox_skill_registry::load_skill_manifest_async(&manifest_path).await
@@ -448,6 +457,18 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         if is_new {
             new_skill_names.insert(name.clone());
         }
+        // Track every source for conflict detection.
+        let source = SkillConflictSource {
+            category: category.to_string(),
+            path: row.skill_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+            description: row.description.clone(),
+        };
+        conflicts.entry(name.clone()).or_default().push(source);
+
+        // Keep all rows for the response (no dedup).
+        all_rows.push(row.clone());
+
+        // Dedup map: highest-priority source wins (used for SQLite upsert only).
         let rank = category_rank(category);
         match rows.get(&name) {
             Some((current_rank, _)) if *current_rank <= rank => {}
@@ -462,6 +483,13 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
     if !auto_enable_new {
         for name in &new_skill_names {
             if let Some((_, row)) = rows.get_mut(name) {
+                row.enabled = false;
+                if row.disabled_reason.is_none() {
+                    row.disabled_reason =
+                        Some("auto-disabled: too many new skills at once".to_string());
+                }
+            }
+            for row in all_rows.iter_mut().filter(|r| &r.name == name) {
                 row.enabled = false;
                 if row.disabled_reason.is_none() {
                     row.disabled_reason =
@@ -559,10 +587,13 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Build final bins from in-memory rows (already sorted by BTreeMap key).
-    let all_bins: Vec<Value> = rows
-        .into_values()
-        .filter(|(_, row)| {
+    // Sort all_rows by name for consistent ordering.
+    all_rows.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Build final bins from all discovered rows (no dedup — all sources appear).
+    let all_bins: Vec<Value> = all_rows
+        .iter()
+        .filter(|row| {
             if !category_filter.is_empty() && row.category != category_filter {
                 return false;
             }
@@ -582,7 +613,8 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
             }
             true
         })
-        .map(|(_, row)| {
+        .map(|row| {
+            let skill_conflicts = conflicts.get(&row.name).filter(|c: &&Vec<SkillConflictSource>| c.len() > 1);
             json!({
                 "name": row.name,
                 "version": row.version,
@@ -597,7 +629,9 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
                 "disabled_reason": row.disabled_reason,
                 "allowlist_blocked": row.allowlist_blocked,
                 "flock": row.flock,
+                "path": row.skill_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
                 "command": format!("savfox-skill-{}", row.name),
+                "conflicts": skill_conflicts,
             })
         })
         .collect();

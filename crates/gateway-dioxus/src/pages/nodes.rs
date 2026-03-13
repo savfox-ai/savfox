@@ -205,7 +205,7 @@ fn nodes_inner(initial_node: Option<String>) -> Element {
                     // Devices section
                     if !devices.is_empty() {
                         div { style: "padding:12px 16px;border-top:2px solid var(--border);",
-                            h3 { style: "font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;", "Pairing Requests" }
+                            h3 { style: "font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;", "Pairing Requests" }
 
                             // Pairing guidance steps
                             div { style: "margin-bottom:12px;display:flex;flex-direction:column;gap:6px;",
@@ -232,7 +232,7 @@ fn nodes_inner(initial_node: Option<String>) -> Element {
                     // Exec Approval Policy section (bottom of sidebar)
                     if let Some(ref pol) = policy {
                         div { style: "padding:12px 16px;border-top:2px solid var(--border);",
-                            h3 { style: "font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;", "Exec Policy" }
+                            h3 { style: "font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;", "Exec Policy" }
                             div { style: "font-size:12px;",
                                 div { style: "margin-bottom:4px;display:flex;gap:6px;align-items:center;",
                                     span { style: "color:var(--text-muted);", "Mode:" }
@@ -552,7 +552,7 @@ fn render_node_detail(
                         let json_str = serde_json::to_string_pretty(det).unwrap_or_default();
                         rsx! {
                             details { style: "margin-top:8px;",
-                                summary { style: "font-size:14px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;margin-bottom:8px;", "Raw JSON" }
+                                summary { style: "font-size:14px;font-weight:600;color:var(--text-secondary);cursor:pointer;margin-bottom:8px;", "Raw JSON" }
                                 pre {
                                     style: "background:var(--bg-tertiary);padding:12px;border-radius:var(--radius);font-size:12px;overflow:auto;max-height:300px;color:var(--text-secondary);",
                                     "{json_str}"

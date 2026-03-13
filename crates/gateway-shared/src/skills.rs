@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SkillConflictSource {
+    pub category: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SkillEntry {
     pub name: String,
     pub version: Option<String>,
@@ -16,6 +25,10 @@ pub struct SkillEntry {
     pub disabled_reason: Option<String>,
     pub allowlist_blocked: Option<bool>,
     pub flock: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub conflicts: Option<Vec<SkillConflictSource>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,4 +66,8 @@ pub struct SkillDetail {
     pub disabled_reason: Option<String>,
     pub allowlist_blocked: Option<bool>,
     pub flock: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub conflicts: Option<Vec<SkillConflictSource>>,
 }

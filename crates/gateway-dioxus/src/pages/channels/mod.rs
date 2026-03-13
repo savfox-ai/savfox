@@ -1917,7 +1917,16 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                             onmousedown: |e| e.stop_propagation(),
                             div { class: "channels-modal__header",
                                 div { class: "channels-modal__header-left",
-                                    h3 { class: "channels-modal__title", "Health: {ch_id_clone}" }
+                                    h3 { class: "channels-modal__title",
+                                        "Health: {ch_id_clone}"
+                                        if let Some((cfg_id, cfg_name, _)) = channel_configs.get(ch_id) {
+                                            span { style: "font-size:13px;font-weight:400;color:var(--text-muted);margin-left:8px;",
+                                                "({cfg_name}"
+                                                span { style: "margin-left:4px;font-size:11px;color:var(--text-muted);opacity:0.7;", "{cfg_id}" }
+                                                ")"
+                                            }
+                                        }
+                                    }
                                     div { class: "channels-health-status",
                                         span { class: "{health_dot_class}" }
                                         span { class: "channels-health-status__text", "{health_status_text}" }
@@ -3601,8 +3610,6 @@ const CHANNELS_STYLES: &str = r#"
     .channels-health__label {
         font-size: 12px;
         color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         margin-top: 4px;
     }
 
@@ -4154,8 +4161,6 @@ const CHANNELS_STYLES: &str = r#"
         font-size: 12px;
         font-weight: 600;
         color: var(--danger);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
     }
 
     .channels-health-error__message {
@@ -4222,8 +4227,6 @@ const CHANNELS_STYLES: &str = r#"
         background: rgba(239,68,68,0.15);
         color: var(--danger);
         border-radius: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
         font-weight: 600;
     }
 
@@ -4283,8 +4286,6 @@ const CHANNELS_STYLES: &str = r#"
     .channels-picker-section__label {
         font-size: 11px;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         color: var(--text-muted);
         margin-bottom: 8px;
         padding-left: 2px;

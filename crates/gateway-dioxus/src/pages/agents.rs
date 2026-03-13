@@ -319,6 +319,7 @@ enum AgentDeepLink {
     None,
     New,
     Detail(String),
+    DetailTab(String, String),
 }
 
 #[component]
@@ -336,13 +337,22 @@ pub fn AgentsDetail(agent_id: String) -> Element {
     agents_inner(AgentDeepLink::Detail(agent_id))
 }
 
+#[component]
+pub fn AgentsDetailTab(agent_id: String, tab: String) -> Element {
+    agents_inner(AgentDeepLink::DetailTab(agent_id, tab))
+}
+
 fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let is_routed = !matches!(deep_link, AgentDeepLink::None);
     let nav = use_navigator();
 
     let initial_selected = match &deep_link {
-        AgentDeepLink::Detail(id) => Some(id.clone()),
+        AgentDeepLink::Detail(id) | AgentDeepLink::DetailTab(id, _) => Some(id.clone()),
         _ => Option::None,
+    };
+    let initial_tab = match &deep_link {
+        AgentDeepLink::DetailTab(_, tab) => tab.clone(),
+        _ => "overview".to_string(),
     };
     let initial_create = matches!(&deep_link, AgentDeepLink::New);
     let initial_show_detail = initial_selected.is_some() || initial_create;
@@ -356,14 +366,20 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut show_settings = use_signal(|| false);
     let mut search_query = use_signal(String::new);
     let mut show_detail = use_signal(move || initial_show_detail);
+    let mut active_tab = use_signal(move || initial_tab);
 
     // Sync URL with current view state for deep linking
     use_effect(move || {
         let selected = selected_agent();
         let creating = show_create();
+        let tab = active_tab();
 
         if let Some(ref id) = selected {
-            replace_url(&format!("/agents/{id}"));
+            if tab != "overview" {
+                replace_url(&format!("/agents/{id}/{tab}"));
+            } else {
+                replace_url(&format!("/agents/{id}"));
+            }
         } else if creating {
             replace_url("/agents/new");
         } else if is_routed {
@@ -377,7 +393,6 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_provider = use_signal(String::new);
     let mut new_model = use_signal(String::new);
     let mut new_prompt = use_signal(String::new);
-    let mut active_tab = use_signal(|| "overview".to_string());
 
     // Fetch agent list
     let ws_list = ws.clone();
@@ -2786,6 +2801,8 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
                                 disabled_reason: None,
                                 allowlist_blocked: None,
                                 flock: None,
+                                path: None,
+                                conflicts: None,
                             })
                             .collect()
                     })
@@ -2929,14 +2946,32 @@ fn render_skill_group_section(
                                 key: "{skill.name}",
                                 style: "display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);",
                                 div { style: "flex:1;min-width:0;",
-                                    div { style: "display:flex;align-items:center;gap:6px;",
+                                    div { style: "display:flex;align-items:center;gap:6px;flex-wrap:wrap;",
                                         span { style: "font-weight:500;font-size:13px;", "{skill.name}" }
                                         if let Some(ref ver) = skill.version {
                                             span { style: "font-size:11px;color:var(--text-muted);", "v{ver}" }
                                         }
+                                        if let Some(ref cat) = skill.category {
+                                            span { style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(59,130,246,0.1);color:var(--accent);", "{cat}" }
+                                        }
+                                        if skill.conflicts.as_ref().is_some_and(|c| c.len() > 1) {
+                                            span {
+                                                style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.1);color:var(--danger);",
+                                                title: skill.conflicts.as_ref().map(|c| {
+                                                    c.iter()
+                                                        .map(|s| format!("{} ({})", s.category, s.path.as_deref().unwrap_or("?")))
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ")
+                                                }).unwrap_or_default(),
+                                                "Name Conflict"
+                                            }
+                                        }
                                     }
                                     if let Some(ref desc) = skill.description {
                                         p { style: "font-size:11px;color:var(--text-muted);margin-top:2px;", "{desc}" }
+                                    }
+                                    if let Some(ref path) = skill.path {
+                                        p { style: "font-size:10px;color:var(--text-muted);margin-top:1px;opacity:0.7;", "{path}" }
                                     }
                                 }
                                 ToggleSwitch {

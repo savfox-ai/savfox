@@ -951,8 +951,6 @@ const STYLE: &str = r#"
     .stat-label {
         font-size: 12px;
         color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         margin-bottom: 4px;
     }
 
@@ -1209,8 +1207,6 @@ const STYLE: &str = r#"
         font-weight: 600;
         margin-bottom: 12px;
         color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
 
     .info-row {

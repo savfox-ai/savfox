@@ -183,7 +183,7 @@ pub fn Voice() -> Element {
 }
 
 const CARD: &str = "background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;";
-const CARD_TITLE: &str = "font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;";
+const CARD_TITLE: &str = "font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary);";
 const INPUT: &str = "width:100%;padding:8px 12px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);outline:none;font-size:14px;";
 const LABEL: &str =
     "display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;";
