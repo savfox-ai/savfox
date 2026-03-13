@@ -10,6 +10,7 @@ use crate::api::types::{
 use crate::api::ws::WsRpc;
 use crate::components::empty_state::EmptyState;
 use crate::components::icon::Icon;
+use crate::components::model_selector::ModelSelector;
 use crate::components::search_input::SearchInput;
 use crate::components::skeleton::*;
 use crate::components::tab_bar::{TabBar, TabItem};
@@ -1299,7 +1300,7 @@ fn AgentOverviewTab(
         .unwrap_or_default();
     let mut form_reasoning = use_signal(move || initial_reasoning.clone());
 
-    let mut form_fallback = use_signal(String::new);
+    let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
         use_signal(std::collections::HashSet::new);
     let mut detail_seeded = use_signal(|| false);
@@ -1333,17 +1334,16 @@ fn AgentOverviewTab(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            let fallback = detail
+            let fallbacks = detail
                 .fallback_models
-                .as_ref()
-                .map(|items| items.join(", "))
+                .clone()
                 .unwrap_or_default();
             if form_model().trim().is_empty() {
                 if let Some(detail_model) = detail_model {
                     form_model.set(detail_model);
                 }
             }
-            form_fallback.set(fallback);
+            form_fallbacks.set(fallbacks);
             form_matrix_channels.set(
                 detail
                     .matrix_auto_user_channels
@@ -1479,10 +1479,9 @@ fn AgentOverviewTab(
                     .and_then(normalized_reasoning_level)
             })
             .unwrap_or_default();
-        let orig_fallback = detail_snapshot
+        let orig_fallbacks: Vec<String> = detail_snapshot
             .as_ref()
-            .and_then(|detail| detail.fallback_models.as_ref())
-            .map(|items| items.join(", "))
+            .and_then(|detail| detail.fallback_models.clone())
             .unwrap_or_default();
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
@@ -1494,7 +1493,7 @@ fn AgentOverviewTab(
             || current_model != original_model
             || form_desc() != orig_desc
             || form_reasoning() != orig_reasoning
-            || form_fallback() != orig_fallback
+            || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
 
@@ -1686,45 +1685,10 @@ fn AgentOverviewTab(
             // Primary model selector
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Primary Model" }
-                if models.is_empty() {
-                    input {
-                        value: "{form_model}",
-                        oninput: move |e| form_model.set(e.value()),
-                        placeholder: "e.g. gpt-4o, claude-3-sonnet",
-                        class: "{INPUT}",
-                    }
-                } else {
-                    select {
-                        key: "{selected_model_value}:{models.len()}",
-                        value: "{selected_model_value}",
-                        onchange: move |e| form_model.set(e.value()),
-                        class: "{INPUT}",
-                        option {
-                            value: "",
-                            selected: selected_model_value.is_empty(),
-                            "-- Select model --"
-                        }
-                        if selected_model_missing {
-                            option {
-                                value: "{selected_model_value}",
-                                selected: true,
-                                "{selected_model_value}"
-                            }
-                        }
-                        for m in models.iter() {
-                            {
-                                let label = model_option_label(m);
-                                let is_selected = selected_model_value == m.id;
-                                rsx! {
-                                    option {
-                                        key: "{m.id}",
-                                        value: "{m.id}",
-                                        selected: is_selected,
-                                        "{label}"
-                                    }
-                                }
-                            }
-                        }
+                div { class: "agent-model-selector",
+                    ModelSelector {
+                        value: form_model(),
+                        on_change: move |model: String| form_model.set(model),
                     }
                 }
                 if show_reasoning_settings {
@@ -1763,37 +1727,48 @@ fn AgentOverviewTab(
             // Model fallback list
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Model Fallbacks" }
-                input {
-                    value: "{form_fallback}",
-                    oninput: move |e| form_fallback.set(e.value()),
-                    placeholder: "e.g. gpt-4o-mini, claude-3-haiku (comma-separated)",
-                    class: "{INPUT}",
+                p { style: "font-size:11px;color:var(--text-muted);margin-bottom:8px;",
+                    "Fallback models tried in order when the primary model is unavailable."
                 }
-                p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
-                    "Comma-separated list of fallback models tried in order."
-                }
-                // Fallback entries display
                 {
-                    let fallbacks: Vec<String> = form_fallback()
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if !fallbacks.is_empty() {
-                        rsx! {
-                            div { style: "display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;",
-                                for (i, fb) in fallbacks.iter().enumerate() {
-                                    div {
-                                        key: "{fb}",
-                                        style: "display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;",
-                                        span { style: "color:var(--text-muted);font-size:10px;", "#{i}" }
-                                        span { style: "font-weight:500;", "{fb}" }
+                    let fallbacks = form_fallbacks();
+                    rsx! {
+                        div { class: "agent-fallback-list",
+                            for (i, fb) in fallbacks.iter().enumerate() {
+                                div { key: "fb-{i}", class: "agent-fallback-item",
+                                    span { class: "agent-fallback-index", "#{i}" }
+                                    div { class: "agent-model-selector agent-fallback-selector",
+                                        ModelSelector {
+                                            value: fb.clone(),
+                                            on_change: move |model: String| {
+                                                let mut list = form_fallbacks.write();
+                                                if i < list.len() {
+                                                    list[i] = model;
+                                                }
+                                            },
+                                        }
+                                    }
+                                    button {
+                                        class: "agent-fallback-remove",
+                                        title: "Remove fallback",
+                                        onclick: move |_| {
+                                            let mut list = form_fallbacks.write();
+                                            if i < list.len() {
+                                                list.remove(i);
+                                            }
+                                        },
+                                        "\u{00D7}"
                                     }
                                 }
                             }
+                            button {
+                                class: "agent-fallback-add",
+                                onclick: move |_| {
+                                    form_fallbacks.write().push("default".to_string());
+                                },
+                                "+ Add Fallback"
+                            }
                         }
-                    } else {
-                        rsx! { div { style: "display:none;" } }
                     }
                 }
             }
@@ -1937,11 +1912,10 @@ fn AgentOverviewTab(
                             let model_val = selected_model_value.clone();
                             let desc_val = form_desc();
                             let reasoning_val = form_reasoning();
-                            let fallback_str = form_fallback();
-                            let fallback_list: Vec<String> = fallback_str
-                                .split(',')
-                                .map(|s| s.trim().to_string())
-                                .filter(|s| !s.is_empty())
+                            let fallback_list: Vec<String> = form_fallbacks()
+                                .iter()
+                                .filter(|s| !s.trim().is_empty() && *s != "default")
+                                .cloned()
                                 .collect();
                             spawn(async move {
                                 let mut params = json!({

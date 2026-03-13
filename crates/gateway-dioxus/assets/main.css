@@ -3273,6 +3273,97 @@ select:focus-visible {
   margin-bottom: 8px;
 }
 
+/* Agent page — model selector overrides */
+.agent-model-selector {
+  width: 100%;
+}
+
+.agent-model-selector .model-selector {
+  min-width: unset;
+  width: 100%;
+}
+
+.agent-model-selector .model-selector__trigger {
+  width: 100%;
+  min-width: unset;
+  height: 42px;
+  border-radius: var(--radius);
+}
+
+.agent-model-selector .model-selector__menu {
+  bottom: auto;
+  top: calc(100% + 8px);
+  width: 100%;
+}
+
+/* Agent fallback list */
+.agent-fallback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-fallback-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-fallback-index {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.agent-fallback-selector {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-fallback-remove {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.agent-fallback-remove:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.agent-fallback-add {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.agent-fallback-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Table header cell */
 .th-cell {
   text-align: left;
