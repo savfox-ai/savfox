@@ -134,11 +134,7 @@ async fn run_status(url: &str) -> std::io::Result<()> {
 }
 
 fn log_entry_key(entry: &Value) -> String {
-    let ts = entry
-        .get("tsMs")
-        .or_else(|| entry.get("ts_ms"))
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
+    let ts = entry_timestamp_str(entry);
     let level = entry
         .get("level")
         .and_then(Value::as_str)
@@ -154,7 +150,17 @@ fn log_entry_key(entry: &Value) -> String {
     format!("{ts}|{level}|{source}|{message}")
 }
 
-fn format_log_ts(ts_ms: u64) -> String {
+fn entry_timestamp_str(entry: &Value) -> String {
+    // New format: "timestamp" as ISO-8601 string
+    if let Some(ts) = entry.get("timestamp").and_then(Value::as_str) {
+        return ts.to_string();
+    }
+    // Legacy format: "tsMs" or "ts_ms" as u64 milliseconds
+    let ts_ms = entry
+        .get("tsMs")
+        .or_else(|| entry.get("ts_ms"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
     let secs = ts_ms / 1_000;
     let millis = ts_ms % 1_000;
     if let Some(dt) = chrono::DateTime::from_timestamp(secs as i64, (millis as u32) * 1_000_000) {
@@ -165,11 +171,7 @@ fn format_log_ts(ts_ms: u64) -> String {
 }
 
 fn print_log_entry(entry: &Value) {
-    let ts = entry
-        .get("tsMs")
-        .or_else(|| entry.get("ts_ms"))
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
+    let ts = entry_timestamp_str(entry);
     let level = entry.get("level").and_then(Value::as_str).unwrap_or("info");
     let source = entry
         .get("source")
@@ -179,7 +181,7 @@ fn print_log_entry(entry: &Value) {
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    eprintln!("[{}] {} {}: {}", format_log_ts(ts), level, source, message);
+    eprintln!("[{ts}] {level} {source}: {message}");
 }
 
 async fn run_logs(url: &str, lines: usize, follow: bool) -> std::io::Result<()> {

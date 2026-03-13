@@ -108,9 +108,12 @@ pub async fn run_main(
     let stderr_fmt = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr);
 
+    let log_capture = log_store::LogCaptureLayer;
+
     let _ = tracing_subscriber::registry()
         .with(filter_layer)
         .with(stderr_fmt)
+        .with(log_capture)
         .try_init();
 
     log_level::set_reload_handle(reload_handle);
