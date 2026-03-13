@@ -63,7 +63,7 @@ test:
 install:
     cargo build
     New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
-    Get-ChildItem target/release -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
+    Get-ChildItem target/debug -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
 
 # ── Utilities ────────────────────────────────────────────────────────────────
 

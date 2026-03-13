@@ -214,6 +214,7 @@ pub fn Sessions() -> Element {
     let mut thinking_level = use_signal(|| "medium".to_string());
     let mut reasoning_mode = use_signal(|| "on".to_string());
     let mut verbose_mode = use_signal(|| "on".to_string());
+    let mut selected_agent = use_signal(|| "default".to_string());
 
     let mut current_session_id = use_signal(|| Option::<String>::None);
     let mut session_refresh_tick = use_signal(|| 0u32);
@@ -568,6 +569,7 @@ pub fn Sessions() -> Element {
     let msgs: Vec<ChatMessage> = messages.read().clone();
     let message_count = msgs.len();
     let has_sidebar = sidebar_content().is_some();
+    let agents_list: Vec<AgentEntry> = agents_data.read().as_ref().cloned().unwrap_or_default();
 
     rsx! {
         div { class: "session-page",
@@ -968,6 +970,18 @@ pub fn Sessions() -> Element {
                                 save_pending_session_model(Some(&model));
                             }
                         },
+                        agent_value: selected_agent(),
+                        on_agent_change: move |agent: String| {
+                            selected_agent.set(agent.clone());
+                            // Update model to match the selected agent's primary model
+                            let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
+                            if let Some(entry) = find_agent_entry(&agents_snapshot, &agent) {
+                                if let Some(primary) = primary_model_for_agent(entry) {
+                                    selected_model.set(primary);
+                                }
+                            }
+                        },
+                        agents: agents_list.clone(),
                     }
                 }
             }

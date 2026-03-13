@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
-use crate::api::types::ChatAttachment;
+use crate::api::types::{AgentEntry, ChatAttachment};
 use crate::components::image_attachment::AttachmentPreview;
 use crate::components::model_selector::ModelSelector;
 
@@ -265,6 +265,9 @@ pub fn ChatInput(
     streaming: bool,
     model_value: String,
     on_model_change: EventHandler<String>,
+    agent_value: String,
+    on_agent_change: EventHandler<String>,
+    agents: Vec<AgentEntry>,
 ) -> Element {
     let mut text = use_signal(String::new);
     let mut attachments = use_signal(Vec::<ChatAttachment>::new);
@@ -399,6 +402,20 @@ pub fn ChatInput(
             raw
         }
     };
+    let agent_display_name = {
+        let raw = agent_value.trim().to_string();
+        agents
+            .iter()
+            .find(|a| {
+                a.id.as_deref().filter(|id| !id.is_empty()) == Some(&raw) || a.name == raw
+            })
+            .map(|a| a.name.clone())
+            .unwrap_or_else(|| if raw.is_empty() || raw == "default" {
+                "Default".to_string()
+            } else {
+                raw
+            })
+    };
 
     rsx! {
         div { class: "chat-input-area",
@@ -410,6 +427,9 @@ pub fn ChatInput(
 
             div { class: "chat-input",
                 div { class: "chat-input-model-badge",
+                    span { class: "chat-input-model-badge__label", "Agent:" }
+                    span { class: "chat-input-model-badge__name", "{agent_display_name}" }
+                    span { class: "chat-input-model-badge__sep", "|" }
                     span { class: "chat-input-model-badge__label", "Model:" }
                     span { class: "chat-input-model-badge__name", "{model_display_name}" }
                 }
@@ -431,6 +451,33 @@ pub fn ChatInput(
                             title: "Attach image",
                             aria_label: "Attach image",
                             "+"
+                        }
+                        div { class: "chat-agent-select-wrap",
+                            select {
+                                class: "chat-agent-select",
+                                value: "{agent_value}",
+                                aria_label: "Select agent",
+                                onchange: move |e: Event<FormData>| on_agent_change(e.value()),
+                                for agent in agents.iter() {
+                                    {
+                                        let ref_id = agent.id.as_deref()
+                                            .filter(|id| !id.trim().is_empty())
+                                            .unwrap_or(&agent.name);
+                                        let label = if agent.is_default.unwrap_or(false) {
+                                            format!("{} (default)", agent.name)
+                                        } else {
+                                            agent.name.clone()
+                                        };
+                                        rsx! {
+                                            option {
+                                                value: "{ref_id}",
+                                                selected: ref_id == agent_value,
+                                                "{label}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         div { class: "chat-model-select-wrap",
                             ModelSelector {
@@ -491,6 +538,7 @@ const CHAT_INPUT_STYLES: &str = r#"
             var(--bg-secondary) 100%
         );
         padding: 12px;
+        flex-shrink: 0;
     }
 
     .chat-input {
@@ -538,6 +586,11 @@ const CHAT_INPUT_STYLES: &str = r#"
         white-space: nowrap;
     }
 
+    .chat-input-model-badge__sep {
+        color: var(--border);
+        margin: 0 2px;
+    }
+
     .chat-textarea {
         width: 100%;
         padding: 10px 6px;
@@ -568,6 +621,35 @@ const CHAT_INPUT_STYLES: &str = r#"
         display: flex;
         align-items: center;
         gap: 8px;
+    }
+
+    .chat-agent-select-wrap {
+        min-width: 140px;
+    }
+
+    .chat-agent-select {
+        height: 38px;
+        min-width: 140px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--bg-secondary) 10%);
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s ease;
+        appearance: auto;
+    }
+
+    .chat-agent-select:hover {
+        border-color: color-mix(in srgb, var(--border) 60%, var(--accent) 40%);
+    }
+
+    .chat-agent-select:focus {
+        border-color: color-mix(in srgb, var(--accent) 60%, var(--border) 40%);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
     }
 
     .chat-model-select-wrap {
@@ -668,6 +750,16 @@ const CHAT_INPUT_STYLES: &str = r#"
         .chat-icon-btn {
             width: 36px;
             height: 36px;
+        }
+
+        .chat-agent-select-wrap {
+            min-width: 110px;
+        }
+
+        .chat-agent-select {
+            height: 36px;
+            min-width: 110px;
+            font-size: 11px;
         }
 
         .chat-model-select-wrap {
