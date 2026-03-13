@@ -35,6 +35,9 @@ pub fn Models() -> Element {
     let mut search = use_signal(String::new);
     let mut model_prefs = use_signal(load_model_preferences);
     let mut expanded_model = use_signal(|| Option::<String>::None);
+    // Local override for the default model ID — set immediately on click so the UI
+    // updates without waiting for a round-trip re-fetch.
+    let mut default_model_override = use_signal(|| Option::<String>::None);
 
     // Per-provider test connection state: provider_id -> (testing, Option<(ok, message)>)
     let mut test_states = use_signal(|| HashMap::<String, (bool, Option<(bool, String)>)>::new());
@@ -63,6 +66,32 @@ pub fn Models() -> Element {
         }
     });
 
+    // Load the global default model from config.toml [model] section
+    let ws_config = ws.clone();
+    let ws_connected_config = ws_connected;
+    let config_default = use_resource(move || {
+        let connected = ws_connected_config();
+        let ws = ws_config.clone();
+        async move {
+            if !connected {
+                return None;
+            }
+            let Ok(cfg) = ws.call::<serde_json::Value>("config.get", None).await else {
+                return None;
+            };
+            // config.get returns { config: { model: { slug, provider } } }
+            let model_obj = cfg.get("config").and_then(|c| c.get("model"))?;
+            let slug = model_obj.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let provider = model_obj.get("provider").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if slug.is_empty() {
+                None
+            } else {
+                // Reconstruct the full model ID as "provider/slug"
+                Some(format!("{provider}/{slug}"))
+            }
+        }
+    });
+
     let ws_is_connected = ws_connected();
     let models_read = models_data.read();
     let loading = !ws_is_connected || models_read.is_none();
@@ -79,14 +108,33 @@ pub fn Models() -> Element {
     let model_info_map: std::collections::HashMap<String, &ModelInfo> =
         models_snapshot.iter().map(|m| (m.id.clone(), m)).collect();
 
+    // Determine the current default model ID: local override takes priority,
+    // then config.toml [model] section, then per-provider is_default flag.
+    let config_default_id: Option<String> = config_default
+        .read()
+        .as_ref()
+        .and_then(|v| v.clone());
+    let effective_default_id: Option<String> = default_model_override()
+        .or(config_default_id)
+        .or_else(|| {
+            models_snapshot
+                .iter()
+                .find(|m| m.is_default == Some(true))
+                .map(|m| m.id.clone())
+        });
+    let current_default: Option<&ModelInfo> = effective_default_id
+        .as_deref()
+        .and_then(|id| model_info_map.get(id).copied());
+
     let query = search().trim().to_lowercase();
     let prefs_snapshot = model_prefs();
 
+    // (ModelKey, full_id, display_name, model_id, is_visible, is_default)
     let mut grouped_models: Vec<(
         String,
         String,
         String,
-        Vec<(ModelKey, String, String, String, bool)>,
+        Vec<(ModelKey, String, String, String, bool, bool)>,
     )> = vec![];
     let mut total_models = 0usize;
     let mut visible_models = 0usize;
@@ -113,12 +161,15 @@ pub fn Models() -> Element {
                 continue;
             }
 
+            let is_default = effective_default_id.as_deref() == Some(&model.full_id);
+
             provider_rows.push((
                 key,
                 model.full_id.clone(),
                 display,
                 model.model_id.clone(),
                 is_visible,
+                is_default,
             ));
         }
 
@@ -165,17 +216,35 @@ pub fn Models() -> Element {
                     }
                 }
 
-                div { class: "models-search",
-                    span { class: "models-search__icon", "⌕" }
-                    input {
-                        class: "models-search__input",
-                        value: "{search}",
-                        oninput: move |e: Event<FormData>| search.set(e.value()),
-                        placeholder: "Search models",
-                        spellcheck: false,
-                        autocorrect: "off",
-                        autocomplete: "off",
-                        autocapitalize: "off",
+                div { class: "models-toolbar",
+                    if !loading {
+                        div { class: "models-default-bar",
+                            span { class: "models-default-bar__label", "Global default:" }
+                            if let Some(default_model) = current_default {
+                                span { class: "models-default-bar__model",
+                                    {
+                                        default_model.name.as_deref()
+                                            .filter(|n| !n.is_empty())
+                                            .unwrap_or(&default_model.id)
+                                    }
+                                }
+                            } else {
+                                span { class: "models-default-bar__none", "Not set" }
+                            }
+                        }
+                    }
+                    div { class: "models-search",
+                        span { class: "models-search__icon", "⌕" }
+                        input {
+                            class: "models-search__input",
+                            value: "{search}",
+                            oninput: move |e: Event<FormData>| search.set(e.value()),
+                            placeholder: "Search models",
+                            spellcheck: false,
+                            autocorrect: "off",
+                            autocomplete: "off",
+                            autocapitalize: "off",
+                        }
                     }
                 }
 
@@ -281,6 +350,7 @@ pub fn Models() -> Element {
                                                     let model_name = row.2.clone();
                                                     let model_id = row.3.clone();
                                                     let is_visible = row.4;
+                                                    let is_default = row.5;
                                                     let show_meta = model_name != model_id;
                                                     let row_class = if is_visible {
                                                         "models-row"
@@ -323,6 +393,9 @@ pub fn Models() -> Element {
                                                                 },
                                                                 div { class: "models-row__name",
                                                                     span { "{model_name}" }
+                                                                    if is_default {
+                                                                        span { class: "models-row__default-badge", "Default" }
+                                                                    }
                                                                     span {
                                                                         class: "models-row__chevron",
                                                                         if is_expanded { "▾" } else { "▸" }
@@ -375,6 +448,51 @@ pub fn Models() -> Element {
                                                                     div { class: "models-detail",
                                                                         span { class: "models-detail__label", "Base URL" }
                                                                         span { class: "models-detail__value models-detail__value--mono", "{url}" }
+                                                                    }
+                                                                }
+                                                                div { class: "models-detail models-detail--action",
+                                                                    if is_default {
+                                                                        span { class: "models-default-active", "This is the global default model" }
+                                                                    } else {
+                                                                        {
+                                                                            let set_id = model_full_id.clone();
+                                                                            let set_slug = model_id.clone();
+                                                                            let set_provider = info
+                                                                                .and_then(|m| m.provider.clone())
+                                                                                .unwrap_or_else(|| {
+                                                                                    set_id.split_once('/').map(|(p, _)| p.to_string()).unwrap_or_default()
+                                                                                });
+                                                                            let ws_set = ws.clone();
+                                                                            rsx! {
+                                                                                button {
+                                                                                    class: "models-set-default-btn",
+                                                                                    onclick: move |e: Event<MouseData>| {
+                                                                                        e.stop_propagation();
+                                                                                        let id = set_id.clone();
+                                                                                        let slug = set_slug.clone();
+                                                                                        let provider = set_provider.clone();
+                                                                                        let ws = ws_set.clone();
+                                                                                        // Update UI immediately
+                                                                                        default_model_override.set(Some(id));
+                                                                                        // Persist to config.toml [model] section
+                                                                                        spawn(async move {
+                                                                                            let _ = ws.call::<serde_json::Value>(
+                                                                                                "config.patch",
+                                                                                                Some(json!({
+                                                                                                    "patch": {
+                                                                                                        "model": {
+                                                                                                            "slug": slug,
+                                                                                                            "provider": provider,
+                                                                                                        }
+                                                                                                    }
+                                                                                                })),
+                                                                                            ).await;
+                                                                                        });
+                                                                                    },
+                                                                                    "Set as global default"
+                                                                                }
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -467,6 +585,9 @@ const MODELS_STYLES: &str = r#"
     }
 
     .models-search {
+        width: 50%;
+        flex-shrink: 0;
+        min-width: 0;
         height: 36px;
         border-radius: 10px;
         border: 1px solid var(--border);
@@ -475,6 +596,7 @@ const MODELS_STYLES: &str = r#"
         align-items: center;
         gap: 8px;
         padding: 0 10px;
+        box-sizing: border-box;
     }
 
     .models-search__icon {
@@ -757,12 +879,103 @@ const MODELS_STYLES: &str = r#"
         font-family: var(--font-mono);
     }
 
+    .models-detail--action {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+    }
+
+    .models-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .models-default-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 12px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+        background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary) 94%);
+        font-size: 13px;
+        width: 50%;
+        flex-shrink: 0;
+        white-space: nowrap;
+        box-sizing: border-box;
+    }
+
+    .models-default-bar__label {
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .models-default-bar__model {
+        color: var(--text-primary);
+        font-weight: 600;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .models-default-bar__none {
+        color: var(--text-muted);
+        font-style: italic;
+    }
+
+    .models-row__default-badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        padding: 1px 7px;
+        border-radius: 4px;
+        margin-left: 8px;
+        vertical-align: middle;
+        letter-spacing: 0.02em;
+    }
+
+    .models-set-default-btn {
+        padding: 5px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .models-set-default-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary) 92%);
+    }
+
+    .models-default-active {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--accent);
+    }
+
     @media (max-width: 640px) {
         .models-header {
             flex-direction: column;
         }
 
         .models-connect-btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .models-toolbar {
+            flex-direction: column;
+        }
+
+        .models-default-bar {
             width: 100%;
             justify-content: center;
         }

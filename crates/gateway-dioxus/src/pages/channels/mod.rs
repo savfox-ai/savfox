@@ -2563,7 +2563,7 @@ fn ChannelConfigModal(
                                 let persist_patch = patch.clone();
                                 let persist_router = router.clone();
                                 let persist_channel = ch_id.clone();
-                                let runtime_channel = ch_id.clone();
+
                                 inline_saving.set(true);
                                 spawn(async move {
                                     let persist_result = ws
@@ -2582,37 +2582,11 @@ fn ChannelConfigModal(
                                         .await;
                                     match persist_result {
                                         Ok(_) => {
-                                            let runtime_result = ws
-                                                .call::<serde_json::Value>(
-                                                    "config.patch",
-                                                    Some(json!({
-                                                        "patch": {
-                                                            "gateway": {
-                                                                "bridges": {
-                                                                    (runtime_channel): patch
-                                                                }
-                                                            }
-                                                        }
-                                                    })),
-                                                )
-                                                .await;
                                             inline_saving.set(false);
-                                            match runtime_result {
-                                                Ok(_) => {
-                                                    inline_msg.set(Some((
-                                                        true,
-                                                        "Configuration saved.".into(),
-                                                    )));
-                                                }
-                                                Err(e) => {
-                                                    inline_msg.set(Some((
-                                                        true,
-                                                        format!(
-                                                            "Saved to channels store, but runtime patch failed: {e}"
-                                                        ),
-                                                    )));
-                                                }
-                                            }
+                                            inline_msg.set(Some((
+                                                true,
+                                                "Configuration saved.".into(),
+                                            )));
                                             refresh_tick += 1;
                                         }
                                         Err(e) => {

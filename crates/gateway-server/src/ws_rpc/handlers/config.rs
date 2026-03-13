@@ -190,19 +190,26 @@ enum DetachedBridgeConfig {
 
 fn take_detached_matrix_channel_config(config: &mut Value) -> Option<DetachedBridgeConfig> {
     let root = config.as_object_mut()?;
-    let (matrix_value, remove_gateway) = {
-        let gateway = root.get_mut("gateway")?.as_object_mut()?;
-        let (matrix, remove_channels) = {
-            let channels = gateway.get_mut("channels")?.as_object_mut()?;
-            let matrix = channels.remove("matrix")?;
-            (matrix, channels.is_empty())
-        };
-        if remove_channels {
-            gateway.remove("channels");
-        }
-        (matrix, gateway.is_empty())
+    let gateway = root.get_mut("gateway")?.as_object_mut()?;
+
+    // Try both "channels" and the legacy "bridges" alias
+    let container_key = if gateway.contains_key("channels") {
+        "channels"
+    } else if gateway.contains_key("bridges") {
+        "bridges"
+    } else {
+        return None;
     };
 
+    let (matrix_value, remove_container) = {
+        let container = gateway.get_mut(container_key)?.as_object_mut()?;
+        let matrix = container.remove("matrix")?;
+        (matrix, container.is_empty())
+    };
+    if remove_container {
+        gateway.remove(container_key);
+    }
+    let remove_gateway = gateway.is_empty();
     if remove_gateway {
         root.remove("gateway");
     }
