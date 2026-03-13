@@ -93,6 +93,7 @@ pub(crate) struct SavedChannelState {
     pub(crate) enabled: bool,
     pub(crate) ready: bool,
     pub(crate) channel_name: Option<String>,
+    pub(crate) channel_slug: Option<String>,
     pub(crate) config: Option<savfox_core::config::channel_store::ChannelConfig>,
 }
 
@@ -345,6 +346,7 @@ pub(crate) fn saved_channel_state(
                 && saved_channel_config_ready(cfg)
         }),
         channel_name: preferred.map(|cfg| cfg.name.clone()),
+        channel_slug: preferred.map(|cfg| cfg.slug.clone()),
         config: preferred.cloned(),
     }
 }
@@ -459,7 +461,10 @@ fn insert_saved_channel_metadata(
 
     info.insert("enabled".to_string(), json!(saved_state.enabled));
     if let Some(name) = saved_state.channel_name.as_ref() {
-        info.insert("channelName".to_string(), json!(name));
+        info.insert("channel_name".to_string(), json!(name));
+    }
+    if let Some(slug) = saved_state.channel_slug.as_ref() {
+        info.insert("slug".to_string(), json!(slug));
     }
 
     let Some(config_obj) = saved_state

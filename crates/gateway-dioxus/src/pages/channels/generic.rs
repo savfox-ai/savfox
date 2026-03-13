@@ -64,7 +64,7 @@ fn channel_metrics(status: &Value) -> Vec<(String, String)> {
     ];
 
     for (label, keys) in [
-        ("Channel", &["channelName"][..]),
+        ("Channel", &["channel_name", "channelName"][..]),
         ("Mode", &["mode"][..]),
         ("Bot", &["bot_username", "bot_name"][..]),
         ("Workspace", &["workspace_name", "workspaceName"][..]),

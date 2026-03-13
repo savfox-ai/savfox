@@ -1066,8 +1066,8 @@ fn channel_name_key(channel_id: &str) -> String {
 }
 
 fn compute_channel_id(name: &str, kind: &str) -> String {
-    let name_slug = normalize_slug(name).unwrap_or_else(|| kind.to_string());
-    format!("{kind}-{name_slug}")
+    let slug = normalize_slug(name).unwrap_or_else(|| "default".to_string());
+    format!("{kind}-{slug}")
 }
 
 fn router_mode_key(channel_id: &str) -> String {
@@ -1088,7 +1088,7 @@ fn router_rules_key(channel_id: &str) -> String {
 
 fn auto_channel_id(kind: &str, name: &str) -> String {
     let kind_slug = normalize_slug(kind).unwrap_or_else(|| "channel".to_string());
-    let name_slug = normalize_slug(name).unwrap_or_else(|| kind_slug.clone());
+    let name_slug = normalize_slug(name).unwrap_or_else(|| "default".to_string());
     format!("{kind_slug}-{name_slug}")
 }
 

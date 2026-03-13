@@ -152,6 +152,8 @@ pub struct ChannelConfig {
     pub id: String,
     #[serde(default)]
     pub kind: String,
+    #[serde(default)]
+    pub slug: String,
     pub name: String,
     pub enabled: bool,
     pub config: Value,
@@ -252,20 +254,24 @@ fn resolve_kind(raw_kind: &str, fallback: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_CHANNEL_KIND.to_string())
 }
 
-fn resolve_name(raw_name: &str, fallback_kind: &str) -> String {
-    normalize_channel_name(raw_name).unwrap_or_else(|| fallback_kind.to_string())
+fn resolve_name(raw_name: &str) -> String {
+    normalize_channel_name(raw_name).unwrap_or_else(|| "Default".to_string())
 }
 
-fn resolve_id(name: &str, kind: &str) -> String {
-    let name_slug = normalize_slug(name).unwrap_or_else(|| kind.to_string());
-    format!("{kind}-{name_slug}")
+fn resolve_slug(name: &str) -> String {
+    normalize_slug(name).unwrap_or_else(|| "default".to_string())
+}
+
+fn resolve_id(slug: &str, kind: &str) -> String {
+    format!("{kind}-{slug}")
 }
 
 fn normalize_config(config: &mut ChannelConfig) {
     let kind = resolve_kind(&config.kind, Some(&config.id));
     config.kind = kind.clone();
-    config.name = resolve_name(&config.name, &kind);
-    config.id = resolve_id(&config.name, &kind);
+    config.name = resolve_name(&config.name);
+    config.slug = resolve_slug(&config.name);
+    config.id = resolve_id(&config.slug, &kind);
 }
 
 fn normalized_selector(selector: &str) -> String {
@@ -405,6 +411,22 @@ async fn get_channel_config_by_id(
     }
 }
 
+/// Re-save all existing channel configs so that the `slug` field is populated.
+pub async fn migrate_channel_configs(savfox_home: &PathBuf) {
+    let configs = match list_channel_configs(savfox_home).await {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    for config in configs {
+        if !config.slug.is_empty() {
+            continue;
+        }
+        if let Err(e) = save_channel_config(savfox_home, &config).await {
+            warn!("Failed to migrate channel config {}: {}", config.id, e);
+        }
+    }
+}
+
 pub async fn save_channel_config(
     savfox_home: &PathBuf,
     config: &ChannelConfig,
@@ -474,16 +496,25 @@ pub async fn merge_channel_config(
             patch
                 .get("name")
                 .and_then(|v| v.as_str())
-                .map(|name| resolve_id(&resolve_name(name, &kind), &kind))
+                .map(|name| {
+                    let slug = resolve_slug(&resolve_name(name));
+                    resolve_id(&slug, &kind)
+                })
         })
-        .unwrap_or_else(|| resolve_id(&resolve_name(channel_name, &kind), &kind));
+        .unwrap_or_else(|| {
+            let slug = resolve_slug(&resolve_name(channel_name));
+            resolve_id(&slug, &kind)
+        });
     let existing = get_channel_config_by_id(savfox_home, &lookup_id).await?;
     let now = chrono::Utc::now().timestamp();
 
+    let initial_name = resolve_name(channel_name);
+    let initial_slug = resolve_slug(&initial_name);
     let mut config = existing.unwrap_or(ChannelConfig {
         id: lookup_id,
         kind: kind.clone(),
-        name: channel_name.to_string(),
+        slug: initial_slug,
+        name: initial_name,
         enabled: true,
         config: Value::Object(serde_json::Map::new()),
         router: None,
@@ -578,8 +609,9 @@ pub async fn merge_channel_config(
             );
         }
     }
-    config.name = resolve_name(&config.name, &config.kind);
-    let resolved_id = resolve_id(&config.name, &config.kind);
+    config.name = resolve_name(&config.name);
+    config.slug = resolve_slug(&config.name);
+    let resolved_id = resolve_id(&config.slug, &config.kind);
     if config.id.trim().is_empty() {
         config.id = resolved_id.clone();
     }

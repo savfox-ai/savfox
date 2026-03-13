@@ -116,8 +116,9 @@ fn extract_channel_health(raw: &serde_json::Value) -> Vec<ChannelHealthInfo> {
 
         if is_configured || is_running {
             let channel_name = info
-                .get("channelName")
+                .get("channel_name")
                 .and_then(|v| v.as_str())
+                .or_else(|| info.get("slug").and_then(|v| v.as_str()))
                 .or_else(|| info.get("bot_username").and_then(|v| v.as_str()))
                 .or_else(|| info.get("user_id").and_then(|v| v.as_str()))
                 .map(|s| s.to_string());

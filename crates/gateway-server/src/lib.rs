@@ -196,6 +196,9 @@ pub async fn run_main(
         });
     }
 
+    info!("migrating channel configurations");
+    savfox_core::config::channel_store::migrate_channel_configs(&config.savfox_home).await;
+
     info!("loading channel configurations");
     if let Err(err) = channels::log_all_configured_channels(&config.savfox_home).await {
         warn!(error = %err, "failed to load channel configs for startup logging");
