@@ -399,7 +399,7 @@ pub fn Usage() -> Element {
     ];
 
     rsx! {
-        div { class: "usage-page",
+        div { class: "page-content usage-page",
             // ── Header toolbar ──────────────────────────────────────
             div { class: "usage-header",
                 h2 { class: "usage-title", "Usage Analytics" }
@@ -991,8 +991,7 @@ fn format_number(n: u64) -> String {
 
 const USAGE_STYLES: &str = r#"
     .usage-page {
-        padding: 24px;
-        max-width: 1200px;
+        /* layout handled by .page-content */
     }
 
     /* ── Header ── */
@@ -1481,10 +1480,6 @@ const USAGE_STYLES: &str = r#"
 
     /* ── Responsive ── */
     @media screen and (max-width: 768px) {
-        .usage-page {
-            padding: 16px;
-        }
-
         .usage-cost-hero {
             flex-direction: column;
             gap: 16px;

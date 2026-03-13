@@ -963,8 +963,28 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                 models_provider_display_name(&file_provider_id)
             };
             let has_distinct_account = account_id != file_provider_id;
-            for model in file.models {
-                let Some(id) = model.get("id").and_then(|v| v.as_str()) else {
+            let canonical_provider =
+                savfox_core::canonical_provider_id(&file_provider_id);
+            for mut model in file.models {
+                // ChatGPT OAuth files store "slug" without "id"; synthesize it.
+                if model.get("id").and_then(Value::as_str).is_none() {
+                    let slug = model
+                        .get("slug")
+                        .or_else(|| model.get("model_slug"))
+                        .and_then(Value::as_str)
+                        .map(String::from);
+                    if let Some(slug) = slug {
+                        if let Value::Object(ref mut map) = model {
+                            map.insert(
+                                "id".to_string(),
+                                json!(format!("{canonical_provider}/{slug}")),
+                            );
+                            map.entry("provider".to_string())
+                                .or_insert_with(|| json!(canonical_provider.as_str()));
+                        }
+                    }
+                }
+                let Some(id) = model.get("id").and_then(Value::as_str) else {
                     continue;
                 };
                 if !seen_ids.insert(id.to_string()) {

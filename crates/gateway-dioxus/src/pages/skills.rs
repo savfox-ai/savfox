@@ -22,6 +22,41 @@ const CATEGORIES: &[(&str, &str)] = &[
     ("extra", "Extra"),
 ];
 
+const PAGE_SIZE_OPTIONS: &[usize] = &[20, 50, 100, 200];
+const PAGE_SIZE_STORAGE_KEY: &str = "savfox_skills_page_size";
+
+fn load_page_size() -> usize {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(storage) = web_sys::window()
+            .and_then(|w| w.local_storage().ok())
+            .flatten()
+        {
+            if let Ok(Some(raw)) = storage.get_item(PAGE_SIZE_STORAGE_KEY) {
+                if let Ok(size) = raw.parse::<usize>() {
+                    if PAGE_SIZE_OPTIONS.contains(&size) {
+                        return size;
+                    }
+                }
+            }
+        }
+    }
+    50
+}
+
+fn save_page_size(size: usize) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(storage) = web_sys::window()
+            .and_then(|w| w.local_storage().ok())
+            .flatten()
+        {
+            let _ = storage.set_item(PAGE_SIZE_STORAGE_KEY, &size.to_string());
+        }
+    }
+    let _ = size;
+}
+
 #[component]
 pub fn Skills() -> Element {
     let ws = use_context::<WsRpc>();
@@ -30,6 +65,7 @@ pub fn Skills() -> Element {
     let mut search_query = use_signal(String::new);
     let mut active_category = use_signal(String::new);
     let mut current_page = use_signal(|| 1usize);
+    let mut page_size = use_signal(load_page_size);
 
     // Debounce: when search changes, reset to page 1
     let mut last_search = use_signal(String::new);
@@ -56,11 +92,12 @@ pub fn Skills() -> Element {
         let _c = ws_connected();
         let _t = refresh_tick();
         let page = current_page();
+        let ps = page_size();
         let category = active_category();
         let search = search_query();
         let ws = ws_bins.clone();
         async move {
-            let mut params = json!({ "page": page, "page_size": 50 });
+            let mut params = json!({ "page": page, "page_size": ps });
             if !category.is_empty() {
                 params["category"] = json!(category);
             }
@@ -256,26 +293,50 @@ pub fn Skills() -> Element {
                 { stat_card("Blocked", &blocked_count.to_string()) }
             }
 
-            // Category filter chips
-            div { class: "skills-category-filters",
-                for (value, label) in CATEGORIES.iter() {
-                    {
-                        let is_active = active_category() == *value;
-                        let cls = if is_active {
-                            "skills-category-chip skills-category-chip--active"
-                        } else {
-                            "skills-category-chip"
-                        };
-                        let val = value.to_string();
-                        rsx! {
-                            button {
-                                key: "{value}",
-                                class: "{cls}",
-                                onclick: move |_| {
-                                    active_category.set(val.clone());
-                                    current_page.set(1);
-                                },
-                                "{label}"
+            // Category filter chips + page size selector
+            div { class: "skills-filter-bar",
+                div { class: "skills-category-filters",
+                    for (value, label) in CATEGORIES.iter() {
+                        {
+                            let is_active = active_category() == *value;
+                            let cls = if is_active {
+                                "skills-category-chip skills-category-chip--active"
+                            } else {
+                                "skills-category-chip"
+                            };
+                            let val = value.to_string();
+                            rsx! {
+                                button {
+                                    key: "{value}",
+                                    class: "{cls}",
+                                    onclick: move |_| {
+                                        active_category.set(val.clone());
+                                        current_page.set(1);
+                                    },
+                                    "{label}"
+                                }
+                            }
+                        }
+                    }
+                }
+                div { class: "skills-page-size",
+                    label { class: "skills-page-size__label", "Per page" }
+                    select {
+                        class: "skills-page-size__select",
+                        value: "{page_size}",
+                        onchange: move |e: Event<FormData>| {
+                            if let Ok(size) = e.value().parse::<usize>() {
+                                page_size.set(size);
+                                save_page_size(size);
+                                current_page.set(1);
+                            }
+                        },
+                        for opt in PAGE_SIZE_OPTIONS.iter() {
+                            option {
+                                key: "{opt}",
+                                value: "{opt}",
+                                selected: page_size() == *opt,
+                                "{opt}"
                             }
                         }
                     }

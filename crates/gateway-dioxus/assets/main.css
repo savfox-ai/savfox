@@ -3502,13 +3502,49 @@ select:focus-visible {
   font-family: var(--font-mono);
 }
 
-/* Skills category filter chips */
+/* Skills filter bar (category chips + page size) */
+.skills-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
 .skills-category-filters {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 16px;
   flex-wrap: wrap;
+}
+
+.skills-page-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.skills-page-size__label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.skills-page-size__select {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.skills-page-size__select:hover {
+  border-color: var(--accent);
 }
 
 .skills-category-chip {

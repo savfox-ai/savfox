@@ -146,7 +146,7 @@ pub fn Models() -> Element {
     }
 
     rsx! {
-        div { class: "models-page",
+        div { class: "page-content models-page",
             div { class: "models-shell",
                 div { class: "models-header",
                     div { class: "models-header__text",
@@ -397,14 +397,11 @@ pub fn Models() -> Element {
 
 const MODELS_STYLES: &str = r#"
     .models-page {
-        height: 100%;
-        overflow: auto;
-        padding: 20px 18px 24px;
+        /* layout handled by .page-content */
     }
 
     .models-shell {
-        width: min(760px, 100%);
-        margin: 0 auto;
+        width: 100%;
         display: flex;
         flex-direction: column;
         gap: 14px;
@@ -761,10 +758,6 @@ const MODELS_STYLES: &str = r#"
     }
 
     @media (max-width: 640px) {
-        .models-page {
-            padding: 14px 10px 18px;
-        }
-
         .models-header {
             flex-direction: column;
         }
