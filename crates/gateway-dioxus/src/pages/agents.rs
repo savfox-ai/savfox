@@ -2844,7 +2844,8 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
 
     // Build winner map: for each skill name, determine the highest-priority category.
     // This is used as the default "selected source" for name-conflicting skills.
-    let mut winner_categories: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut winner_categories: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for s in available_skills.iter() {
         let cat = s.category.as_deref().unwrap_or("");
         let rank = match cat {

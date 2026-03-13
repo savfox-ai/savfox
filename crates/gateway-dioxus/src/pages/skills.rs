@@ -146,9 +146,7 @@ pub fn Skills() -> Element {
         })
         .unwrap_or_default();
 
-    let total_pages = bins_resp
-        .and_then(|r| r.total_pages)
-        .unwrap_or(1) as usize;
+    let total_pages = bins_resp.and_then(|r| r.total_pages).unwrap_or(1) as usize;
     let total = bins_resp.and_then(|r| r.total).unwrap_or(0);
 
     // Summary stats
@@ -363,11 +361,7 @@ pub fn Skills() -> Element {
     }
 }
 
-fn render_skill_list(
-    skills: &[SkillDetail],
-    ws: WsRpc,
-    refresh_tick: Signal<u32>,
-) -> Element {
+fn render_skill_list(skills: &[SkillDetail], ws: WsRpc, refresh_tick: Signal<u32>) -> Element {
     // Separate skills by flock for sub-grouping.
     let mut no_flock: Vec<&SkillDetail> = Vec::new();
     let mut by_flock: BTreeMap<String, Vec<&SkillDetail>> = BTreeMap::new();
@@ -756,10 +750,7 @@ fn UploadZipButton(
 
 /// Build a human-readable message from a `skills.install_url` response.
 fn format_install_result(v: &serde_json::Value) -> String {
-    let flock = v
-        .get("flock")
-        .and_then(|f| f.as_str())
-        .unwrap_or("skill");
+    let flock = v.get("flock").and_then(|f| f.as_str()).unwrap_or("skill");
     let count = v
         .get("new_skills_count")
         .and_then(|c| c.as_u64())

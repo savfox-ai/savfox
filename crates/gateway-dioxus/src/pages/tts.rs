@@ -422,4 +422,5 @@ pub fn Tts() -> Element {
 }
 
 const CARD: &str = "background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;";
-const CARD_TITLE: &str = "font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary);";
+const CARD_TITLE: &str =
+    "font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text-secondary);";

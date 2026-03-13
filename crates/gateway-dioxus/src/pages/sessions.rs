@@ -943,21 +943,6 @@ pub fn Sessions() -> Element {
                         }
                     }
 
-                    if streaming() {
-                        div { class: "stop-generating-bar",
-                            button {
-                                class: "stop-generating-btn",
-                                onclick: move |_| {
-                                    if let Some(controller) = abort_ctl.write().take() {
-                                        controller.abort();
-                                    }
-                                    streaming.set(false);
-                                },
-                                "Stop Generating"
-                            }
-                        }
-                    }
-
                     ChatInput {
                         on_send: on_send,
                         on_abort: on_abort,
@@ -994,25 +979,30 @@ const SESSION_STYLES: &str = r#"
     .session-page {
         display: flex;
         flex-direction: column;
-        height: 100%;
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
         background: var(--bg-primary);
     }
 
     .session-shell {
         display: flex;
-        height: 100%;
+        flex: 1 1 0;
         min-height: 0;
+        overflow: hidden;
     }
 
     .session-list-pane {
         width: 320px;
         min-width: 260px;
         max-width: 400px;
+        min-height: 0;
         border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
         background: color-mix(in srgb, var(--bg-secondary) 40%, var(--bg-primary) 60%);
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
+        overflow: hidden;
     }
 
     .session-list-head {
@@ -1055,8 +1045,7 @@ const SESSION_STYLES: &str = r#"
 
     .session-list-scroll {
         flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow: auto;
         padding: 12px 12px;
         display: flex;
         flex-direction: column;
@@ -1233,11 +1222,12 @@ const SESSION_STYLES: &str = r#"
     }
 
     .session-main {
-        flex: 1;
+        flex: 1 1 0;
         min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
-        height: 100%;
+        overflow: hidden;
         background: var(--bg-primary);
         position: relative;
     }
@@ -1363,7 +1353,7 @@ const SESSION_STYLES: &str = r#"
     }
 
     .chat-body {
-        flex: 1;
+        flex: 1 1 0;
         min-height: 0;
         display: flex;
         overflow: hidden;
@@ -1377,8 +1367,7 @@ const SESSION_STYLES: &str = r#"
 
     .chat-messages {
         flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow: auto;
         padding: 24px 0 32px 0;
         scroll-behavior: smooth;
     }
@@ -1406,6 +1395,7 @@ const SESSION_STYLES: &str = r#"
         max-width: 520px;
         display: flex;
         flex-direction: column;
+        overflow: hidden;
         background: var(--bg-secondary);
         box-shadow: -4px 0 24px rgba(0,0,0,0.05);
         z-index: 30;
@@ -1493,7 +1483,7 @@ const SESSION_STYLES: &str = r#"
             width: 100%;
             max-width: none;
             min-width: 0;
-            height: 200px;
+            flex: 0 0 200px;
             border-right: none;
             border-bottom: 1px solid var(--border);
         }

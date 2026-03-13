@@ -65,10 +65,7 @@ pub fn Settings() -> Element {
     use_effect(move || {
         let ws = ws_log.clone();
         spawn(async move {
-            if let Ok(resp) = ws
-                .call::<serde_json::Value>("log.get_level", None)
-                .await
-            {
+            if let Ok(resp) = ws.call::<serde_json::Value>("log.get_level", None).await {
                 if let Some(level) = resp.get("level").and_then(|v| v.as_str()) {
                     log_level.set(level.to_string());
                 }

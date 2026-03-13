@@ -487,6 +487,11 @@ pub fn Layout() -> Element {
     } else {
         "more-sheet"
     };
+    let main_content_class = if tab_sessions_active {
+        "main-content main-content--sessions"
+    } else {
+        "main-content"
+    };
     let route_render_epoch = ws_reconnect_epoch();
 
     let health_label = if ws_connected() {
@@ -695,7 +700,7 @@ pub fn Layout() -> Element {
                 // Main content
                 main {
                     id: "main-content",
-                    class: "main-content",
+                    class: "{main_content_class}",
                     role: "main",
                     // WS disconnection / reconnection banner (T034)
                     if !ws_connected() && ws_ever_connected() {
@@ -719,6 +724,7 @@ pub fn Layout() -> Element {
                     if ws_ever_connected() {
                         div {
                             key: "route-{route_render_epoch}",
+                            class: "route-outlet",
                             Outlet::<Route> {}
                         }
                     } else {

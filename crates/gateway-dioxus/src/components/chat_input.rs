@@ -406,14 +406,14 @@ pub fn ChatInput(
         let raw = agent_value.trim().to_string();
         agents
             .iter()
-            .find(|a| {
-                a.id.as_deref().filter(|id| !id.is_empty()) == Some(&raw) || a.name == raw
-            })
+            .find(|a| a.id.as_deref().filter(|id| !id.is_empty()) == Some(&raw) || a.name == raw)
             .map(|a| a.name.clone())
-            .unwrap_or_else(|| if raw.is_empty() || raw == "default" {
-                "Default".to_string()
-            } else {
-                raw
+            .unwrap_or_else(|| {
+                if raw.is_empty() || raw == "default" {
+                    "Default".to_string()
+                } else {
+                    raw
+                }
             })
     };
 

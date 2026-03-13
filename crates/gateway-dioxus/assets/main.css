@@ -247,6 +247,8 @@ code, pre {
 .app-body {
   display: flex;
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -399,7 +401,20 @@ code, pre {
 /* Main content */
 .main-content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content--sessions {
+  overflow: hidden;
+}
+
+.route-outlet {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
