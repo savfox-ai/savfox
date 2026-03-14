@@ -28,8 +28,10 @@ pub(crate) async fn handle_tts_status(channel: &Arc<GatewayChannel>) -> RpcResul
         .map_err(|err| (INTERNAL_ERROR, err))
 }
 
-pub(crate) async fn handle_tts_providers() -> RpcResult {
-    Ok(json!({ "providers": tts_service::providers() }))
+pub(crate) async fn handle_tts_providers(channel: &Arc<GatewayChannel>) -> RpcResult {
+    tts_service::providers_with_status(&channel.config().savfox_home)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, err))
 }
 
 pub(crate) async fn handle_tts_enable(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {

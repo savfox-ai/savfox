@@ -224,7 +224,7 @@ pub(crate) async fn dispatch_rpc(
 
         // ── TTS (text-to-speech) ────────────────────────────────────────
         "tts.status" => handle_tts_status(channel).await,
-        "tts.providers" => handle_tts_providers().await,
+        "tts.providers" => handle_tts_providers(channel).await,
         "tts.voices" => handle_tts_voices(&params).await,
         "tts.enable" => handle_tts_enable(&params, channel).await,
         "tts.disable" => handle_tts_disable(channel).await,

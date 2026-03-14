@@ -10,6 +10,9 @@ struct ProviderItem {
     id: String,
     name: String,
     requires_key: Option<String>,
+    is_active: bool,
+    is_configured: bool,
+    voice_count: usize,
 }
 
 #[component]
@@ -36,6 +39,7 @@ pub fn Tts() -> Element {
     let ws_providers = ws.clone();
     let providers_data = use_resource(move || {
         let _c = ws_connected();
+        let _t = refresh_tick();
         let ws = ws_providers.clone();
         async move {
             ws.call::<serde_json::Value>("tts.providers", None)
@@ -48,9 +52,6 @@ pub fn Tts() -> Element {
     let status = status_read.as_ref().and_then(|s| s.as_ref());
 
     let enabled = status.and_then(|s| s.enabled).unwrap_or(false);
-    let has_key = status
-        .and_then(|s| s.active_provider_has_key)
-        .unwrap_or(false);
     let provider = status
         .and_then(|s| s.provider.as_deref())
         .unwrap_or("-")
@@ -101,7 +102,7 @@ pub fn Tts() -> Element {
         })
         .unwrap_or_default();
 
-    // Parse providers - backend returns array of objects with id/name/requires_key_env
+    // Parse providers with enriched status
     let providers_read = providers_data.read();
     let providers_list: Vec<ProviderItem> = providers_read
         .as_ref()
@@ -121,10 +122,25 @@ pub fn Tts() -> Element {
                         .get("requires_key_env")
                         .and_then(|k| k.as_str())
                         .map(String::from);
+                    let is_active = v
+                        .get("is_active")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false);
+                    let is_configured = v
+                        .get("is_configured")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false);
+                    let voice_count = v
+                        .get("voice_count")
+                        .and_then(|n| n.as_u64())
+                        .unwrap_or(0) as usize;
                     Some(ProviderItem {
                         id,
                         name,
                         requires_key,
+                        is_active,
+                        is_configured,
+                        voice_count,
                     })
                 })
                 .collect()
@@ -133,30 +149,15 @@ pub fn Tts() -> Element {
 
     rsx! {
         div { class: "page-content",
-            div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;",
-                h2 { style: "font-size:20px;font-weight:600;", "Text-to-Speech" }
-                button {
-                    onclick: move |_| {
-                        settings_loaded.set(false);
-                        refresh_tick += 1;
-                    },
-                    style: "padding:6px 14px;background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;",
-                    "Refresh"
-                }
-            }
-
-            // Status card
-            div { style: "{CARD}",
-                h3 { style: "{CARD_TITLE}", "Status" }
-                div { style: "display:flex;justify-content:space-between;align-items:center;padding:6px 0;",
-                    span { style: "color:var(--text-secondary);font-size:14px;", "Enabled" }
+            div { class: "tts-page-header",
+                h2 { class: "tts-page-title", "Text-to-Speech" }
+                div { class: "tts-page-header-actions",
+                    // Enable/disable toggle
                     {
                         let ws_toggle = ws.clone();
-                        let btn_bg = if enabled { "var(--success)" } else { "var(--bg-tertiary)" };
-                        let btn_color = if enabled { "#fff" } else { "var(--text-secondary)" };
-                        let label = if enabled { "On" } else { "Off" };
                         rsx! {
                             button {
+                                class: if enabled { "tts-toggle-btn tts-toggle-btn--on" } else { "tts-toggle-btn" },
                                 onclick: move |_| {
                                     let ws = ws_toggle.clone();
                                     let method = if enabled { "tts.disable" } else { "tts.enable" };
@@ -165,68 +166,73 @@ pub fn Tts() -> Element {
                                         refresh_tick += 1;
                                     });
                                 },
-                                style: "padding:3px 14px;background:{btn_bg};color:{btn_color};border:1px solid var(--border);border-radius:var(--radius);font-size:12px;font-family:monospace;",
-                                "{label}"
+                                if enabled { "Enabled" } else { "Disabled" }
                             }
                         }
                     }
-                }
-                div { style: "display:flex;justify-content:space-between;padding:6px 0;",
-                    span { style: "color:var(--text-secondary);font-size:14px;", "Provider" }
-                    span { style: "font-family:monospace;font-size:13px;", "{provider}" }
-                }
-                div { style: "display:flex;justify-content:space-between;padding:6px 0;",
-                    span { style: "color:var(--text-secondary);font-size:14px;", "Voice" }
-                    span { style: "font-family:monospace;font-size:13px;", "{voice}" }
-                }
-                if provider != "-" {
-                    {
-                        let key_color = if has_key { "var(--success)" } else { "var(--warning)" };
-                        rsx! {
-                            div { style: "display:flex;justify-content:space-between;padding:6px 0;",
-                                span { style: "color:var(--text-secondary);font-size:14px;", "API Key" }
-                                span {
-                                    style: "font-family:monospace;font-size:12px;color:{key_color};",
-                                    if has_key { "configured" } else { "not set" }
-                                }
-                            }
-                        }
+                    button {
+                        class: "tts-refresh-btn",
+                        onclick: move |_| {
+                            settings_loaded.set(false);
+                            refresh_tick += 1;
+                        },
+                        "Refresh"
                     }
                 }
             }
 
-            // Provider selector
-            if !providers_list.is_empty() {
-                div { style: "{CARD}",
-                    h3 { style: "{CARD_TITLE}", "Provider" }
-                    div { style: "display:flex;gap:8px;flex-wrap:wrap;",
-                        for p in providers_list.iter() {
-                            {
-                                let is_active = provider == p.id;
-                                let bg = if is_active { "var(--accent)" } else { "var(--bg-tertiary)" };
-                                let color = if is_active { "#fff" } else { "var(--text-secondary)" };
-                                let pid = p.id.clone();
-                                let pname = p.name.clone();
-                                let env_hint = p.requires_key.clone();
-                                let ws_set = ws.clone();
-                                rsx! {
-                                    div { style: "display:flex;flex-direction:column;align-items:center;gap:2px;",
-                                        button {
-                                            key: "{pid}",
-                                            onclick: move |_| {
-                                                let ws = ws_set.clone();
-                                                let name = pid.clone();
-                                                spawn(async move {
-                                                    let _ = ws.call::<serde_json::Value>("tts.setProvider", Some(json!({"provider": name}))).await;
-                                                    settings_loaded.set(false);
-                                                    refresh_tick += 1;
-                                                });
-                                            },
-                                            style: "padding:6px 16px;background:{bg};color:{color};border:1px solid var(--border);border-radius:var(--radius);font-size:13px;",
-                                            "{pname}"
+            // Providers list
+            div { style: "{CARD}",
+                h3 { style: "{CARD_TITLE}", "Providers" }
+                div { class: "tts-providers-list",
+                    for p in providers_list.iter() {
+                        {
+                            let pid = p.id.clone();
+                            let pname = p.name.clone();
+                            let is_active = p.is_active;
+                            let is_configured = p.is_configured;
+                            let voice_count = p.voice_count;
+                            let requires_key = p.requires_key.clone();
+                            let is_selected = provider == p.id;
+                            let ws_set = ws.clone();
+                            rsx! {
+                                div {
+                                    key: "{pid}",
+                                    class: if is_selected { "tts-provider-row tts-provider-row--selected" } else { "tts-provider-row" },
+                                    onclick: move |_| {
+                                        let ws = ws_set.clone();
+                                        let name = pid.clone();
+                                        spawn(async move {
+                                            let _ = ws.call::<serde_json::Value>("tts.setProvider", Some(json!({"provider": name}))).await;
+                                            settings_loaded.set(false);
+                                            refresh_tick += 1;
+                                        });
+                                    },
+                                    // Left: name + env hint
+                                    div { class: "tts-provider-info",
+                                        span { class: "tts-provider-name", "{pname}" }
+                                        if let Some(ref env) = requires_key {
+                                            span { class: "tts-provider-env", "{env}" }
                                         }
-                                        if let Some(ref env) = env_hint {
-                                            span { style: "font-size:10px;color:var(--text-muted);", "{env}" }
+                                    }
+                                    // Right: status badges
+                                    div { class: "tts-provider-badges",
+                                        // Voice count
+                                        span {
+                                            class: "tts-badge tts-badge--neutral",
+                                            "{voice_count} voices"
+                                        }
+                                        // Configured status
+                                        span {
+                                            class: if is_configured { "tts-badge tts-badge--success" } else { "tts-badge tts-badge--warning" },
+                                            if is_configured { "Configured" } else { "Not Configured" }
+                                        }
+                                        // Active badge
+                                        if is_active {
+                                            span {
+                                                class: "tts-badge tts-badge--active",
+                                                "Active"
+                                            }
                                         }
                                     }
                                 }
@@ -263,7 +269,7 @@ pub fn Tts() -> Element {
                                                 refresh_tick += 1;
                                             });
                                         },
-                                        style: "padding:4px 12px;background:{bg};color:{color};border:1px solid var(--border);border-radius:var(--radius);font-size:12px;",
+                                        style: "padding:4px 12px;background:{bg};color:{color};border:1px solid var(--border);border-radius:var(--radius);font-size:12px;cursor:pointer;",
                                         "{v}"
                                     }
                                 }
@@ -289,7 +295,7 @@ pub fn Tts() -> Element {
                                 });
                             }
                         },
-                        style: "padding:6px 14px;background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;",
+                        style: "padding:6px 14px;background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;cursor:pointer;",
                         if previewing() { "Playing..." } else { "Preview Voice" }
                     }
                 }
@@ -366,7 +372,7 @@ pub fn Tts() -> Element {
                                 });
                             }
                         },
-                        style: "padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;align-self:flex-start;",
+                        style: "padding:6px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;align-self:flex-start;cursor:pointer;",
                         "Apply Settings"
                     }
                 }
@@ -409,7 +415,7 @@ pub fn Tts() -> Element {
                                 });
                             }
                         },
-                        style: "padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;",
+                        style: "padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-size:13px;cursor:pointer;",
                         if converting() { "Converting..." } else { "Convert" }
                     }
                     if let Some(ref result) = convert_result() {

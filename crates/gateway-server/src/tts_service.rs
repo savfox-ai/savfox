@@ -163,6 +163,38 @@ pub(crate) fn providers() -> Value {
     ])
 }
 
+/// Return providers enriched with per-provider status (voice count,
+/// API-key configured, active flag).
+pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, String> {
+    let cfg = load_tts_config(savfox_home).await?;
+    let active_id = cfg.provider.clone().unwrap_or_else(|| "openai".to_string());
+    let raw = providers();
+    let arr = raw.as_array().cloned().unwrap_or_default();
+
+    let enriched: Vec<Value> = arr
+        .into_iter()
+        .map(|mut p| {
+            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let is_active = id == active_id && cfg.enabled;
+            let is_configured = provider_key_from_env(&id).is_some();
+            let voices = voices_for_provider(&id);
+            let voice_count = voices
+                .get("voices")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            if let Some(obj) = p.as_object_mut() {
+                obj.insert("is_active".to_string(), json!(is_active));
+                obj.insert("is_configured".to_string(), json!(is_configured));
+                obj.insert("voice_count".to_string(), json!(voice_count));
+            }
+            p
+        })
+        .collect();
+
+    Ok(json!({ "providers": enriched }))
+}
+
 pub(crate) async fn enable(
     savfox_home: &Path,
     provider: Option<&str>,
