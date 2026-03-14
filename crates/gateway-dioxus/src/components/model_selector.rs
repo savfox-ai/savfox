@@ -487,11 +487,22 @@ const MODEL_SELECTOR_STYLES: &str = r#"
         gap: 4px;
     }
 
+    .model-selector__group + .model-selector__group {
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+    }
+
     .model-selector__group-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--text-muted);
-        padding: 2px 6px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 4px 8px;
+        background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+        border-radius: 6px;
+        margin-bottom: 2px;
     }
 
     .model-selector__item {
