@@ -381,7 +381,7 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
 fn default_agent_stub() -> Value {
     json!({
         "id": "default",
-        "name": "Savfox Agent",
+        "name": "Savvy fox",
         "description": "Default Savfox assistant agent",
         "builtin": true,
         "status": "active",
@@ -463,7 +463,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
             && fallback_id.eq_ignore_ascii_case("default")
             && default_name == fallback_id
         {
-            "Savfox Agent".to_string()
+            "Savvy fox".to_string()
         } else {
             default_name
         };

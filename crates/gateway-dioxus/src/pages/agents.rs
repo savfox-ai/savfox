@@ -1132,7 +1132,7 @@ fn AgentSettingsPane(agents: Vec<AgentEntry>, ws: WsRpc, mut refresh_tick: Signa
         .iter()
         .find(|agent| is_builtin_default_agent(agent))
         .map(|agent| agent.name.clone())
-        .unwrap_or_else(|| "Savfox Agent".to_string());
+        .unwrap_or_else(|| "Savvy fox".to_string());
     let initial_default = current_default.clone();
     let mut selected_default = use_signal(move || initial_default.clone());
 
@@ -1291,7 +1291,8 @@ fn AgentOverviewTab(
                 .as_ref()
                 .and_then(|models| models.primary.clone())
         })
-        .unwrap_or_default();
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string());
     let mut form_model = use_signal(move || initial_model.clone());
     let initial_reasoning = entry
         .thinking

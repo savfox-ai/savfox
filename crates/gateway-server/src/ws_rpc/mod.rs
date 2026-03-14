@@ -992,8 +992,8 @@ mod tests {
     #[test]
     fn normalized_agent_name_key_is_case_insensitive() {
         assert_eq!(
-            normalized_agent_name_key("  Savfox Agent  "),
-            Some("savfox agent".into())
+            normalized_agent_name_key("  Savvy fox  "),
+            Some("savvy fox".into())
         );
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         normalize_agent_config(&mut config, "default", true);
 
         assert_eq!(config["id"], json!("default"));
-        assert_eq!(config["name"], json!("Savfox Agent"));
+        assert_eq!(config["name"], json!("Savvy fox"));
         assert_eq!(config["builtin"], json!(true));
         assert_eq!(config["status"], json!("active"));
         assert_eq!(config["model"], json!("volcengine/doubao-seed-2.0-code"));
