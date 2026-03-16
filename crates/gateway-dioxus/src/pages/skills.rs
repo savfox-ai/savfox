@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use base64::Engine;
 use dioxus::prelude::*;
 use serde_json::json;
@@ -362,38 +360,10 @@ pub fn Skills() -> Element {
 }
 
 fn render_skill_list(skills: &[SkillDetail], ws: WsRpc, refresh_tick: Signal<u32>) -> Element {
-    // Separate skills by flock for sub-grouping.
-    let mut no_flock: Vec<&SkillDetail> = Vec::new();
-    let mut by_flock: BTreeMap<String, Vec<&SkillDetail>> = BTreeMap::new();
-    for skill in skills {
-        if let Some(ref flock) = skill.flock {
-            by_flock.entry(flock.clone()).or_default().push(skill);
-        } else {
-            no_flock.push(skill);
-        }
-    }
-
     rsx! {
         div { style: "display:flex;flex-direction:column;gap:8px;",
-            // Render un-flocked skills first.
-            for skill in no_flock.iter() {
+            for skill in skills.iter() {
                 { render_skill_row(skill, ws.clone(), refresh_tick) }
-            }
-            // Render each flock as a sub-group with a label.
-            for (flock_name, flock_skills) in by_flock.iter() {
-                div {
-                    style: "border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;",
-                    div {
-                        style: "padding:6px 12px;background:var(--bg-secondary);font-size:12px;font-weight:600;color:var(--text-muted);display:flex;align-items:center;gap:6px;",
-                        span { "Flock({flock_name})" }
-                        Chip { label: format!("{}", flock_skills.len()), variant: ChipVariant::Info }
-                    }
-                    div { style: "display:flex;flex-direction:column;gap:4px;padding:4px;",
-                        for skill in flock_skills.iter() {
-                            { render_skill_row(skill, ws.clone(), refresh_tick) }
-                        }
-                    }
-                }
             }
         }
     }
