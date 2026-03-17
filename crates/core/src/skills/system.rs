@@ -87,7 +87,7 @@ pub(crate) fn install_system_skills(
 
 /// Derive a `{domain}/{restpath}` folder name from a git URL.
 ///
-/// Example: `https://github.com/savfox-ai/registry.git` → `github.com/savfox-ai/registry`
+/// Example: `https://github.com/savhub-ai/registry.git` → `github.com/savhub-ai/registry`
 fn registry_dir_from_url(git_url: &str) -> String {
     let stripped = git_url
         .trim_end_matches('/')

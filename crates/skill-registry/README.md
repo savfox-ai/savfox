@@ -54,7 +54,7 @@ Add a `[registry]` section to `config.toml`:
 ```toml
 [registry]
 id = "savfox"                                        # Registry identifier
-git = "https://github.com/savfox-ai/registry.git"   # Git URL to clone
+git = "https://github.com/savhub-ai/registry.git"   # Git URL to clone
 ```
 
 Both fields have sensible defaults and are optional.

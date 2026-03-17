@@ -545,7 +545,7 @@ impl Default for RegistryConfig {
 }
 
 fn default_registry_git() -> String {
-    "https://github.com/savfox-ai/registry.git".to_string()
+    "https://github.com/savhub-ai/registry.git".to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]

@@ -76,7 +76,7 @@ impl GitRegistry {
 
     /// Path to the local clone of this registry, derived from the git URL.
     ///
-    /// e.g. `https://github.com/savfox-ai/registry.git` → `registry/github.com/savfox-ai/registry`
+    /// e.g. `https://github.com/savhub-ai/registry.git` → `registry/github.com/savhub-ai/registry`
     pub fn registry_path(&self) -> PathBuf {
         let dir_name = Self::dir_from_url(&self.config.git);
         self.savfox_home.join("registry").join(dir_name)
