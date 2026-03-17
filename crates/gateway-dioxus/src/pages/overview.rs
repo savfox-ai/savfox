@@ -551,7 +551,7 @@ pub fn Overview() -> Element {
                 div { style: "display:flex;justify-content:space-between;align-items:center;",
                     h3 { class: "card-title", style: "margin-bottom:0;", "Connection" }
                     div { style: "display:flex;align-items:center;gap:6px;",
-                        span { class: "ov-status-dot", style: "background:{conn_color};" }
+                        span { class: "ov-status-dot", style: "background:{conn_color};", aria_hidden: "true" }
                         span { style: "font-size:13px;color:{conn_color};font-weight:500;", "{conn_label}" }
                     }
                 }
@@ -705,7 +705,7 @@ pub fn Overview() -> Element {
                                                     div { style: "font-size:10px;color:var(--text-muted);opacity:0.7;", "{id}" }
                                                 }
                                                 div { class: "ov-channel-status", style: "color:{status_color};",
-                                                    span { class: "ov-status-dot ov-status-dot--sm", style: "background:{status_color};" }
+                                                    span { class: "ov-status-dot ov-status-dot--sm", style: "background:{status_color};", aria_hidden: "true" }
                                                     "{status_text}"
                                                 }
                                             }
@@ -737,7 +737,7 @@ pub fn Overview() -> Element {
                                             span { class: "ov-model-provider-badge", "{provider}" }
                                         }
                                         div { class: "ov-model-status",
-                                            span { class: "ov-status-dot ov-status-dot--sm", style: "background:var(--success);" }
+                                            span { class: "ov-status-dot ov-status-dot--sm", style: "background:var(--success);", aria_hidden: "true" }
                                             "Available"
                                         }
                                     }

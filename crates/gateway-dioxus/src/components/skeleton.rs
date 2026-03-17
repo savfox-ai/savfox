@@ -40,7 +40,8 @@ pub fn SkeletonLines(#[props(default = 3)] count: usize) -> Element {
 #[component]
 pub fn SkeletonCard() -> Element {
     rsx! {
-        div { class: "skeleton-card",
+        div { class: "skeleton-card", aria_busy: "true",
+            span { class: "sr-only", "Loading..." }
             Skeleton { width: "40%", height: "20px" }
             SkeletonLines { count: 3 }
         }

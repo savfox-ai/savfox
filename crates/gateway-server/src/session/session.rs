@@ -22,6 +22,9 @@ pub struct ClientSession {
     pub sender: mpsc::Sender<GatewayMessage>,
     /// Monotonic sequence counter for events sent to this client.
     event_seq: AtomicU64,
+    /// Count of messages dropped due to a full send buffer.
+    /// Used to detect slow clients that may need to be disconnected.
+    pub dropped_messages: AtomicU64,
     /// Whether this session is subscribed to logs.
     pub subscribed_to_logs: bool,
     /// Thread subscriptions for this session.
@@ -40,12 +43,18 @@ impl ClientSession {
             log_level_filter: None,
             sender,
             event_seq: AtomicU64::new(0),
+            dropped_messages: AtomicU64::new(0),
         }
     }
 
     /// Return the next event sequence number for this client.
     pub fn next_seq(&self) -> u64 {
         self.event_seq.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Record a dropped message and return the new total.
+    pub fn record_drop(&self) -> u64 {
+        self.dropped_messages.fetch_add(1, Ordering::Relaxed) + 1
     }
 }
 
@@ -109,8 +118,10 @@ impl GatewaySessionManager {
                     seq: Some(seq),
                 };
                 if let Err(err) = session.sender.try_send(msg) {
+                    let total = session.record_drop();
                     warn!(
                         session_id = %session.id,
+                        dropped_total = total,
                         "failed to broadcast log to client: {err}"
                     );
                 }
@@ -150,9 +161,11 @@ impl GatewaySessionManager {
                     seq: Some(seq),
                 };
                 if let Err(err) = session.sender.try_send(msg) {
+                    let total = session.record_drop();
                     warn!(
                         session_id = %session.id,
-                        "failed to broadcast event to client: {err}"
+                        dropped_total = total,
+                        "failed to send event to client: {err}"
                     );
                 }
             }
@@ -203,9 +216,11 @@ impl GatewaySessionManager {
                 seq: Some(seq),
             };
             if let Err(err) = session.sender.try_send(msg) {
+                let total = session.record_drop();
                 warn!(
                     session_id = %session.id,
-                    "failed to broadcast scoped event to client: {err}"
+                    dropped_total = total,
+                    "failed to send scoped event to client: {err}"
                 );
             }
         }

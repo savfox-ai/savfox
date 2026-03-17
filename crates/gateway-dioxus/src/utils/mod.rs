@@ -1,6 +1,7 @@
 pub mod debounce;
 pub mod deep_link;
 pub mod download;
+pub mod focus_trap;
 pub mod icons;
 pub mod model_visibility;
 pub mod notifications;

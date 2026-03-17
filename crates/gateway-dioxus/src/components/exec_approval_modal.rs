@@ -104,6 +104,16 @@ pub fn ExecApprovalModal(
             aria_modal: "true",
             aria_labelledby: "approval-dialog-title",
             aria_live: "polite",
+            tabindex: "-1",
+            onmounted: move |e| {
+                e.data().set_focus(true);
+            },
+            onkeydown: move |e: KeyboardEvent| {
+                if e.key() == Key::Tab {
+                    e.prevent_default();
+                    crate::utils::focus_trap::cycle_focus_in_dialog();
+                }
+            },
             div { class: "modal-card",
                 // Header
                 div { class: "modal-card__header",

@@ -1437,9 +1437,11 @@ code, pre {
   color: var(--text-primary);
 }
 
-.btn:disabled {
+.btn:disabled,
+button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  pointer-events: none;
 }
 
 .btn--sm {
@@ -2463,6 +2465,39 @@ code, pre {
     padding: 10px 12px;
     font-size: 16px;
   }
+
+  /* Model/agent selector: prevent overflow and allow wrapping */
+  .model-selector__trigger,
+  .agent-model-selector .model-selector__trigger {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chip, .pill {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+  }
+
+  /* Split views stack vertically on small screens */
+  .split-view {
+    flex-direction: column !important;
+  }
+
+  .split-view__left,
+  .split-view__right {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-right: none !important;
+  }
+
+  /* Confirm dialog: full width on mobile */
+  .confirm-dialog {
+    width: 95%;
+    max-width: none;
+  }
 }
 
 /* ---------- Swipe Indicator ---------- */
@@ -3121,7 +3156,7 @@ select:focus-visible {
 }
 
 .pagination__btn:disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

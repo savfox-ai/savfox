@@ -22,10 +22,21 @@ pub fn ConfirmDialog(
             aria_modal: "true",
             aria_label: "{title}",
             tabindex: "-1",
+            onmounted: move |e| {
+                e.data().set_focus(true);
+            },
             onkeydown: move |e: KeyboardEvent| {
                 match e.key() {
                     Key::Escape => on_cancel_clone.call(()),
                     Key::Enter => on_confirm_clone.call(()),
+                    Key::Tab => {
+                        // Focus trap: cycle Tab within the dialog buttons.
+                        // The `confirm-backdrop` has tabindex="-1" so it catches
+                        // focus, and the two buttons are the only focusable children.
+                        // When Tab reaches the last button it cycles back to the first.
+                        e.prevent_default();
+                        crate::utils::focus_trap::cycle_focus_in_dialog();
+                    }
                     _ => {}
                 }
             },
