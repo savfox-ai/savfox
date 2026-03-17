@@ -1,8 +1,8 @@
 //! Global SQLite cache stored at `{savfox_home}/gateway/cached_data.sqlite`.
 //!
 //! This is a **rebuildable cache** — all data can be reconstructed from disk
-//! manifests or external sources.  The schema uses `CREATE TABLE IF NOT EXISTS`
-//! so no migration framework is needed.
+//! manifests or external sources.  Schema changes are tracked via a
+//! `schema_version` table and applied incrementally on startup.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,8 +10,12 @@ use std::sync::OnceLock;
 
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
+use tracing::info;
 
 static DB_POOLS: OnceLock<Mutex<HashMap<PathBuf, SqlitePool>>> = OnceLock::new();
+
+/// Current schema version — bump this when adding new migrations.
+const SCHEMA_VERSION: u32 = 1;
 
 /// Return (or create) a [`SqlitePool`] for the given `savfox_home`.
 ///
@@ -36,18 +40,73 @@ pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
     let pool = SqlitePool::connect(&url)
         .await
         .map_err(|e| format!("sqlite connect: {e}"))?;
-    init_schema(&pool).await?;
+    run_migrations(&pool).await?;
 
     let mut guard = pools.lock().await;
     guard.insert(db_path, pool.clone());
     Ok(pool)
 }
 
-/// Create all tables used by the gateway cache.
-///
-/// Every statement is `IF NOT EXISTS` so this is safe to call on every startup.
-async fn init_schema(pool: &SqlitePool) -> Result<(), String> {
-    // ── Skills cache ─────────────────────────────────────────────────────
+/// Read the current schema version from the database (0 if table doesn't exist).
+async fn get_current_version(pool: &SqlitePool) -> Result<u32, String> {
+    // Ensure version table exists.
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("create schema_version table: {e}"))?;
+
+    let row: Option<(i32,)> =
+        sqlx::query_as("SELECT version FROM schema_version LIMIT 1")
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("read schema version: {e}"))?;
+
+    Ok(row.map(|(v,)| v as u32).unwrap_or(0))
+}
+
+/// Set the stored schema version.
+async fn set_version(pool: &SqlitePool, version: u32) -> Result<(), String> {
+    sqlx::query("DELETE FROM schema_version")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("clear schema_version: {e}"))?;
+    sqlx::query("INSERT INTO schema_version (version) VALUES (?1)")
+        .bind(version as i32)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("set schema_version: {e}"))?;
+    Ok(())
+}
+
+/// Run all pending migrations up to [`SCHEMA_VERSION`].
+async fn run_migrations(pool: &SqlitePool) -> Result<(), String> {
+    let current = get_current_version(pool).await?;
+
+    if current >= SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    // Migration 0 → 1: initial schema.
+    if current < 1 {
+        migration_v1(pool).await?;
+    }
+
+    // Future migrations go here:
+    // if current < 2 { migration_v2(pool).await?; }
+
+    set_version(pool, SCHEMA_VERSION).await?;
+    info!(
+        from = current,
+        to = SCHEMA_VERSION,
+        "gateway cache schema migrated"
+    );
+    Ok(())
+}
+
+/// V1: initial table creation (skills, skill_roots, skill_env).
+async fn migration_v1(pool: &SqlitePool) -> Result<(), String> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS skills (

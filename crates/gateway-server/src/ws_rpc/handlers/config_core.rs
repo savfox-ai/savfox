@@ -1492,3 +1492,74 @@ async fn trigger_heartbeat_cron_jobs(
         }
     }
 }
+
+// ── System instance management ─────────────────────────────────────────────
+
+/// Disconnect a connected instance (graceful close).
+pub(crate) async fn handle_system_disconnect(
+    params: &Value,
+    session_mgr: &Arc<GatewaySessionManager>,
+) -> RpcResult {
+    use savfox_protocol::SessionId;
+
+    let session_id_str = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or((INVALID_REQUEST, "missing session_id".to_string()))?;
+
+    let session_id = SessionId::from_string(session_id_str)
+        .map_err(|e| (INVALID_REQUEST, format!("invalid session_id: {e}")))?;
+
+    session_mgr.remove_session(&session_id).await;
+
+    Ok(json!({
+        "disconnected": true,
+        "session_id": session_id_str,
+    }))
+}
+
+/// Kick a connected instance (forceful removal).
+pub(crate) async fn handle_system_kick(
+    params: &Value,
+    session_mgr: &Arc<GatewaySessionManager>,
+) -> RpcResult {
+    use savfox_protocol::SessionId;
+
+    let session_id_str = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or((INVALID_REQUEST, "missing session_id".to_string()))?;
+
+    let reason = opt_str(params, "reason", "kicked by operator");
+
+    let session_id = SessionId::from_string(session_id_str)
+        .map_err(|e| (INVALID_REQUEST, format!("invalid session_id: {e}")))?;
+
+    // Notify the session before removing it.
+    if let Some(session_arc) = session_mgr.get_session(&session_id).await {
+        let session = session_arc.read().await;
+        let msg = crate::protocol::GatewayMessage::Event {
+            event: "system.kicked".to_owned(),
+            payload: json!({ "reason": reason }),
+            seq: Some(session.next_seq()),
+        };
+        let _ = session.sender.try_send(msg);
+    }
+
+    session_mgr.remove_session(&session_id).await;
+
+    Ok(json!({
+        "kicked": true,
+        "session_id": session_id_str,
+        "reason": reason,
+    }))
+}
+
+/// Return the current execution approval policy.
+pub(crate) async fn handle_approvals_policy(
+    _params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    // Re-use existing exec approvals get handler logic.
+    super::skill::handle_exec_approvals_get(channel).await
+}

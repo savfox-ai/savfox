@@ -17,6 +17,43 @@ use crate::session::{ClientSession, GatewaySessionManager, SessionStore};
 /// Channel buffer size for per-client outgoing message queues.
 const CLIENT_CHANNEL_CAPACITY: usize = 256;
 
+/// RAII guard that ensures `remove_session()` is called even if the
+/// WebSocket handler panics or returns early without explicit cleanup.
+struct SessionCleanupGuard {
+    session_mgr: GatewaySessionManager,
+    session_id: SessionId,
+    active: bool,
+}
+
+impl SessionCleanupGuard {
+    fn new(session_mgr: GatewaySessionManager, session_id: SessionId) -> Self {
+        Self {
+            session_mgr,
+            session_id,
+            active: true,
+        }
+    }
+
+    /// Manually deactivate so Drop doesn't try to remove again.
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for SessionCleanupGuard {
+    fn drop(&mut self) {
+        if self.active {
+            let mgr = self.session_mgr.clone();
+            let id = self.session_id;
+            // Spawn cleanup — we're in a sync Drop so we can't await directly.
+            tokio::spawn(async move {
+                mgr.remove_session(&id).await;
+                warn!(session_id = %id, "session cleaned up via drop guard (unexpected exit)");
+            });
+        }
+    }
+}
+
 /// WebSocket upgrade handler for gateway connections at `GET /ws`.
 #[handler]
 pub(crate) async fn ws_handler(
@@ -50,6 +87,11 @@ pub(crate) async fn ws_handler(
         .clone();
 
     // Allow token via query parameter for CLI tools like websocat.
+    //
+    // NOTE: Query-parameter tokens appear in server access logs and browser
+    // history. For production deployments, prefer the challenge-response
+    // authentication flow (send a `Connect` message as the first WebSocket
+    // frame) which keeps the token out of URLs entirely.
     let query_token = req.query::<String>("token");
 
     WebSocketUpgrade::new()
@@ -174,6 +216,7 @@ async fn handle_ws_connection(
     let rpc_token_info = token_info.clone();
     let session = ClientSession::new(session_id, token_info, outgoing_tx);
     session_mgr.add_session(session).await;
+    let mut _guard = SessionCleanupGuard::new((*session_mgr).clone(), session_id);
 
     // Send Connected acknowledgement.
     let connected = GatewayMessage::Connected {
@@ -183,7 +226,7 @@ async fn handle_ws_connection(
         policy: None,
     };
     if send_message(&mut ws, &connected).await.is_err() {
-        session_mgr.remove_session(&session_id).await;
+        // Guard will handle cleanup on drop.
         return;
     }
 
@@ -275,7 +318,8 @@ async fn handle_ws_connection(
         }
     }
 
-    // Cleanup.
+    // Cleanup — disarm guard and do it explicitly so we log properly.
+    _guard.disarm();
     session_mgr.remove_session(&session_id).await;
     info!(session_id = %session_id, "WebSocket connection closed");
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -167,6 +168,8 @@ fn pattern_matches(pattern: &str, event_str: &str) -> bool {
 #[derive(Debug, Default)]
 pub(crate) struct EventBus {
     subscriptions: Vec<HookRegistration>,
+    /// Shared reference for Drop-based auto-unsubscribe guards.
+    pending_unsubscribes: Arc<StdMutex<Vec<String>>>,
 }
 
 impl EventBus {
@@ -174,6 +177,7 @@ impl EventBus {
     pub(crate) fn new() -> Self {
         Self {
             subscriptions: Vec::new(),
+            pending_unsubscribes: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
@@ -186,6 +190,15 @@ impl EventBus {
             "event bus: hook registered"
         );
         self.subscriptions.push(reg);
+    }
+
+    /// Register a hook and return a RAII guard that automatically
+    /// unsubscribes when dropped.
+    pub(crate) fn subscribe_guarded(&mut self, reg: HookRegistration) -> SubscriptionGuard {
+        let id = reg.id.clone();
+        let pending = Arc::clone(&self.pending_unsubscribes);
+        self.subscribe(reg);
+        SubscriptionGuard { id, pending }
     }
 
     /// Remove a hook subscription by ID.  Returns `true` if the registration
@@ -203,6 +216,17 @@ impl EventBus {
     /// Return a slice of all current registrations.
     pub(crate) fn list(&self) -> &[HookRegistration] {
         &self.subscriptions
+    }
+
+    /// Drain any pending unsubscribes queued by dropped `SubscriptionGuard`s.
+    pub(crate) fn drain_pending_unsubscribes(&mut self) {
+        let ids: Vec<String> = {
+            let mut pending = self.pending_unsubscribes.lock().unwrap_or_else(|e| e.into_inner());
+            std::mem::take(&mut *pending)
+        };
+        for id in ids {
+            self.unsubscribe(&id);
+        }
     }
 
     /// Emit an event, running all matching enabled handlers concurrently.
@@ -419,6 +443,27 @@ async fn execute_webhook(
         }
         Err(err) => {
             error!(id = %id, error = %err, "event bus: webhook request failed");
+        }
+    }
+}
+
+// ─── RAII subscription guard ──────────────────────────────────────────────────
+
+/// Drop guard that queues an unsubscribe when the guard goes out of scope.
+///
+/// Because `EventBus::unsubscribe` requires `&mut self`, the guard cannot
+/// call it directly during `Drop`. Instead it pushes the ID into a shared
+/// pending list that [`EventBus::drain_pending_unsubscribes`] processes.
+#[derive(Debug)]
+pub(crate) struct SubscriptionGuard {
+    id: String,
+    pending: Arc<StdMutex<Vec<String>>>,
+}
+
+impl Drop for SubscriptionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.push(self.id.clone());
         }
     }
 }

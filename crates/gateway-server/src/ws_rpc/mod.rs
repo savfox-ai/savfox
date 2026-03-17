@@ -269,6 +269,9 @@ pub(crate) async fn dispatch_rpc(
         "set-heartbeats" => handle_set_heartbeats(&params, channel).await,
         "system-presence" => handle_system_presence(&params, session_mgr).await,
         "system-event" => handle_system_event(&params, channel, session_mgr, cron_service).await,
+        "system-disconnect" => handle_system_disconnect(&params, session_mgr).await,
+        "system-kick" => handle_system_kick(&params, session_mgr).await,
+        "approvals.policy" => handle_approvals_policy(&params, channel).await,
 
         // ── Models ──────────────────────────────────────────────────────
         "models.list" => handle_models_list(&params, channel).await,

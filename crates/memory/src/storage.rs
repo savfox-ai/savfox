@@ -85,6 +85,12 @@ impl VectorStorage {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path)")
             .execute(&self.pool)
             .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chunks_updated_at ON chunks(updated_at)")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_chunks_created_at ON chunks(created_at)")
+            .execute(&self.pool)
+            .await?;
 
         info!("Vector storage initialized with {} dims", self.vector_dims);
         Ok(())

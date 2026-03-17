@@ -51,6 +51,19 @@ pub(crate) enum BridgeOutgoing {
 
 /// Handles bidirectional message routing between gateway WebSocket clients
 /// and the Savfox core engine (SessionManager).
+///
+/// ## Lock ordering convention
+///
+/// When acquiring multiple locks, always follow this order to prevent deadlock:
+///
+/// 1. `runtime_channel_secrets` (RwLock)
+/// 2. `pending_requests` (Mutex)
+/// 3. `active_login` (Mutex)
+/// 4. `logical_session_threads` (Mutex)
+/// 5. `GatewaySessionManager::sessions` (RwLock) — accessed via `websocket_manager`
+/// 6. `SessionStore::cache` (RwLock) — accessed via `session_store`
+///
+/// Never acquire a higher-numbered lock while holding a lower-numbered one.
 pub(crate) struct GatewayChannel {
     auth_manager: Arc<AuthManager>,
     session_manager: Arc<SessionManager>,
