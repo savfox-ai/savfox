@@ -5,7 +5,7 @@
 //! job execution via agent turns or system events, exponential backoff on errors,
 //! and run history logging.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,6 +62,9 @@ pub struct CronService {
     data_dir: PathBuf,
     /// All jobs keyed by ID.
     jobs: Arc<RwLock<HashMap<String, CronJob>>>,
+    /// Currently running job IDs — used for status reporting and
+    /// preventing concurrent execution of the same job.
+    running_jobs: Arc<RwLock<HashSet<String>>>,
     /// Shutdown signal.
     shutdown_tx: Option<mpsc::Sender<()>>,
 }
@@ -72,6 +75,7 @@ impl CronService {
         Self {
             data_dir,
             jobs: Arc::new(RwLock::new(HashMap::new())),
+            running_jobs: Arc::new(RwLock::new(HashSet::new())),
             shutdown_tx: None,
         }
     }
@@ -200,6 +204,16 @@ impl CronService {
 
     /// Execute a single job.
     async fn execute_job(&self, job: &CronJob, channel: &Arc<GatewayChannel>) {
+        // Prevent concurrent execution of the same job.
+        {
+            let mut running = self.running_jobs.write().await;
+            if running.contains(&job.id) {
+                warn!(job_id = %job.id, "skipping cron job: already running");
+                return;
+            }
+            running.insert(job.id.clone());
+        }
+
         let start_ms = crate::json_store::now_ms();
         info!(job_id = %job.id, job_name = %job.name, "executing cron job");
         let timeout_secs = payload_timeout_secs(&job.payload);
@@ -223,6 +237,9 @@ impl CronService {
             ),
         };
 
+        // Remove from running set.
+        self.running_jobs.write().await.remove(&job.id);
+
         // Log the run.
         let run_entry = CronRunEntry {
             job_id: job.id.clone(),
@@ -235,11 +252,14 @@ impl CronService {
         };
         self.log_run(&run_entry).await;
 
-        // Update job state.
+        // Update job state with rollback on persist failure.
         let now = crate::json_store::now_ms();
         {
             let mut jobs = self.jobs.write().await;
             if let Some(job) = jobs.get_mut(&run_entry.job_id) {
+                // Snapshot state before modification so we can rollback on persist failure.
+                let prev_state = job.state.clone();
+
                 job.state.last_run_at_ms = Some(finish_ms);
                 job.state.last_status = Some(status.clone());
 
@@ -269,12 +289,21 @@ impl CronService {
                         warn!(job_id = %job.id, "one-shot job disabled after 5 consecutive errors");
                     }
                 }
-            }
-        }
 
-        // Persist.
-        if let Err(err) = self.save_jobs().await {
-            warn!("failed to persist cron jobs after execution: {err}");
+                // Persist — rollback in-memory state on failure to avoid
+                // divergence between memory and disk (e.g. lost backoff
+                // counters or re-executing disabled one-shot jobs on restart).
+                drop(jobs);
+                if let Err(err) = self.save_jobs().await {
+                    warn!("failed to persist cron jobs after execution, rolling back state: {err}");
+                    let mut jobs = self.jobs.write().await;
+                    if let Some(job) = jobs.get_mut(&run_entry.job_id) {
+                        job.state = prev_state;
+                    }
+                }
+            } else {
+                drop(jobs);
+            }
         }
 
         // Deliver results if configured.
@@ -375,22 +404,22 @@ impl CronService {
             Ok(json) => format!("{json}\n"),
             Err(_) => return,
         };
-        // Append to file.
-        if let Err(err) = tokio::fs::OpenOptions::new()
+        // Append directly instead of read-all-then-rewrite.
+        use tokio::io::AsyncWriteExt;
+        match tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
             .await
-            .and_then(|_| Ok(()))
         {
-            warn!("failed to open run log: {err}");
-            return;
-        }
-        // Use write approach to append.
-        let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-        let new_content = format!("{existing}{line}");
-        if let Err(err) = tokio::fs::write(&path, new_content).await {
-            warn!("failed to write run log: {err}");
+            Ok(mut file) => {
+                if let Err(err) = file.write_all(line.as_bytes()).await {
+                    warn!("failed to append to run log: {err}");
+                }
+            }
+            Err(err) => {
+                warn!("failed to open run log: {err}");
+            }
         }
     }
 
@@ -417,7 +446,7 @@ impl CronService {
             enabled: true,
             total_jobs: total,
             enabled_jobs: enabled,
-            running_jobs: 0, // TODO: track currently running
+            running_jobs: self.running_jobs.read().await.len(),
         }
     }
 

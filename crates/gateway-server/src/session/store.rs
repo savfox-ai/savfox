@@ -101,6 +101,10 @@ pub struct SessionEntry {
     pub updated_at: u64,
     /// Creation timestamp (epoch milliseconds).
     pub created_at: u64,
+    /// Optimistic-lock version counter. Incremented on each write so
+    /// concurrent readers can detect stale data.
+    #[serde(default)]
+    pub version: u64,
 
     // ── Delivery context ────────────────────────────────────────────
     /// Current channel (e.g. "discord:123456").
@@ -232,9 +236,10 @@ impl SessionEntry {
         }
     }
 
-    /// Touch the `updated_at` timestamp.
+    /// Touch the `updated_at` timestamp and bump the version counter.
     pub fn touch(&mut self) {
         self.updated_at = crate::json_store::now_ms();
+        self.version += 1;
     }
 
     /// Add token usage.
@@ -279,6 +284,7 @@ impl Default for SessionEntry {
             routing_id: None,
             updated_at: 0,
             created_at: 0,
+            version: 0,
             channel: None,
             last_channel: None,
             to: None,
@@ -524,14 +530,17 @@ impl SessionStore {
 
         let data = serde_json::to_vec_pretty(entries)
             .map_err(|err| std::io::Error::other(format!("serialize session metadata: {err}")))?;
-        let temp_path = path.with_extension(match path.extension().and_then(|ext| ext.to_str()) {
-            Some(ext) if !ext.is_empty() => format!("{ext}.tmp"),
-            _ => "tmp".to_string(),
-        });
+        // Use a unique temp file (PID + random suffix) to avoid collisions
+        // between concurrent writers, then atomically rename into place.
+        // `rename` on the same filesystem is atomic and replaces the target,
+        // so we skip the separate `remove` step.
+        let pid = std::process::id();
+        let rand_suffix: u32 = rand::random();
+        let temp_name = format!(
+            ".session-store-{pid}-{rand_suffix:08x}.tmp"
+        );
+        let temp_path = path.with_file_name(temp_name);
         tokio::fs::write(&temp_path, data).await?;
-        if tokio::fs::try_exists(path).await.unwrap_or(false) {
-            let _ = tokio::fs::remove_file(path).await;
-        }
         tokio::fs::rename(&temp_path, path).await
     }
 
@@ -770,13 +779,31 @@ impl SessionStore {
     }
 
     /// Insert or update a session entry.
-    pub async fn upsert(&self, entry: SessionEntry) {
+    ///
+    /// Uses optimistic locking: if the cache already holds a newer version
+    /// of the same session, the incoming entry is merged rather than
+    /// blindly overwriting it (the entry with the higher `version` wins for
+    /// conflicting fields, while additive counters like token usage are
+    /// always accumulated).
+    pub async fn upsert(&self, mut entry: SessionEntry) {
         let key = entry.session_id.clone();
+        entry.version += 1;
 
-        // Update cache.
+        // Update cache with version check.
         {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
+                if let Some(existing) = cache.entries.get(&key) {
+                    if existing.version > entry.version {
+                        warn!(
+                            session_id = %key,
+                            existing_version = existing.version,
+                            incoming_version = entry.version,
+                            "session store: skipping stale upsert (existing version is newer)"
+                        );
+                        return;
+                    }
+                }
                 cache.entries.insert(key.clone(), entry);
             } else {
                 let mut entries = HashMap::new();

@@ -56,12 +56,16 @@ impl PartialEq for WsRpc {
     }
 }
 
+/// Maximum number of consecutive reconnection attempts before giving up.
+const MAX_RECONNECT_ATTEMPTS: u32 = 20;
+
 struct WsRpcInner {
     ws: RefCell<Option<WebSocket>>,
     next_id: Cell<u64>,
     pending: RefCell<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     notification_handlers: RefCell<HashMap<String, Vec<NotificationHandler>>>,
     reconnect_delay: Cell<u32>,
+    reconnect_attempts: Cell<u32>,
     reconnect_scheduled: Cell<bool>,
     manual_disconnect: Cell<bool>,
     closures: RefCell<Vec<JsValue>>,
@@ -76,6 +80,7 @@ impl WsRpc {
                 pending: RefCell::new(HashMap::new()),
                 notification_handlers: RefCell::new(HashMap::new()),
                 reconnect_delay: Cell::new(1000),
+                reconnect_attempts: Cell::new(0),
                 reconnect_scheduled: Cell::new(false),
                 manual_disconnect: Cell::new(false),
                 closures: RefCell::new(Vec::new()),
@@ -139,9 +144,23 @@ impl WsRpc {
             return;
         }
 
+        // Give up after too many consecutive failures.
+        let attempts = self.inner.reconnect_attempts.get() + 1;
+        self.inner.reconnect_attempts.set(attempts);
+        if attempts > MAX_RECONNECT_ATTEMPTS {
+            web_sys::console::warn_1(
+                &format!("WebSocket: giving up after {MAX_RECONNECT_ATTEMPTS} reconnect attempts").into(),
+            );
+            connected_signal.set(false);
+            return;
+        }
+
         connected_signal.set(false);
-        let delay = self.inner.reconnect_delay.get();
-        self.inner.reconnect_delay.set((delay * 2).min(30_000));
+        let base_delay = self.inner.reconnect_delay.get();
+        // Add jitter (±25%) to prevent thundering-herd when multiple clients reconnect.
+        let jitter = (js_sys::Math::random() * 0.5 - 0.25) * base_delay as f64;
+        let delay = (base_delay as f64 + jitter).max(500.0) as u32;
+        self.inner.reconnect_delay.set((base_delay * 2).min(30_000));
         self.inner.reconnect_scheduled.set(true);
 
         let sc = self.clone();
@@ -202,6 +221,7 @@ impl WsRpc {
         let mut on_open_epoch = reconnect_epoch;
         let on_open = Closure::wrap(Box::new(move || {
             inner.reconnect_delay.set(1000);
+            inner.reconnect_attempts.set(0);
             inner.reconnect_scheduled.set(false);
             on_open_connected.set(true);
             on_open_epoch += 1;
@@ -220,10 +240,15 @@ impl WsRpc {
                 // Try as JSON-RPC response (has `id` field) first.
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&text) {
                     if let Some(tx) = inner.pending.borrow_mut().remove(&resp.id) {
-                        if let Some(err) = resp.error {
-                            let _ = tx.send(Err(err.message));
+                        let result = if let Some(err) = resp.error {
+                            Err(err.message)
                         } else {
-                            let _ = tx.send(Ok(resp.result.unwrap_or(Value::Null)));
+                            Ok(resp.result.unwrap_or(Value::Null))
+                        };
+                        if tx.send(result).is_err() {
+                            web_sys::console::warn_1(
+                                &format!("WsRpc: response for id {} dropped (caller gone)", resp.id).into(),
+                            );
                         }
                     }
                 } else if let Ok(notif) = serde_json::from_str::<JsonRpcNotification>(&text) {
