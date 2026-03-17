@@ -101,6 +101,13 @@ loading = "Loading..."
 exec_approval_required = "Exec Approval Required"
 new_command_approval = "A new command requires your approval."
 
+[time]
+just_now = "Just now"
+minutes_ago = "{count}m ago"
+hours_ago = "{count}h ago"
+days_ago = "{count}d ago"
+weeks_ago = "{count}w ago"
+
 [aria]
 close_nav = "Close navigation menu"
 open_nav = "Open navigation menu"

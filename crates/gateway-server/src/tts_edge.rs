@@ -178,6 +178,12 @@ pub const EDGE_TTS_WS_URL: &str =
     "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
 
 /// Trusted client token (embedded in all Edge browser installations).
+///
+/// This is **intentionally** a public, well-known token extracted from the
+/// Edge browser binary.  It is **not** a secret — Microsoft ships it in
+/// every Edge installation and it is widely documented in open-source Edge
+/// TTS libraries (e.g. `edge-tts` for Python).  It is used only to
+/// authenticate as an Edge browser client against the public TTS endpoint.
 pub const TRUSTED_CLIENT_TOKEN: &str = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
 /// Default audio output format requested from the Edge TTS service.

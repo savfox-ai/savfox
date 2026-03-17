@@ -101,6 +101,13 @@ loading = "加载中..."
 exec_approval_required = "需要执行审批"
 new_command_approval = "有新命令需要您的审批。"
 
+[time]
+just_now = "刚刚"
+minutes_ago = "{count} 分钟前"
+hours_ago = "{count} 小时前"
+days_ago = "{count} 天前"
+weeks_ago = "{count} 周前"
+
 [aria]
 close_nav = "关闭导航菜单"
 open_nav = "打开导航菜单"
