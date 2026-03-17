@@ -8,8 +8,8 @@ body[data-theme="dark"] {
   --bg-hover: #2a2a2a;
   --border: #2e2e2e;
   --text-primary: #e5e5e5;
-  --text-secondary: #999;
-  --text-muted: #737373;
+  --text-secondary: #a3a3a3;
+  --text-muted: #9a9a9a;
   --accent: #FF5722;
   --accent-hover: #E64A19;
   --accent-bg: rgba(255, 87, 34, 0.12);
@@ -37,7 +37,7 @@ body[data-theme="light"] {
   --border: #d0d0d0;
   --text-primary: #1a1a1a;
   --text-secondary: #555;
-  --text-muted: #757575;
+  --text-muted: #636363;
   --accent: #FF5722;
   --accent-hover: #E64A19;
   --accent-bg: rgba(255, 87, 34, 0.10);
@@ -2567,6 +2567,46 @@ select:focus-visible {
   .chip,
   .pill {
     border: 1px solid currentColor;
+  }
+
+  .btn,
+  button {
+    border: 1px solid ButtonText;
+  }
+
+  .btn:disabled,
+  button:disabled {
+    border-color: GrayText;
+    color: GrayText;
+  }
+
+  input,
+  textarea,
+  select {
+    border: 1px solid ButtonText;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+  }
+
+  .callout {
+    border: 1px solid currentColor;
+  }
+
+  .confirm-dialog {
+    border: 2px solid ButtonText;
+  }
+
+  .channels-card {
+    border: 1px solid ButtonText;
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    border: 2px solid Highlight;
   }
 }
 

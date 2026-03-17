@@ -16,6 +16,7 @@ workspace = true
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+bcrypt = { workspace = true }
 savfox-app-server-protocol = { workspace = true }
 savfox-common = { workspace = true, features = ["cli"] }
 savfox-core = { workspace = true }

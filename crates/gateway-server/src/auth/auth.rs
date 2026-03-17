@@ -159,25 +159,41 @@ impl GatewayAuth {
 
     /// Validate a username + password pair.
     ///
-    /// Passwords are stored as SHA-256 hashes in a separate map keyed by
-    /// username. On success, returns the token info associated with the user.
+    /// Passwords are stored as bcrypt hashes (cost 12) in a separate map
+    /// keyed by username. On success, returns the token info associated
+    /// with the user. Also supports verifying legacy SHA-256 hashes for
+    /// backward compatibility (auto-upgrades to bcrypt on successful login).
     pub async fn validate_password(&self, username: &str, password: &str) -> Option<TokenInfo> {
         let passwords = password_store().lock().await;
         if let Some(entry) = passwords.get(username) {
-            // Hash the incoming password and compare
-            use sha2::Digest;
-            let hash = hex::encode(sha2::Sha256::digest(password.as_bytes()));
-            if hash == entry.password_hash {
-                return Some(entry.token_info.clone());
+            // Try bcrypt first (new-style hash starts with "$2b$").
+            if entry.password_hash.starts_with("$2b$") || entry.password_hash.starts_with("$2a$") {
+                if bcrypt::verify(password, &entry.password_hash).unwrap_or(false) {
+                    return Some(entry.token_info.clone());
+                }
+            } else {
+                // Legacy SHA-256 path — verify then auto-upgrade to bcrypt.
+                use sha2::Digest;
+                let sha_hash = hex::encode(sha2::Sha256::digest(password.as_bytes()));
+                if sha_hash == entry.password_hash {
+                    let info = entry.token_info.clone();
+                    drop(passwords);
+                    // Auto-upgrade to bcrypt.
+                    self.set_password(username, password, info.clone()).await;
+                    return Some(info);
+                }
             }
         }
         None
     }
 
-    /// Register a username with a password (stored as SHA-256 hash).
+    /// Register a username with a password (stored as bcrypt hash, cost 12).
     pub async fn set_password(&self, username: &str, password: &str, info: TokenInfo) {
-        use sha2::Digest;
-        let hash = hex::encode(sha2::Sha256::digest(password.as_bytes()));
+        let hash = bcrypt::hash(password, 12).unwrap_or_else(|_| {
+            // Fallback to SHA-256 if bcrypt fails (should not happen).
+            use sha2::Digest;
+            hex::encode(sha2::Sha256::digest(password.as_bytes()))
+        });
         let mut passwords = password_store().lock().await;
         passwords.insert(
             username.to_owned(),

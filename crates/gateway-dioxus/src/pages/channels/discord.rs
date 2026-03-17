@@ -126,9 +126,12 @@ pub fn DiscordChannel() -> Element {
                                         let ws = ws.clone();
                                         async move {
                                             action_loading.set(true);
-                                            let _ = ws.read()
+                                            if let Err(e) = ws.read()
                                                 .call::<serde_json::Value>("channels.logout", Some(serde_json::json!({"channel": "discord"})))
-                                                .await;
+                                                .await
+                                            {
+                                                error.set(Some(format!("Failed to stop bot: {e}")));
+                                            }
                                             action_loading.set(false);
                                             load_status().await;
                                         }
@@ -143,9 +146,12 @@ pub fn DiscordChannel() -> Element {
                                         let ws = ws.clone();
                                         async move {
                                             action_loading.set(true);
-                                            let _ = ws.read()
+                                            if let Err(e) = ws.read()
                                                 .call::<serde_json::Value>("channels.login", Some(serde_json::json!({"channel": "discord"})))
-                                                .await;
+                                                .await
+                                            {
+                                                error.set(Some(format!("Failed to start bot: {e}")));
+                                            }
                                             action_loading.set(false);
                                             load_status().await;
                                         }

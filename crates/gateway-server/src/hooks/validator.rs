@@ -212,21 +212,165 @@ impl ValidationRule {
             }
 
             ValidationRule::JsonSchema { schema } => {
-                // Basic JSON validity check.  Full JSON Schema validation is
-                // left as a future extension; here we verify the message is
-                // at least valid JSON.
-                if serde_json::from_str::<serde_json::Value>(message).is_err() {
-                    Some("message is not valid JSON".into())
-                } else if schema.is_empty() {
-                    // No schema content provided — pass if JSON is valid.
-                    None
-                } else {
-                    // Schema content present — for now we just ensure the
-                    // message is valid JSON (schema matching is a future TODO).
-                    None
+                let value = match serde_json::from_str::<serde_json::Value>(message) {
+                    Ok(v) => v,
+                    Err(_) => return Some("message is not valid JSON".into()),
+                };
+
+                if schema.is_empty() {
+                    return None;
+                }
+
+                let schema_obj = match serde_json::from_str::<serde_json::Value>(schema) {
+                    Ok(s) => s,
+                    Err(err) => {
+                        return Some(format!("invalid JSON Schema: {err}"));
+                    }
+                };
+
+                // Validate: type, required, properties (basic subset).
+                validate_json_schema(&value, &schema_obj)
+            }
+        }
+    }
+}
+
+// ─── Basic JSON Schema validation ─────────────────────────────────────────────
+
+/// Validate a JSON value against a basic JSON Schema object.
+///
+/// Supports a practical subset of JSON Schema Draft-07:
+/// - `type`: "object", "array", "string", "number", "integer", "boolean", "null"
+/// - `required`: array of required property names (when type is object)
+/// - `properties`: per-property schemas with `type` validation (when type is object)
+/// - `minLength` / `maxLength`: string length constraints
+/// - `minimum` / `maximum`: number range constraints
+/// - `minItems` / `maxItems`: array length constraints
+/// - `enum`: allowed value list
+fn validate_json_schema(
+    value: &serde_json::Value,
+    schema: &serde_json::Value,
+) -> Option<String> {
+    let schema_obj = match schema.as_object() {
+        Some(o) => o,
+        None => return None, // non-object schemas are treated as pass-through
+    };
+
+    let mut errors: Vec<String> = Vec::new();
+
+    // ── type check ──────────────────────────────────────────────────
+    if let Some(expected_type) = schema_obj.get("type").and_then(|t| t.as_str()) {
+        let ok = match expected_type {
+            "object" => value.is_object(),
+            "array" => value.is_array(),
+            "string" => value.is_string(),
+            "number" => value.is_number(),
+            "integer" => value.is_i64() || value.is_u64(),
+            "boolean" => value.is_boolean(),
+            "null" => value.is_null(),
+            _ => true,
+        };
+        if !ok {
+            errors.push(format!(
+                "expected type '{expected_type}', got {}",
+                json_type_name(value)
+            ));
+        }
+    }
+
+    // ── enum check ──────────────────────────────────────────────────
+    if let Some(allowed) = schema_obj.get("enum").and_then(|e| e.as_array()) {
+        if !allowed.contains(value) {
+            errors.push(format!("value not in allowed enum: {value}"));
+        }
+    }
+
+    // ── string constraints ──────────────────────────────────────────
+    if let Some(s) = value.as_str() {
+        if let Some(min) = schema_obj.get("minLength").and_then(|v| v.as_u64()) {
+            if (s.chars().count() as u64) < min {
+                errors.push(format!("string shorter than minLength {min}"));
+            }
+        }
+        if let Some(max) = schema_obj.get("maxLength").and_then(|v| v.as_u64()) {
+            if (s.chars().count() as u64) > max {
+                errors.push(format!("string longer than maxLength {max}"));
+            }
+        }
+    }
+
+    // ── number constraints ──────────────────────────────────────────
+    if let Some(n) = value.as_f64() {
+        if let Some(min) = schema_obj.get("minimum").and_then(|v| v.as_f64()) {
+            if n < min {
+                errors.push(format!("value {n} is less than minimum {min}"));
+            }
+        }
+        if let Some(max) = schema_obj.get("maximum").and_then(|v| v.as_f64()) {
+            if n > max {
+                errors.push(format!("value {n} is greater than maximum {max}"));
+            }
+        }
+    }
+
+    // ── array constraints ───────────────────────────────────────────
+    if let Some(arr) = value.as_array() {
+        if let Some(min) = schema_obj.get("minItems").and_then(|v| v.as_u64()) {
+            if (arr.len() as u64) < min {
+                errors.push(format!("array has {} items, minimum is {min}", arr.len()));
+            }
+        }
+        if let Some(max) = schema_obj.get("maxItems").and_then(|v| v.as_u64()) {
+            if (arr.len() as u64) > max {
+                errors.push(format!("array has {} items, maximum is {max}", arr.len()));
+            }
+        }
+    }
+
+    // ── object: required + properties ───────────────────────────────
+    if let Some(obj) = value.as_object() {
+        if let Some(required) = schema_obj.get("required").and_then(|r| r.as_array()) {
+            for req in required {
+                if let Some(key) = req.as_str() {
+                    if !obj.contains_key(key) {
+                        errors.push(format!("missing required property '{key}'"));
+                    }
                 }
             }
         }
+
+        if let Some(props) = schema_obj.get("properties").and_then(|p| p.as_object()) {
+            for (key, prop_schema) in props {
+                if let Some(prop_value) = obj.get(key) {
+                    if let Some(err) = validate_json_schema(prop_value, prop_schema) {
+                        errors.push(format!("property '{key}': {err}"));
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        None
+    } else {
+        Some(format!("JSON Schema validation failed: {}", errors.join("; ")))
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
     }
 }
 
@@ -440,6 +584,41 @@ mod tests {
             schema: r#"{"type": "object"}"#.into(),
         }]);
         assert!(v.validate(r#"{"foo": 1}"#).is_pass());
+    }
+
+    #[test]
+    fn json_schema_type_mismatch() {
+        let v = make_validator(vec![ValidationRule::JsonSchema {
+            schema: r#"{"type": "object"}"#.into(),
+        }]);
+        let result = v.validate(r#""just a string""#);
+        assert!(matches!(result, ValidationResult::Fail(_)));
+    }
+
+    #[test]
+    fn json_schema_required_properties() {
+        let v = make_validator(vec![ValidationRule::JsonSchema {
+            schema: r#"{"type": "object", "required": ["name", "age"]}"#.into(),
+        }]);
+        // Missing "age"
+        let result = v.validate(r#"{"name": "Alice"}"#);
+        match result {
+            ValidationResult::Fail(reasons) => {
+                assert!(reasons[0].contains("age"));
+            }
+            _ => panic!("expected failure for missing required property"),
+        }
+    }
+
+    #[test]
+    fn json_schema_nested_property_types() {
+        let v = make_validator(vec![ValidationRule::JsonSchema {
+            schema: r#"{"type": "object", "properties": {"count": {"type": "integer"}}}"#
+                .into(),
+        }]);
+        assert!(v.validate(r#"{"count": 42}"#).is_pass());
+        let result = v.validate(r#"{"count": "not a number"}"#);
+        assert!(matches!(result, ValidationResult::Fail(_)));
     }
 
     // ── Multiple rules ───────────────────────────────────────────────────
