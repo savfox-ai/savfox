@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{ArrowLeft, Clock};
 use serde_json::json;
 
 use crate::api::types::{
@@ -360,7 +361,7 @@ fn cron_inner(deep_link: CronDeepLink) -> Element {
                         }
                     } else if jobs.is_empty() {
                         EmptyState {
-                            icon: "\u{23F1}".to_string(),
+                            icon: rsx! { Clock { size: 20 } },
                             message: "No cron jobs configured".to_string(),
                         }
                     } else {
@@ -405,7 +406,8 @@ fn cron_inner(deep_link: CronDeepLink) -> Element {
                 button {
                     class: "split-view__back",
                     onclick: move |_| show_detail.set(false),
-                    "\u{2190} Back"
+                    ArrowLeft { size: 14 }
+                    " Back"
                 }
                 if show_create() {
                     { render_create_form(

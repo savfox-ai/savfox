@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{ArrowLeft, Bot, X};
 use serde_json::json;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -8,7 +9,6 @@ use crate::api::types::{
     ModelsResponse, SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
-use crate::components::empty_state::EmptyState;
 use crate::components::icon::Icon;
 use crate::components::model_selector::ModelSelector;
 use crate::components::search_input::SearchInput;
@@ -732,7 +732,8 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                 button {
                     class: "split-view__back",
                     onclick: move |_| show_detail.set(false),
-                    "\u{2190} Back"
+                    ArrowLeft { size: 14 }
+                    " Back"
                 }
                 if show_create() {
                     AgentCreateForm {
@@ -796,21 +797,28 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                     }
                 } else {
                     div { style: "display:flex;align-items:center;justify-content:center;height:100%;",
-                        EmptyState {
-                            icon: "&".to_string(),
-                            message: "Select an agent or create a new one".to_string(),
-                            action_label: "Create Agent".to_string(),
-                            on_action: move |_| {
-                                show_create.set(true);
-                                show_settings.set(false);
-                                show_detail.set(true);
-                                selected_agent.set(None);
-                                new_id.set(String::new());
-                                new_name.set(String::new());
-                                new_provider.set(String::new());
-                                new_model.set(String::new());
-                                new_prompt.set(String::new());
-                            },
+                        div { class: "empty-state",
+                            div { class: "empty-state__icon",
+                                Bot { size: 24 }
+                            }
+                            p { class: "empty-state__message",
+                                "Select an agent or create a new one"
+                            }
+                            button {
+                                class: "empty-state__action",
+                                onclick: move |_| {
+                                    show_create.set(true);
+                                    show_settings.set(false);
+                                    show_detail.set(true);
+                                    selected_agent.set(None);
+                                    new_id.set(String::new());
+                                    new_name.set(String::new());
+                                    new_provider.set(String::new());
+                                    new_model.set(String::new());
+                                    new_prompt.set(String::new());
+                                },
+                                "Create Agent"
+                            }
                         }
                     }
                 }
@@ -1758,7 +1766,7 @@ fn AgentOverviewTab(
                                                 list.remove(i);
                                             }
                                         },
-                                        "\u{00D7}"
+                                        X { size: 14 }
                                     }
                                 }
                             }

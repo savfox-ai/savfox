@@ -57,7 +57,7 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
         div { class: "auth-container",
             div { class: "auth-card",
                 div { class: "auth-logo",
-                    img { src: SAVFOX_LOGO, alt: "Savfox", class: "auth-logo-img" }
+                    img { src: SAVFOX_LOGO, alt: "Savfox", class: "auth-logo-img", width: "48", height: "48" }
                 }
                 // Language switcher
                 div { class: "auth-lang-switcher",

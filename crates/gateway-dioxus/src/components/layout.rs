@@ -1,4 +1,9 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{
+    Bot, Brain, Bug, ChartBar, ChevronDown, ChevronRight, Clock, Ellipsis,
+    LayoutDashboard, MessageSquareText, Mic, Monitor, Moon, Network, PlugZap,
+    Radio, ScrollText, Server, Settings, ShieldCheck, Star, Sun, Volume2,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -547,6 +552,8 @@ pub fn Layout() -> Element {
                             class: "top-header__logo",
                             src: SAVFOX_LOGO,
                             alt: "Savfox Logo",
+                            width: "44",
+                            height: "44",
                         }
                         span { class: "top-header__title", "SAVFOX" }
                         span { class: "top-header__subtitle", {t("header.ai_assistant")} }
@@ -618,46 +625,21 @@ pub fn Layout() -> Element {
                                     title: "{theme_system}",
                                     aria_label: "{theme_system}",
                                     onclick: move |_| theme.set("system".to_string()),
-                                    svg {
-                                        width: "16", height: "16", view_box: "0 0 24 24",
-                                        fill: "none", stroke: "currentColor", stroke_width: "2",
-                                        stroke_linecap: "round", stroke_linejoin: "round",
-                                        rect { x: "2", y: "3", width: "20", height: "14", rx: "2", ry: "2" }
-                                        line { x1: "8", y1: "21", x2: "16", y2: "21" }
-                                        line { x1: "12", y1: "17", x2: "12", y2: "21" }
-                                    }
+                                    Monitor { size: 16 }
                                 }
                                 button {
                                     class: if theme() == "light" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
                                     title: "{theme_light}",
                                     aria_label: "{theme_light}",
                                     onclick: move |_| theme.set("light".to_string()),
-                                    svg {
-                                        width: "16", height: "16", view_box: "0 0 24 24",
-                                        fill: "none", stroke: "currentColor", stroke_width: "2",
-                                        stroke_linecap: "round", stroke_linejoin: "round",
-                                        circle { cx: "12", cy: "12", r: "5" }
-                                        line { x1: "12", y1: "1", x2: "12", y2: "3" }
-                                        line { x1: "12", y1: "21", x2: "12", y2: "23" }
-                                        line { x1: "4.22", y1: "4.22", x2: "5.64", y2: "5.64" }
-                                        line { x1: "18.36", y1: "18.36", x2: "19.78", y2: "19.78" }
-                                        line { x1: "1", y1: "12", x2: "3", y2: "12" }
-                                        line { x1: "21", y1: "12", x2: "23", y2: "12" }
-                                        line { x1: "4.22", y1: "19.78", x2: "5.64", y2: "18.36" }
-                                        line { x1: "18.36", y1: "5.64", x2: "19.78", y2: "4.22" }
-                                    }
+                                    Sun { size: 16 }
                                 }
                                 button {
                                     class: if theme() == "dark" { "top-header__theme-btn active" } else { "top-header__theme-btn" },
                                     title: "{theme_dark}",
                                     aria_label: "{theme_dark}",
                                     onclick: move |_| theme.set("dark".to_string()),
-                                    svg {
-                                        width: "16", height: "16", view_box: "0 0 24 24",
-                                        fill: "none", stroke: "currentColor", stroke_width: "2",
-                                        stroke_linecap: "round", stroke_linejoin: "round",
-                                        path { d: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" }
-                                    }
+                                    Moon { size: 16 }
                                 }
                             }
                         }
@@ -684,37 +666,37 @@ pub fn Layout() -> Element {
                     // Dashboard group
                     { nav_group_header(&t("nav.dashboard"), expanded_main(), move |_| expanded_main.toggle()) }
                     if expanded_main() {
-                        { nav_link(&current_route,Route::Overview {}, &t("nav.overview"), "\u{2302}") }
-                        { nav_link(&current_route,Route::Sessions {}, &t("nav.sessions"), "\u{00BB}") }
+                        { nav_link(&current_route,Route::Overview {}, &t("nav.overview"), rsx! { LayoutDashboard { size: 16 } }) }
+                        { nav_link(&current_route,Route::Sessions {}, &t("nav.sessions"), rsx! { MessageSquareText { size: 16 } }) }
                     }
 
                     // Manage group
                     { nav_group_header(&t("nav.manage"), expanded_manage(), move |_| expanded_manage.toggle()) }
                     if expanded_manage() {
-                        { nav_link(&current_route,Route::Agents {}, &t("nav.agents"), "&") }
-                        { nav_link(&current_route,Route::Models {}, &t("nav.models"), "M") }
-                        { nav_link(&current_route,Route::Channels {}, &t("nav.channels"), "\u{25CE}") }
-                        { nav_link(&current_route,Route::Cron {}, &t("nav.cron_jobs"), "\u{23F1}") }
-                        { nav_link(&current_route,Route::Skills {}, &t("nav.skills"), "\u{2605}") }
+                        { nav_link(&current_route,Route::Agents {}, &t("nav.agents"), rsx! { Bot { size: 16 } }) }
+                        { nav_link(&current_route,Route::Models {}, &t("nav.models"), rsx! { Brain { size: 16 } }) }
+                        { nav_link(&current_route,Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 16 } }) }
+                        { nav_link(&current_route,Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 16 } }) }
+                        { nav_link(&current_route,Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 16 } }) }
                     }
 
                     // Media group
                     { nav_group_header(&t("nav.media"), expanded_media(), move |_| expanded_media.toggle()) }
                     if expanded_media() {
-                        { nav_link(&current_route,Route::Tts {}, &t("nav.tts"), "\u{25B6}") }
-                        { nav_link(&current_route,Route::Voice {}, &t("nav.voice"), "\u{266A}") }
+                        { nav_link(&current_route,Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 16 } }) }
+                        { nav_link(&current_route,Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 16 } }) }
                     }
 
                     // System group
                     { nav_group_header(&t("nav.system"), expanded_system(), move |_| expanded_system.toggle()) }
                     if expanded_system() {
-                        { nav_link(&current_route,Route::Config {}, &t("nav.config"), "\u{2699}") }
-                        { nav_link(&current_route,Route::Instances {}, &t("nav.instances"), "\u{25CF}") }
-                        { nav_link(&current_route,Route::Logs {}, &t("nav.logs"), "\u{2630}") }
-                        { nav_link(&current_route,Route::Usage {}, &t("nav.usage"), "$") }
-                        { nav_link_with_badge(&current_route,Route::Approvals {}, &t("nav.approvals"), "!", approvals_count) }
-                        { nav_link(&current_route,Route::Nodes {}, &t("nav.nodes"), "\u{25CB}") }
-                        { nav_link(&current_route,Route::Debug {}, &t("nav.debug"), "?") }
+                        { nav_link(&current_route,Route::Config {}, &t("nav.config"), rsx! { Settings { size: 16 } }) }
+                        { nav_link(&current_route,Route::Instances {}, &t("nav.instances"), rsx! { Server { size: 16 } }) }
+                        { nav_link(&current_route,Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 16 } }) }
+                        { nav_link(&current_route,Route::Usage {}, &t("nav.usage"), rsx! { ChartBar { size: 16 } }) }
+                        { nav_link_with_badge(&current_route,Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 16 } }, approvals_count) }
+                        { nav_link(&current_route,Route::Nodes {}, &t("nav.nodes"), rsx! { Network { size: 16 } }) }
+                        { nav_link(&current_route,Route::Debug {}, &t("nav.debug"), rsx! { Bug { size: 16 } }) }
                     }
                 }
 
@@ -775,7 +757,7 @@ pub fn Layout() -> Element {
                         Link {
                             to: Route::Overview {},
                             class: if tab_overview_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
-                            span { class: "bottom-tab-bar__icon", "\u{2302}" }
+                            span { class: "bottom-tab-bar__icon", LayoutDashboard { size: 18 } }
                             span { class: "bottom-tab-bar__label", {t("nav.overview")} }
                         }
                     }
@@ -784,7 +766,7 @@ pub fn Layout() -> Element {
                         Link {
                             to: Route::Sessions {},
                             class: if tab_sessions_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
-                            span { class: "bottom-tab-bar__icon", "\u{00BB}" }
+                            span { class: "bottom-tab-bar__icon", MessageSquareText { size: 18 } }
                             span { class: "bottom-tab-bar__label", {t("nav.session")} }
                         }
                     }
@@ -793,7 +775,7 @@ pub fn Layout() -> Element {
                         Link {
                             to: Route::Agents {},
                             class: if tab_agents_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
-                            span { class: "bottom-tab-bar__icon", "&" }
+                            span { class: "bottom-tab-bar__icon", Bot { size: 18 } }
                             span { class: "bottom-tab-bar__label", {t("nav.agents")} }
                         }
                     }
@@ -802,7 +784,7 @@ pub fn Layout() -> Element {
                         Link {
                             to: Route::Channels {},
                             class: if tab_channels_active { "bottom-tab-bar__item active" } else { "bottom-tab-bar__item" },
-                            span { class: "bottom-tab-bar__icon", "\u{25CE}" }
+                            span { class: "bottom-tab-bar__icon", Radio { size: 18 } }
                             span { class: "bottom-tab-bar__label", {t("nav.channels")} }
                         }
                     }
@@ -814,7 +796,7 @@ pub fn Layout() -> Element {
                                 let current = more_open();
                                 more_open.set(!current);
                             },
-                            span { class: "bottom-tab-bar__icon", "\u{2026}" }
+                            span { class: "bottom-tab-bar__icon", Ellipsis { size: 18 } }
                             span { class: "bottom-tab-bar__label", {t("nav.more")} }
                         }
                     }
@@ -832,20 +814,20 @@ pub fn Layout() -> Element {
                 div { class: "more-sheet__handle" }
                 div { class: "more-sheet__title", {t("nav.navigation")} }
                 div { class: "more-sheet__nav",
-                    { more_sheet_link(&current_route, more_open, Route::Models {}, &t("nav.models"), "M") }
-                    { more_sheet_link(&current_route, more_open, Route::Channels {}, &t("nav.channels"), "\u{25CE}") }
-                    { more_sheet_link(&current_route, more_open, Route::Cron {}, &t("nav.cron_jobs"), "\u{23F1}") }
-                    { more_sheet_link(&current_route, more_open, Route::Config {}, &t("nav.config"), "\u{2699}") }
-                    { more_sheet_link(&current_route, more_open, Route::Instances {}, &t("nav.instances"), "\u{25CF}") }
-                    { more_sheet_link(&current_route, more_open, Route::Logs {}, &t("nav.logs"), "\u{2630}") }
-                    { more_sheet_link(&current_route, more_open, Route::Usage {}, &t("nav.usage"), "$") }
-                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, &t("nav.approvals"), "!") }
-                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, &t("nav.nodes"), "\u{25CB}") }
-                    { more_sheet_link(&current_route, more_open, Route::Skills {}, &t("nav.skills"), "\u{2605}") }
-                    { more_sheet_link(&current_route, more_open, Route::Tts {}, &t("nav.tts"), "\u{25B6}") }
-                    { more_sheet_link(&current_route, more_open, Route::Voice {}, &t("nav.voice"), "\u{266A}") }
-                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, &t("nav.connect_provider"), "\u{26A1}") }
-                    { more_sheet_link(&current_route, more_open, Route::Debug {}, &t("nav.debug"), "?") }
+                    { more_sheet_link(&current_route, more_open, Route::Models {}, &t("nav.models"), rsx! { Brain { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Config {}, &t("nav.config"), rsx! { Settings { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Instances {}, &t("nav.instances"), rsx! { Server { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Usage {}, &t("nav.usage"), rsx! { ChartBar { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, &t("nav.nodes"), rsx! { Network { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, &t("nav.connect_provider"), rsx! { PlugZap { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Debug {}, &t("nav.debug"), rsx! { Bug { size: 16 } }) }
                 }
             }
 
@@ -869,7 +851,6 @@ fn nav_group_header(
     is_expanded: bool,
     mut onclick: impl FnMut(MouseEvent) + 'static,
 ) -> Element {
-    let chevron = if is_expanded { "\u{25BE}" } else { "\u{25B8}" };
     let label_owned = label.to_string();
     rsx! {
         button {
@@ -877,7 +858,13 @@ fn nav_group_header(
             aria_expanded: "{is_expanded}",
             aria_label: "Toggle {label_owned} navigation group",
             onclick: move |e| onclick(e),
-            span { class: "nav-group-chevron", aria_hidden: "true", "{chevron}" }
+            span { class: "nav-group-chevron", aria_hidden: "true",
+                if is_expanded {
+                    ChevronDown { size: 14 }
+                } else {
+                    ChevronRight { size: 14 }
+                }
+            }
             "{label_owned}"
         }
     }
@@ -899,7 +886,7 @@ fn route_matches_section(current: &Route, target: &Route) -> bool {
     }
 }
 
-fn nav_link(current: &Route, target: Route, label: &str, icon: &str) -> Element {
+fn nav_link(current: &Route, target: Route, label: &str, icon: Element) -> Element {
     let is_active = route_matches_section(current, &target);
     let class = if is_active {
         "nav-link active"
@@ -912,7 +899,7 @@ fn nav_link(current: &Route, target: Route, label: &str, icon: &str) -> Element 
             to: target,
             class: "{class}",
             aria_current: if is_active { "page" } else { "" },
-            span { class: "nav-icon", aria_hidden: "true", "{icon}" }
+            span { class: "nav-icon", aria_hidden: "true", {icon} }
             "{label}"
         }
     }
@@ -922,7 +909,7 @@ fn nav_link_with_badge(
     current: &Route,
     target: Route,
     label: &str,
-    icon: &str,
+    icon: Element,
     badge_count: usize,
 ) -> Element {
     let is_active = *current == target;
@@ -944,7 +931,7 @@ fn nav_link_with_badge(
             class: "{class}",
             aria_label: "{aria}",
             aria_current: if is_active { "page" } else { "" },
-            span { class: "nav-icon", aria_hidden: "true", "{icon}" }
+            span { class: "nav-icon", aria_hidden: "true", {icon} }
             "{label}"
             if badge_count > 0 {
                 span {
@@ -963,7 +950,7 @@ fn more_sheet_link(
     mut more_open: Signal<bool>,
     target: Route,
     label: &str,
-    icon: &str,
+    icon: Element,
 ) -> Element {
     let is_active = route_matches_section(current, &target);
     let class = if is_active {
@@ -976,7 +963,7 @@ fn more_sheet_link(
         Link {
             to: target,
             class: "{class}",
-            span { class: "more-sheet__link-icon", "{icon}" }
+            span { class: "more-sheet__link-icon", {icon} }
             "{label}"
         }
     }

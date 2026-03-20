@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::Server;
 use serde_json::json;
 
 use crate::api::ws::WsRpc;
@@ -101,7 +102,7 @@ pub fn Instances() -> Element {
                 }
             } else if entries.is_empty() {
                 EmptyState {
-                    icon: "\u{25CF}".to_string(),
+                    icon: rsx! { Server { size: 20 } },
                     message: "No instances reported yet. Connected clients will appear here when they send presence beacons.".to_string(),
                 }
             } else {

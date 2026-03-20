@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{ArrowLeft, Check, Network, X};
 use serde_json::json;
 
 use crate::api::types::{
@@ -156,7 +157,7 @@ fn nodes_inner(initial_node: Option<String>) -> Element {
                         }
                     } else if nodes.is_empty() {
                         EmptyState {
-                            icon: "\u{25CB}".to_string(),
+                            icon: rsx! { Network { size: 20 } },
                             message: "No nodes connected".to_string(),
                         }
                     } else {
@@ -273,7 +274,8 @@ fn nodes_inner(initial_node: Option<String>) -> Element {
                 button {
                     class: "split-view__back",
                     onclick: move |_| show_detail.set(false),
-                    "\u{2190} Back"
+                    ArrowLeft { size: 14 }
+                    " Back"
                 }
                 if let Some(ref entry) = selected_entry {
                     { render_node_detail(ws.clone(), refresh_tick, entry, &selected_detail, &policy_matrix) }
@@ -523,18 +525,24 @@ fn render_node_detail(
                                         {
                                             let cat = category.clone();
                                             let is_allowed = *allowed;
-                                            let allow_mark = if is_allowed { "\u{2713}" } else { "" };
-                                            let deny_mark = if is_allowed { "" } else { "\u{2717}" };
                                             let allow_class = if is_allowed { "policy-matrix__cell policy-matrix__cell--active" } else { "policy-matrix__cell" };
                                             let deny_class = if is_allowed { "policy-matrix__cell" } else { "policy-matrix__cell policy-matrix__cell--active" };
                                             rsx! {
                                                 tr { key: "{cat}", class: "policy-matrix__row",
                                                     td { class: "policy-matrix__category", "{cat}" }
                                                     td { class: "{allow_class}",
-                                                        span { class: "policy-matrix__check", "{allow_mark}" }
+                                                        span { class: "policy-matrix__check",
+                                                            if is_allowed {
+                                                                Check { size: 14 }
+                                                            }
+                                                        }
                                                     }
                                                     td { class: "{deny_class}",
-                                                        span { class: "policy-matrix__cross", "{deny_mark}" }
+                                                        span { class: "policy-matrix__cross",
+                                                            if !is_allowed {
+                                                                X { size: 14 }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }

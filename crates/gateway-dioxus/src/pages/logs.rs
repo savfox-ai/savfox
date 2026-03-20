@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::ScrollText;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -221,7 +222,7 @@ pub fn Logs() -> Element {
                     }
                 } else if display_entries.is_empty() {
                     EmptyState {
-                        icon: "\u{2630}".to_string(),
+                        icon: rsx! { ScrollText { size: 20 } },
                         message: "No log entries match the current filters".to_string(),
                     }
                 } else {

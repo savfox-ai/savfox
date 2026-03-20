@@ -3,14 +3,14 @@ use dioxus::prelude::*;
 /// Empty state placeholder with icon, message, and optional action.
 #[component]
 pub fn EmptyState(
-    icon: String,
+    icon: Element,
     message: String,
     #[props(default = None)] action_label: Option<String>,
     #[props(default = None)] on_action: Option<EventHandler<()>>,
 ) -> Element {
     rsx! {
         div { class: "empty-state",
-            div { class: "empty-state__icon", "{icon}" }
+            div { class: "empty-state__icon", {icon} }
             p { class: "empty-state__message", "{message}" }
             if let (Some(label), Some(handler)) = (action_label.as_ref(), on_action.as_ref()) {
                 {

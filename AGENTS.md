@@ -130,6 +130,21 @@ savfox-cli / savfox-exec / savfox-tui
 - When you change `crates/gateway-dioxus` or `crates/gateway-shared`, verify the web build still succeeds and that the gateway can serve the updated static assets.
 - `crates/gateway-server/src/ws_rpc` carries a large compatibility-heavy JSON-RPC surface. Preserve existing method names and aliases unless the change explicitly intends to break or version the protocol.
 
+### Icons (Lucide)
+
+The web frontend (`gateway-dioxus`) uses [Lucide](https://lucide.dev) icons via the [`lucide-dioxus`](https://crates.io/crates/lucide-dioxus) crate (MIT license). This replaces all previous text/emoji/unicode character icons.
+
+- **Dependency**: `lucide-dioxus` with `all-icons` feature in workspace `Cargo.toml`.
+- **Usage**: Import individual icon components and use them in `rsx!`:
+  ```rust
+  use lucide_dioxus::{Home, Settings, Bot};
+  rsx! { Home { size: 16 } }
+  ```
+- **Props**: `size` (usize, default 24), `color` (String, default "currentColor"), `stroke_width` (usize, default 2), `class`, `style`.
+- **Convention**: Navigation icons use `size: 16`, page header icons use `size: 20`, inline status icons use `size: 14`.
+- **Do not** reintroduce text characters, unicode escapes, or emoji as icons. All new icons must use Lucide components.
+- Browse available icons at [lucide.dev/icons](https://lucide.dev/icons).
+
 ## Generated Artifacts
 
 - If you change config schema-bearing types in `savfox-core` or `savfox-config`, regenerate `crates/core/config.schema.json`:

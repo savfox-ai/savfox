@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::Plus;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
@@ -466,7 +467,7 @@ pub fn ChatInput(
                             class: "chat-icon-btn chat-icon-btn-attach",
                             title: "{chat_attach}",
                             aria_label: "{chat_attach}",
-                            "+"
+                            Plus { size: 16 }
                         }
                         div { class: "chat-agent-select-wrap",
                             select {

@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{ChevronDown, ChevronRight};
 
 #[component]
 pub fn CollapsibleGroup(
@@ -14,7 +15,6 @@ pub fn CollapsibleGroup(
     // If externally controlled, sync signal
     let effective_open = is_open.unwrap_or_else(|| open());
 
-    let chevron = if effective_open { "▾" } else { "▸" };
     let count_label = count.map(|c| format!(" ({c})")).unwrap_or_default();
 
     rsx! {
@@ -30,7 +30,9 @@ pub fn CollapsibleGroup(
                         handler.call(new_state);
                     }
                 },
-                span { class: "collapsible-group__chevron", aria_hidden: "true", "{chevron}" }
+                span { class: "collapsible-group__chevron", aria_hidden: "true",
+                    if effective_open { ChevronDown { size: 14 } } else { ChevronRight { size: 14 } }
+                }
                 span { class: "collapsible-group__title", "{title}{count_label}" }
             }
             if effective_open {

@@ -25,14 +25,14 @@ body[data-theme="dark"] {
   --button-soft-shadow: 0 8px 18px rgba(12, 4, 6, 0.16);
   --button-soft-shadow-hover: 0 12px 24px rgba(12, 4, 6, 0.22);
   --button-highlight: rgba(255, 255, 255, 0.08);
-  --button-primary-surface: linear-gradient(135deg, #ff9580 0%, #ef6f74 58%, #d95f6c 100%);
-  --button-primary-surface-hover: linear-gradient(135deg, #ff8c7b 0%, #ea6871 58%, #cf5865 100%);
-  --button-primary-shadow: 0 12px 26px rgba(239, 107, 111, 0.24);
-  --button-primary-shadow-hover: 0 16px 32px rgba(239, 107, 111, 0.30);
-  --button-cta-surface: linear-gradient(135deg, #ff9580 0%, #ef6f74 58%, #d95f6c 100%);
-  --button-cta-surface-hover: linear-gradient(135deg, #ff8c7b 0%, #ea6871 58%, #cf5865 100%);
-  --button-cta-shadow: 0 12px 26px rgba(239, 107, 111, 0.24);
-  --button-cta-shadow-hover: 0 16px 32px rgba(239, 107, 111, 0.30);
+  --button-primary-surface: linear-gradient(135deg, #e8857a 0%, #d8636a 58%, #c45360 100%);
+  --button-primary-surface-hover: linear-gradient(135deg, #e37e74 0%, #d25d64 58%, #be4e5a 100%);
+  --button-primary-shadow: 0 12px 26px rgba(216, 99, 106, 0.24);
+  --button-primary-shadow-hover: 0 16px 32px rgba(216, 99, 106, 0.30);
+  --button-cta-surface: linear-gradient(135deg, #e8857a 0%, #d8636a 58%, #c45360 100%);
+  --button-cta-surface-hover: linear-gradient(135deg, #e37e74 0%, #d25d64 58%, #be4e5a 100%);
+  --button-cta-shadow: 0 12px 26px rgba(216, 99, 106, 0.24);
+  --button-cta-shadow-hover: 0 16px 32px rgba(216, 99, 106, 0.30);
   --button-success-surface: linear-gradient(180deg, #35cf6f 0%, #22c55e 100%);
   --button-success-surface-hover: linear-gradient(180deg, #2dc467 0%, #1fa552 100%);
   --button-success-shadow: 0 10px 20px rgba(34, 197, 94, 0.16);
@@ -498,7 +498,7 @@ code, pre {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   transition: color var(--transition-fast) ease;
@@ -542,10 +542,12 @@ code, pre {
 }
 
 .nav-icon {
-  font-family: var(--font-mono);
-  font-size: 16px;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .nav-badge {
@@ -960,9 +962,12 @@ code, pre {
 }
 
 .config-nav__icon {
-  font-size: 16px;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .config-sidebar__footer {
@@ -1122,7 +1127,10 @@ code, pre {
 }
 
 .config-section-card__icon {
-  font-size: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .config-section-card__titles {
@@ -5251,9 +5259,9 @@ body[data-theme="dark"]::after {
 body[data-theme="dark"] .tab-bar__item.active,
 body[data-theme="dark"] .config-mode-toggle__btn.active,
 body[data-theme="dark"] .cfg-segmented__btn.active {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-ember) 18%, var(--surface-flat-strong) 82%) 0%, color-mix(in srgb, var(--accent) 22%, var(--surface-flat) 78%) 58%, color-mix(in srgb, #b24c58 24%, var(--surface-flat) 76%) 100%);
-  color: color-mix(in srgb, var(--accent-pearl) 92%, white 8%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 16px rgba(114, 55, 70, 0.18);
+  background: var(--button-primary-surface);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
 }
 
 :is(

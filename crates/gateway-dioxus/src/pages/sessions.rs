@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use lucide_dioxus::X;
 use savfox_gateway_shared::{derive_session_label, is_internal_session_message};
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
@@ -761,7 +762,7 @@ pub fn Sessions() -> Element {
                                                             onclick: move |_| confirm_delete_id.set(Some(sid_for_confirm.clone())),
                                                             title: "Delete session",
                                                             aria_label: "Delete session",
-                                                            "\u{00d7}"
+                                                            X { size: 14 }
                                                         }
                                                     }
                                                 }

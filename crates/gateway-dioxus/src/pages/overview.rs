@@ -1631,7 +1631,7 @@ const STYLE: &str = r#"
     .ov-action-btn {
         min-height: 40px;
         padding: 0 18px;
-        border-radius: 999px;
+        border-radius: var(--radius);
         border: 1px solid color-mix(in srgb, var(--surface-stroke) 66%, transparent);
         background: var(--surface-panel-soft);
         color: color-mix(in srgb, var(--text-secondary) 88%, var(--ornament) 12%);

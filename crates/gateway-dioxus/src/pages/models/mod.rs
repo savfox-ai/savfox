@@ -3,6 +3,7 @@ pub mod connect_provider;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use lucide_dioxus::{ChevronDown, ChevronRight, Search};
 use serde_json::json;
 
 use crate::api::types::{ModelInfo, ModelsResponse};
@@ -238,7 +239,7 @@ pub fn Models() -> Element {
                         }
                     }
                     div { class: "models-search",
-                        span { class: "models-search__icon", "⌕" }
+                        span { class: "models-search__icon", Search { size: 14 } }
                         input {
                             class: "models-search__input",
                             value: "{search}",
@@ -274,7 +275,7 @@ pub fn Models() -> Element {
                         }
                     } else if grouped_models.is_empty() && total_models == 0 && query.is_empty() {
                         EmptyState {
-                            icon: "M".to_string(),
+                            icon: rsx! { "M" },
                             message: "No models configured. Connect a provider to get started.".to_string(),
                             action_label: "Connect Provider".to_string(),
                             on_action: move |_| {
@@ -402,7 +403,11 @@ pub fn Models() -> Element {
                                                                     }
                                                                     span {
                                                                         class: "models-row__chevron",
-                                                                        if is_expanded { "▾" } else { "▸" }
+                                                                        if is_expanded {
+                                                                            ChevronDown { size: 14 }
+                                                                        } else {
+                                                                            ChevronRight { size: 14 }
+                                                                        }
                                                                     }
                                                                 }
                                                                 if show_meta {

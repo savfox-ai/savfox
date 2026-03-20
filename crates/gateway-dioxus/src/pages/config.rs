@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use lucide_dioxus::{
+    BookOpen, Bot, Brain, Clock, ClipboardList, Download, Globe, Grid2X2, Image,
+    Link as LucideLink, Lock, Mail, MessageCircle, Mic, Plug, PlugZap, Save,
+    Search, Settings, Star, Terminal, TriangleAlert, Volume2, Wrench,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wasm_bindgen::JsCast;
@@ -293,7 +298,6 @@ struct SectionMeta {
     key: &'static str,
     label: &'static str,
     description: &'static str,
-    icon: &'static str,
     help: &'static str,
 }
 
@@ -302,157 +306,166 @@ const SECTIONS: &[SectionMeta] = &[
         key: "env",
         label: "Environment",
         description: "Environment variables passed to the gateway process",
-        icon: "⚙",
+
         help: "Key-value pairs injected as environment variables when the gateway starts",
     },
     SectionMeta {
         key: "update",
         label: "Updates",
         description: "Auto-update settings and release channel",
-        icon: "⬇",
+
         help: "Configure automatic update checks, release channel (stable/beta), and update schedule",
     },
     SectionMeta {
         key: "agents",
         label: "Agents",
         description: "Agent configurations, models, and identities",
-        icon: "🤖",
         help: "Define agents with system prompts, model assignments, and personality settings",
     },
     SectionMeta {
         key: "auth",
         label: "Authentication",
         description: "API keys and authentication profiles",
-        icon: "🔐",
         help: "Manage API keys for external services and gateway access control",
     },
     SectionMeta {
         key: "channels",
         label: "Channels",
         description: "Messaging channels (Telegram, Discord, etc.)",
-        icon: "💬",
         help: "Configure messaging platform connections and their credentials",
     },
     SectionMeta {
         key: "messages",
         label: "Messages",
         description: "Message handling and routing settings",
-        icon: "✉",
         help: "Set message formatting, context windows, and default routing behavior",
     },
     SectionMeta {
         key: "commands",
         label: "Commands",
         description: "Custom slash commands",
-        icon: "⌘",
         help: "Register custom slash commands that users can invoke in chat",
     },
     SectionMeta {
         key: "hooks",
         label: "Hooks",
         description: "Webhooks and event hooks",
-        icon: "🔗",
         help: "Configure webhook endpoints and event-driven automation triggers",
     },
     SectionMeta {
         key: "skills",
         label: "Skills",
         description: "Skill packs and capabilities",
-        icon: "★",
         help: "Enable or disable skill packs that extend agent capabilities",
     },
     SectionMeta {
         key: "tools",
         label: "Tools",
         description: "Tool configurations (browser, search, etc.)",
-        icon: "🔧",
         help: "Configure tool integrations like web browser, search engines, and code execution",
     },
     SectionMeta {
         key: "gateway",
         label: "Gateway",
         description: "Gateway server settings (port, auth, binding)",
-        icon: "🌐",
         help: "Set the HTTP server port, bind address, TLS, and authentication for the gateway API",
     },
     SectionMeta {
         key: "wizard",
         label: "Connect Provider",
         description: "Setup wizard state and history",
-        icon: "🧙",
         help: "Tracks the provider connection wizard progress and stored credentials",
     },
     SectionMeta {
         key: "logging",
         label: "Logging",
         description: "Log levels and output configuration",
-        icon: "📋",
         help: "Set log verbosity levels and output destinations (file, console, remote)",
     },
     SectionMeta {
         key: "browser",
         label: "Browser",
         description: "Browser automation settings",
-        icon: "🔍",
         help: "Configure headless browser settings for web scraping and automation tools",
     },
     SectionMeta {
         key: "models",
         label: "Models",
         description: "AI model configurations and providers",
-        icon: "🧠",
         help: "Register AI model providers and set default models for different tasks",
     },
     SectionMeta {
         key: "audio",
         label: "Audio",
         description: "Audio input/output settings",
-        icon: "🔊",
         help: "Configure audio devices, sample rates, and voice activity detection",
     },
     SectionMeta {
         key: "cron",
         label: "Cron Jobs",
         description: "Scheduled tasks and automation",
-        icon: "⏰",
         help: "Define recurring scheduled tasks using cron expressions",
     },
     SectionMeta {
         key: "session",
         label: "Session",
         description: "Session management and persistence",
-        icon: "💾",
         help: "Configure session timeouts, persistence backend, and context retention",
     },
     SectionMeta {
         key: "canvasHost",
         label: "Canvas Host",
         description: "Canvas rendering and display",
-        icon: "🖼",
         help: "Settings for the canvas rendering engine used for visual outputs",
     },
     SectionMeta {
         key: "talk",
         label: "Talk",
         description: "Voice and speech settings",
-        icon: "🎤",
         help: "Configure text-to-speech, speech-to-text, and voice interaction settings",
     },
     SectionMeta {
         key: "plugins",
         label: "Plugins",
         description: "Plugin management and extensions",
-        icon: "🔌",
         help: "Install, enable, and configure third-party plugins that extend gateway functionality",
     },
     SectionMeta {
         key: "memory",
         label: "Memory",
         description: "Memory and knowledge storage",
-        icon: "📚",
         help: "Configure long-term memory storage, vector databases, and knowledge retrieval",
     },
 ];
+
+/// Map section key to Lucide icon element.
+fn section_icon_el(key: &str, size: usize) -> Element {
+    match key {
+        "env" => rsx! { Settings { size } },
+        "update" => rsx! { Download { size } },
+        "agents" => rsx! { Bot { size } },
+        "auth" => rsx! { Lock { size } },
+        "channels" => rsx! { MessageCircle { size } },
+        "messages" => rsx! { Mail { size } },
+        "commands" => rsx! { Terminal { size } },
+        "hooks" => rsx! { LucideLink { size } },
+        "skills" => rsx! { Star { size } },
+        "tools" => rsx! { Wrench { size } },
+        "gateway" => rsx! { Globe { size } },
+        "wizard" => rsx! { PlugZap { size } },
+        "logging" => rsx! { ClipboardList { size } },
+        "browser" => rsx! { Search { size } },
+        "models" => rsx! { Brain { size } },
+        "audio" => rsx! { Volume2 { size } },
+        "cron" => rsx! { Clock { size } },
+        "session" => rsx! { Save { size } },
+        "canvasHost" => rsx! { Image { size } },
+        "talk" => rsx! { Mic { size } },
+        "plugins" => rsx! { Plug { size } },
+        "memory" => rsx! { BookOpen { size } },
+        _ => rsx! { Settings { size } },
+    }
+}
 
 // ============== Main Component ==============
 
@@ -604,7 +617,7 @@ fn config_inner(active_section: Option<String>) -> Element {
 
                 // Search
                 div { class: "config-search",
-                    span { class: "config-search__icon", "🔍" }
+                    span { class: "config-search__icon", Search { size: 14 } }
                     input {
                         r#type: "text",
                         class: "config-search__input",
@@ -619,7 +632,7 @@ fn config_inner(active_section: Option<String>) -> Element {
                     Link {
                         to: crate::route::Route::Config {},
                         class: if active_section.is_none() { "config-nav__item active" } else { "config-nav__item" },
-                        span { class: "config-nav__icon", "⊞" }
+                        span { class: "config-nav__icon", Grid2X2 { size: 16 } }
                         span { class: "config-nav__label", "All Settings" }
                     }
                     for section in available_sections.iter() {
@@ -636,7 +649,7 @@ fn config_inner(active_section: Option<String>) -> Element {
                                         key: "{section.key}",
                                         to: crate::route::Route::ConfigSection { section: key },
                                         class: if is_active { "config-nav__item active" } else { "config-nav__item" },
-                                        span { class: "config-nav__icon", "{section.icon}" }
+                                        span { class: "config-nav__icon", {section_icon_el(section.key, 16)} }
                                         span { class: "config-nav__label", "{section.label}" }
                                     }
                                 }
@@ -851,7 +864,9 @@ fn config_inner(active_section: Option<String>) -> Element {
                                     }
                                     if let Some(ref err_text) = toml_error() {
                                         div { class: "config-raw__error",
-                                            span { class: "config-raw__error-icon", "!" }
+                                            span { class: "config-raw__error-icon",
+                                                TriangleAlert { size: 16 }
+                                            }
                                             pre { class: "config-raw__error-msg", "{err_text}" }
                                         }
                                     }
@@ -972,7 +987,7 @@ fn render_form(
                             section_key: section_key,
                             section_label: section.label.to_string(),
                             section_desc: section.description.to_string(),
-                            section_icon: section.icon.to_string(),
+                            section_icon: section.key.to_string(),
                             section_help: section.help.to_string(),
                             section_schema: section_schema.unwrap_or(json!({})),
                             section_val: section_val.unwrap_or(json!({})),
@@ -1027,7 +1042,7 @@ fn SectionCard(
     rsx! {
         section { class: "config-section-card",
             div { class: "config-section-card__header",
-                span { class: "config-section-card__icon", "{section_icon}" }
+                span { class: "config-section-card__icon", {section_icon_el(&section_icon, 20)} }
                 div { class: "config-section-card__titles",
                     h3 { class: "config-section-card__title",
                         "{section_label}"

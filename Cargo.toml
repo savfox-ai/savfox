@@ -346,6 +346,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
+lucide-dioxus = { version = "2", features = ["all-icons"] }
 
 # Compress
 brotli = { version = "8", default-features = false }

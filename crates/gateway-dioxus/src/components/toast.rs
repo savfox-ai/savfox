@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{CircleCheck, CircleX, TriangleAlert, Info};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastVariant {
@@ -91,19 +92,21 @@ pub fn ToastContainer() -> Element {
                         ToastVariant::Warning => "toast toast--warning",
                         ToastVariant::Info => "toast toast--info",
                     };
-                    let icon = match toast.variant {
-                        ToastVariant::Success => "OK",
-                        ToastVariant::Error => "!!",
-                        ToastVariant::Warning => "!",
-                        ToastVariant::Info => "i",
-                    };
                     let id = toast.id;
                     let mut toaster = toaster;
+                    let variant = toast.variant.clone();
                     rsx! {
                         div {
                             key: "{id}",
                             class: "{variant_class}",
-                            span { class: "toast__icon", "{icon}" }
+                            span { class: "toast__icon",
+                                match variant {
+                                    ToastVariant::Success => rsx! { CircleCheck { size: 16 } },
+                                    ToastVariant::Error => rsx! { CircleX { size: 16 } },
+                                    ToastVariant::Warning => rsx! { TriangleAlert { size: 16 } },
+                                    ToastVariant::Info => rsx! { Info { size: 16 } },
+                                }
+                            }
                             span { class: "toast__message", "{toast.message}" }
                             button {
                                 class: "toast__close",

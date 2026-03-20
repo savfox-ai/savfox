@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::CircleQuestionMark;
 
 /// Tooltip position relative to the trigger.
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -32,12 +33,14 @@ pub fn Tooltip(
     }
 }
 
-/// A small "?" help icon that shows a tooltip on hover.
+/// A small help icon that shows a tooltip on hover.
 #[component]
 pub fn HelpTip(text: String, #[props(default)] position: TooltipPosition) -> Element {
     rsx! {
         Tooltip { text, position,
-            span { class: "tooltip-trigger", tabindex: "0", "?" }
+            span { class: "tooltip-trigger", tabindex: "0",
+                CircleQuestionMark { size: 14 }
+            }
         }
     }
 }

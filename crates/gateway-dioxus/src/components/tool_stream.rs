@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use lucide_dioxus::{Loader, Settings, CircleCheck, CircleX, ChevronDown, ChevronRight};
 use serde::{Deserialize, Serialize};
 
 /// A single tool invocation entry.
@@ -44,27 +45,27 @@ pub fn ToolStream(calls: Vec<ToolCall>) -> Element {
 #[component]
 fn ToolCallEntry(call: ToolCall) -> Element {
     let mut expanded = use_signal(|| false);
-    let status_icon = match &call.status {
-        ToolStatus::Pending => "\u{23f3}",
-        ToolStatus::Running => "\u{2699}\u{fe0f}",
-        ToolStatus::Completed => "\u{2705}",
-        ToolStatus::Failed => "\u{274c}",
-    };
-
     rsx! {
         div {
             style: "border-top: 1px solid var(--border, #333); padding: 8px 12px; cursor: pointer;",
             onclick: move |_| expanded.set(!expanded()),
             div {
                 style: "display: flex; align-items: center; gap: 8px;",
-                span { "{status_icon}" }
+                span {
+                    match &call.status {
+                        ToolStatus::Pending => rsx! { Loader { size: 14 } },
+                        ToolStatus::Running => rsx! { Settings { size: 14 } },
+                        ToolStatus::Completed => rsx! { CircleCheck { size: 14 } },
+                        ToolStatus::Failed => rsx! { CircleX { size: 14 } },
+                    }
+                }
                 span {
                     style: "font-family: monospace; font-size: 0.85em; font-weight: 500;",
                     "{call.name}"
                 }
                 span {
                     style: "margin-left: auto; font-size: 0.75em; color: var(--text-muted, #666);",
-                    if expanded() { "\u{25bc}" } else { "\u{25b6}" }
+                    if expanded() { ChevronDown { size: 14 } } else { ChevronRight { size: 14 } }
                 }
             }
             if expanded() {

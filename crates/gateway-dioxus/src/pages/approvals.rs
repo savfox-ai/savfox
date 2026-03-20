@@ -142,7 +142,7 @@ pub fn Approvals() -> Element {
 
                 if pending.is_empty() {
                     EmptyState {
-                        icon: "!".to_string(),
+                        icon: rsx! { "!" },
                         message: "No pending approvals".to_string(),
                     }
                 } else {

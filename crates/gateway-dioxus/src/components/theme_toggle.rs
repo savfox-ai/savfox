@@ -1,5 +1,6 @@
 use dioxus::document::eval;
 use dioxus::prelude::*;
+use lucide_dioxus::{Sun, Moon};
 
 /// Toggle between dark and light themes.
 #[component]
@@ -21,7 +22,7 @@ pub fn ThemeToggle() -> Element {
             style: "background: none; border: 1px solid var(--border, #444); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 1.1em; color: var(--text-primary, #ddd);",
             onclick: toggle,
             title: if is_dark() { "Switch to light mode" } else { "Switch to dark mode" },
-            if is_dark() { "\u{2600}\u{fe0f}" } else { "\u{1f319}" }
+            if is_dark() { Sun { size: 16 } } else { Moon { size: 16 } }
         }
     }
 }
