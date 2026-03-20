@@ -231,7 +231,7 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 min-height: 46px;
                 padding: 12px 18px;
                 margin-top: 16px;
-                background: var(--button-primary-surface);
+                background: var(--button-cta-surface);
                 color: #fff;
                 border: none;
                 border-radius: 999px;
@@ -239,13 +239,13 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 letter-spacing: 0.04em;
                 font-size: 14px;
                 cursor: pointer;
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
                 transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease, background 0.15s ease;
             }
 
             .auth-btn:hover:not(.disabled) {
-                background: var(--button-primary-surface-hover);
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow-hover);
+                background: var(--button-cta-surface-hover);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
                 transform: translateY(-1px);
             }
             

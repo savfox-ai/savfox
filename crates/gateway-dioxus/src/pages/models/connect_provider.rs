@@ -1818,12 +1818,15 @@ const WIZARD_STYLES: &str = r#"
     }
 
     .wiz-btn--primary {
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .wiz-btn--primary:hover:not(:disabled) {
-        opacity: 0.9;
+        opacity: 1;
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .wiz-btn--secondary {

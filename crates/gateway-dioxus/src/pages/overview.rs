@@ -1035,15 +1035,17 @@ const STYLE: &str = r#"
     }
 
     .ov-action-btn--primary {
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
-        border-color: var(--accent);
+        border-color: transparent;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .ov-action-btn--primary:hover {
-        opacity: 0.9;
-        background: var(--accent);
+        opacity: 1;
+        background: var(--button-cta-surface-hover);
         color: #fff;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .ov-action-btn--link {
@@ -1646,14 +1648,14 @@ const STYLE: &str = r#"
 
     .ov-action-btn--primary {
         border-color: transparent;
-        background: var(--button-primary-surface);
+        background: var(--button-cta-surface);
         color: #fff;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .ov-action-btn--primary:hover {
-        background: var(--button-primary-surface-hover);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow-hover);
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .stat-card,

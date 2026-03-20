@@ -3924,13 +3924,16 @@ const CHANNELS_STYLES: &str = r#"
     }
 
     .channels-btn--primary {
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
-        border-color: var(--accent);
+        border-color: transparent;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .channels-btn--primary:hover {
-        opacity: 0.9;
+        opacity: 1;
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .channels-action-btn {
@@ -3958,13 +3961,16 @@ const CHANNELS_STYLES: &str = r#"
     }
 
     .channels-action-btn--primary {
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
-        border-color: var(--accent);
+        border-color: transparent;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .channels-action-btn--primary:hover {
-        opacity: 0.9;
+        opacity: 1;
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .channels-action-btn--configured {

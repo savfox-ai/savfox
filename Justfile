@@ -8,6 +8,8 @@ set windows-shell := ["pwsh", "-NoProfile", "-Command"]
 # Default values — override with: just port=9000 token=mytoken gateway
 port  := "18881"
 token := "test123"
+dev_backend_port := "18881"
+frontend_port := "18080"
 
 # ── Gateway ─────────────────────────────────────────────────────────────────
 
@@ -25,6 +27,10 @@ gateway-release:
 gateway-skip-web:
     cargo run --bin savfox -- gateway --port {{port}} --token {{token}}
 
+# Run the gateway backend only, on the fixed dev port expected by the Dioxus proxy config
+gateway-backend:
+    cargo run --bin savfox -- gateway --port {{dev_backend_port}} --token {{token}}
+
 # ── Web frontend ─────────────────────────────────────────────────────────────
 
 # One-shot web build (debug)
@@ -37,7 +43,11 @@ web-build-release:
 
 # Live-reload web frontend (run alongside `just gateway-skip-web` in another terminal)
 web-serve:
-    Push-Location crates/gateway-dioxus; dx serve --web; Pop-Location
+    Push-Location crates/gateway-dioxus; dx serve --web --port {{frontend_port}} --open false; Pop-Location
+
+# Live-reload Dioxus frontend with dev-server proxying /api, /health, and /ws to the local gateway backend
+gateway-frontend:
+    Push-Location crates/gateway-dioxus; dx serve --web --port {{frontend_port}} --open false; Pop-Location
 
 # ── General Cargo ─────────────────────────────────────────────────────────────
 

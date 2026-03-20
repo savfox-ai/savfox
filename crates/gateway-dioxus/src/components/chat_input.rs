@@ -754,16 +754,16 @@ const CHAT_INPUT_STYLES: &str = r#"
     }
 
     .chat-icon-btn-send {
-        background: var(--button-primary-surface);
+        background: var(--button-cta-surface);
         border-color: transparent;
         color: #fff;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .chat-icon-btn-send:hover:not(.disabled) {
-        background: var(--button-primary-surface-hover);
+        background: var(--button-cta-surface-hover);
         border-color: transparent;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .chat-icon-btn-stop {

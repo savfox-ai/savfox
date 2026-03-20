@@ -54,6 +54,8 @@ just fmt
 just gateway
 just gateway-release
 just gateway-skip-web
+just gateway-backend
+just gateway-frontend
 just web-build
 just web-build-release
 just web-serve
@@ -62,7 +64,9 @@ just web-serve
 Notes:
 
 - `just gateway` and `just gateway-release` run `scripts/build-web.ps1` before starting the gateway.
-- `just web-serve` is the live Dioxus frontend loop and is meant to run alongside `just gateway-skip-web`.
+- `just gateway-backend` runs only the gateway server on the fixed dev port `18881` and is meant to pair with `just gateway-frontend`.
+- `just gateway-frontend` runs `dx serve --web` for the Dioxus app; its dev server proxies `/api`, `/health`, and `/ws` back to the local gateway backend on port `18881`.
+- `just gateway-skip-web` and `just web-serve` remain available as compatibility aliases for the split backend/frontend dev loop.
 
 ## Workspace Architecture
 

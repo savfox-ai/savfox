@@ -1026,21 +1026,21 @@ const SESSION_STYLES: &str = r#"
         padding: 7px 16px;
         border: none;
         border-radius: var(--radius);
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
         transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
         letter-spacing: 0.01em;
     }
 
     .session-list-new-btn:hover {
-        background: color-mix(in srgb, var(--accent) 85%, #000 15%);
+        background: var(--button-cta-surface-hover);
         color: #fff;
         transform: translateY(-0.5px);
-        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .session-list-scroll {

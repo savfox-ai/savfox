@@ -544,19 +544,21 @@ const LOGS_STYLES: &str = r#"
         left: 50%;
         transform: translateX(-50%);
         padding: 6px 16px;
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
         border: none;
         border-radius: 20px;
         font-size: 12px;
         cursor: pointer;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
         z-index: 10;
-        transition: opacity 0.2s;
+        transition: opacity 0.2s, background 0.15s ease, box-shadow 0.15s ease;
     }
 
     .logs-jump-btn:hover {
-        opacity: 0.9;
+        opacity: 1;
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     @media screen and (max-width: 768px) {

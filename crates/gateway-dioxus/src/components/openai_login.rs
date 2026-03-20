@@ -666,8 +666,9 @@ const OPENAI_LOGIN_STYLES: &str = r#"
     }
 
     .openai-login__btn--primary {
-        background: var(--accent);
+        background: var(--button-cta-surface);
         color: #fff;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
     }
 
     .openai-login__btn--secondary {
@@ -677,7 +678,12 @@ const OPENAI_LOGIN_STYLES: &str = r#"
     }
 
     .openai-login__btn:not(:disabled):hover {
-        opacity: 0.9;
+        opacity: 1;
+    }
+
+    .openai-login__btn--primary:not(:disabled):hover {
+        background: var(--button-cta-surface-hover);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
     }
 
     .openai-login__success-icon {
