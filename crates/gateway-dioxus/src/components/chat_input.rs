@@ -681,17 +681,21 @@ const CHAT_INPUT_STYLES: &str = r#"
         height: 38px;
         border-radius: 10px;
         border: 1px solid var(--border);
-        background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
+        background: var(--button-surface);
         color: var(--text-primary);
         padding: 0 12px;
         font-size: 12px;
         font-weight: 500;
         white-space: nowrap;
         cursor: pointer;
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow);
     }
 
     .chat-effort-btn:hover {
-        background: var(--bg-hover);
+        background: var(--button-surface-hover);
+        border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
+        transform: translateY(-1px);
     }
 
     .chat-input-actions-right {
@@ -717,8 +721,15 @@ const CHAT_INPUT_STYLES: &str = r#"
         justify-content: center;
         font-size: 20px;
         line-height: 1;
-        transition: transform 0.14s ease, opacity 0.14s ease, border-color 0.14s ease;
+        transition: transform 0.14s ease, opacity 0.14s ease, border-color 0.14s ease, box-shadow 0.2s ease, background 0.14s ease;
         user-select: none;
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow);
+    }
+
+    .chat-icon-btn:hover {
+        border-color: color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
+        transform: translateY(-1px);
     }
 
     .chat-icon-btn:active {
@@ -726,21 +737,35 @@ const CHAT_INPUT_STYLES: &str = r#"
     }
 
     .chat-icon-btn-attach {
-        background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
+        background: var(--button-surface);
         color: var(--text-primary);
     }
 
     .chat-icon-btn-send {
-        background: var(--accent);
-        border-color: var(--accent);
+        background: var(--button-primary-surface);
+        border-color: transparent;
         color: #fff;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
+    }
+
+    .chat-icon-btn-send:hover:not(.disabled) {
+        background: var(--button-primary-surface-hover);
+        border-color: transparent;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow-hover);
     }
 
     .chat-icon-btn-stop {
-        background: var(--danger);
-        border-color: var(--danger);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 84%, white 16%) 0%, var(--danger) 100%);
+        border-color: transparent;
         color: #fff;
         font-size: 14px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 24px color-mix(in srgb, var(--danger) 24%, transparent);
+    }
+
+    .chat-icon-btn-stop:hover {
+        background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 78%, white 22%) 0%, color-mix(in srgb, var(--danger) 90%, black 10%) 100%);
+        border-color: transparent;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 14px 30px color-mix(in srgb, var(--danger) 30%, transparent);
     }
 
     .chat-icon-btn-send.disabled {

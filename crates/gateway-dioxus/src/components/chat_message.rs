@@ -723,7 +723,7 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     }
 
     .canvas-artifact__btn {
-        background: var(--bg-primary);
+        background: var(--button-surface);
         border: 1px solid var(--border);
         border-radius: 6px;
         color: var(--text-secondary);
@@ -731,13 +731,16 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         font-weight: 500;
         padding: 4px 10px;
         cursor: pointer;
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow);
         transition: all 0.2s ease;
     }
 
     .canvas-artifact__btn:hover {
-        background: var(--bg-hover);
+        background: var(--button-surface-hover);
         color: var(--text-primary);
-        border-color: color-mix(in srgb, var(--border) 80%, var(--accent) 20%);
+        border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
+        box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
+        transform: translateY(-1px);
     }
 
     .canvas-artifact__frame {

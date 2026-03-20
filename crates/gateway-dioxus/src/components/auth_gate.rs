@@ -178,14 +178,21 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 width: 100%;
                 padding: 12px 14px;
                 margin-top: 16px;
-                background: var(--accent);
+                background: var(--button-primary-surface);
                 color: #fff;
                 border: none;
                 border-radius: var(--radius);
                 font-weight: 500;
                 font-size: 14px;
                 cursor: pointer;
-                transition: opacity 0.15s ease, transform 0.15s ease;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
+                transition: opacity 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease, background 0.15s ease;
+            }
+
+            .auth-btn:hover:not(.disabled) {
+                background: var(--button-primary-surface-hover);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow-hover);
+                transform: translateY(-1px);
             }
             
             .auth-btn:active {
@@ -242,22 +249,27 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 padding: 4px 12px;
                 border: 1px solid var(--border);
                 border-radius: 6px;
-                background: transparent;
+                background: var(--button-surface);
                 color: var(--text-secondary);
                 font-size: 13px;
                 cursor: pointer;
+                box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow);
                 transition: all 0.15s ease;
             }
 
             .auth-lang-btn:hover {
-                border-color: var(--accent);
+                background: var(--button-surface-hover);
+                border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
                 color: var(--text-primary);
+                box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
+                transform: translateY(-1px);
             }
 
             .auth-lang-btn.active {
-                background: var(--accent);
-                border-color: var(--accent);
+                background: var(--button-primary-surface);
+                border-color: transparent;
                 color: #fff;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
             }
 
             @media (hover: none) and (pointer: coarse) {
