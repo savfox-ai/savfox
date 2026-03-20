@@ -547,50 +547,55 @@ pub fn ChatInput(
 
 const CHAT_INPUT_STYLES: &str = r#"
     .chat-input-area {
-        border-top: 1px solid var(--border);
+        border-top: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
         background: linear-gradient(
             180deg,
-            color-mix(in srgb, var(--bg-secondary) 92%, var(--accent) 8%) 0%,
-            var(--bg-secondary) 100%
+            color-mix(in srgb, var(--accent) 6%, var(--surface-flat-soft) 94%) 0%,
+            color-mix(in srgb, var(--ornament) 3%, var(--surface-flat-soft) 97%) 100%
         );
         padding: 12px;
         flex-shrink: 0;
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
 
     .chat-input {
         display: flex;
         flex-direction: column;
         gap: 10px;
-        padding: 12px 12px 10px;
-        border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
-        border-radius: 16px;
-        background: linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--bg-tertiary) 92%, white 8%) 0%,
-            var(--bg-tertiary) 100%
-        );
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+        padding: 14px 14px 12px;
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 62%, var(--accent) 38%);
+        border-radius: 22px;
+        background: var(--surface-panel-strong);
+        box-shadow: var(--surface-inner), var(--surface-shadow), 0 0 0 1px rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(var(--panel-blur)) saturate(150%);
+        -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(150%);
     }
 
     .chat-input:focus-within {
-        border-color: color-mix(in srgb, var(--accent) 78%, var(--border) 22%);
-        box-shadow:
-            0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent),
-            0 10px 32px rgba(0, 0, 0, 0.2);
+        border-color: color-mix(in srgb, var(--accent) 76%, var(--field-stroke) 24%);
+        box-shadow: var(--field-focus), var(--surface-inner), var(--surface-shadow);
     }
 
     .chat-input-model-badge {
         display: flex;
         align-items: center;
         gap: 5px;
-        padding: 0 6px 4px;
+        width: fit-content;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 70%, transparent);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
         font-size: 11px;
         line-height: 1;
     }
 
     .chat-input-model-badge__label {
-        color: var(--text-muted);
+        color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
         font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
 
     .chat-input-model-badge__name {
@@ -609,16 +614,16 @@ const CHAT_INPUT_STYLES: &str = r#"
 
     .chat-textarea {
         width: 100%;
-        padding: 10px 6px;
+        padding: 10px 8px 8px;
         background: transparent;
         border: none;
         color: var(--text-primary);
         outline: none;
         resize: none;
-        min-height: 88px;
+        min-height: 96px;
         max-height: 260px;
         font-size: 15px;
-        line-height: 1.45;
+        line-height: 1.6;
         overflow-y: auto;
     }
 
@@ -647,25 +652,28 @@ const CHAT_INPUT_STYLES: &str = r#"
         height: 38px;
         min-width: 140px;
         padding: 0 12px;
-        border: 1px solid var(--border);
+        border: 1px solid var(--field-stroke);
         border-radius: 10px;
-        background: color-mix(in srgb, var(--bg-tertiary) 90%, var(--bg-secondary) 10%);
+        background: var(--field-surface);
         color: var(--text-primary);
         font-size: 12px;
         font-weight: 500;
         cursor: pointer;
         outline: none;
-        transition: border-color 0.2s ease;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.15s ease;
         appearance: auto;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--surface-shadow-soft);
     }
 
     .chat-agent-select:hover {
-        border-color: color-mix(in srgb, var(--border) 60%, var(--accent) 40%);
+        background: var(--field-hover);
+        border-color: color-mix(in srgb, var(--field-stroke) 60%, var(--accent) 40%);
     }
 
     .chat-agent-select:focus {
-        border-color: color-mix(in srgb, var(--accent) 60%, var(--border) 40%);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+        background: var(--field-hover);
+        border-color: color-mix(in srgb, var(--accent) 76%, var(--field-stroke) 24%);
+        box-shadow: var(--field-focus);
     }
 
     .chat-model-select-wrap {
@@ -675,6 +683,9 @@ const CHAT_INPUT_STYLES: &str = r#"
     .chat-model-select-wrap .model-selector__trigger {
         min-width: 210px;
         height: 38px;
+        background: var(--field-surface);
+        border: 1px solid var(--field-stroke);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--surface-shadow-soft);
     }
 
     .chat-effort-btn {
@@ -707,8 +718,9 @@ const CHAT_INPUT_STYLES: &str = r#"
 
     .chat-input-hint {
         font-size: 11px;
-        color: var(--text-muted);
+        color: color-mix(in srgb, var(--text-muted) 82%, var(--ornament) 18%);
         line-height: 1;
+        font-style: italic;
     }
 
     .chat-icon-btn {

@@ -163,7 +163,7 @@ pub fn CanvasRenderer(artifact: Artifact, on_expand: Option<EventHandler<String>
     );
 
     let container_style = if is_expanded() {
-        "position:fixed;inset:0;z-index:100;background:var(--bg-primary);display:flex;flex-direction:column;"
+        "position:fixed;inset:0;z-index:100;background:linear-gradient(180deg,color-mix(in srgb,var(--bg-secondary) 88%, black 12%) 0%,var(--bg-primary) 100%);display:flex;flex-direction:column;padding:12px;"
     } else {
         ""
     };
@@ -236,11 +236,53 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body {{ margin: 0; padding: 16px; font-family: system-ui, sans-serif; color: #e0e0e0; background: #0C0A14; }}
+  :root {{
+    color-scheme: dark;
+    --bg: #14090d;
+    --panel: rgba(38, 20, 27, 0.88);
+    --panel-strong: rgba(54, 30, 38, 0.92);
+    --text: #fff5ee;
+    --muted: #e7c5ba;
+    --accent: #ef6b6f;
+    --ember: #ff9a6c;
+    --ornament: #f6c58d;
+    --stroke: rgba(255, 239, 233, 0.12);
+  }}
   * {{ box-sizing: border-box; }}
+  html, body {{ min-height: 100%; }}
+  body {{
+    margin: 0;
+    padding: 20px;
+    font-family: "Manrope", "Noto Sans SC", system-ui, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(circle at 14% 12%, rgba(239, 107, 111, 0.18) 0%, transparent 34%),
+      radial-gradient(circle at 82% 16%, rgba(246, 197, 141, 0.18) 0%, transparent 28%),
+      linear-gradient(180deg, #1a0d13 0%, var(--bg) 100%);
+  }}
+  .canvas-shell {{
+    min-height: calc(100vh - 40px);
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid var(--stroke);
+    background:
+      linear-gradient(180deg, rgba(60, 34, 43, 0.12) 0%, transparent 44%),
+      linear-gradient(180deg, var(--panel-strong) 0%, var(--panel) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 28px 64px rgba(9, 3, 5, 0.28);
+  }}
+  a {{ color: var(--ornament); }}
+  pre, code {{ font-family: "JetBrains Mono", "SF Mono", monospace; }}
+  pre {{
+    margin: 0;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid var(--stroke);
+    background: rgba(24, 12, 17, 0.82);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }}
 </style>
 </head>
-<body>{}</body>
+<body><div class="canvas-shell">{}</div></body>
 </html>"#,
                 artifact.source
             )
@@ -252,11 +294,30 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ margin: 0; padding: 16px; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #0C0A14; }}
+  body {{
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 20% 14%, rgba(239, 107, 111, 0.18) 0%, transparent 34%),
+      radial-gradient(circle at 80% 18%, rgba(246, 197, 141, 0.18) 0%, transparent 28%),
+      linear-gradient(180deg, #1a0d13 0%, #14090d 100%);
+  }}
+  .canvas-shell {{
+    width: min(100%, 1040px);
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 239, 233, 0.12);
+    background: linear-gradient(180deg, rgba(56, 32, 40, 0.88) 0%, rgba(30, 17, 23, 0.84) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 28px 64px rgba(9, 3, 5, 0.28);
+  }}
   svg {{ max-width: 100%; height: auto; }}
 </style>
 </head>
-<body>{}</body>
+<body><div class="canvas-shell">{}</div></body>
 </html>"#,
                 artifact.source
             )
@@ -269,12 +330,51 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <meta charset="utf-8">
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
 <style>
-  body {{ margin: 0; padding: 16px; background: #0C0A14; color: #e0e0e0; }}
+  body {{
+    margin: 0;
+    padding: 20px;
+    background:
+      radial-gradient(circle at 20% 14%, rgba(239, 107, 111, 0.18) 0%, transparent 34%),
+      radial-gradient(circle at 80% 18%, rgba(246, 197, 141, 0.18) 0%, transparent 28%),
+      linear-gradient(180deg, #1a0d13 0%, #14090d 100%);
+    color: #fff5ee;
+    font-family: "Manrope", "Noto Sans SC", system-ui, sans-serif;
+  }}
+  .canvas-shell {{
+    min-height: calc(100vh - 40px);
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 239, 233, 0.12);
+    background: linear-gradient(180deg, rgba(56, 32, 40, 0.88) 0%, rgba(30, 17, 23, 0.84) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 28px 64px rgba(9, 3, 5, 0.28);
+  }}
+  .mermaid {{
+    border-radius: 18px;
+    border: 1px solid rgba(255, 239, 233, 0.10);
+    background: rgba(25, 12, 17, 0.78);
+    padding: 18px;
+  }}
 </style>
 </head>
 <body>
+<div class="canvas-shell">
 <pre class="mermaid">{}</pre>
-<script>mermaid.initialize({{ startOnLoad: true, theme: 'dark' }});</script>
+</div>
+<script>
+mermaid.initialize({{
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {{
+    background: '#14090d',
+    primaryColor: '#2b1820',
+    primaryBorderColor: '#ef6b6f',
+    primaryTextColor: '#fff5ee',
+    lineColor: '#f6c58d',
+    secondaryColor: '#341e27',
+    tertiaryColor: '#2a171e'
+  }}
+}});
+</script>
 </body>
 </html>"#,
                 artifact.source
@@ -292,14 +392,50 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ margin: 0; padding: 16px; background: #0C0A14; color: #e0e0e0; }}
-  pre {{ white-space: pre-wrap; word-break: break-word; font-family: 'Fira Code', monospace; font-size: 13px; line-height: 1.5; }}
-  .lang {{ color: #888; font-size: 11px; margin-bottom: 8px; }}
+  body {{
+    margin: 0;
+    padding: 20px;
+    background:
+      radial-gradient(circle at 20% 14%, rgba(239, 107, 111, 0.18) 0%, transparent 34%),
+      radial-gradient(circle at 80% 18%, rgba(246, 197, 141, 0.18) 0%, transparent 28%),
+      linear-gradient(180deg, #1a0d13 0%, #14090d 100%);
+    color: #fff5ee;
+    font-family: "Manrope", "Noto Sans SC", system-ui, sans-serif;
+  }}
+  .canvas-shell {{
+    min-height: calc(100vh - 40px);
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(255, 239, 233, 0.12);
+    background: linear-gradient(180deg, rgba(56, 32, 40, 0.88) 0%, rgba(30, 17, 23, 0.84) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 28px 64px rgba(9, 3, 5, 0.28);
+  }}
+  pre {{
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "JetBrains Mono", "SF Mono", monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    margin: 0;
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 239, 233, 0.10);
+    background: rgba(25, 12, 17, 0.78);
+  }}
+  .lang {{
+    color: #f6c58d;
+    font-size: 11px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }}
 </style>
 </head>
 <body>
+<div class="canvas-shell">
 <div class="lang">{language}</div>
 <pre><code>{escaped}</code></pre>
+</div>
 </body>
 </html>"#
             )
@@ -317,7 +453,7 @@ fn copy_to_clipboard(text: &str) {
 fn open_in_new_tab(source: &str) {
     if let Some(window) = web_sys::window() {
         let html = format!(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{{margin:0;padding:16px;font-family:system-ui;background:#0C0A14;color:#e0e0e0}}</style></head><body>{source}</body></html>"
+            r#"<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{{margin:0;padding:20px;font-family:"Manrope","Noto Sans SC",system-ui,sans-serif;background:radial-gradient(circle at 20% 14%,rgba(239,107,111,.18) 0%,transparent 34%),radial-gradient(circle at 80% 18%,rgba(246,197,141,.18) 0%,transparent 28%),linear-gradient(180deg,#1a0d13 0%,#14090d 100%);color:#fff5ee}}.canvas-shell{{min-height:calc(100vh - 40px);padding:24px;border-radius:24px;border:1px solid rgba(255,239,233,.12);background:linear-gradient(180deg,rgba(56,32,40,.88) 0%,rgba(30,17,23,.84) 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 28px 64px rgba(9,3,5,.28)}}</style></head><body><div class='canvas-shell'>{source}</div></body></html>"#
         );
         let blob_opts = web_sys::BlobPropertyBag::new();
         blob_opts.set_type("text/html");

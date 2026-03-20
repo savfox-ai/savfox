@@ -102,43 +102,92 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
                 justify-content: center;
                 min-height: 100vh;
                 padding: 16px;
-                background: var(--bg-primary);
+                background:
+                    radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 34%),
+                    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 22%, transparent) 0%, transparent 100%);
             }
             
             .auth-card {
+                position: relative;
+                overflow: hidden;
                 width: 100%;
                 max-width: 400px;
                 padding: 32px;
-                background: var(--bg-secondary);
-                border-radius: var(--radius);
-                border: 1px solid var(--border);
+                background: var(--surface-panel-strong);
+                border-radius: var(--radius-xl);
+                border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, var(--ornament) 28%);
+                box-shadow: var(--surface-inner), var(--surface-shadow), var(--surface-glow);
+                backdrop-filter: blur(var(--panel-blur)) saturate(150%);
+                -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(150%);
+            }
+
+            .auth-card::before,
+            .auth-card::after {
+                content: "";
+                position: absolute;
+                pointer-events: none;
+            }
+
+            .auth-card::before {
+                inset: -18% auto auto -12%;
+                width: 180px;
+                height: 180px;
+                background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 60%);
+                filter: blur(12px);
+                opacity: 0.9;
+            }
+
+            .auth-card::after {
+                inset: 0;
+                background: linear-gradient(120deg, rgba(255, 255, 255, 0.06) 0%, transparent 28%, transparent 70%, rgba(255, 255, 255, 0.03) 100%);
+                opacity: 0.55;
             }
             
             .auth-logo {
+                position: relative;
+                z-index: 1;
                 display: flex;
                 justify-content: center;
-                margin-bottom: 16px;
+                margin-bottom: 18px;
             }
             
             .auth-logo-img {
                 width: 48px;
                 height: 48px;
+                filter:
+                    drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 24%, transparent))
+                    drop-shadow(0 10px 24px rgba(0, 0, 0, 0.18));
             }
             
             .auth-title {
+                position: relative;
+                z-index: 1;
+                font-family: var(--font-display);
                 font-size: 24px;
+                font-weight: 600;
+                letter-spacing: 0.02em;
                 margin-bottom: 8px;
                 text-align: center;
+                background: linear-gradient(135deg, var(--accent-ember) 0%, var(--accent) 56%, var(--ornament) 100%);
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+                -webkit-text-fill-color: transparent;
             }
             
             .auth-subtitle {
-                color: var(--text-secondary);
+                position: relative;
+                z-index: 1;
+                color: color-mix(in srgb, var(--text-secondary) 88%, var(--ornament) 12%);
                 margin-bottom: 24px;
                 text-align: center;
                 font-size: 14px;
+                line-height: 1.6;
             }
             
             .auth-form {
+                position: relative;
+                z-index: 1;
                 display: flex;
                 flex-direction: column;
             }
@@ -146,17 +195,20 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
             .auth-input {
                 width: 100%;
                 padding: 12px 14px;
-                background: var(--bg-tertiary);
-                border: 1px solid var(--border);
+                background: var(--field-surface);
+                border: 1px solid var(--field-stroke);
                 border-radius: var(--radius);
                 color: var(--text-primary);
                 outline: none;
                 font-size: 14px;
-                transition: border-color 0.15s ease;
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--surface-shadow-soft);
+                transition: border-color 0.15s ease, box-shadow 0.2s ease, background 0.15s ease;
             }
             
             .auth-input:focus {
-                border-color: var(--accent);
+                background: var(--field-hover);
+                border-color: color-mix(in srgb, var(--accent) 76%, var(--field-stroke) 24%);
+                box-shadow: var(--field-focus);
             }
             
             .auth-input.error {
@@ -176,13 +228,15 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
             
             .auth-btn {
                 width: 100%;
-                padding: 12px 14px;
+                min-height: 46px;
+                padding: 12px 18px;
                 margin-top: 16px;
                 background: var(--button-primary-surface);
                 color: #fff;
                 border: none;
-                border-radius: var(--radius);
-                font-weight: 500;
+                border-radius: 999px;
+                font-weight: 600;
+                letter-spacing: 0.04em;
                 font-size: 14px;
                 cursor: pointer;
                 box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
@@ -239,29 +293,39 @@ pub fn AuthGate(on_authenticated: EventHandler<()>) -> Element {
             }
             
             .auth-lang-switcher {
+                position: relative;
+                z-index: 1;
                 display: flex;
                 justify-content: center;
-                gap: 4px;
-                margin-bottom: 12px;
+                gap: 6px;
+                width: fit-content;
+                margin: 0 auto 14px;
+                padding: 5px;
+                border-radius: 999px;
+                border: 1px solid color-mix(in srgb, var(--surface-stroke) 66%, transparent);
+                background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
             }
 
             .auth-lang-btn {
-                padding: 4px 12px;
-                border: 1px solid var(--border);
-                border-radius: 6px;
-                background: var(--button-surface);
+                min-width: 58px;
+                padding: 6px 14px;
+                border: 1px solid transparent;
+                border-radius: 999px;
+                background: transparent;
                 color: var(--text-secondary);
-                font-size: 13px;
+                font-size: 12px;
+                font-weight: 600;
                 cursor: pointer;
-                box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow);
-                transition: all 0.15s ease;
+                box-shadow: none;
+                transition: all 0.18s ease;
             }
 
             .auth-lang-btn:hover {
-                background: var(--button-surface-hover);
-                border-color: color-mix(in srgb, var(--border) 72%, var(--accent) 28%);
+                background: color-mix(in srgb, var(--accent) 8%, var(--surface-flat-hover) 92%);
+                border-color: color-mix(in srgb, var(--surface-stroke) 60%, var(--accent) 40%);
                 color: var(--text-primary);
-                box-shadow: inset 0 1px 0 var(--button-highlight), var(--button-soft-shadow-hover);
+                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 20px color-mix(in srgb, var(--accent) 8%, transparent);
                 transform: translateY(-1px);
             }
 

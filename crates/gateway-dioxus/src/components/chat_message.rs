@@ -361,9 +361,9 @@ const CHAT_BUBBLE_STYLES: &str = r#"
 
     .chat-bubble {
         width: 100%;
-        max-width: 800px;
+        max-width: 860px;
         margin: 0 auto;
-        padding: 0 16px;
+        padding: 0 18px;
         white-space: pre-wrap;
         word-break: break-word;
         font-size: 15px;
@@ -372,14 +372,18 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     }
 
     .chat-bubble-user {
-        background: transparent;
         color: var(--text-primary);
         font-weight: 400;
-        border-radius: var(--radius);
-        padding: 16px 24px;
-        background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
-        border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-        box-shadow: 0 2px 12px rgba(0,0,0,0.02);
+        border-radius: var(--radius-lg);
+        padding: 18px 24px;
+        background:
+            linear-gradient(180deg,
+                color-mix(in srgb, var(--accent) 10%, var(--surface-flat-strong) 90%) 0%,
+                color-mix(in srgb, var(--ornament) 4%, var(--surface-flat) 96%) 100%);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 68%, var(--accent) 32%);
+        box-shadow: var(--surface-inner), var(--surface-shadow-soft), 0 0 0 1px rgba(255,255,255,0.03);
+        backdrop-filter: blur(20px) saturate(145%);
+        -webkit-backdrop-filter: blur(20px) saturate(145%);
     }
 
     .chat-bubble-user .chat-bubble__content {
@@ -388,28 +392,42 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     }
 
     .chat-bubble-assistant {
-        background: transparent;
+        background: color-mix(in srgb, var(--surface-flat-soft) 58%, transparent);
         color: var(--text-primary);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 42%, transparent);
+        border-radius: var(--radius-lg);
+        padding: 18px 24px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        backdrop-filter: blur(14px) saturate(135%);
+        -webkit-backdrop-filter: blur(14px) saturate(135%);
     }
 
     .chat-bubble__role {
         font-size: 12px;
         font-weight: 600;
         color: var(--accent);
-        margin-bottom: 8px;
-        display: flex;
+        margin-bottom: 12px;
+        display: inline-flex;
         align-items: center;
         gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 70%, transparent);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+        font-family: var(--font-display);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
     
     .chat-bubble__role::before {
         content: '';
         display: inline-block;
-        width: 16px;
-        height: 16px;
-        background: var(--accent);
-        border-radius: 4px;
-        opacity: 0.85;
+        width: 8px;
+        height: 8px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--ornament) 36%, var(--accent) 64%) 0%, var(--accent) 100%);
+        border-radius: 999px;
+        box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 42%, transparent);
     }
 
     .chat-bubble__timestamp {
@@ -417,7 +435,7 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         top: 24px;
         right: 32px;
         font-size: 11px;
-        color: var(--text-muted);
+        color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
         opacity: 0;
         transition: opacity 0.2s ease;
     }
@@ -457,15 +475,16 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     /* ── Thinking ── */
     .chat-thinking {
         margin-bottom: 16px;
-        background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
-        border-left: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
-        border-radius: 0 var(--radius, 8px) var(--radius, 8px) 0;
-        padding: 0 12px 0 16px;
+        background: color-mix(in srgb, var(--surface-flat-soft) 88%, transparent);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        border-radius: 18px;
+        padding: 0 14px 0 16px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), var(--surface-shadow-soft);
     }
 
     .chat-thinking__summary {
         cursor: pointer;
-        padding: 10px 0;
+        padding: 12px 0;
         font-size: 13px;
         font-weight: 500;
         color: var(--text-secondary);
@@ -512,12 +531,14 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     /* ── Tool Cards ── */
     .tool-card {
         margin: 12px 0;
-        border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        border-radius: 18px;
         overflow: hidden;
-        background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        background: color-mix(in srgb, var(--surface-flat-soft) 90%, transparent);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), var(--surface-shadow-soft);
         transition: all 0.2s ease;
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
 
     .tool-card--clickable {
@@ -525,8 +546,8 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     }
 
     .tool-card--clickable:hover {
-        border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-color: color-mix(in srgb, var(--surface-stroke) 54%, var(--accent) 46%);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), var(--surface-glow);
         transform: translateY(-1px);
     }
 
@@ -540,8 +561,8 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         gap: 10px;
         padding: 10px 14px;
         font-size: 13px;
-        background: color-mix(in srgb, var(--bg-tertiary) 30%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+        background: color-mix(in srgb, var(--accent) 5%, var(--surface-flat-soft) 95%);
+        border-bottom: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
     }
 
     .tool-card__status {
@@ -622,29 +643,32 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     .chat-bubble__attachment-img {
         max-width: 240px;
         max-height: 180px;
-        border-radius: 8px;
+        border-radius: 14px;
         object-fit: cover;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+        box-shadow: 0 14px 28px rgba(0,0,0,0.16);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 70%, transparent);
     }
 
     .chat-bubble code {
-        background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent);
+        background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
         padding: 2px 6px;
         border-radius: 4px;
         font-size: 13.5px;
         font-family: var(--font-mono, monospace);
         color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 64%, transparent);
     }
 
     .chat-bubble pre {
-        background: var(--bg-secondary);
+        background: var(--surface-panel-strong);
         padding: 16px;
-        border-radius: 12px;
+        border-radius: 18px;
         overflow-x: auto;
         margin: 16px 0;
-        border: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), var(--surface-shadow-soft);
+        backdrop-filter: blur(16px) saturate(140%);
+        -webkit-backdrop-filter: blur(16px) saturate(140%);
     }
 
     .chat-bubble pre code {
@@ -667,16 +691,18 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     /* ── Canvas Artifacts ── */
     .canvas-artifact {
         margin: 16px 0;
-        border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        border-radius: 18px;
         overflow: hidden;
-        background: var(--bg-primary);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+        background: var(--surface-panel);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), var(--surface-shadow-soft);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
     
     .canvas-artifact:hover {
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), var(--surface-glow);
         transform: translateY(-2px);
     }
 
@@ -685,8 +711,8 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         justify-content: space-between;
         align-items: center;
         padding: 12px 16px;
-        background: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
-        border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+        background: color-mix(in srgb, var(--accent) 5%, var(--surface-flat-soft) 95%);
+        border-bottom: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
         gap: 12px;
     }
 
@@ -700,11 +726,13 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     .canvas-artifact__type-badge {
         font-size: 10px;
         font-weight: 700;
-        padding: 2px 8px;
-        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        padding: 4px 10px;
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
         color: var(--accent);
-        border-radius: 4px;
+        border-radius: 999px;
         white-space: nowrap;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
     }
 
     .canvas-artifact__title {

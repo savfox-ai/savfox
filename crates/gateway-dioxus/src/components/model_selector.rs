@@ -582,6 +582,111 @@ const MODEL_SELECTOR_STYLES: &str = r#"
         border-color: var(--accent);
     }
 
+    .model-selector__trigger {
+        height: 40px;
+        border-radius: 14px;
+        border: 1px solid var(--field-stroke);
+        background: var(--field-surface);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--surface-shadow-soft);
+        transition: border-color 0.18s ease, box-shadow 0.2s ease, background 0.18s ease, transform 0.18s ease;
+    }
+
+    .model-selector__trigger:hover {
+        background: var(--field-hover);
+        border-color: color-mix(in srgb, var(--field-stroke) 56%, var(--accent) 44%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 10px 20px color-mix(in srgb, var(--accent) 8%, transparent);
+        transform: translateY(-1px);
+    }
+
+    .model-selector__trigger--open {
+        background: var(--field-hover);
+        border-color: color-mix(in srgb, var(--accent) 74%, var(--field-stroke) 26%);
+        box-shadow: var(--field-focus), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+    }
+
+    .model-selector__trigger-label {
+        font-weight: 600;
+    }
+
+    .model-selector__menu {
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 62%, var(--ornament) 38%);
+        border-radius: 20px;
+        background: var(--surface-panel-strong);
+        box-shadow: var(--surface-inner), var(--surface-shadow), var(--surface-glow);
+        backdrop-filter: blur(var(--panel-blur)) saturate(142%);
+        -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(142%);
+    }
+
+    .model-selector__toolbar {
+        padding: 12px;
+        border-bottom: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--surface-flat-soft) 95%) 0%, color-mix(in srgb, var(--ornament) 4%, transparent) 100%);
+    }
+
+    .model-selector__search,
+    .model-selector__tool-btn,
+    .model-selector__retry {
+        border-color: var(--field-stroke);
+        background: var(--field-surface);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--surface-shadow-soft);
+    }
+
+    .model-selector__search:focus,
+    .model-selector__tool-btn:hover,
+    .model-selector__retry:hover {
+        background: var(--field-hover);
+        border-color: color-mix(in srgb, var(--accent) 70%, var(--field-stroke) 30%);
+        box-shadow: var(--field-focus);
+    }
+
+    .model-selector__list {
+        padding: 10px;
+        gap: 10px;
+    }
+
+    .model-selector__group + .model-selector__group {
+        margin-top: 2px;
+        padding-top: 10px;
+        border-top-color: color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+    }
+
+    .model-selector__group-title {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 72%, transparent);
+        color: color-mix(in srgb, var(--text-muted) 82%, var(--ornament) 18%);
+        letter-spacing: 0.14em;
+    }
+
+    .model-selector__item {
+        border-radius: 14px;
+        padding: 10px 12px;
+        transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+
+    .model-selector__item:hover {
+        background: color-mix(in srgb, var(--accent) 6%, var(--surface-flat-soft) 94%);
+        border-color: color-mix(in srgb, var(--surface-stroke) 56%, var(--accent) 44%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 22px color-mix(in srgb, var(--accent) 8%, transparent);
+        transform: translateY(-1px);
+    }
+
+    .model-selector__item--active {
+        border-color: color-mix(in srgb, var(--surface-stroke) 48%, var(--accent) 52%);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent) 0%, color-mix(in srgb, var(--ornament) 8%, transparent) 100%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 24px color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+
+    .model-selector__item-name {
+        font-weight: 600;
+    }
+
+    .model-selector__item-id,
+    .model-selector__empty {
+        color: color-mix(in srgb, var(--text-secondary) 86%, var(--ornament) 14%);
+    }
+
     @media (max-width: 640px) {
         .model-selector {
             min-width: 160px;
