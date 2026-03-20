@@ -236,7 +236,7 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body {{ margin: 0; padding: 16px; font-family: system-ui, sans-serif; color: #e0e0e0; background: #1a1a2e; }}
+  body {{ margin: 0; padding: 16px; font-family: system-ui, sans-serif; color: #e0e0e0; background: #0C0A14; }}
   * {{ box-sizing: border-box; }}
 </style>
 </head>
@@ -252,7 +252,7 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ margin: 0; padding: 16px; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #1a1a2e; }}
+  body {{ margin: 0; padding: 16px; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #0C0A14; }}
   svg {{ max-width: 100%; height: auto; }}
 </style>
 </head>
@@ -269,7 +269,7 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <meta charset="utf-8">
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
 <style>
-  body {{ margin: 0; padding: 16px; background: #1a1a2e; color: #e0e0e0; }}
+  body {{ margin: 0; padding: 16px; background: #0C0A14; color: #e0e0e0; }}
 </style>
 </head>
 <body>
@@ -292,7 +292,7 @@ fn build_iframe_content(artifact: &Artifact) -> String {
 <head>
 <meta charset="utf-8">
 <style>
-  body {{ margin: 0; padding: 16px; background: #1a1a2e; color: #e0e0e0; }}
+  body {{ margin: 0; padding: 16px; background: #0C0A14; color: #e0e0e0; }}
   pre {{ white-space: pre-wrap; word-break: break-word; font-family: 'Fira Code', monospace; font-size: 13px; line-height: 1.5; }}
   .lang {{ color: #888; font-size: 11px; margin-bottom: 8px; }}
 </style>
@@ -317,7 +317,7 @@ fn copy_to_clipboard(text: &str) {
 fn open_in_new_tab(source: &str) {
     if let Some(window) = web_sys::window() {
         let html = format!(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{{margin:0;padding:16px;font-family:system-ui;background:#1a1a2e;color:#e0e0e0}}</style></head><body>{source}</body></html>"
+            "<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{{margin:0;padding:16px;font-family:system-ui;background:#0C0A14;color:#e0e0e0}}</style></head><body>{source}</body></html>"
         );
         let blob_opts = web_sys::BlobPropertyBag::new();
         blob_opts.set_type("text/html");

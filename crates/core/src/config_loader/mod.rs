@@ -48,7 +48,6 @@ const DEFAULT_REQUIREMENTS_TOML_FILE_UNIX: &str = "/etc/savfox/requirements.toml
 /// Note that /etc/savfox/ is treated as a "config folder," so subfolders such
 /// as skills/ and rules/ will also be honored.
 pub const SYSTEM_CONFIG_TOML_FILE_UNIX: &str = "/etc/savfox/config.toml";
-
 const DEFAULT_PROJECT_ROOT_MARKERS: &[&str] = &[".git"];
 
 async fn resolve_preferred_config_file(
