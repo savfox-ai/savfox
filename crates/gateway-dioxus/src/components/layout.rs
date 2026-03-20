@@ -543,17 +543,13 @@ pub fn Layout() -> Element {
                         }
                     }
                     div { class: "top-header__brand",
-                        div { class: "top-header__brand-mark",
-                            img {
-                                src: SAVFOX_LOGO,
-                                alt: "Savfox Logo",
-                                style: "width: 24px; height: 24px; object-fit: contain;",
-                            }
+                        img {
+                            class: "top-header__logo",
+                            src: SAVFOX_LOGO,
+                            alt: "Savfox Logo",
                         }
-                        div { class: "top-header__brand-copy",
-                            span { class: "top-header__title", "SAVFOX" }
-                            span { class: "top-header__subtitle", {t("header.ai_assistant")} }
-                        }
+                        span { class: "top-header__title", "SAVFOX" }
+                        span { class: "top-header__subtitle", {t("header.ai_assistant")} }
                     }
                 }
                 div { class: "top-header__right",

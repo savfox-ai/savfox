@@ -3967,28 +3967,28 @@ select:focus-visible {
 
 /* Skills missing dep badge */
 .skill-dep-badge {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 12px;
+  padding: 2px 8px;
   background: rgba(239, 68, 68, 0.1);
   color: var(--danger);
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 /* Skills env status badges */
 .skill-env-badge--set {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 12px;
+  padding: 2px 8px;
   background: rgba(16, 185, 129, 0.15);
   color: var(--success);
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 .skill-env-badge--missing {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 12px;
+  padding: 2px 8px;
   background: rgba(239, 68, 68, 0.15);
   color: var(--danger);
-  border-radius: 4px;
+  border-radius: 999px;
 }
 
 /* ── Unified page content container ── */
@@ -4016,6 +4016,14 @@ select:focus-visible {
   width: 100%;
 }
 
+.skills-page__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 .skills-toolbar .search-input-wrap {
   flex: 1 1 220px;
   min-width: 180px;
@@ -4024,15 +4032,20 @@ select:focus-visible {
 .skills-toolbar .search-input {
   width: 100%;
   min-width: 0;
+  font-size: 14px;
+}
+
+.skills-toolbar .search-input__count {
+  font-size: 13px;
 }
 
 .skill-url-install__input {
   flex: 1.2 1 280px;
   min-width: 220px;
   max-width: none;
-  height: 34px;
-  padding: 0 10px;
-  font-size: 13px;
+  height: 38px;
+  padding: 0 12px;
+  font-size: 14px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -4052,9 +4065,9 @@ select:focus-visible {
 
 .skill-url-install__btn {
   flex-shrink: 0;
-  height: 34px;
+  height: 38px;
   padding: 0 14px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   background: var(--accent);
   color: #fff;
@@ -4080,7 +4093,7 @@ select:focus-visible {
 }
 
 .skill-url-install__msg {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -4105,19 +4118,35 @@ select:focus-visible {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 18px;
 }
 
 .stat-card__label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  line-height: 1.2;
 }
 
 .stat-card__value {
-  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-width: 56px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--surface-stroke) 68%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-flat-soft) 90%, transparent) 0%, color-mix(in srgb, var(--surface-flat) 84%, transparent) 100%);
+  font-size: 24px;
   font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
   font-family: var(--font-mono);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 24px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 /* Skills filter bar (category chips + page size) */
@@ -4145,14 +4174,14 @@ select:focus-visible {
 }
 
 .skills-page-size__label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .skills-page-size__select {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-tertiary);
@@ -4167,7 +4196,7 @@ select:focus-visible {
 
 .skills-category-chip {
   padding: 5px 14px;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-secondary);
@@ -4185,6 +4214,227 @@ select:focus-visible {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+.skills-page__empty {
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skills-row {
+  padding: 16px 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.skills-row__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.skills-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.skills-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skills-row__name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.skills-row__version {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.skills-page .chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.skills-row__desc {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.skills-row__deps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.skills-row__deps-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.skills-row__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+
+.skill-env-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skill-env-row__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.skill-env-row__status {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skill-env-row__status--ok {
+  color: var(--success);
+}
+
+.skill-env-row__status--error {
+  color: var(--danger);
+}
+
+.agent-skills-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+}
+
+.agent-skills-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+
+.agent-skills-panel__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.agent-skills-panel .search-input {
+  font-size: 14px;
+}
+
+.agent-skills-panel .search-input__count {
+  font-size: 13px;
+}
+
+.agent-skills-panel__empty {
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.agent-skills-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-skill-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-skill-row:last-child {
+  border-bottom: none;
+}
+
+.agent-skill-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-skill-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agent-skill-row__name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.agent-skill-row__version {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.agent-skill-row__badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.agent-skill-row__badge--category {
+  background: rgba(59, 130, 246, 0.10);
+  color: var(--accent);
+}
+
+.agent-skill-row__badge--conflict {
+  background: rgba(239, 68, 68, 0.10);
+  color: var(--danger);
+}
+
+.agent-skill-row__desc {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.agent-skill-row__path {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  opacity: 0.78;
 }
 
 /* Default agent badge */
@@ -4794,21 +5044,13 @@ body::after {
 }
 
 .nav-link.active {
-  padding-left: 12px;
-  border-left: 1px solid color-mix(in srgb, var(--surface-stroke) 55%, var(--accent) 45%);
+  padding-left: 14px;
+  border-left: none;
 }
 
 .nav-link.active::before,
 .more-sheet__link.active::before {
-  content: "";
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ornament) 62%, var(--accent) 38%) 0%, color-mix(in srgb, var(--accent) 82%, var(--ornament) 18%) 100%);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--ornament) 28%, transparent);
+  content: none;
 }
 
 .more-sheet-backdrop,
@@ -5088,7 +5330,6 @@ body::after {
   color: color-mix(in srgb, var(--text-secondary) 88%, var(--ornament) 12%);
 }
 
-.stat-card__value,
 .step-circle,
 .agent-default-badge {
   box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 20%, transparent);
@@ -5153,6 +5394,28 @@ summary:focus-visible {
     padding: 20px 16px 88px;
   }
 
+  .skills-page__title {
+    font-size: 21px;
+  }
+
+  .skills-row {
+    padding: 14px 15px;
+  }
+
+  .skills-row__header,
+  .agent-skills-panel__header,
+  .agent-skill-row {
+    flex-wrap: wrap;
+  }
+
+  .skills-row__actions {
+    margin-left: 0;
+  }
+
+  .agent-skills-panel {
+    padding: 12px;
+  }
+
   .top-header {
     padding: 0 12px;
   }
@@ -5171,43 +5434,24 @@ summary:focus-visible {
 
 .top-header__brand {
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  white-space: nowrap;
 }
 
-.top-header__brand-mark {
-  position: relative;
-  width: 42px;
-  height: 42px;
-  border-radius: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(circle at 28% 24%, color-mix(in srgb, var(--accent-ember) 42%, transparent) 0%, transparent 48%),
-    linear-gradient(145deg, color-mix(in srgb, var(--accent) 22%, var(--surface-flat-strong) 78%) 0%, color-mix(in srgb, var(--ornament) 12%, var(--surface-flat-soft) 88%) 100%);
-  border: 1px solid color-mix(in srgb, var(--surface-stroke) 58%, var(--ornament) 42%);
-  box-shadow: var(--surface-inner), var(--surface-shadow-soft), 0 0 24px color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.top-header__brand-mark::after {
-  content: "";
-  position: absolute;
-  inset: 6px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--surface-stroke) 48%, transparent);
-  pointer-events: none;
-}
-
-.top-header__brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.top-header__brand .top-header__logo {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 0 18px color-mix(in srgb, var(--accent) 20%, transparent))
+    drop-shadow(0 14px 24px rgba(0, 0, 0, 0.14));
 }
 
 .top-header__title {
-  font-size: 22px;
-  line-height: 0.95;
-  letter-spacing: 0.12em;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: 0.08em;
   background: linear-gradient(135deg, var(--accent-ember) 0%, var(--accent) 52%, var(--ornament) 100%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -5217,9 +5461,13 @@ summary:focus-visible {
 }
 
 .top-header__subtitle {
-  font-size: 10px;
-  letter-spacing: 0.28em;
-  padding-left: 3px;
+  display: inline-flex;
+  align-self: flex-end;
+  margin-left: 2px;
+  padding-left: 0;
+  padding-bottom: 4px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
 }
 
 .top-header__theme-group,
@@ -5289,16 +5537,16 @@ summary:focus-visible {
 .nav-icon,
 .more-sheet__link-icon,
 .bottom-tab-bar__icon {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-flat-soft) 92%, transparent) 0%, color-mix(in srgb, var(--surface-flat) 88%, transparent) 100%);
-  border: 1px solid color-mix(in srgb, var(--surface-stroke) 74%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--surface-flat-soft) 68%, transparent);
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   font-size: 12px;
   color: color-mix(in srgb, var(--text-secondary) 84%, var(--ornament) 16%);
 }
@@ -5307,17 +5555,16 @@ summary:focus-visible {
 .more-sheet__link:hover .more-sheet__link-icon,
 .bottom-tab-bar__item:hover .bottom-tab-bar__icon {
   color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--surface-stroke) 62%, var(--accent) 38%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 18px color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-flat-soft) 90%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 6px 14px color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .nav-link.active .nav-icon,
 .more-sheet__link.active .more-sheet__link-icon,
 .bottom-tab-bar__item.active .bottom-tab-bar__icon {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-ember) 26%, transparent) 0%, color-mix(in srgb, var(--accent) 24%, transparent) 48%, color-mix(in srgb, var(--ornament) 20%, transparent) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-ember) 18%, var(--surface-flat-soft) 82%) 0%, color-mix(in srgb, var(--accent) 22%, var(--surface-flat) 78%) 52%, color-mix(in srgb, var(--ornament) 16%, var(--surface-flat) 84%) 100%);
   color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--surface-stroke) 48%, var(--accent) 52%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 12px 24px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 8px 18px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .nav-badge {
@@ -5380,30 +5627,30 @@ summary:focus-visible {
 
 @media (max-width: 768px) {
   .top-header__brand {
-    gap: 10px;
+    gap: 8px;
   }
 
-  .top-header__brand-mark {
-    width: 38px;
-    height: 38px;
-    border-radius: 14px;
+  .top-header__brand .top-header__logo {
+    width: 36px;
+    height: 36px;
   }
 
   .top-header__title {
-    font-size: 19px;
+    font-size: 26px;
   }
 
   .top-header__subtitle {
+    padding-bottom: 2px;
     font-size: 9px;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.12em;
   }
 
   .nav-icon,
   .more-sheet__link-icon,
   .bottom-tab-bar__icon {
-    width: 24px;
-    height: 24px;
-    min-width: 24px;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
     border-radius: 8px;
     font-size: 11px;
   }

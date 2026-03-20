@@ -180,7 +180,7 @@ pub fn Skills() -> Element {
         div { class: "page-content skills-page",
             // Toolbar: Title, Install URL, Install btn, Upload ZIP, Search, Refresh
             div { class: "skills-toolbar",
-                h2 { style: "font-size:20px;font-weight:600;white-space:nowrap;margin:0;", "Skills" }
+                h2 { class: "skills-page__title", "Skills" }
                 input {
                     class: "skill-url-install__input",
                     r#type: "text",
@@ -344,7 +344,7 @@ pub fn Skills() -> Element {
             if is_loading {
                 SkeletonLines { count: 4 }
             } else if all_skills.is_empty() {
-                p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
+                p { class: "skills-page__empty", "No skills match your search" }
             } else {
                 { render_skill_list(&all_skills, ws.clone(), refresh_tick) }
 
@@ -361,7 +361,7 @@ pub fn Skills() -> Element {
 
 fn render_skill_list(skills: &[SkillDetail], ws: WsRpc, refresh_tick: Signal<u32>) -> Element {
     rsx! {
-        div { style: "display:flex;flex-direction:column;gap:8px;",
+        div { class: "skills-list",
             for skill in skills.iter() {
                 { render_skill_row(skill, ws.clone(), refresh_tick) }
             }
@@ -383,13 +383,13 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
     rsx! {
         div {
             key: "{skill.name}",
-            style: "padding:12px 16px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
-            div { style: "display:flex;justify-content:space-between;align-items:center;",
-                div { style: "flex:1;min-width:0;",
-                    div { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap;",
-                        span { style: "font-weight:500;font-size:14px;", "{skill.name}" }
+            class: "skills-row",
+            div { class: "skills-row__header",
+                div { class: "skills-row__body",
+                    div { class: "skills-row__meta",
+                        span { class: "skills-row__name", "{skill.name}" }
                         if let Some(ref ver) = skill.version {
-                            span { style: "font-size:11px;color:var(--text-muted);", "v{ver}" }
+                            span { class: "skills-row__version", "v{ver}" }
                         }
                         if let Some(ref p) = skill_path {
                             {
@@ -447,13 +447,13 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
                         }
                     }
                     if let Some(ref desc) = skill.description {
-                        p { style: "font-size:12px;color:var(--text-muted);margin-top:4px;line-height:1.4;", "{desc}" }
+                        p { class: "skills-row__desc", "{desc}" }
                     }
                     // Missing deps
                     if let Some(ref deps) = skill.missing_deps {
                         if !deps.is_empty() {
-                            div { style: "display:flex;gap:4px;flex-wrap:wrap;margin-top:6px;",
-                                span { style: "font-size:11px;color:var(--danger);", "Missing:" }
+                            div { class: "skills-row__deps",
+                                span { class: "skills-row__deps-label", "Missing:" }
                                 for dep in deps.iter() {
                                     span {
                                         class: "skill-dep-badge",
@@ -480,7 +480,7 @@ fn render_skill_row(skill: &SkillDetail, ws: WsRpc, mut refresh_tick: Signal<u32
                         }
                     }
                 }
-                div { style: "display:flex;gap:8px;align-items:center;margin-left:12px;flex-shrink:0;",
+                div { class: "skills-row__actions",
                     if is_installed {
                         // Toggle enable/disable via .disabled marker file
                         ToggleSwitch {
@@ -546,8 +546,8 @@ fn SkillApiKeyInput(
     let mut show_key = use_signal(|| false);
 
     rsx! {
-        div { style: "margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;",
-            label { style: "font-size:11px;color:var(--text-muted);white-space:nowrap;", "{env_key}:" }
+        div { class: "skill-env-row",
+            label { class: "skill-env-row__label", "{env_key}:" }
             if is_set {
                 span { class: "skill-env-badge--set", "set" }
             } else {
@@ -604,10 +604,10 @@ fn SkillApiKeyInput(
             }
             match save_status() {
                 Some("saved") => rsx! {
-                    span { style: "font-size:11px;color:var(--success);", "Saved" }
+                    span { class: "skill-env-row__status skill-env-row__status--ok", "Saved" }
                 },
                 Some("error") => rsx! {
-                    span { style: "font-size:11px;color:var(--danger);", "Error" }
+                    span { class: "skill-env-row__status skill-env-row__status--error", "Error" }
                 },
                 _ => rsx! {},
             }

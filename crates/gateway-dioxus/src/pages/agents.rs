@@ -2906,9 +2906,9 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
     let is_loading = skills_data.read().is_none();
 
     rsx! {
-        div { style: "padding:16px;display:flex;flex-direction:column;gap:16px;max-width:720px;",
-            div { style: "display:flex;justify-content:space-between;align-items:center;",
-                h4 { style: "font-size:14px;font-weight:600;", "Agent Skills" }
+        div { class: "agent-skills-panel",
+            div { class: "agent-skills-panel__header",
+                h4 { class: "agent-skills-panel__title", "Agent Skills" }
                 SearchInput {
                     value: search_query(),
                     on_change: move |v: String| search_query.set(v),
@@ -2920,7 +2920,7 @@ fn AgentSkillsTab(ws: WsRpc, refresh_tick: Signal<u32>, entry: AgentEntry) -> El
             if is_loading {
                 SkeletonLines { count: 4 }
             } else if filtered.is_empty() {
-                p { style: "color:var(--text-muted);font-size:14px;", "No skills match your search" }
+                p { class: "agent-skills-panel__empty", "No skills match your search" }
             } else {
                 // Workspace group
                 if !workspace.is_empty() {
@@ -2954,7 +2954,7 @@ fn render_skill_group_section(
     rsx! {
         div { class: "{SECTION_CARD}",
             h4 { class: "{SECTION_TITLE}", "{title} ({skills.len()})" }
-            div { style: "display:flex;flex-direction:column;gap:4px;",
+            div { class: "agent-skills-group",
                 for skill in skills.iter() {
                     {
                         let has_conflict = conflict_names.contains(&skill.name);
@@ -2980,19 +2980,19 @@ fn render_skill_group_section(
                         rsx! {
                             div {
                                 key: "{skill.name}-{skill.category.as_deref().unwrap_or(\"\")}",
-                                style: "display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);",
-                                div { style: "flex:1;min-width:0;",
-                                    div { style: "display:flex;align-items:center;gap:6px;flex-wrap:wrap;",
-                                        span { style: "font-weight:500;font-size:13px;", "{skill.name}" }
+                                class: "agent-skill-row",
+                                div { class: "agent-skill-row__body",
+                                    div { class: "agent-skill-row__meta",
+                                        span { class: "agent-skill-row__name", "{skill.name}" }
                                         if let Some(ref ver) = skill.version {
-                                            span { style: "font-size:11px;color:var(--text-muted);", "v{ver}" }
+                                            span { class: "agent-skill-row__version", "v{ver}" }
                                         }
                                         if let Some(ref cat) = skill.category {
-                                            span { style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(59,130,246,0.1);color:var(--accent);", "{cat}" }
+                                            span { class: "agent-skill-row__badge agent-skill-row__badge--category", "{cat}" }
                                         }
                                         if has_conflict {
                                             span {
-                                                style: "font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(239,68,68,0.1);color:var(--danger);",
+                                                class: "agent-skill-row__badge agent-skill-row__badge--conflict",
                                                 title: skill.conflicts.as_ref().map(|c| {
                                                     c.iter()
                                                         .map(|s| format!("{} ({})", s.category, s.path.as_deref().unwrap_or("?")))
@@ -3004,10 +3004,10 @@ fn render_skill_group_section(
                                         }
                                     }
                                     if let Some(ref desc) = skill.description {
-                                        p { style: "font-size:11px;color:var(--text-muted);margin-top:2px;", "{desc}" }
+                                        p { class: "agent-skill-row__desc", "{desc}" }
                                     }
                                     if let Some(ref path) = skill.path {
-                                        p { style: "font-size:10px;color:var(--text-muted);margin-top:1px;opacity:0.7;", "{path}" }
+                                        p { class: "agent-skill-row__path", "{path}" }
                                     }
                                 }
                                 ToggleSwitch {
