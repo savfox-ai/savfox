@@ -3344,13 +3344,6 @@ select:focus-visible {
   padding: 0 8px;
 }
 
-/* ============== T066 – Page Transition Fade ============== */
-
-@keyframes page-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -3368,10 +3361,6 @@ select:focus-visible {
 .agent-template-card:hover {
   border-color: var(--accent);
   background: var(--bg-hover);
-}
-
-.main-content > * {
-  animation: page-fade-in 0.15s ease-out;
 }
 
 /* ============== T061 – Mobile Form Optimization ============== */
@@ -5510,20 +5499,6 @@ summary:focus-visible {
   box-shadow: var(--field-focus);
 }
 
-@keyframes page-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.main-content > * {
-  animation: page-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 @media (max-width: 768px) {
   .page-content {
@@ -5656,7 +5631,7 @@ summary:focus-visible {
   color: color-mix(in srgb, var(--text-muted) 84%, var(--ornament) 16%);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 13px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--surface-flat-soft) 92%, transparent) 0%, transparent 100%);
 }
 
