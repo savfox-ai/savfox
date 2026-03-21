@@ -3,7 +3,7 @@ pub mod connect_provider;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use lucide_dioxus::{ChevronDown, ChevronRight, Search};
+use lucide_dioxus::{ChevronDown, ChevronRight, LayoutGrid, LayoutList, Search};
 use serde_json::json;
 
 use crate::api::types::{ModelInfo, ModelsResponse};
@@ -16,6 +16,12 @@ use crate::utils::model_visibility::{
     set_model_visibility,
 };
 use crate::utils::provider_catalog::{build_provider_catalog, model_display_name};
+
+#[derive(Clone, Copy, PartialEq)]
+enum ViewMode {
+    Cards,
+    List,
+}
 
 async fn delay_ms(ms: i32) {
     let mut cb = |resolve: js_sys::Function, _reject: js_sys::Function| {
@@ -36,6 +42,7 @@ pub fn Models() -> Element {
     let mut search = use_signal(String::new);
     let mut model_prefs = use_signal(load_model_preferences);
     let mut expanded_model = use_signal(|| Option::<String>::None);
+    let mut view_mode = use_signal(|| ViewMode::Cards);
     // Local override for the default model ID — set immediately on click so the UI
     // updates without waiting for a round-trip re-fetch.
     let mut default_model_override = use_signal(|| Option::<String>::None);
@@ -142,7 +149,6 @@ pub fn Models() -> Element {
         Vec<(ModelKey, String, String, String, bool, bool)>,
     )> = vec![];
     let mut total_models = 0usize;
-    let mut visible_models = 0usize;
 
     for provider in catalog.all.iter() {
         let mut provider_rows = vec![];
@@ -150,9 +156,6 @@ pub fn Models() -> Element {
             total_models += 1;
             let key = ModelKey::new(provider.id.clone(), model.model_id.clone());
             let is_visible = is_model_visible(&prefs_snapshot, &key);
-            if is_visible {
-                visible_models += 1;
-            }
 
             let display = model_display_name(model);
             let search_blob = format!(
@@ -211,50 +214,61 @@ pub fn Models() -> Element {
                             "Customize which models appear in the model selector."
                         }
                     }
-                    button {
-                        class: "models-connect-btn",
-                        onclick: move |_| {
-                            nav.push(Route::ConnectProvider {});
-                        },
-                        span { class: "models-connect-btn__icon", "+" }
-                        span { "Connect provider" }
-                    }
-                }
-
-                div { class: "models-toolbar",
-                    if !loading {
-                        div { class: "models-default-bar",
-                            span { class: "models-default-bar__label", "Global default:" }
-                            if let Some(default_model) = current_default {
-                                span { class: "models-default-bar__model",
-                                    {
-                                        default_model.name.as_deref()
-                                            .filter(|n| !n.is_empty())
-                                            .unwrap_or(&default_model.id)
+                    div { class: "models-toolbar",
+                        if !loading {
+                            div { class: "models-default-bar",
+                                span { class: "models-default-bar__label", "Global default:" }
+                                if let Some(default_model) = current_default {
+                                    span { class: "models-default-bar__model",
+                                        {
+                                            default_model.name.as_deref()
+                                                .filter(|n| !n.is_empty())
+                                                .unwrap_or(&default_model.id)
+                                        }
                                     }
+                                } else {
+                                    span { class: "models-default-bar__none", "Not set" }
                                 }
-                            } else {
-                                span { class: "models-default-bar__none", "Not set" }
                             }
                         }
-                    }
-                    div { class: "models-search",
-                        span { class: "models-search__icon", Search { size: 14 } }
-                        input {
-                            class: "models-search__input",
-                            value: "{search}",
-                            oninput: move |e: Event<FormData>| search.set(e.value()),
-                            placeholder: "Search models",
-                            spellcheck: false,
-                            autocorrect: "off",
-                            autocomplete: "off",
-                            autocapitalize: "off",
+                        div { class: "models-search",
+                            span { class: "models-search__icon", Search { size: 14 } }
+                            input {
+                                class: "models-search__input",
+                                value: "{search}",
+                                oninput: move |e: Event<FormData>| search.set(e.value()),
+                                placeholder: "Search models",
+                                spellcheck: false,
+                                autocorrect: "off",
+                                autocomplete: "off",
+                                autocapitalize: "off",
+                            }
+                        }
+                        button {
+                            class: "models-view-toggle-btn",
+                            title: if matches!(view_mode(), ViewMode::Cards) { "Switch to list view" } else { "Switch to card view" },
+                            aria_label: if matches!(view_mode(), ViewMode::Cards) { "Switch to list view" } else { "Switch to card view" },
+                            onclick: move |_| {
+                                view_mode.set(match view_mode() {
+                                    ViewMode::Cards => ViewMode::List,
+                                    ViewMode::List => ViewMode::Cards,
+                                });
+                            },
+                            if matches!(view_mode(), ViewMode::Cards) {
+                                LayoutList { size: 16 }
+                            } else {
+                                LayoutGrid { size: 16 }
+                            }
+                        }
+                        button {
+                            class: "models-connect-btn",
+                            onclick: move |_| {
+                                nav.push(Route::ConnectProvider {});
+                            },
+                            span { class: "models-connect-btn__icon", "+" }
+                            span { "Connect provider" }
                         }
                     }
-                }
-
-                div { class: "models-count",
-                    "{visible_models} visible / {total_models} total"
                 }
 
                 div { class: "models-groups",
@@ -291,6 +305,11 @@ pub fn Models() -> Element {
                                 let account_label = account_slug.clone();
                                 let pid = provider_id.clone();
                                 let pid_for_btn = provider_id.clone();
+                                // Extract base_url from the first model in this provider group
+                                let provider_base_url: Option<String> = provider_models.iter()
+                                    .find_map(|row| {
+                                        model_info_map.get(&row.1).and_then(|m| m.base_url.clone())
+                                    });
                                 let test_state = test_states().get(&pid).cloned().unwrap_or((false, None));
                                 let is_testing = test_state.0;
                                 let test_result = test_state.1.clone();
@@ -322,10 +341,15 @@ pub fn Models() -> Element {
                                                         let mut states = test_states();
                                                         states.insert(pid.clone(), (true, None));
                                                         test_states.set(states);
+                                                        let test_base_url = provider_base_url.clone();
                                                         spawn(async move {
+                                                            let mut params = json!({ "provider": pid });
+                                                            if let Some(url) = test_base_url {
+                                                                params.as_object_mut().unwrap().insert("base_url".to_string(), json!(url));
+                                                            }
                                                             let result = ws.call::<serde_json::Value>(
                                                                 "models.test",
-                                                                Some(json!({ "provider": pid })),
+                                                                Some(params),
                                                             ).await;
                                                             let mut states = test_states();
                                                             match result {
@@ -347,158 +371,327 @@ pub fn Models() -> Element {
                                                 }
                                             }
                                         }
-                                        div { class: "models-group__list",
-                                            for row in provider_models.iter() {
-                                                {
-                                                    let model_key = row.0.clone();
-                                                    let model_full_id = row.1.clone();
-                                                    let model_name = row.2.clone();
-                                                    let model_id = row.3.clone();
-                                                    let is_visible = row.4;
-                                                    let is_default = row.5;
-                                                    let show_meta = model_name != model_id;
-                                                    let row_class = if is_visible {
-                                                        "models-row"
-                                                    } else {
-                                                        "models-row models-row--off"
-                                                    };
-                                                    let toggle_class = if is_visible {
-                                                        "models-toggle models-toggle--on"
-                                                    } else {
-                                                        "models-toggle"
-                                                    };
-                                                    let is_expanded = expanded_model() == Some(model_full_id.clone());
-                                                    let expand_id = model_full_id.clone();
+                                        if matches!(view_mode(), ViewMode::Cards) {
+                                            div { class: "models-card-grid",
+                                                for row in provider_models.iter() {
+                                                    {
+                                                        let model_key = row.0.clone();
+                                                        let model_full_id = row.1.clone();
+                                                        let model_name = row.2.clone();
+                                                        let model_id = row.3.clone();
+                                                        let is_visible = row.4;
+                                                        let is_default = row.5;
+                                                        let show_meta = model_name != model_id;
+                                                        let card_class = if is_visible {
+                                                            if is_default {
+                                                                "model-card model-card--default"
+                                                            } else {
+                                                                "model-card"
+                                                            }
+                                                        } else {
+                                                            "model-card model-card--off"
+                                                        };
+                                                        let toggle_class = if is_visible {
+                                                            "models-toggle models-toggle--on"
+                                                        } else {
+                                                            "models-toggle"
+                                                        };
+                                                        let is_expanded = expanded_model() == Some(model_full_id.clone());
+                                                        let expand_id = model_full_id.clone();
 
-                                                    // Gather extra info for expanded details
-                                                    let info = model_info_map.get(&model_full_id);
-                                                    let reasoning_levels: Vec<String> = info
-                                                        .and_then(|m| m.supported_reasoning_levels.as_ref())
-                                                        .map(|levels| levels.iter().map(|l| l.effort.clone()).collect())
-                                                        .unwrap_or_default();
-                                                    let max_tokens = info.and_then(|m| m.max_tokens);
-                                                    let temperature = info.and_then(|m| m.temperature);
-                                                    let default_reasoning = info.and_then(|m| m.default_reasoning_level.clone());
-                                                    let base_url = info.and_then(|m| m.base_url.clone());
+                                                        let info = model_info_map.get(&model_full_id);
+                                                        let reasoning_levels: Vec<String> = info
+                                                            .and_then(|m| m.supported_reasoning_levels.as_ref())
+                                                            .map(|levels| levels.iter().map(|l| l.effort.clone()).collect())
+                                                            .unwrap_or_default();
+                                                        let max_tokens = info.and_then(|m| m.max_tokens);
+                                                        let temperature = info.and_then(|m| m.temperature);
+                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.clone());
+                                                        let base_url = info.and_then(|m| m.base_url.clone());
 
-                                                    rsx! {
-                                                        div {
-                                                            key: "{model_full_id}",
-                                                            class: "{row_class}",
+                                                        rsx! {
                                                             div {
-                                                                class: "models-row__text",
-                                                                role: "button",
-                                                                tabindex: "0",
-                                                                onclick: move |_| {
-                                                                    if expanded_model() == Some(expand_id.clone()) {
-                                                                        expanded_model.set(None);
-                                                                    } else {
-                                                                        expanded_model.set(Some(expand_id.clone()));
-                                                                    }
-                                                                },
-                                                                div { class: "models-row__name",
-                                                                    span { "{model_name}" }
-                                                                    if is_default {
-                                                                        span { class: "models-row__default-badge", "Default" }
-                                                                    }
-                                                                    span {
-                                                                        class: "models-row__chevron",
-                                                                        if is_expanded {
-                                                                            ChevronDown { size: 14 }
-                                                                        } else {
-                                                                            ChevronRight { size: 14 }
+                                                                key: "{model_full_id}",
+                                                                class: "{card_class}",
+                                                                div { class: "model-card__header",
+                                                                    div { class: "model-card__title-row",
+                                                                        span { class: "model-card__name", "{model_name}" }
+                                                                        if is_default {
+                                                                            span { class: "model-card__badge", "Default" }
                                                                         }
+                                                                    }
+                                                                    button {
+                                                                        class: "{toggle_class}",
+                                                                        title: if is_visible { "Hide model" } else { "Show model" },
+                                                                        aria_label: if is_visible { "Hide model" } else { "Show model" },
+                                                                        onclick: move |_| {
+                                                                            let mut next = model_prefs();
+                                                                            set_model_visibility(&mut next, &model_key, !is_visible);
+                                                                            save_model_preferences(&next);
+                                                                            model_prefs.set(next);
+                                                                        },
+                                                                        span { class: "models-toggle__thumb" }
                                                                     }
                                                                 }
                                                                 if show_meta {
-                                                                    div { class: "models-row__meta", "{model_id}" }
+                                                                    div { class: "model-card__meta", "{model_id}" }
                                                                 }
-                                                            }
-                                                            button {
-                                                                class: "{toggle_class}",
-                                                                title: if is_visible { "Hide model" } else { "Show model" },
-                                                                aria_label: if is_visible { "Hide model" } else { "Show model" },
-                                                                onclick: move |_| {
-                                                                    let mut next = model_prefs();
-                                                                    set_model_visibility(&mut next, &model_key, !is_visible);
-                                                                    save_model_preferences(&next);
-                                                                    model_prefs.set(next);
-                                                                },
-                                                                span { class: "models-toggle__thumb" }
+                                                                if !reasoning_levels.is_empty() || max_tokens.is_some() || temperature.is_some() {
+                                                                    div { class: "model-card__specs",
+                                                                        if let Some(tokens) = max_tokens {
+                                                                            span { class: "model-card__spec",
+                                                                                span { class: "model-card__spec-label", "Max tokens" }
+                                                                                " {tokens}"
+                                                                            }
+                                                                        }
+                                                                        if let Some(temp) = temperature {
+                                                                            span { class: "model-card__spec",
+                                                                                span { class: "model-card__spec-label", "Temp" }
+                                                                                " {temp}"
+                                                                            }
+                                                                        }
+                                                                        if !reasoning_levels.is_empty() {
+                                                                            span { class: "model-card__spec",
+                                                                                span { class: "model-card__spec-label", "Reasoning" }
+                                                                                " {reasoning_levels.join(\", \")}"
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                if is_expanded {
+                                                                    div { class: "model-card__details",
+                                                                        if let Some(ref def_reasoning) = default_reasoning {
+                                                                            div { class: "models-detail",
+                                                                                span { class: "models-detail__label", "Default reasoning" }
+                                                                                span { class: "models-detail__value", "{def_reasoning}" }
+                                                                            }
+                                                                        }
+                                                                        if let Some(ref url) = base_url {
+                                                                            div { class: "models-detail",
+                                                                                span { class: "models-detail__label", "Base URL" }
+                                                                                span { class: "models-detail__value models-detail__value--mono", "{url}" }
+                                                                            }
+                                                                        }
+                                                                        div { class: "models-detail models-detail--action",
+                                                                            if is_default {
+                                                                                span { class: "models-default-active", "Global default model" }
+                                                                            } else {
+                                                                                {
+                                                                                    let set_id = model_full_id.clone();
+                                                                                    let set_slug = model_id.clone();
+                                                                                    let set_provider = info
+                                                                                        .and_then(|m| m.provider.clone())
+                                                                                        .unwrap_or_else(|| {
+                                                                                            set_id.split_once('/').map(|(p, _)| p.to_string()).unwrap_or_default()
+                                                                                        });
+                                                                                    let ws_set = ws.clone();
+                                                                                    rsx! {
+                                                                                        button {
+                                                                                            class: "models-set-default-btn",
+                                                                                            onclick: move |e: Event<MouseData>| {
+                                                                                                e.stop_propagation();
+                                                                                                let id = set_id.clone();
+                                                                                                let slug = set_slug.clone();
+                                                                                                let provider = set_provider.clone();
+                                                                                                let ws = ws_set.clone();
+                                                                                                default_model_override.set(Some(id));
+                                                                                                spawn(async move {
+                                                                                                    let _ = ws.call::<serde_json::Value>(
+                                                                                                        "config.patch",
+                                                                                                        Some(json!({
+                                                                                                            "patch": {
+                                                                                                                "model": {
+                                                                                                                    "slug": slug,
+                                                                                                                    "provider": provider,
+                                                                                                                }
+                                                                                                            }
+                                                                                                        })),
+                                                                                                    ).await;
+                                                                                                });
+                                                                                            },
+                                                                                            "Set as default"
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                div { class: "model-card__footer",
+                                                                    button {
+                                                                        class: "model-card__expand-btn",
+                                                                        onclick: move |_| {
+                                                                            if expanded_model() == Some(expand_id.clone()) {
+                                                                                expanded_model.set(None);
+                                                                            } else {
+                                                                                expanded_model.set(Some(expand_id.clone()));
+                                                                            }
+                                                                        },
+                                                                        if is_expanded {
+                                                                            ChevronDown { size: 14 }
+                                                                            span { "Less" }
+                                                                        } else {
+                                                                            ChevronRight { size: 14 }
+                                                                            span { "More" }
+                                                                        }
+                                                                    }
+                                                                }
                                                             }
                                                         }
-                                                        if is_expanded {
-                                                            div { class: "models-row__details",
-                                                                if !reasoning_levels.is_empty() {
-                                                                    div { class: "models-detail",
-                                                                        span { class: "models-detail__label", "Reasoning levels" }
-                                                                        span { class: "models-detail__value", "{reasoning_levels.join(\", \")}" }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            div { class: "models-list",
+                                                for row in provider_models.iter() {
+                                                    {
+                                                        let model_key = row.0.clone();
+                                                        let model_full_id = row.1.clone();
+                                                        let model_name = row.2.clone();
+                                                        let model_id = row.3.clone();
+                                                        let is_visible = row.4;
+                                                        let is_default = row.5;
+                                                        let show_meta = model_name != model_id;
+                                                        let row_class = if is_visible {
+                                                            "models-row"
+                                                        } else {
+                                                            "models-row models-row--off"
+                                                        };
+                                                        let toggle_class = if is_visible {
+                                                            "models-toggle models-toggle--on"
+                                                        } else {
+                                                            "models-toggle"
+                                                        };
+                                                        let is_expanded = expanded_model() == Some(model_full_id.clone());
+                                                        let expand_id = model_full_id.clone();
+
+                                                        let info = model_info_map.get(&model_full_id);
+                                                        let reasoning_levels: Vec<String> = info
+                                                            .and_then(|m| m.supported_reasoning_levels.as_ref())
+                                                            .map(|levels| levels.iter().map(|l| l.effort.clone()).collect())
+                                                            .unwrap_or_default();
+                                                        let max_tokens = info.and_then(|m| m.max_tokens);
+                                                        let temperature = info.and_then(|m| m.temperature);
+                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.clone());
+                                                        let base_url = info.and_then(|m| m.base_url.clone());
+
+                                                        rsx! {
+                                                            div {
+                                                                key: "{model_full_id}",
+                                                                class: "{row_class}",
+                                                                div {
+                                                                    class: "models-row__text",
+                                                                    role: "button",
+                                                                    tabindex: "0",
+                                                                    onclick: move |_| {
+                                                                        if expanded_model() == Some(expand_id.clone()) {
+                                                                            expanded_model.set(None);
+                                                                        } else {
+                                                                            expanded_model.set(Some(expand_id.clone()));
+                                                                        }
+                                                                    },
+                                                                    div { class: "models-row__name",
+                                                                        span { "{model_name}" }
+                                                                        if is_default {
+                                                                            span { class: "models-row__default-badge", "Default" }
+                                                                        }
+                                                                        span {
+                                                                            class: "models-row__chevron",
+                                                                            if is_expanded {
+                                                                                ChevronDown { size: 14 }
+                                                                            } else {
+                                                                                ChevronRight { size: 14 }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    if show_meta {
+                                                                        div { class: "models-row__meta", "{model_id}" }
                                                                     }
                                                                 }
-                                                                if let Some(ref def_reasoning) = default_reasoning {
-                                                                    div { class: "models-detail",
-                                                                        span { class: "models-detail__label", "Default reasoning" }
-                                                                        span { class: "models-detail__value", "{def_reasoning}" }
-                                                                    }
+                                                                button {
+                                                                    class: "{toggle_class}",
+                                                                    title: if is_visible { "Hide model" } else { "Show model" },
+                                                                    aria_label: if is_visible { "Hide model" } else { "Show model" },
+                                                                    onclick: move |_| {
+                                                                        let mut next = model_prefs();
+                                                                        set_model_visibility(&mut next, &model_key, !is_visible);
+                                                                        save_model_preferences(&next);
+                                                                        model_prefs.set(next);
+                                                                    },
+                                                                    span { class: "models-toggle__thumb" }
                                                                 }
-                                                                if let Some(tokens) = max_tokens {
-                                                                    div { class: "models-detail",
-                                                                        span { class: "models-detail__label", "Max tokens" }
-                                                                        span { class: "models-detail__value", "{tokens}" }
+                                                            }
+                                                            if is_expanded {
+                                                                div { class: "models-row__details",
+                                                                    if !reasoning_levels.is_empty() {
+                                                                        div { class: "models-detail",
+                                                                            span { class: "models-detail__label", "Reasoning levels" }
+                                                                            span { class: "models-detail__value", "{reasoning_levels.join(\", \")}" }
+                                                                        }
                                                                     }
-                                                                }
-                                                                if let Some(temp) = temperature {
-                                                                    div { class: "models-detail",
-                                                                        span { class: "models-detail__label", "Temperature" }
-                                                                        span { class: "models-detail__value", "{temp}" }
+                                                                    if let Some(ref def_reasoning) = default_reasoning {
+                                                                        div { class: "models-detail",
+                                                                            span { class: "models-detail__label", "Default reasoning" }
+                                                                            span { class: "models-detail__value", "{def_reasoning}" }
+                                                                        }
                                                                     }
-                                                                }
-                                                                if let Some(ref url) = base_url {
-                                                                    div { class: "models-detail",
-                                                                        span { class: "models-detail__label", "Base URL" }
-                                                                        span { class: "models-detail__value models-detail__value--mono", "{url}" }
+                                                                    if let Some(tokens) = max_tokens {
+                                                                        div { class: "models-detail",
+                                                                            span { class: "models-detail__label", "Max tokens" }
+                                                                            span { class: "models-detail__value", "{tokens}" }
+                                                                        }
                                                                     }
-                                                                }
-                                                                div { class: "models-detail models-detail--action",
-                                                                    if is_default {
-                                                                        span { class: "models-default-active", "This is the global default model" }
-                                                                    } else {
-                                                                        {
-                                                                            let set_id = model_full_id.clone();
-                                                                            let set_slug = model_id.clone();
-                                                                            let set_provider = info
-                                                                                .and_then(|m| m.provider.clone())
-                                                                                .unwrap_or_else(|| {
-                                                                                    set_id.split_once('/').map(|(p, _)| p.to_string()).unwrap_or_default()
-                                                                                });
-                                                                            let ws_set = ws.clone();
-                                                                            rsx! {
-                                                                                button {
-                                                                                    class: "models-set-default-btn",
-                                                                                    onclick: move |e: Event<MouseData>| {
-                                                                                        e.stop_propagation();
-                                                                                        let id = set_id.clone();
-                                                                                        let slug = set_slug.clone();
-                                                                                        let provider = set_provider.clone();
-                                                                                        let ws = ws_set.clone();
-                                                                                        // Update UI immediately
-                                                                                        default_model_override.set(Some(id));
-                                                                                        // Persist to config.toml [model] section
-                                                                                        spawn(async move {
-                                                                                            let _ = ws.call::<serde_json::Value>(
-                                                                                                "config.patch",
-                                                                                                Some(json!({
-                                                                                                    "patch": {
-                                                                                                        "model": {
-                                                                                                            "slug": slug,
-                                                                                                            "provider": provider,
+                                                                    if let Some(temp) = temperature {
+                                                                        div { class: "models-detail",
+                                                                            span { class: "models-detail__label", "Temperature" }
+                                                                            span { class: "models-detail__value", "{temp}" }
+                                                                        }
+                                                                    }
+                                                                    if let Some(ref url) = base_url {
+                                                                        div { class: "models-detail",
+                                                                            span { class: "models-detail__label", "Base URL" }
+                                                                            span { class: "models-detail__value models-detail__value--mono", "{url}" }
+                                                                        }
+                                                                    }
+                                                                    div { class: "models-detail models-detail--action",
+                                                                        if is_default {
+                                                                            span { class: "models-default-active", "This is the global default model" }
+                                                                        } else {
+                                                                            {
+                                                                                let set_id = model_full_id.clone();
+                                                                                let set_slug = model_id.clone();
+                                                                                let set_provider = info
+                                                                                    .and_then(|m| m.provider.clone())
+                                                                                    .unwrap_or_else(|| {
+                                                                                        set_id.split_once('/').map(|(p, _)| p.to_string()).unwrap_or_default()
+                                                                                    });
+                                                                                let ws_set = ws.clone();
+                                                                                rsx! {
+                                                                                    button {
+                                                                                        class: "models-set-default-btn",
+                                                                                        onclick: move |e: Event<MouseData>| {
+                                                                                            e.stop_propagation();
+                                                                                            let id = set_id.clone();
+                                                                                            let slug = set_slug.clone();
+                                                                                            let provider = set_provider.clone();
+                                                                                            let ws = ws_set.clone();
+                                                                                            default_model_override.set(Some(id));
+                                                                                            spawn(async move {
+                                                                                                let _ = ws.call::<serde_json::Value>(
+                                                                                                    "config.patch",
+                                                                                                    Some(json!({
+                                                                                                        "patch": {
+                                                                                                            "model": {
+                                                                                                                "slug": slug,
+                                                                                                                "provider": provider,
+                                                                                                            }
                                                                                                         }
-                                                                                                    }
-                                                                                                })),
-                                                                                            ).await;
-                                                                                        });
-                                                                                    },
-                                                                                    "Set as global default"
+                                                                                                    })),
+                                                                                                ).await;
+                                                                                            });
+                                                                                        },
+                                                                                        "Set as global default"
+                                                                                    }
                                                                                 }
                                                                             }
                                                                         }
@@ -536,9 +729,10 @@ const MODELS_STYLES: &str = r#"
 
     .models-header {
         display: flex;
+        flex-direction: row;
         align-items: flex-start;
         justify-content: space-between;
-        gap: 12px;
+        gap: 16px;
     }
 
     .models-header__text {
@@ -594,9 +788,8 @@ const MODELS_STYLES: &str = r#"
     }
 
     .models-search {
-        width: 50%;
-        flex-shrink: 0;
-        min-width: 0;
+        flex: 1;
+        min-width: 120px;
         height: 36px;
         border-radius: 10px;
         border: 1px solid var(--border);
@@ -625,11 +818,6 @@ const MODELS_STYLES: &str = r#"
     }
 
     .models-search__input::placeholder {
-        color: var(--text-muted);
-    }
-
-    .models-count {
-        font-size: 12px;
         color: var(--text-muted);
     }
 
@@ -726,7 +914,28 @@ const MODELS_STYLES: &str = r#"
         color: var(--danger);
     }
 
-    .models-group__list {
+    .models-view-toggle-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg-tertiary);
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: border-color 0.15s ease, color 0.15s ease;
+    }
+
+    .models-view-toggle-btn:hover {
+        color: var(--text-primary);
+        border-color: var(--accent);
+    }
+
+    /* List view */
+    .models-list {
         border-radius: 12px;
         border: 1px solid var(--border);
         background: var(--bg-secondary);
@@ -775,6 +984,166 @@ const MODELS_STYLES: &str = r#"
 
     .models-row--off .models-row__name {
         opacity: 0.54;
+    }
+
+    .models-row__chevron {
+        margin-left: 6px;
+        font-size: 12px;
+        color: var(--text-muted);
+        display: inline-block;
+        transition: transform 0.15s ease;
+    }
+
+    .models-row__default-badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        padding: 1px 7px;
+        border-radius: 4px;
+        margin-left: 8px;
+        vertical-align: middle;
+        letter-spacing: 0.02em;
+    }
+
+    .models-row__details {
+        width: 100%;
+        padding: 8px 12px 12px;
+        border-bottom: 1px solid var(--border);
+        background: color-mix(in srgb, var(--bg-tertiary) 50%, var(--bg-secondary) 50%);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .models-row__details:last-child {
+        border-bottom: none;
+    }
+
+    /* Card view */
+    .models-card-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+    }
+
+    .model-card {
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: var(--bg-secondary);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .model-card:hover {
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%);
+    }
+
+    .model-card--default {
+        border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+        background: color-mix(in srgb, var(--accent) 4%, var(--bg-secondary) 96%);
+    }
+
+    .model-card--off {
+        opacity: 0.55;
+    }
+
+    .model-card--off:hover {
+        opacity: 0.75;
+    }
+
+    .model-card__header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .model-card__title-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        flex-wrap: wrap;
+    }
+
+    .model-card__name {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        word-break: break-word;
+    }
+
+    .model-card__badge {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        padding: 1px 7px;
+        border-radius: 4px;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+    }
+
+    .model-card__meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        line-height: 1.2;
+        word-break: break-all;
+    }
+
+    .model-card__specs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 2px;
+    }
+
+    .model-card__spec {
+        font-size: 11px;
+        color: var(--text-secondary);
+        background: color-mix(in srgb, var(--bg-tertiary) 70%, var(--bg-secondary) 30%);
+        padding: 2px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+    }
+
+    .model-card__spec-label {
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .model-card__details {
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .model-card__footer {
+        margin-top: auto;
+        padding-top: 4px;
+    }
+
+    .model-card__expand-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--text-muted);
+        background: none;
+        border: none;
+        padding: 2px 0;
+        cursor: pointer;
+        transition: color 0.15s ease;
+    }
+
+    .model-card__expand-btn:hover {
+        color: var(--text-primary);
     }
 
     .models-toggle {
@@ -843,27 +1212,6 @@ const MODELS_STYLES: &str = r#"
         border-color: var(--accent);
     }
 
-    .models-row__chevron {
-        margin-left: 6px;
-        font-size: 12px;
-        color: var(--text-muted);
-        display: inline-block;
-        transition: transform 0.15s ease;
-    }
-
-    .models-row__details {
-        width: 100%;
-        padding: 8px 12px 12px;
-        border-bottom: 1px solid var(--border);
-        background: color-mix(in srgb, var(--bg-tertiary) 50%, var(--bg-secondary) 50%);
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .models-row__details:last-child {
-        border-bottom: none;
-    }
 
     .models-detail {
         display: flex;
@@ -874,9 +1222,18 @@ const MODELS_STYLES: &str = r#"
 
     .models-detail__label {
         color: var(--text-muted);
+        font-weight: 500;
         min-width: 120px;
         flex-shrink: 0;
-        font-weight: 500;
+    }
+
+    .model-card__details .models-detail {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .model-card__details .models-detail__label {
+        min-width: unset;
     }
 
     .models-detail__value {
@@ -910,9 +1267,10 @@ const MODELS_STYLES: &str = r#"
         border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
         background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary) 94%);
         font-size: 13px;
-        width: 50%;
-        flex-shrink: 0;
+        flex-shrink: 1;
+        min-width: 0;
         white-space: nowrap;
+        overflow: hidden;
         box-sizing: border-box;
     }
 
@@ -934,17 +1292,6 @@ const MODELS_STYLES: &str = r#"
         font-style: italic;
     }
 
-    .models-row__default-badge {
-        font-size: 10px;
-        font-weight: 600;
-        color: var(--accent);
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
-        padding: 1px 7px;
-        border-radius: 4px;
-        margin-left: 8px;
-        vertical-align: middle;
-        letter-spacing: 0.02em;
-    }
 
     .models-set-default-btn {
         padding: 5px 14px;
@@ -975,17 +1322,22 @@ const MODELS_STYLES: &str = r#"
             flex-direction: column;
         }
 
-        .models-connect-btn {
-            width: 100%;
-            justify-content: center;
-        }
-
         .models-toolbar {
-            flex-direction: column;
+            flex-wrap: wrap;
         }
 
         .models-default-bar {
             width: 100%;
+            justify-content: center;
+        }
+
+        .models-search {
+            min-width: 0;
+            flex-basis: 100%;
+        }
+
+        .models-connect-btn {
+            flex: 1;
             justify-content: center;
         }
 
@@ -995,6 +1347,10 @@ const MODELS_STYLES: &str = r#"
 
         .models-group__title {
             font-size: 22px;
+        }
+
+        .models-card-grid {
+            grid-template-columns: 1fr;
         }
 
         .models-row__name {
