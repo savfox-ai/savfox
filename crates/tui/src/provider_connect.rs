@@ -517,6 +517,7 @@ pub(crate) fn select_default_model(models: &[Value], provider_id: &str) -> Optio
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
@@ -555,7 +556,7 @@ mod tests {
     #[test]
     fn provider_env_key_for_store_prefers_secret_like_env_headers() {
         let provider = ModelProviderInfo {
-            slug: "anthropic".to_string(),
+            id: "anthropic".to_string(),
             name: "Anthropic".to_string(),
             base_url: Some("https://api.anthropic.com".to_string()),
             env_key: None,

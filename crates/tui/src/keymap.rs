@@ -223,7 +223,7 @@ pub(crate) fn default_keymap() -> KeyMap {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyEventKind, KeyModifiers};
+    use crossterm::event::KeyModifiers;
 
     use super::*;
 
@@ -232,12 +232,7 @@ mod tests {
     }
 
     fn ctrl_press(code: KeyCode) -> KeyEvent {
-        KeyEvent {
-            code,
-            modifiers: KeyModifiers::CONTROL,
-            kind: KeyEventKind::Press,
-            state: Default::default(),
-        }
+        KeyEvent::new(code, KeyModifiers::CONTROL)
     }
 
     #[test]

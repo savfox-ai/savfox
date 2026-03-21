@@ -1,5 +1,7 @@
 mod model_migration;
 
+#[cfg(test)]
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,9 +43,9 @@ use savfox_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use savfox_protocol::config_types::WindowsSandboxLevel;
 use savfox_protocol::items::TurnItem;
-use savfox_protocol::openai_models::{
-    ReasoningEffort as ReasoningEffortConfig,
-};
+use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+#[cfg(test)]
+use savfox_protocol::openai_models::{ModelPreset, ModelUpgrade};
 use savfox_protocol::protocol::SessionConfiguredEvent;
 use savfox_skill_registry::package::SkillSourceType;
 use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
@@ -73,6 +75,8 @@ use crate::history_cell::HistoryCell;
 use crate::history_cell::UpdateAvailableHistoryCell;
 // ModelMigrationOutcome/migration_copy_for_models/run_model_migration_prompt
 // are used in tests and in model_migration.rs
+#[cfg(test)]
+use crate::model_migration::migration_copy_for_models;
 use crate::pager_overlay::Overlay;
 use crate::provider_connect::{ProviderConnectRuntimeAuth, connect_provider, select_default_model};
 use crate::render::highlight::highlight_bash_to_lines;
@@ -396,6 +400,11 @@ fn session_name_from_event_store(
 
 // Model migration functions are in model_migration.rs
 use model_migration::handle_model_migration_prompt_if_needed;
+#[cfg(test)]
+use model_migration::{
+    HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG, should_show_model_migration_prompt,
+    target_preset_for_upgrade,
+};
 
 pub(crate) struct App {
     pub(crate) server: Arc<SessionManager>,
@@ -3038,7 +3047,6 @@ mod tests {
                 chat_screen,
                 auth_manager,
                 config,
-                active_profile: None,
                 harness_overrides: ConfigOverrides::default(),
                 runtime_approval_policy_override: None,
                 runtime_sandbox_policy_override: None,

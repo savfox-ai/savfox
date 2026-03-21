@@ -1958,6 +1958,9 @@ mod tests {
     use savfox_protocol::parse_command::ParsedCommand;
     use serde_json::json;
 
+    use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+    use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
+
     use super::*;
     use crate::exec_cell::{CommandOutput, ExecCall, ExecCell};
 

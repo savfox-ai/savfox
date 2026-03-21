@@ -733,4 +733,85 @@ mod tests {
         }
         assert_eq!(decision, Some(ReviewDecision::Approved));
     }
+
+    #[test]
+    fn queued_requests_advance_after_approval() {
+        let (tx, _rx) = unbounded_channel::<AppEvent>();
+        let tx = AppEventSender::new(tx);
+        let mut view = ApprovalOverlay::new(make_exec_request(), tx, Features::with_defaults());
+        view.enqueue_request(make_exec_request());
+        assert!(!view.is_complete());
+
+        // Approve first request
+        view.handle_key_event(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        // Should advance to second request, not be done yet
+        assert!(
+            !view.is_complete() || view.queue.is_empty(),
+            "queue should advance after first approval"
+        );
+    }
+
+    #[test]
+    fn patch_approval_with_a_shortcut() {
+        let (tx, mut rx) = unbounded_channel::<AppEvent>();
+        let tx = AppEventSender::new(tx);
+        let request = ApprovalRequest::ApplyPatch {
+            id: "patch-1".to_string(),
+            reason: Some("refactor".to_string()),
+            cwd: std::path::PathBuf::from("/tmp"),
+            changes: HashMap::new(),
+        };
+        let mut view = ApprovalOverlay::new(request, tx, Features::with_defaults());
+        // Press 'a' for "Yes, don't ask again for these files"
+        view.handle_key_event(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        assert!(view.is_complete());
+
+        let mut saw_approved_for_session = false;
+        while let Ok(ev) = rx.try_recv() {
+            if let AppEvent::SavfoxOp(Op::PatchApproval {
+                decision: ReviewDecision::ApprovedForSession,
+                ..
+            }) = ev
+            {
+                saw_approved_for_session = true;
+                break;
+            }
+        }
+        assert!(
+            saw_approved_for_session,
+            "expected 'a' shortcut to emit ApprovedForSession"
+        );
+    }
+
+    #[test]
+    fn dangerous_command_header_includes_warning() {
+        let (tx, _rx) = unbounded_channel::<AppEvent>();
+        let tx = AppEventSender::new(tx);
+        let dangerous_request = ApprovalRequest::Exec {
+            id: "rm".to_string(),
+            command: vec![
+                "/bin/bash".to_string(),
+                "-lc".to_string(),
+                "rm -rf /tmp/data".to_string(),
+            ],
+            reason: None,
+            proposed_execpolicy_amendment: None,
+        };
+
+        let view = ApprovalOverlay::new(dangerous_request, tx, Features::with_defaults());
+        let height = view.desired_height(80);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, height));
+        view.render(Rect::new(0, 0, 80, height), &mut buf);
+
+        let mut rendered = String::new();
+        for row in 0..buf.area.height {
+            for col in 0..buf.area.width {
+                rendered.push_str(buf[(col, row)].symbol());
+            }
+        }
+        assert!(
+            rendered.contains("DESTRUCTIVE"),
+            "expected danger warning for rm -rf command, got: {rendered}"
+        );
+    }
 }

@@ -613,6 +613,11 @@ mod markdown_render_tests {
 }
 
 #[cfg(test)]
+mod markdown_prop_tests {
+    include!("markdown_prop_tests.rs");
+}
+
+#[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
     use ratatui::text::Text;

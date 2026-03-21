@@ -1,0 +1,10 @@
+---
+source: crates/tui/src/bottom_pane/chat_composer/tests.rs
+assertion_line: 1180
+expression: terminal.backend()
+---
+"                                                            "
+"────────────────────────────────────────────────────────────"
+"❯ /mo                                                       "
+"────────────────────────────────────────────────────────────"
+"  /model  choose what model and reasoning effort to use     "
