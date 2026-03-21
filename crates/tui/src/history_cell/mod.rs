@@ -10,6 +10,11 @@
 //! place bumps the active-cell revision tracked by `ChatScreen`, so the cache key changes whenever
 //! the rendered transcript output can change.
 
+mod plan_cells;
+mod session_header;
+pub(crate) use plan_cells::{new_plan_update, new_proposed_plan, new_proposed_plan_stream};
+pub(crate) use session_header::SessionHeaderHistoryCell;
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -30,8 +35,6 @@ use savfox_otel::RuntimeMetricsSummary;
 use savfox_protocol::account::PlanType;
 use savfox_protocol::mcp::{Resource, ResourceTemplate};
 use savfox_protocol::models::WebSearchAction;
-use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
-use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
 use savfox_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputQuestion};
 use savfox_protocol::user_input::TextElement;
 use tracing::error;
@@ -42,12 +45,12 @@ use crate::diff_render::{create_diff_summary, display_path_for};
 use crate::exec_cell::{
     CommandOutput, OutputLinesParams, TOOL_CALL_MAX_LINES, output_lines, spinner,
 };
-use crate::exec_command::{relativize_to_home, strip_bash_lc_and_escape};
+use crate::exec_command::strip_bash_lc_and_escape;
 use crate::live_wrap::take_prefix_by_width;
 use crate::markdown::append_markdown;
 use crate::render::line_utils::{line_to_static, prefix_lines, push_owned_lines};
 use crate::render::renderable::Renderable;
-use crate::style::{proposed_plan_style, user_message_style};
+use crate::style::user_message_style;
 use crate::text_formatting::{format_and_truncate_tool_result, truncate_text};
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use crate::update_action::UpdateAction;
@@ -968,223 +971,7 @@ pub(crate) fn new_user_prompt(
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct SessionHeaderHistoryCell {
-    version: &'static str,
-    model: String,
-    model_style: Style,
-    reasoning_effort: Option<ReasoningEffortConfig>,
-    directory: PathBuf,
-    title_kind: SessionHeaderTitleKind,
-    center_in_viewport: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-enum SessionHeaderTitleKind {
-    TextTitle,
-    AsciiLogoTitle,
-}
-
-impl SessionHeaderHistoryCell {
-    pub(crate) fn new(
-        model: String,
-        reasoning_effort: Option<ReasoningEffortConfig>,
-        directory: PathBuf,
-        version: &'static str,
-    ) -> Self {
-        Self::new_with_style(
-            model,
-            Style::default(),
-            reasoning_effort,
-            directory,
-            version,
-        )
-    }
-
-    pub(crate) fn new_with_style(
-        model: String,
-        model_style: Style,
-        reasoning_effort: Option<ReasoningEffortConfig>,
-        directory: PathBuf,
-        version: &'static str,
-    ) -> Self {
-        Self {
-            version,
-            model,
-            model_style,
-            reasoning_effort,
-            directory,
-            title_kind: SessionHeaderTitleKind::TextTitle,
-            center_in_viewport: false,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn new_startup_with_style(
-        model: String,
-        model_style: Style,
-        reasoning_effort: Option<ReasoningEffortConfig>,
-        directory: PathBuf,
-        version: &'static str,
-    ) -> Self {
-        Self {
-            version,
-            model,
-            model_style,
-            reasoning_effort,
-            directory,
-            title_kind: SessionHeaderTitleKind::AsciiLogoTitle,
-            center_in_viewport: true,
-        }
-    }
-
-    fn format_directory(&self, max_width: Option<usize>) -> String {
-        Self::format_directory_inner(&self.directory, max_width)
-    }
-
-    fn format_directory_inner(directory: &Path, max_width: Option<usize>) -> String {
-        let formatted = if let Some(rel) = relativize_to_home(directory) {
-            if rel.as_os_str().is_empty() {
-                "~".to_string()
-            } else {
-                format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display())
-            }
-        } else {
-            directory.display().to_string()
-        };
-
-        if let Some(max_width) = max_width {
-            if max_width == 0 {
-                return String::new();
-            }
-            if UnicodeWidthStr::width(formatted.as_str()) > max_width {
-                return crate::text_formatting::center_truncate_path(&formatted, max_width);
-            }
-        }
-
-        formatted
-    }
-
-    fn reasoning_label(&self) -> Option<&'static str> {
-        self.reasoning_effort.map(|effort| match effort {
-            ReasoningEffortConfig::Minimal => "minimal",
-            ReasoningEffortConfig::Low => "low",
-            ReasoningEffortConfig::Medium => "medium",
-            ReasoningEffortConfig::High => "high",
-            ReasoningEffortConfig::XHigh => "xhigh",
-            ReasoningEffortConfig::None => "none",
-        })
-    }
-
-    fn line_width(line: &Line<'_>) -> usize {
-        line.iter()
-            .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
-            .sum()
-    }
-
-    fn center_lines(lines: Vec<Line<'static>>, viewport_width: u16) -> Vec<Line<'static>> {
-        let viewport_width = viewport_width as usize;
-        if viewport_width == 0 {
-            return lines;
-        }
-
-        lines
-            .into_iter()
-            .map(|line| {
-                let used_width = Self::line_width(&line);
-                if used_width >= viewport_width {
-                    return line;
-                }
-
-                let left_pad = (viewport_width - used_width) / 2;
-                if left_pad == 0 {
-                    return line;
-                }
-
-                let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + 1);
-                spans.push(Span::from(" ".repeat(left_pad)));
-                spans.extend(line.spans);
-                Line::from(spans)
-            })
-            .collect()
-    }
-}
-
-impl HistoryCell for SessionHeaderHistoryCell {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let Some(inner_width) = card_inner_width(width, SESSION_HEADER_MAX_INNER_WIDTH) else {
-            return Vec::new();
-        };
-
-        let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
-
-        const CHANGE_MODEL_HINT_COMMAND: &str = "/model";
-        const CHANGE_MODEL_HINT_EXPLANATION: &str = " to change";
-        const DIR_LABEL: &str = "directory:";
-        let label_width = DIR_LABEL.len();
-
-        let model_label = format!(
-            "{model_label:<label_width$}",
-            model_label = "model:",
-            label_width = label_width
-        );
-        let reasoning_label = self.reasoning_label();
-        let model_spans: Vec<Span<'static>> = {
-            let mut spans = vec![
-                Span::from(format!("{model_label} ")).dim(),
-                Span::styled(self.model.clone(), self.model_style),
-            ];
-            if let Some(reasoning) = reasoning_label {
-                spans.push(Span::from(" "));
-                spans.push(Span::from(reasoning));
-            }
-            spans.push("   ".dim());
-            spans.push(CHANGE_MODEL_HINT_COMMAND.cyan());
-            spans.push(CHANGE_MODEL_HINT_EXPLANATION.dim());
-            spans
-        };
-
-        let dir_label = format!("{DIR_LABEL:<label_width$}");
-        let dir_prefix = format!("{dir_label} ");
-        let dir_prefix_width = UnicodeWidthStr::width(dir_prefix.as_str());
-        let dir_max_width = inner_width.saturating_sub(dir_prefix_width);
-        let dir = self.format_directory(Some(dir_max_width));
-        let dir_spans = vec![Span::from(dir_prefix).dim(), Span::from(dir)];
-
-        let mut lines: Vec<Line<'static>> = match self.title_kind {
-            SessionHeaderTitleKind::TextTitle => {
-                // Title line rendered inside the box: ">_ Savfox  (vX)"
-                let title_spans: Vec<Span<'static>> = vec![
-                    Span::from(">_ ").dim(),
-                    Span::from("Savfox ").bold(),
-                    Span::from(" ").dim(),
-                    Span::from(format!("(v{})", self.version)).dim(),
-                ];
-                vec![make_row(title_spans)]
-            }
-            SessionHeaderTitleKind::AsciiLogoTitle => {
-                let mut logo_lines =
-                    crate::ascii_logo::logo_lines(Color::White, Color::DarkGray, true);
-                logo_lines.push(Line::from(vec![
-                    Span::from("v").dim(),
-                    Span::from(self.version.to_string()).dim(),
-                ]));
-                logo_lines
-            }
-        };
-        lines.push(make_row(Vec::new()));
-        lines.push(make_row(model_spans));
-        lines.push(make_row(dir_spans));
-
-        let bordered = with_border(lines);
-        if self.center_in_viewport {
-            Self::center_lines(bordered, width)
-        } else {
-            bordered
-        }
-    }
-}
+// SessionHeaderHistoryCell is in session_header.rs
 
 #[derive(Debug)]
 pub(crate) struct CompositeHistoryCell {
@@ -1942,128 +1729,7 @@ fn split_request_user_input_answer(
     (options, note)
 }
 
-/// Render a user‑friendly plan update styled like a checkbox todo list.
-pub(crate) fn new_plan_update(update: UpdatePlanArgs) -> PlanUpdateCell {
-    let UpdatePlanArgs { explanation, plan } = update;
-    PlanUpdateCell { explanation, plan }
-}
-
-pub(crate) fn new_proposed_plan(plan_markdown: String) -> ProposedPlanCell {
-    ProposedPlanCell { plan_markdown }
-}
-
-pub(crate) fn new_proposed_plan_stream(
-    lines: Vec<Line<'static>>,
-    is_stream_continuation: bool,
-) -> ProposedPlanStreamCell {
-    ProposedPlanStreamCell {
-        lines,
-        is_stream_continuation,
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct ProposedPlanCell {
-    plan_markdown: String,
-}
-
-#[derive(Debug)]
-pub(crate) struct ProposedPlanStreamCell {
-    lines: Vec<Line<'static>>,
-    is_stream_continuation: bool,
-}
-
-impl HistoryCell for ProposedPlanCell {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        lines.push(vec!["• ".dim(), "Proposed Plan".bold()].into());
-        lines.push(Line::from(" "));
-
-        let mut plan_lines: Vec<Line<'static>> = vec![Line::from(" ")];
-        let plan_style = proposed_plan_style();
-        let wrap_width = width.saturating_sub(4).max(1) as usize;
-        let mut body: Vec<Line<'static>> = Vec::new();
-        append_markdown(&self.plan_markdown, Some(wrap_width), &mut body);
-        if body.is_empty() {
-            body.push(Line::from("(empty)".dim().italic()));
-        }
-        plan_lines.extend(prefix_lines(body, "  ".into(), "  ".into()));
-        plan_lines.push(Line::from(" "));
-
-        lines.extend(plan_lines.into_iter().map(|line| line.style(plan_style)));
-        lines
-    }
-}
-
-impl HistoryCell for ProposedPlanStreamCell {
-    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        self.lines.clone()
-    }
-
-    fn is_stream_continuation(&self) -> bool {
-        self.is_stream_continuation
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct PlanUpdateCell {
-    explanation: Option<String>,
-    plan: Vec<PlanItemArg>,
-}
-
-impl HistoryCell for PlanUpdateCell {
-    fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let render_note = |text: &str| -> Vec<Line<'static>> {
-            let wrap_width = width.saturating_sub(4).max(1) as usize;
-            textwrap::wrap(text, wrap_width)
-                .into_iter()
-                .map(|s| s.to_string().dim().italic().into())
-                .collect()
-        };
-
-        let render_step = |status: &StepStatus, text: &str| -> Vec<Line<'static>> {
-            let (box_str, step_style) = match status {
-                StepStatus::Completed => ("✔ ", Style::default().crossed_out().dim()),
-                StepStatus::InProgress => ("□ ", Style::default().cyan().bold()),
-                StepStatus::Pending => ("□ ", Style::default().dim()),
-            };
-            let wrap_width = (width as usize)
-                .saturating_sub(4)
-                .saturating_sub(box_str.width())
-                .max(1);
-            let parts = textwrap::wrap(text, wrap_width);
-            let step_text = parts
-                .into_iter()
-                .map(|s| s.to_string().set_style(step_style).into())
-                .collect();
-            prefix_lines(step_text, box_str.into(), "  ".into())
-        };
-
-        let mut lines: Vec<Line<'static>> = vec![];
-        lines.push(vec!["• ".dim(), "Updated Plan".bold()].into());
-
-        let mut indented_lines = vec![];
-        let note = self
-            .explanation
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|t| !t.is_empty());
-        if let Some(expl) = note {
-            indented_lines.extend(render_note(expl));
-        };
-
-        if self.plan.is_empty() {
-            indented_lines.push(Line::from("(no steps provided)".dim().italic()));
-        } else {
-            for PlanItemArg { step, status } in self.plan.iter() {
-                indented_lines.extend(render_step(status, step));
-            }
-        }
-        lines.extend(prefix_lines(indented_lines, "  └ ".dim(), "    ".into()));
-
-        lines
-    }
-}
+// Plan cells (ProposedPlanCell, PlanUpdateCell, etc.) are in plan_cells.rs
 
 /// Create a new `PendingPatch` cell that lists the file‑level summary of
 /// a proposed patch. The summary lines should already be formatted (e.g.
