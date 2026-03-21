@@ -336,11 +336,28 @@ impl From<ApprovalRequest> for ApprovalRequestState {
                 proposed_execpolicy_amendment,
             } => {
                 let mut header: Vec<Line<'static>> = Vec::new();
+
+                // Detect potentially dangerous commands and show a warning.
+                let full_cmd = strip_bash_lc_and_escape(&command);
+                let cmd_lower = full_cmd.to_ascii_lowercase();
+                let is_dangerous = ["rm -rf", "rm -r", "rmdir", "drop table", "drop database",
+                    "truncate", "format ", "mkfs", "dd if=", "> /dev/"]
+                    .iter()
+                    .any(|pat| cmd_lower.contains(pat));
+
+                if is_dangerous {
+                    header.push(Line::from(
+                        Span::from("⚠ DESTRUCTIVE COMMAND — review carefully!")
+                            .red()
+                            .bold(),
+                    ));
+                    header.push(Line::from(""));
+                }
+
                 if let Some(reason) = reason {
                     header.push(Line::from(vec!["Reason: ".into(), reason.italic()]));
                     header.push(Line::from(""));
                 }
-                let full_cmd = strip_bash_lc_and_escape(&command);
                 let mut full_cmd_lines = highlight_bash_to_lines(&full_cmd);
                 if let Some(first) = full_cmd_lines.first_mut() {
                     first.spans.insert(0, Span::from("$ "));
@@ -443,7 +460,7 @@ fn exec_options(
     features: &Features,
 ) -> Vec<ApprovalOption> {
     vec![ApprovalOption {
-        label: "Yes, proceed".to_string(),
+        label: "Yes, proceed (y)".to_string(),
         decision: ApprovalDecision::Review(ReviewDecision::Approved),
         display_shortcut: None,
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
@@ -460,7 +477,7 @@ fn exec_options(
 
                 Some(ApprovalOption {
                     label: format!(
-                        "Yes, and don't ask again for commands that start with `{rendered_prefix}`"
+                        "Yes, and don't ask again for `{rendered_prefix}` (p)"
                     ),
                     decision: ApprovalDecision::Review(
                         ReviewDecision::ApprovedExecpolicyAmendment {
@@ -473,7 +490,7 @@ fn exec_options(
             }),
     )
     .chain([ApprovalOption {
-        label: "No, and tell Savfox what to do differently".to_string(),
+        label: "No, tell Savfox what to do differently (n)".to_string(),
         decision: ApprovalDecision::Review(ReviewDecision::Abort),
         display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -484,19 +501,19 @@ fn exec_options(
 fn patch_options() -> Vec<ApprovalOption> {
     vec![
         ApprovalOption {
-            label: "Yes, proceed".to_string(),
+            label: "Yes, proceed (y)".to_string(),
             decision: ApprovalDecision::Review(ReviewDecision::Approved),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "Yes, and don't ask again for these files".to_string(),
+            label: "Yes, don't ask again for these files (a)".to_string(),
             decision: ApprovalDecision::Review(ReviewDecision::ApprovedForSession),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('a'))],
         },
         ApprovalOption {
-            label: "No, and tell Savfox what to do differently".to_string(),
+            label: "No, tell Savfox what to do differently (n)".to_string(),
             decision: ApprovalDecision::Review(ReviewDecision::Abort),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -507,19 +524,19 @@ fn patch_options() -> Vec<ApprovalOption> {
 fn elicitation_options() -> Vec<ApprovalOption> {
     vec![
         ApprovalOption {
-            label: "Yes, provide the requested info".to_string(),
+            label: "Yes, provide the requested info (y)".to_string(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Accept),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "No, but continue without it".to_string(),
+            label: "No, but continue without it (n)".to_string(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Decline),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
         },
         ApprovalOption {
-            label: "Cancel this request".to_string(),
+            label: "Cancel this request (c)".to_string(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Cancel),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('c'))],

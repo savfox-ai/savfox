@@ -19,7 +19,7 @@ use std::io::Result;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::Rect;
 use ratatui::style::{Style, Stylize};
@@ -121,6 +121,97 @@ fn render_key_hints(area: Rect, buf: &mut Buffer, pairs: &[(&[KeyBinding], &str)
     (&Paragraph::new(vec![Line::from(spans).dim()])).render_ref(area, buf);
 }
 
+/// State for the in-pager search bar activated by `/`.
+#[derive(Debug, Default)]
+struct SearchState {
+    /// Whether the search input is currently active.
+    active: bool,
+    /// The current search query typed by the user.
+    query: String,
+    /// The last submitted query (on Enter).
+    last_query: String,
+    /// Number of matches found for `last_query`.
+    match_count: usize,
+    /// Current match index (0-based).
+    current_match: usize,
+}
+
+impl SearchState {
+    fn activate(&mut self) {
+        self.active = true;
+        self.query.clear();
+    }
+
+    fn deactivate(&mut self) {
+        self.active = false;
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> bool {
+        if key.kind != KeyEventKind::Press && key.kind != KeyEventKind::Repeat {
+            return false;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.deactivate();
+                true
+            }
+            KeyCode::Enter => {
+                self.last_query = self.query.clone();
+                self.deactivate();
+                true
+            }
+            KeyCode::Backspace => {
+                self.query.pop();
+                true
+            }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.query.push(c);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn render_bar(&self, area: Rect, buf: &mut Buffer) {
+        if !self.active && self.last_query.is_empty() {
+            return;
+        }
+        let bar_area = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
+        // Clear the bar area
+        for x in bar_area.x..bar_area.right() {
+            buf[(x, bar_area.y)] = Cell::from(' ');
+        }
+
+        let line = if self.active {
+            Line::from(vec![
+                Span::from("/").bold(),
+                Span::from(self.query.clone()),
+                Span::from("_").dim(),
+            ])
+        } else if !self.last_query.is_empty() {
+            let info = if self.match_count > 0 {
+                format!(" [{}/{}]", self.current_match + 1, self.match_count)
+            } else {
+                " [no matches]".to_string()
+            };
+            Line::from(vec![
+                Span::from(format!("/{}", self.last_query)).dim(),
+                Span::from(info).dim(),
+                Span::from("  n/N next/prev").dim().italic(),
+            ])
+        } else {
+            return;
+        };
+        Paragraph::new(vec![line]).render(bar_area, buf);
+    }
+}
+
+const KEY_SLASH: KeyBinding = key_hint::plain(KeyCode::Char('/'));
+#[allow(dead_code)]
+const KEY_N_LOWER: KeyBinding = key_hint::plain(KeyCode::Char('n'));
+#[allow(dead_code)]
+const KEY_N_UPPER: KeyBinding = key_hint::shift(KeyCode::Char('N'));
+
 /// Generic widget for rendering a pager view.
 struct PagerView {
     renderables: Vec<Box<dyn Renderable>>,
@@ -130,6 +221,10 @@ struct PagerView {
     last_rendered_height: Option<usize>,
     /// If set, on next render ensure this chunk is visible.
     pending_scroll_chunk: Option<usize>,
+    /// Cached per-renderable heights and total, keyed by width.
+    cached_heights: Option<(u16, Vec<usize>, usize)>,
+    /// In-pager search state.
+    search: SearchState,
 }
 
 impl PagerView {
@@ -141,14 +236,40 @@ impl PagerView {
             last_content_height: None,
             last_rendered_height: None,
             pending_scroll_chunk: None,
+            cached_heights: None,
+            search: SearchState::default(),
         }
     }
 
-    fn content_height(&self, width: u16) -> usize {
-        self.renderables
+    /// Recompute cached heights if the width changed. Returns the total height.
+    fn ensure_heights_cached(&mut self, width: u16) {
+        if let Some((cached_w, _, _)) = &self.cached_heights {
+            if *cached_w == width {
+                return;
+            }
+        }
+        let heights: Vec<usize> = self
+            .renderables
             .iter()
             .map(|c| c.desired_height(width) as usize)
-            .sum()
+            .collect();
+        let total: usize = heights.iter().sum();
+        self.cached_heights = Some((width, heights, total));
+    }
+
+    fn cached_total_height(&self) -> usize {
+        self.cached_heights.as_ref().map(|(_, _, t)| *t).unwrap_or(0)
+    }
+
+    /// Invalidate cached heights (e.g., when renderables change).
+    #[allow(dead_code)]
+    fn invalidate_heights(&mut self) {
+        self.cached_heights = None;
+    }
+
+    fn content_height(&mut self, width: u16) -> usize {
+        self.ensure_heights_cached(width);
+        self.cached_total_height()
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
@@ -170,6 +291,9 @@ impl PagerView {
         self.render_content(content_area, buf);
 
         self.render_bottom_bar(area, content_area, buf, content_height);
+
+        // Render search bar overlay at the bottom of the content area.
+        self.search.render_bar(area, buf);
     }
 
     fn render_header(&self, area: Rect, buf: &mut Buffer) {
@@ -243,7 +367,19 @@ impl PagerView {
     }
 
     fn handle_key_event(&mut self, tui: &mut tui::Tui, key_event: KeyEvent) -> Result<()> {
+        // When search is active, route all keys to it.
+        if self.search.active {
+            if self.search.handle_key(key_event) {
+                tui.frame_requester()
+                    .schedule_frame_in(Duration::from_millis(16));
+            }
+            return Ok(());
+        }
+
         match key_event {
+            e if KEY_SLASH.is_press(e) => {
+                self.search.activate();
+            }
             e if KEY_UP.is_press(e) || KEY_K.is_press(e) => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(1);
             }
@@ -1153,7 +1289,7 @@ mod tests {
 
     #[test]
     fn pager_view_content_height_counts_renderables() {
-        let pv = PagerView::new(
+        let mut pv = PagerView::new(
             vec![paragraph_block("a", 2), paragraph_block("b", 3)],
             "T".to_string(),
             0,

@@ -1,6 +1,7 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::app_event::AppEvent;
+use crate::history_cell;
 use crate::session_log;
 
 #[derive(Clone, Debug)]
@@ -24,5 +25,16 @@ impl AppEventSender {
         if let Err(e) = self.app_event_tx.send(event) {
             tracing::error!("failed to send event: {e}");
         }
+    }
+
+    #[allow(dead_code)]
+    /// Log an error and display it as a visible error cell in the transcript
+    /// so the user can see operational failures instead of having them silently
+    /// swallowed.
+    pub(crate) fn send_visible_error(&self, message: impl Into<String>) {
+        let msg = message.into();
+        tracing::error!("{msg}");
+        let cell = history_cell::new_error_event(msg);
+        self.send(AppEvent::InsertHistoryCell(Box::new(cell)));
     }
 }

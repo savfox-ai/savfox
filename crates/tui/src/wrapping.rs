@@ -1,10 +1,56 @@
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::ops::Range;
 
 use ratatui::text::{Line, Span};
 use textwrap::Options;
 
 use crate::render::line_utils::push_owned_lines;
+
+/// A simple cache for the result of `word_wrap_lines`.
+///
+/// Stores `(width, generation, result)` so that callers can skip re-wrapping
+/// when neither the terminal width nor the source content has changed.
+/// `generation` is an opaque token provided by the caller; bump it whenever
+/// the source lines change (e.g. after new output is appended).
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CachedWrapResult {
+    cached_width: Cell<u16>,
+    cached_generation: Cell<u64>,
+    cached_lines: std::cell::RefCell<Vec<Line<'static>>>,
+}
+
+#[allow(dead_code)]
+impl CachedWrapResult {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the cached lines if `width` and `generation` match, otherwise
+    /// call `compute` to produce new lines, cache and return them.
+    pub(crate) fn get_or_compute(
+        &self,
+        width: u16,
+        generation: u64,
+        compute: impl FnOnce() -> Vec<Line<'static>>,
+    ) -> Vec<Line<'static>> {
+        if self.cached_width.get() == width && self.cached_generation.get() == generation {
+            return self.cached_lines.borrow().clone();
+        }
+        let lines = compute();
+        self.cached_width.set(width);
+        self.cached_generation.set(generation);
+        *self.cached_lines.borrow_mut() = lines.clone();
+        lines
+    }
+
+    /// Invalidate the cache, forcing the next `get_or_compute` to recompute.
+    #[allow(dead_code)]
+    pub(crate) fn invalidate(&self) {
+        self.cached_generation.set(u64::MAX);
+    }
+}
 
 pub(crate) fn wrap_ranges<'a, O>(text: &str, width_or_options: O) -> Vec<Range<usize>>
 where

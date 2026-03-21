@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use ratatui::buffer::Buffer;
@@ -215,6 +216,8 @@ pub struct FlexChild<'a> {
 
 pub struct FlexRenderable<'a> {
     children: Vec<FlexChild<'a>>,
+    /// Cache the last allocation result to avoid recomputing layout.
+    cached_allocation: RefCell<Option<(Rect, Vec<Rect>)>>,
 }
 
 /// Lays out children in a column, with the ability to specify a flex factor for each child.
@@ -223,7 +226,10 @@ pub struct FlexRenderable<'a> {
 /// proportional to the flex factor.
 impl<'a> FlexRenderable<'a> {
     pub fn new() -> Self {
-        Self { children: vec![] }
+        Self {
+            children: vec![],
+            cached_allocation: RefCell::new(None),
+        }
     }
 
     pub fn push(&mut self, flex: i32, child: impl Into<RenderableItem<'a>>) {
@@ -231,12 +237,27 @@ impl<'a> FlexRenderable<'a> {
             flex,
             child: child.into(),
         });
+        // Invalidate cache when children change.
+        *self.cached_allocation.borrow_mut() = None;
     }
 
     /// Loosely inspired by Flutter's Flex widget.
     ///
+    /// Returns cached allocation if the area matches a previous call.
+    ///
     /// Ref https://github.com/flutter/flutter/blob/3fd81edbf1e015221e143c92b2664f4371bdc04a/packages/flutter/lib/src/rendering/flex.dart#L1205-L1209
     fn allocate(&self, area: Rect) -> Vec<Rect> {
+        if let Some((cached_area, cached_rects)) = self.cached_allocation.borrow().as_ref() {
+            if *cached_area == area {
+                return cached_rects.clone();
+            }
+        }
+        let result = self.allocate_inner(area);
+        *self.cached_allocation.borrow_mut() = Some((area, result.clone()));
+        result
+    }
+
+    fn allocate_inner(&self, area: Rect) -> Vec<Rect> {
         let mut allocated_rects = Vec::with_capacity(self.children.len());
         let mut child_sizes = vec![0; self.children.len()];
         let mut allocated_size = 0;

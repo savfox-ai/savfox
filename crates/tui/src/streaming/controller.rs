@@ -8,23 +8,26 @@ use crate::history_cell::{
 use crate::render::line_utils::prefix_lines;
 use crate::style::proposed_plan_style;
 
-/// Controller that manages newline-gated streaming, header emission, and
-/// commit animation across streams.
-pub(crate) struct StreamController {
-    state: StreamState,
-    finishing_after_drain: bool,
-    header_emitted: bool,
+/// Trait that defines how streamed lines are turned into history cells.
+///
+/// The generic `BaseStreamController<E>` handles the shared push/finalize/tick
+/// logic; each `StreamEmitter` implementation only decides how to wrap the
+/// accumulated lines into a concrete `HistoryCell`.
+pub(crate) trait StreamEmitter {
+    /// Wrap `lines` into a history cell.  Return `None` when the lines are
+    /// empty and no cell should be emitted.
+    fn emit(&mut self, lines: Vec<Line<'static>>) -> Option<Box<dyn HistoryCell>>;
 }
 
-impl StreamController {
-    pub(crate) fn new(width: Option<usize>) -> Self {
-        Self {
-            state: StreamState::new(width),
-            finishing_after_drain: false,
-            header_emitted: false,
-        }
-    }
+/// Generic stream controller that manages newline-gated streaming, commit
+/// animation, and delegates cell emission to an `StreamEmitter`.
+pub(crate) struct BaseStreamController<E: StreamEmitter> {
+    pub(crate) state: StreamState,
+    pub(crate) finishing_after_drain: bool,
+    pub(crate) emitter: E,
+}
 
+impl<E: StreamEmitter> BaseStreamController<E> {
     /// Push a delta; if it contains a newline, commit completed lines and start animation.
     pub(crate) fn push(&mut self, delta: &str) -> bool {
         let state = &mut self.state;
@@ -42,36 +45,35 @@ impl StreamController {
         false
     }
 
-    /// Finalize the active stream. Drain and emit now.
-    pub(crate) fn finalize(&mut self) -> Option<Box<dyn HistoryCell>> {
-        // Finalize collector first.
-        let remaining = {
-            let state = &mut self.state;
-            state.collector.finalize_and_drain()
-        };
-        // Collect all output first to avoid emitting headers when there is no content.
-        let mut out_lines = Vec::new();
-        {
-            let state = &mut self.state;
-            if !remaining.is_empty() {
-                state.enqueue(remaining);
-            }
-            let step = state.drain_all();
-            out_lines.extend(step);
-        }
-
-        // Cleanup
-        self.state.clear();
-        self.finishing_after_drain = false;
-        self.emit(out_lines)
-    }
-
     /// Step animation: commit at most one queued line and handle end-of-drain cleanup.
     pub(crate) fn on_commit_tick(&mut self) -> (Option<Box<dyn HistoryCell>>, bool) {
         let step = self.state.step();
-        (self.emit(step), self.state.is_idle())
+        (self.emitter.emit(step), self.state.is_idle())
     }
 
+    /// Drain all remaining lines and emit them, cleaning up state.
+    fn drain_and_emit(&mut self) -> Vec<Line<'static>> {
+        let remaining = self.state.collector.finalize_and_drain();
+        let mut out_lines = Vec::new();
+        if !remaining.is_empty() {
+            self.state.enqueue(remaining);
+        }
+        out_lines.extend(self.state.drain_all());
+        self.state.clear();
+        self.finishing_after_drain = false;
+        out_lines
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agent message emitter
+// ---------------------------------------------------------------------------
+
+pub(crate) struct AgentMessageEmitter {
+    header_emitted: bool,
+}
+
+impl StreamEmitter for AgentMessageEmitter {
     fn emit(&mut self, lines: Vec<Line<'static>>) -> Option<Box<dyn HistoryCell>> {
         if lines.is_empty() {
             return None;
@@ -84,66 +86,37 @@ impl StreamController {
     }
 }
 
-/// Controller that streams proposed plan markdown into a styled plan block.
-pub(crate) struct PlanStreamController {
-    state: StreamState,
-    header_emitted: bool,
-    top_padding_emitted: bool,
-}
+/// Controller that manages newline-gated streaming, header emission, and
+/// commit animation across streams.
+pub(crate) type StreamController = BaseStreamController<AgentMessageEmitter>;
 
-impl PlanStreamController {
+impl StreamController {
     pub(crate) fn new(width: Option<usize>) -> Self {
         Self {
             state: StreamState::new(width),
-            header_emitted: false,
-            top_padding_emitted: false,
+            finishing_after_drain: false,
+            emitter: AgentMessageEmitter { header_emitted: false },
         }
-    }
-
-    /// Push a delta; if it contains a newline, commit completed lines and start animation.
-    pub(crate) fn push(&mut self, delta: &str) -> bool {
-        let state = &mut self.state;
-        if !delta.is_empty() {
-            state.has_seen_delta = true;
-        }
-        state.collector.push_delta(delta);
-        if delta.contains('\n') {
-            let newly_completed = state.collector.commit_complete_lines();
-            if !newly_completed.is_empty() {
-                state.enqueue(newly_completed);
-                return true;
-            }
-        }
-        false
     }
 
     /// Finalize the active stream. Drain and emit now.
     pub(crate) fn finalize(&mut self) -> Option<Box<dyn HistoryCell>> {
-        let remaining = {
-            let state = &mut self.state;
-            state.collector.finalize_and_drain()
-        };
-        let mut out_lines = Vec::new();
-        {
-            let state = &mut self.state;
-            if !remaining.is_empty() {
-                state.enqueue(remaining);
-            }
-            let step = state.drain_all();
-            out_lines.extend(step);
-        }
-
-        self.state.clear();
-        self.emit(out_lines, true)
+        let out_lines = self.drain_and_emit();
+        self.emitter.emit(out_lines)
     }
+}
 
-    /// Step animation: commit at most one queued line and handle end-of-drain cleanup.
-    pub(crate) fn on_commit_tick(&mut self) -> (Option<Box<dyn HistoryCell>>, bool) {
-        let step = self.state.step();
-        (self.emit(step, false), self.state.is_idle())
-    }
+// ---------------------------------------------------------------------------
+// Plan stream emitter
+// ---------------------------------------------------------------------------
 
-    fn emit(
+pub(crate) struct PlanEmitter {
+    header_emitted: bool,
+    top_padding_emitted: bool,
+}
+
+impl PlanEmitter {
+    fn emit_plan(
         &mut self,
         lines: Vec<Line<'static>>,
         include_bottom_padding: bool,
@@ -181,6 +154,34 @@ impl PlanStreamController {
             out_lines,
             is_stream_continuation,
         )))
+    }
+}
+
+impl StreamEmitter for PlanEmitter {
+    fn emit(&mut self, lines: Vec<Line<'static>>) -> Option<Box<dyn HistoryCell>> {
+        self.emit_plan(lines, false)
+    }
+}
+
+/// Controller that streams proposed plan markdown into a styled plan block.
+pub(crate) type PlanStreamController = BaseStreamController<PlanEmitter>;
+
+impl PlanStreamController {
+    pub(crate) fn new(width: Option<usize>) -> Self {
+        Self {
+            state: StreamState::new(width),
+            finishing_after_drain: false,
+            emitter: PlanEmitter {
+                header_emitted: false,
+                top_padding_emitted: false,
+            },
+        }
+    }
+
+    /// Finalize the plan stream, including bottom padding.
+    pub(crate) fn finalize(&mut self) -> Option<Box<dyn HistoryCell>> {
+        let out_lines = self.drain_and_emit();
+        self.emitter.emit_plan(out_lines, true)
     }
 }
 

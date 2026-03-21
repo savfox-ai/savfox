@@ -147,7 +147,12 @@ pub(crate) fn output_lines(
     };
     if show_ellipsis {
         let omitted = total - 2 * line_limit;
-        out.push(format!("… +{omitted} lines").into());
+        out.push(
+            Line::from(vec![
+                Span::from(format!("… +{omitted} lines")).dim(),
+                Span::from(" (ctrl+t to view full output)").dim().italic(),
+            ]),
+        );
     }
 
     let tail_start = if show_ellipsis {
@@ -427,8 +432,12 @@ impl ExecCell {
         }
 
         if let Some(output) = call.output.as_ref() {
+            let is_error = output.exit_code != 0;
             let line_limit = if call.is_user_shell_command() {
                 USER_SHELL_TOOL_CALL_MAX_LINES
+            } else if is_error {
+                // Show more output on errors so the user can diagnose failures.
+                TOOL_CALL_MAX_LINES * 4
             } else {
                 TOOL_CALL_MAX_LINES
             };

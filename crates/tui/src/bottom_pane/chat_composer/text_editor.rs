@@ -628,10 +628,11 @@ impl ChatComposer {
             return false;
         }
 
-        let toggles = matches!(key_event.code, KeyCode::Char('?'))
+        let toggles = (matches!(key_event.code, KeyCode::Char('?'))
             && !has_ctrl_or_alt(key_event.modifiers)
             && self.is_empty()
-            && !self.is_in_paste_burst();
+            && !self.is_in_paste_burst())
+            || matches!(key_event.code, KeyCode::F(1));
 
         if !toggles {
             return false;

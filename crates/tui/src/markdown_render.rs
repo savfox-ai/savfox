@@ -1,9 +1,67 @@
+use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
 
 use crate::render::line_utils::line_to_static;
 use crate::wrapping::{RtOptions, word_wrap_line};
+
+/// Thread-local LRU cache for rendered markdown.
+///
+/// Keyed by `(content_hash, width)`, this avoids re-parsing and re-wrapping
+/// markdown for committed history cells whose content does not change between
+/// frames.
+const MARKDOWN_CACHE_CAPACITY: usize = 64;
+
+struct MarkdownCacheEntry {
+    key: (u64, Option<usize>),
+    text: Text<'static>,
+}
+
+struct MarkdownCache {
+    entries: Vec<MarkdownCacheEntry>,
+}
+
+impl MarkdownCache {
+    fn new() -> Self {
+        Self {
+            entries: Vec::with_capacity(MARKDOWN_CACHE_CAPACITY),
+        }
+    }
+
+    fn get(&mut self, key: (u64, Option<usize>)) -> Option<&Text<'static>> {
+        if let Some(pos) = self.entries.iter().position(|e| e.key == key) {
+            // Move-to-front for LRU behaviour.
+            if pos != 0 {
+                let entry = self.entries.remove(pos);
+                self.entries.insert(0, entry);
+            }
+            Some(&self.entries[0].text)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: (u64, Option<usize>), text: Text<'static>) {
+        if self.entries.len() >= MARKDOWN_CACHE_CAPACITY {
+            self.entries.pop();
+        }
+        self.entries.insert(0, MarkdownCacheEntry { key, text });
+    }
+}
+
+thread_local! {
+    static MD_CACHE: RefCell<MarkdownCache> = RefCell::new(MarkdownCache::new());
+}
+
+fn content_hash(input: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish()
+}
 
 struct MarkdownStyles {
     h1: Style,
@@ -65,12 +123,24 @@ pub fn render_markdown_text(input: &str) -> Text<'static> {
 }
 
 pub(crate) fn render_markdown_text_with_width(input: &str, width: Option<usize>) -> Text<'static> {
+    let hash = content_hash(input);
+    let key = (hash, width);
+
+    // Fast path: return cached result if available.
+    let cached = MD_CACHE.with(|c| c.borrow_mut().get(key).cloned());
+    if let Some(text) = cached {
+        return text;
+    }
+
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     let parser = Parser::new_ext(input, options);
     let mut w = Writer::new(parser, width);
     w.run();
-    w.text
+    let text = w.text;
+
+    MD_CACHE.with(|c| c.borrow_mut().insert(key, text.clone()));
+    text
 }
 
 struct Writer<'a, I>

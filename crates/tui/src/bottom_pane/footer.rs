@@ -748,6 +748,40 @@ fn build_columns(entries: Vec<Line<'static>>) -> Vec<Line<'static>> {
         .collect()
 }
 
+/// Build a compact progress bar for the context window usage.
+///
+/// Example output: `[████████░░] 78%`
+///
+/// Colors: green (<50%), yellow (50-80%), red (>80%).
+fn context_window_bar(percent_used: i64) -> Vec<Span<'static>> {
+    let pct = percent_used.clamp(0, 100) as usize;
+    let bar_width = 10usize;
+    let filled = (pct * bar_width + 50) / 100; // round
+    let empty = bar_width.saturating_sub(filled);
+
+    let bar_color = if pct < 50 {
+        ratatui::style::Color::Green
+    } else if pct <= 80 {
+        ratatui::style::Color::Yellow
+    } else {
+        ratatui::style::Color::Red
+    };
+
+    let filled_str: String = "█".repeat(filled);
+    let empty_str: String = "░".repeat(empty);
+
+    vec![
+        Span::from("[").dim(),
+        Span::styled(filled_str, ratatui::style::Style::default().fg(bar_color)),
+        Span::from(empty_str).dim(),
+        Span::from("] ").dim(),
+        Span::styled(
+            format!("{pct}%"),
+            ratatui::style::Style::default().fg(bar_color),
+        ),
+    ]
+}
+
 pub(crate) fn context_window_line(
     percent: Option<i64>,
     used_tokens: Option<i64>,
@@ -755,21 +789,21 @@ pub(crate) fn context_window_line(
     provider_display: &str,
     cwd_display: &str,
 ) -> Line<'static> {
-    let context_part: Span<'static> = if let Some(percent) = percent {
-        let percent = percent.clamp(0, 100);
-        Span::from(format!("{percent}% context left")).dim()
+    let context_spans: Vec<Span<'static>> = if let Some(percent) = percent {
+        let percent_used = (100 - percent).clamp(0, 100);
+        context_window_bar(percent_used)
     } else if let Some(tokens) = used_tokens {
         let used_fmt = format_tokens_compact(tokens);
-        Span::from(format!("{used_fmt} used")).dim()
+        vec![Span::from(format!("{used_fmt} used")).dim()]
     } else {
-        Span::from("100% context left").dim()
+        context_window_bar(0)
     };
 
     if model_display.is_empty() {
-        return Line::from(vec![context_part]);
+        return Line::from(context_spans);
     }
 
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(5);
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(8);
     spans.push(Span::from(model_display.to_string()).cyan().bold());
     if !provider_display.is_empty() {
         spans.push(Span::from(" · ").dim());
@@ -780,7 +814,7 @@ pub(crate) fn context_window_line(
         spans.push(Span::from(cwd_display.to_string()).dim());
     }
     spans.push(Span::from("  ").dim());
-    spans.push(context_part);
+    spans.extend(context_spans);
     Line::from(spans)
 }
 
