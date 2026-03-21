@@ -19,7 +19,9 @@ pub(crate) fn get_level() -> Result<Value, String> {
     let handle = RELOAD_HANDLE
         .get()
         .ok_or_else(|| "log reload handle not initialized".to_string())?;
-    let current = handle.with_current(|filter| filter.to_string()).map_err(|e| e.to_string())?;
+    let current = handle
+        .with_current(|filter| filter.to_string())
+        .map_err(|e| e.to_string())?;
     Ok(json!({ "level": current }))
 }
 

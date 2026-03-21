@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use lucide_dioxus::{Loader, Settings, CircleCheck, CircleX, ChevronDown, ChevronRight};
+use lucide_dioxus::{ChevronDown, ChevronRight, CircleCheck, CircleX, Loader, Settings};
 use serde::{Deserialize, Serialize};
 
 /// A single tool invocation entry.

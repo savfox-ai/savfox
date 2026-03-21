@@ -536,9 +536,7 @@ impl SessionStore {
         // so we skip the separate `remove` step.
         let pid = std::process::id();
         let rand_suffix: u32 = rand::random();
-        let temp_name = format!(
-            ".session-store-{pid}-{rand_suffix:08x}.tmp"
-        );
+        let temp_name = format!(".session-store-{pid}-{rand_suffix:08x}.tmp");
         let temp_path = path.with_file_name(temp_name);
         tokio::fs::write(&temp_path, data).await?;
         tokio::fs::rename(&temp_path, path).await

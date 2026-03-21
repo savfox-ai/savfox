@@ -174,7 +174,11 @@ pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, S
     let enriched: Vec<Value> = arr
         .into_iter()
         .map(|mut p| {
-            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id = p
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let is_active = id == active_id && cfg.enabled;
             let is_configured = provider_key_from_env(&id).is_some();
             let voices = voices_for_provider(&id);

@@ -974,10 +974,7 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                         .map(String::from);
                     if let Some(slug) = slug {
                         if let Value::Object(ref mut map) = model {
-                            map.insert(
-                                "id".to_string(),
-                                json!(format!("{account_id}/{slug}")),
-                            );
+                            map.insert("id".to_string(), json!(format!("{account_id}/{slug}")));
                         }
                     }
                 }
@@ -986,10 +983,15 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                 // (the file-level "id" from models/*.json) so that the
                 // frontend writes the correct provider value to config.toml.
                 if let Value::Object(ref mut map) = model {
-                    if let Some(current_id) = map.get("id").and_then(|v| v.as_str()).map(String::from) {
+                    if let Some(current_id) =
+                        map.get("id").and_then(|v| v.as_str()).map(String::from)
+                    {
                         if let Some((_, model_slug)) = current_id.split_once('/') {
                             if !current_id.starts_with(&format!("{account_id}/")) {
-                                map.insert("id".to_string(), json!(format!("{account_id}/{model_slug}")));
+                                map.insert(
+                                    "id".to_string(),
+                                    json!(format!("{account_id}/{model_slug}")),
+                                );
                             }
                         }
                     }

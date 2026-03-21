@@ -48,7 +48,10 @@ impl AuditStore {
         enabled: Arc<RwLock<bool>>,
     ) {
         let Some(parent) = log_path.parent() else {
-            error!("Audit log path has no parent directory: {}", log_path.display());
+            error!(
+                "Audit log path has no parent directory: {}",
+                log_path.display()
+            );
             return;
         };
         if let Err(e) = tokio::fs::create_dir_all(parent).await {
@@ -142,9 +145,10 @@ impl AuditStore {
     }
 
     pub async fn prune_old_logs(&self, days_to_keep: u32) -> std::io::Result<usize> {
-        let logs_dir = self.log_path.parent().ok_or_else(|| {
-            std::io::Error::other("audit log path has no parent directory")
-        })?;
+        let logs_dir = self
+            .log_path
+            .parent()
+            .ok_or_else(|| std::io::Error::other("audit log path has no parent directory"))?;
         let mut entries = tokio::fs::read_dir(logs_dir).await?;
         let mut pruned = 0;
         let cutoff = chrono::Utc::now() - chrono::Duration::days(days_to_keep as i64);

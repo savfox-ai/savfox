@@ -1343,10 +1343,7 @@ fn AgentOverviewTab(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            let fallbacks = detail
-                .fallback_models
-                .clone()
-                .unwrap_or_default();
+            let fallbacks = detail.fallback_models.clone().unwrap_or_default();
             if form_model().trim().is_empty() {
                 if let Some(detail_model) = detail_model {
                     form_model.set(detail_model);

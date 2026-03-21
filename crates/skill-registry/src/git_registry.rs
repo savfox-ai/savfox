@@ -71,7 +71,10 @@ pub struct GitRegistry {
 
 impl GitRegistry {
     pub fn new(savfox_home: PathBuf, config: RegistryConfig) -> Self {
-        Self { savfox_home, config }
+        Self {
+            savfox_home,
+            config,
+        }
     }
 
     /// Path to the local clone of this registry, derived from the git URL.
@@ -84,13 +87,8 @@ impl GitRegistry {
 
     /// Derive `{domain}/{restpath}` from a git URL.
     fn dir_from_url(git_url: &str) -> String {
-        let stripped = git_url
-            .trim_end_matches('/')
-            .trim_end_matches(".git");
-        let after_scheme = stripped
-            .split("://")
-            .nth(1)
-            .unwrap_or(stripped);
+        let stripped = git_url.trim_end_matches('/').trim_end_matches(".git");
+        let after_scheme = stripped.split("://").nth(1).unwrap_or(stripped);
         after_scheme
             .split('/')
             .filter(|s| !s.is_empty())
@@ -194,7 +192,11 @@ impl GitRegistry {
     /// List all flock names within a realm.
     pub async fn list_flocks(&self, realm: &str) -> anyhow::Result<Vec<String>> {
         self.ensure_cloned().await?;
-        let flocks_dir = self.registry_path().join("realms").join(realm).join("flocks");
+        let flocks_dir = self
+            .registry_path()
+            .join("realms")
+            .join(realm)
+            .join("flocks");
 
         tokio::task::spawn_blocking(move || {
             let mut flocks = Vec::new();
@@ -215,11 +217,7 @@ impl GitRegistry {
     }
 
     /// List all skills within a specific realm and flock.
-    pub async fn list_skills(
-        &self,
-        realm: &str,
-        flock: &str,
-    ) -> anyhow::Result<Vec<SkillEntry>> {
+    pub async fn list_skills(&self, realm: &str, flock: &str) -> anyhow::Result<Vec<SkillEntry>> {
         self.ensure_cloned().await?;
         let skills_file = self
             .registry_path()
@@ -254,10 +252,7 @@ fn search_sync(repo_path: &Path, query: &str) -> anyhow::Result<Vec<RegistrySear
         if !realm_entry.path().is_dir() {
             continue;
         }
-        let realm_name = realm_entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
+        let realm_name = realm_entry.file_name().to_string_lossy().to_string();
 
         let flocks_dir = realm_entry.path().join("flocks");
         if !flocks_dir.is_dir() {
@@ -268,10 +263,7 @@ fn search_sync(repo_path: &Path, query: &str) -> anyhow::Result<Vec<RegistrySear
             if !flock_entry.path().is_dir() {
                 continue;
             }
-            let flock_name = flock_entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
+            let flock_name = flock_entry.file_name().to_string_lossy().to_string();
 
             let skills_file = flock_entry.path().join("skills.json");
             if !skills_file.is_file() {

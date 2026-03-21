@@ -17,9 +17,11 @@ use ratatui::widgets::{Clear, Paragraph, Widget};
 use crate::ascii_logo::{AsciiLogo, LOGO_HEIGHT, LOGO_WIDTH, logo_lines};
 use crate::logo_image::LogoImage;
 use crate::render::renderable::Renderable;
+use crate::style::secondary_text_style;
 
 const WELCOME_TEXT: &str = "Welcome to Savfox";
 const SUBTITLE_TEXT: &str = "Your AI coding assistant";
+const TIP_ACCENT_COLOR: Color = Color::Cyan;
 
 /// Width of the logo image area in terminal columns.
 const IMAGE_COLS: u16 = 10;
@@ -60,6 +62,18 @@ impl StartupHero {
             tooltip,
         }
     }
+}
+
+fn subtitle_line() -> Line<'static> {
+    Line::styled(SUBTITLE_TEXT, secondary_text_style())
+}
+
+fn tooltip_line(tooltip: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("● ", Style::default().fg(TIP_ACCENT_COLOR)),
+        Span::styled("Tip ", Style::default().fg(TIP_ACCENT_COLOR).bold()),
+        Span::styled(tooltip.to_string(), secondary_text_style()),
+    ])
 }
 
 impl Renderable for StartupHero {
@@ -130,8 +144,7 @@ impl Renderable for StartupHero {
             return;
         }
 
-        let subtitle_line = Line::styled(SUBTITLE_TEXT, Style::default().fg(Color::DarkGray));
-        let subtitle_para = Paragraph::new(subtitle_line).alignment(Alignment::Center);
+        let subtitle_para = Paragraph::new(subtitle_line()).alignment(Alignment::Center);
         subtitle_para.render(Rect::new(area.x, y, area.width, 1), buf);
         y = y.saturating_add(2);
         if y >= bottom {
@@ -139,12 +152,7 @@ impl Renderable for StartupHero {
         }
 
         if let Some(ref tooltip) = self.tooltip {
-            let tip_line = Line::from(vec![
-                Span::styled("● ", Style::default().fg(Color::Rgb(255, 165, 0))), // orange dot
-                Span::styled("Tip ", Style::default().fg(Color::Rgb(255, 165, 0)).bold()),
-                Span::styled(tooltip.as_str(), Style::default().fg(Color::DarkGray).dim()),
-            ]);
-            let tip_para = Paragraph::new(tip_line).alignment(Alignment::Center);
+            let tip_para = Paragraph::new(tooltip_line(tooltip)).alignment(Alignment::Center);
             tip_para.render(Rect::new(area.x, y, area.width, 1), buf);
         }
     }
@@ -157,6 +165,7 @@ impl Renderable for StartupHero {
 #[cfg(test)]
 mod tests {
     use ratatui::buffer::Buffer;
+    use ratatui::style::Modifier;
 
     use super::*;
 
@@ -208,5 +217,23 @@ mod tests {
         };
         let height = hero.desired_height(80);
         assert!(height >= LOGO_HEIGHT);
+    }
+
+    #[test]
+    fn subtitle_line_uses_secondary_text_style() {
+        let line = super::subtitle_line();
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].style.fg, None);
+        assert!(line.spans[0].style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn tooltip_line_uses_cyan_tip_accent() {
+        let line = super::tooltip_line("Check your config");
+        assert_eq!(line.spans.len(), 3);
+        assert_eq!(line.spans[0].style.fg, Some(Color::Cyan));
+        assert_eq!(line.spans[1].style.fg, Some(Color::Cyan));
+        assert!(line.spans[1].style.add_modifier.contains(Modifier::BOLD));
+        assert!(line.spans[2].style.add_modifier.contains(Modifier::DIM));
     }
 }

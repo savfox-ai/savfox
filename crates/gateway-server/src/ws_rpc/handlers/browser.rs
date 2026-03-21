@@ -1186,7 +1186,9 @@ pub(crate) async fn handle_skills_registry_install(
         .await
         .map_err(|e| (INTERNAL_ERROR, e.to_string()))?;
     if result.success {
-        Ok(json!({ "name": name, "status": "installed", "path": result.install_path.display().to_string() }))
+        Ok(
+            json!({ "name": name, "status": "installed", "path": result.install_path.display().to_string() }),
+        )
     } else {
         Err((
             INTERNAL_ERROR,

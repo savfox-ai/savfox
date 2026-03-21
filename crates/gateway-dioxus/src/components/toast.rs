@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use lucide_dioxus::{CircleCheck, CircleX, TriangleAlert, Info};
+use lucide_dioxus::{CircleCheck, CircleX, Info, TriangleAlert};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastVariant {

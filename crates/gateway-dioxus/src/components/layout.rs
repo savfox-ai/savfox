@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use lucide_dioxus::{
-    Bot, Brain, Bug, ChartBar, ChevronDown, ChevronRight, Clock, Ellipsis,
-    LayoutDashboard, MessageSquareText, Mic, Monitor, Moon, Network, PlugZap,
-    Radio, ScrollText, Server, Settings, ShieldCheck, Star, Sun, Volume2,
+    Bot, Brain, Bug, ChartBar, ChevronDown, ChevronRight, Clock, Ellipsis, LayoutDashboard,
+    MessageSquareText, Mic, Monitor, Moon, Network, PlugZap, Radio, ScrollText, Server, Settings,
+    ShieldCheck, Star, Sun, Volume2,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;

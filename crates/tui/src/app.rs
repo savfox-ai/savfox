@@ -37,8 +37,6 @@ use savfox_login_oauth::{
 };
 use savfox_otel::OtelManager;
 use savfox_protocol::SessionId;
-use savfox_skill_registry::package::SkillSourceType;
-use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 use savfox_protocol::config_types::Personality;
 #[cfg(target_os = "windows")]
 use savfox_protocol::config_types::WindowsSandboxLevel;
@@ -47,6 +45,8 @@ use savfox_protocol::openai_models::{
     ModelPreset, ModelUpgrade, ReasoningEffort as ReasoningEffortConfig,
 };
 use savfox_protocol::protocol::SessionConfiguredEvent;
+use savfox_skill_registry::package::SkillSourceType;
+use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 use savfox_utils::absolute_path::AbsolutePathBuf;
 use tokio::select;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
@@ -2860,11 +2860,8 @@ impl App {
                 );
             }
             Ok(result) => {
-                self.chat_screen.add_error_message(
-                    result
-                        .error
-                        .unwrap_or_else(|| "unknown error".to_string()),
-                );
+                self.chat_screen
+                    .add_error_message(result.error.unwrap_or_else(|| "unknown error".to_string()));
             }
             Err(err) => {
                 self.chat_screen

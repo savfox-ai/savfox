@@ -25,6 +25,8 @@ use savfox_core::{
     OLLAMA_OSS_PROVIDER_ID,
 };
 
+use crate::style::secondary_text_style;
+
 #[derive(Clone)]
 struct ProviderOption {
     name: String,
@@ -98,7 +100,7 @@ impl OssSelectionWidget<'_> {
 
         let mut contents: Vec<Line> = vec![
             Line::from(vec![
-                "? ".fg(Color::Blue),
+                "? ".fg(Color::Cyan),
                 "Select an open-source provider".bold(),
             ]),
             Line::from(""),
@@ -262,7 +264,7 @@ impl WidgetRef for &OssSelectionWidget<'_> {
         }
 
         Line::from(self.select_options[self.selected_option].description)
-            .style(Style::new().italic().fg(Color::DarkGray))
+            .style(secondary_text_style().italic())
             .render(description_area.inner(Margin::new(1, 0)), buf);
     }
 }
@@ -271,7 +273,20 @@ fn get_status_symbol_and_color(status: &ProviderStatus) -> (&'static str, Color)
     match status {
         ProviderStatus::Running => ("●", Color::Green),
         ProviderStatus::NotRunning => ("○", Color::Red),
-        ProviderStatus::Unknown => ("?", Color::Yellow),
+        ProviderStatus::Unknown => ("?", Color::Cyan),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_provider_status_uses_cyan() {
+        assert_eq!(
+            get_status_symbol_and_color(&ProviderStatus::Unknown),
+            ("?", Color::Cyan)
+        );
     }
 }
 

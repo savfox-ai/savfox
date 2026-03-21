@@ -20,7 +20,7 @@ use crate::bottom_pane::footer::{
 };
 use crate::render::renderable::Renderable;
 use crate::render::{Insets, RectExt};
-use crate::style::{cursor_fg, input_bg, user_message_style};
+use crate::style::{cursor_fg, default_task_border_color, input_bg, user_message_style};
 use crate::ui_consts::LIVE_PREFIX_COLS;
 
 impl ChatComposer {
@@ -382,14 +382,9 @@ impl ChatComposer {
             }
         }
         let terminal_bg = crate::terminal_palette::default_bg();
-        let border_color = self.border_color.unwrap_or_else(|| {
-            // Default border color based on mode
-            if self.is_task_running {
-                Color::Yellow
-            } else {
-                Color::Blue
-            }
-        });
+        let border_color = self
+            .border_color
+            .unwrap_or_else(|| default_task_border_color(self.is_task_running));
         let composer_bg = terminal_bg.map(input_bg).unwrap_or(Color::Reset);
         let cursor_color = terminal_bg.map(cursor_fg).unwrap_or(border_color);
         let style = user_message_style().bg(composer_bg);

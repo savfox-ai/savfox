@@ -4,8 +4,8 @@ use std::sync::OnceLock;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
-use tracing::field::{Field, Visit};
 use tracing::Subscriber;
+use tracing::field::{Field, Visit};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 

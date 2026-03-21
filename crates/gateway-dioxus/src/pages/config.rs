@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use lucide_dioxus::{
-    BookOpen, Bot, Brain, Clock, ClipboardList, Download, Globe, Grid2X2, Image,
-    Link as LucideLink, Lock, Mail, MessageCircle, Mic, Plug, PlugZap, Save,
-    Search, Settings, Star, Terminal, TriangleAlert, Volume2, Wrench,
+    BookOpen, Bot, Brain, ClipboardList, Clock, Download, Globe, Grid2X2, Image,
+    Link as LucideLink, Lock, Mail, MessageCircle, Mic, Plug, PlugZap, Save, Search, Settings,
+    Star, Terminal, TriangleAlert, Volume2, Wrench,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;

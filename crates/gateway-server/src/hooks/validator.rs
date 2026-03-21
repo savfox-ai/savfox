@@ -247,10 +247,7 @@ impl ValidationRule {
 /// - `minimum` / `maximum`: number range constraints
 /// - `minItems` / `maxItems`: array length constraints
 /// - `enum`: allowed value list
-fn validate_json_schema(
-    value: &serde_json::Value,
-    schema: &serde_json::Value,
-) -> Option<String> {
+fn validate_json_schema(value: &serde_json::Value, schema: &serde_json::Value) -> Option<String> {
     let schema_obj = match schema.as_object() {
         Some(o) => o,
         None => return None, // non-object schemas are treated as pass-through
@@ -353,7 +350,10 @@ fn validate_json_schema(
     if errors.is_empty() {
         None
     } else {
-        Some(format!("JSON Schema validation failed: {}", errors.join("; ")))
+        Some(format!(
+            "JSON Schema validation failed: {}",
+            errors.join("; ")
+        ))
     }
 }
 
@@ -613,8 +613,7 @@ mod tests {
     #[test]
     fn json_schema_nested_property_types() {
         let v = make_validator(vec![ValidationRule::JsonSchema {
-            schema: r#"{"type": "object", "properties": {"count": {"type": "integer"}}}"#
-                .into(),
+            schema: r#"{"type": "object", "properties": {"count": {"type": "integer"}}}"#.into(),
         }]);
         assert!(v.validate(r#"{"count": 42}"#).is_pass());
         let result = v.validate(r#"{"count": "not a number"}"#);

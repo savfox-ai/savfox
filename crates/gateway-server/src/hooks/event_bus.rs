@@ -221,7 +221,10 @@ impl EventBus {
     /// Drain any pending unsubscribes queued by dropped `SubscriptionGuard`s.
     pub(crate) fn drain_pending_unsubscribes(&mut self) {
         let ids: Vec<String> = {
-            let mut pending = self.pending_unsubscribes.lock().unwrap_or_else(|e| e.into_inner());
+            let mut pending = self
+                .pending_unsubscribes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             std::mem::take(&mut *pending)
         };
         for id in ids {

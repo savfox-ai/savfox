@@ -90,11 +90,19 @@ pub fn Models() -> Element {
             // config.get returns { config: { model: { slug, provider } } }
             // After normalization, provider may be a string OR an object with "id".
             let model_obj = cfg.get("config").and_then(|c| c.get("model"))?;
-            let slug = model_obj.get("slug").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let provider = model_obj.get("provider").and_then(|v| {
-                v.as_str().map(String::from)
-                    .or_else(|| v.get("id").and_then(|id| id.as_str()).map(String::from))
-            }).unwrap_or_default();
+            let slug = model_obj
+                .get("slug")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let provider = model_obj
+                .get("provider")
+                .and_then(|v| {
+                    v.as_str()
+                        .map(String::from)
+                        .or_else(|| v.get("id").and_then(|id| id.as_str()).map(String::from))
+                })
+                .unwrap_or_default();
             if slug.is_empty() {
                 None
             } else {
@@ -122,13 +130,9 @@ pub fn Models() -> Element {
 
     // Determine the current default model ID: local override takes priority,
     // then config.toml [model] section, then per-provider is_default flag.
-    let config_default_id: Option<String> = config_default
-        .read()
-        .as_ref()
-        .and_then(|v| v.clone());
-    let effective_default_id: Option<String> = default_model_override()
-        .or(config_default_id)
-        .or_else(|| {
+    let config_default_id: Option<String> = config_default.read().as_ref().and_then(|v| v.clone());
+    let effective_default_id: Option<String> =
+        default_model_override().or(config_default_id).or_else(|| {
             models_snapshot
                 .iter()
                 .find(|m| m.is_default == Some(true))

@@ -57,13 +57,12 @@ async fn env_value_present(key: &str, pool: &SqlitePool, keyring: &dyn KeyringSt
         return true;
     }
     // Check skill_env table
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT value FROM skill_env WHERE key = ?1")
-            .bind(key)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+    let row: Option<(String,)> = sqlx::query_as("SELECT value FROM skill_env WHERE key = ?1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
     row.is_some_and(|(v,)| !v.trim().is_empty())
 }
 
@@ -232,13 +231,12 @@ async fn load_skill_roots(pool: &SqlitePool) -> Vec<String> {
 
 /// Get a skill's persisted enabled state from DB. Returns None if skill not found.
 async fn get_persisted_enabled(pool: &SqlitePool, name: &str) -> Option<bool> {
-    let row: Option<(bool,)> =
-        sqlx::query_as("SELECT enabled FROM skills WHERE name = ?1")
-            .bind(name)
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten();
+    let row: Option<(bool,)> = sqlx::query_as("SELECT enabled FROM skills WHERE name = ?1")
+        .bind(name)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
     row.map(|(e,)| e)
 }
 
@@ -260,11 +258,10 @@ pub(crate) async fn status(savfox_home: &Path) -> Result<Value, String> {
         .await
         .map_err(|e| format!("count skills: {e}"))?;
 
-    let installed: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM skills WHERE installed = 1")
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| format!("count installed: {e}"))?;
+    let installed: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM skills WHERE installed = 1")
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| format!("count installed: {e}"))?;
 
     // If DB is empty, do a full scan first
     if total.0 == 0 {
@@ -340,15 +337,9 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         .map(|(path, category)| (path, category, true)),
     );
     discovered.extend(
-        collect_skill_manifests(
-            &skills_dir,
-            CATEGORY_INSTALLED,
-            6,
-            true,
-            &skip_roots,
-        )
-        .into_iter()
-        .map(|(path, category)| (path, category, true)),
+        collect_skill_manifests(&skills_dir, CATEGORY_INSTALLED, 6, true, &skip_roots)
+            .into_iter()
+            .map(|(path, category)| (path, category, true)),
     );
     if let Some(home) = dirs::home_dir() {
         discovered.extend(
@@ -460,7 +451,10 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         // Track every source for conflict detection.
         let source = SkillConflictSource {
             category: category.to_string(),
-            path: row.skill_dir.as_ref().map(|p| p.to_string_lossy().to_string()),
+            path: row
+                .skill_dir
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string()),
             description: row.description.clone(),
         };
         conflicts.entry(name.clone()).or_default().push(source);
@@ -614,7 +608,9 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
             true
         })
         .map(|row| {
-            let skill_conflicts = conflicts.get(&row.name).filter(|c: &&Vec<SkillConflictSource>| c.len() > 1);
+            let skill_conflicts = conflicts
+                .get(&row.name)
+                .filter(|c: &&Vec<SkillConflictSource>| c.len() > 1);
             json!({
                 "name": row.name,
                 "version": row.version,
@@ -637,7 +633,11 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         .collect();
 
     let total = all_bins.len();
-    let total_pages = if total == 0 { 1 } else { (total + page_size - 1) / page_size };
+    let total_pages = if total == 0 {
+        1
+    } else {
+        (total + page_size - 1) / page_size
+    };
     let offset = (page - 1) * page_size;
     let bins: Vec<Value> = all_bins.into_iter().skip(offset).take(page_size).collect();
 
@@ -898,11 +898,7 @@ mod tests {
         for i in 0..11 {
             let key = format!("bulk-skill-{i}");
             let enabled = get_persisted_enabled(&pool, &key).await;
-            assert_eq!(
-                enabled,
-                Some(false),
-                "{key} should be disabled in DB"
-            );
+            assert_eq!(enabled, Some(false), "{key} should be disabled in DB");
         }
     }
 }

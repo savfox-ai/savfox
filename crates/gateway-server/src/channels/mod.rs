@@ -336,10 +336,7 @@ async fn start_discord_channel(
             config.id.clone(),
         );
         savfox_channels::discord::start_discord_stream(&config.id, &discord_config, sink).await?;
-        info!(
-            "Discord channel '{}' started in stream mode",
-            config.id
-        );
+        info!("Discord channel '{}' started in stream mode", config.id);
     } else {
         info!(
             "Discord channel '{}' configured in webhook mode; interaction webhook remains enabled",
@@ -448,10 +445,7 @@ async fn start_feishu_channel(
     let feishu_config = FeishuChannelConfig::from_channel_config(config)
         .ok_or_else(|| anyhow::anyhow!("Feishu channel config must be an object"))?;
 
-    info!(
-        "Starting Feishu channel with config: {:#?}",
-        feishu_config
-    );
+    info!("Starting Feishu channel with config: {:#?}", feishu_config);
     if feishu_config.stream_enabled() {
         let sink = feishu_sink(Arc::clone(channel), Arc::clone(session_store));
         start_feishu_stream(&config.id, &feishu_config, sink).await?;

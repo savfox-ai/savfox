@@ -119,10 +119,7 @@ async fn process_update_payload(
             debug!(chat_id = %channel_id, %prompt, "Inbound message");
             info!(chat_id = %channel_id, "Starting thread with prompt: {prompt}");
             if runtime::should_drop_duplicate(update_id.clone()).await {
-                debug!(
-                    ?update_id,
-                    "Duplicate update ignored before thread start"
-                );
+                debug!(?update_id, "Duplicate update ignored before thread start");
                 return;
             }
 

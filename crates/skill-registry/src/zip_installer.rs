@@ -53,7 +53,9 @@ pub fn detect_conflicts(zip_bytes: &[u8], skills_dir: &Path) -> anyhow::Result<V
         let mut fld = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for i in 0..archive.len() {
-            let Some(name) = archive.name_for_index(i) else { continue };
+            let Some(name) = archive.name_for_index(i) else {
+                continue;
+            };
             let name = name.replace('\\', "/");
             if let Some(top) = name.split('/').next() {
                 if !top.is_empty() && seen.insert(top.to_string()) {
@@ -115,9 +117,10 @@ fn install_zip_sync(
                 }
                 ConflictStrategy::Overwrite => {
                     if let Err(err) = std::fs::remove_dir_all(&target) {
-                        result
-                            .errors
-                            .push((skill_name.clone(), format!("failed to remove existing: {err}")));
+                        result.errors.push((
+                            skill_name.clone(),
+                            format!("failed to remove existing: {err}"),
+                        ));
                         continue;
                     }
                 }
@@ -245,9 +248,10 @@ mod tests {
             ("my-skill/SKILL.md", b"---\nname: my-skill\n---\nHello"),
         ]);
 
-        let result = install_from_zip_bytes(zip_bytes, skills_dir.clone(), ConflictStrategy::Overwrite)
-            .await
-            .unwrap();
+        let result =
+            install_from_zip_bytes(zip_bytes, skills_dir.clone(), ConflictStrategy::Overwrite)
+                .await
+                .unwrap();
 
         assert_eq!(result.installed, vec!["my-skill"]);
         assert!(skills_dir.join("my-skill/SKILL.md").exists());
@@ -261,10 +265,7 @@ mod tests {
         std::fs::create_dir_all(&custom).unwrap();
         std::fs::write(custom.join("SKILL.md"), "old").unwrap();
 
-        let zip_bytes = make_test_zip(&[
-            ("existing/", b""),
-            ("existing/SKILL.md", b"new content"),
-        ]);
+        let zip_bytes = make_test_zip(&[("existing/", b""), ("existing/SKILL.md", b"new content")]);
 
         let result = install_from_zip_bytes(zip_bytes, skills_dir.clone(), ConflictStrategy::Skip)
             .await

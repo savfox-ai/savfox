@@ -89,13 +89,8 @@ pub(crate) fn install_system_skills(
 ///
 /// Example: `https://github.com/savhub-ai/registry.git` → `github.com/savhub-ai/registry`
 fn registry_dir_from_url(git_url: &str) -> String {
-    let stripped = git_url
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
-    let after_scheme = stripped
-        .split("://")
-        .nth(1)
-        .unwrap_or(stripped);
+    let stripped = git_url.trim_end_matches('/').trim_end_matches(".git");
+    let after_scheme = stripped.split("://").nth(1).unwrap_or(stripped);
     after_scheme
         .split('/')
         .filter(|s| !s.is_empty())

@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 use crate::color::{blend, is_light};
 use crate::terminal_palette::{best_color, default_bg};
@@ -9,6 +9,10 @@ pub fn user_message_style() -> Style {
 
 pub fn proposed_plan_style() -> Style {
     proposed_plan_style_for(default_bg())
+}
+
+pub fn secondary_text_style() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
 }
 
 /// Returns the style for a user-authored message using the provided terminal background.
@@ -41,6 +45,14 @@ pub fn proposed_plan_bg(terminal_bg: (u8, u8, u8)) -> Color {
     user_message_bg(terminal_bg)
 }
 
+pub fn default_task_border_color(is_task_running: bool) -> Color {
+    if is_task_running {
+        Color::Green
+    } else {
+        Color::Cyan
+    }
+}
+
 pub fn input_bg(terminal_bg: (u8, u8, u8)) -> Color {
     // Match opencode's backgroundElement: slightly elevated from base.
     let bg = if is_light(terminal_bg) {
@@ -56,5 +68,16 @@ pub fn cursor_fg(terminal_bg: (u8, u8, u8)) -> Color {
         Color::Rgb(59, 125, 216)
     } else {
         Color::Rgb(250, 178, 131)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_task_border_color_uses_supported_palette() {
+        assert_eq!(default_task_border_color(false), Color::Cyan);
+        assert_eq!(default_task_border_color(true), Color::Green);
     }
 }

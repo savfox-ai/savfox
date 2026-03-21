@@ -23,13 +23,29 @@ pub fn format_relative_timestamp(ts: i64, locale: Locale) -> String {
     if total_secs < 60 {
         t(locale, "time.just_now")
     } else if total_secs < 3600 {
-        t_args(locale, "time.minutes_ago", &[("count", &(total_secs / 60).to_string())])
+        t_args(
+            locale,
+            "time.minutes_ago",
+            &[("count", &(total_secs / 60).to_string())],
+        )
     } else if total_secs < 86400 {
-        t_args(locale, "time.hours_ago", &[("count", &(total_secs / 3600).to_string())])
+        t_args(
+            locale,
+            "time.hours_ago",
+            &[("count", &(total_secs / 3600).to_string())],
+        )
     } else if total_secs < 604800 {
-        t_args(locale, "time.days_ago", &[("count", &(total_secs / 86400).to_string())])
+        t_args(
+            locale,
+            "time.days_ago",
+            &[("count", &(total_secs / 86400).to_string())],
+        )
     } else if total_secs < 2592000 {
-        t_args(locale, "time.weeks_ago", &[("count", &(total_secs / 604800).to_string())])
+        t_args(
+            locale,
+            "time.weeks_ago",
+            &[("count", &(total_secs / 604800).to_string())],
+        )
     } else {
         dt.format("%Y-%m-%d").to_string()
     }

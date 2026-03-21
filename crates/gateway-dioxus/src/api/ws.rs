@@ -149,7 +149,8 @@ impl WsRpc {
         self.inner.reconnect_attempts.set(attempts);
         if attempts > MAX_RECONNECT_ATTEMPTS {
             web_sys::console::warn_1(
-                &format!("WebSocket: giving up after {MAX_RECONNECT_ATTEMPTS} reconnect attempts").into(),
+                &format!("WebSocket: giving up after {MAX_RECONNECT_ATTEMPTS} reconnect attempts")
+                    .into(),
             );
             connected_signal.set(false);
             return;
@@ -247,7 +248,11 @@ impl WsRpc {
                         };
                         if tx.send(result).is_err() {
                             web_sys::console::warn_1(
-                                &format!("WsRpc: response for id {} dropped (caller gone)", resp.id).into(),
+                                &format!(
+                                    "WsRpc: response for id {} dropped (caller gone)",
+                                    resp.id
+                                )
+                                .into(),
                             );
                         }
                     }

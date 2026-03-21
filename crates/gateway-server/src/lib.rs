@@ -18,10 +18,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod agent_routing;
 mod approval_policy_store;
-mod cached_db;
 pub mod audit;
 pub mod auth;
 pub mod auto_reply;
+mod cached_db;
 pub mod canvas_host;
 pub mod channel;
 #[path = "channels/mod.rs"]
@@ -105,8 +105,7 @@ pub async fn run_main(
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let (filter_layer, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let stderr_fmt = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr);
+    let stderr_fmt = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
 
     let log_capture = log_store::LogCaptureLayer;
 

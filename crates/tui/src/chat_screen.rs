@@ -124,6 +124,7 @@ use crate::render::renderable::{
 use crate::slash_command::SlashCommand;
 use crate::startup_hero::StartupHero;
 use crate::status::RateLimitSnapshotDisplay;
+use crate::style::default_task_border_color;
 use crate::text_formatting::truncate_text;
 use crate::tui::FrameRequester;
 use crate::{collab, collaboration_modes, history_cell, key_hint};
@@ -6168,12 +6169,8 @@ impl ChatScreen {
             Some(CollaborationModeIndicator::PairProgramming) => Some(ratatui::style::Color::Cyan),
             Some(CollaborationModeIndicator::Execute) => Some(ratatui::style::Color::Green),
             None => {
-                // Default: use yellow when task is running, blue otherwise
-                if self.agent_turn_running {
-                    Some(ratatui::style::Color::Yellow)
-                } else {
-                    Some(ratatui::style::Color::Blue)
-                }
+                // Default: use green while a turn is active, cyan otherwise.
+                Some(default_task_border_color(self.agent_turn_running))
             }
         };
         self.bottom_pane.set_border_color(border_color);

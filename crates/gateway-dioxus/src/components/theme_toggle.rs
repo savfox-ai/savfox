@@ -1,6 +1,6 @@
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use lucide_dioxus::{Sun, Moon};
+use lucide_dioxus::{Moon, Sun};
 
 /// Toggle between dark and light themes.
 #[component]

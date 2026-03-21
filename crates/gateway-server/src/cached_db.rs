@@ -50,18 +50,15 @@ pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
 /// Read the current schema version from the database (0 if table doesn't exist).
 async fn get_current_version(pool: &SqlitePool) -> Result<u32, String> {
     // Ensure version table exists.
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)",
-    )
-    .execute(pool)
-    .await
-    .map_err(|e| format!("create schema_version table: {e}"))?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("create schema_version table: {e}"))?;
 
-    let row: Option<(i32,)> =
-        sqlx::query_as("SELECT version FROM schema_version LIMIT 1")
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| format!("read schema version: {e}"))?;
+    let row: Option<(i32,)> = sqlx::query_as("SELECT version FROM schema_version LIMIT 1")
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("read schema version: {e}"))?;
 
     Ok(row.map(|(v,)| v as u32).unwrap_or(0))
 }
@@ -142,10 +139,12 @@ async fn migration_v1(pool: &SqlitePool) -> Result<(), String> {
         .await
         .map_err(|e| format!("create skill_roots table: {e}"))?;
 
-    sqlx::query("CREATE TABLE IF NOT EXISTS skill_env (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("create skill_env table: {e}"))?;
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS skill_env (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("create skill_env table: {e}"))?;
 
     Ok(())
 }

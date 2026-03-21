@@ -130,10 +130,8 @@ pub fn Tts() -> Element {
                         .get("is_configured")
                         .and_then(|b| b.as_bool())
                         .unwrap_or(false);
-                    let voice_count = v
-                        .get("voice_count")
-                        .and_then(|n| n.as_u64())
-                        .unwrap_or(0) as usize;
+                    let voice_count =
+                        v.get("voice_count").and_then(|n| n.as_u64()).unwrap_or(0) as usize;
                     Some(ProviderItem {
                         id,
                         name,

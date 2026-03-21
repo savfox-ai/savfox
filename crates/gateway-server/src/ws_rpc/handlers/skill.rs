@@ -15,8 +15,8 @@ use crate::exec_approval::{
     persist_pending_approval, persist_resolved_approval,
 };
 use crate::session::GatewaySessionManager;
-use savfox_skill_registry::{SkillInstaller, SkillPackage, SkillSource, SkillManifest};
 use savfox_skill_registry::package::SkillSourceType;
+use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 
 use crate::{approval_policy_store, skills_store, tts_service};
 
@@ -148,19 +148,11 @@ pub(crate) async fn handle_skills_install_url(
     // Derive a skill folder name from the URL as {domain}/{restpath}
     // e.g. "https://github.com/org/repo.git" → "github.com/org/repo"
     let name = {
-        let stripped = url
-            .trim_end_matches('/')
-            .trim_end_matches(".git");
+        let stripped = url.trim_end_matches('/').trim_end_matches(".git");
         // Extract "domain/rest/path" from "https://domain/rest/path"
-        let after_scheme = stripped
-            .split("://")
-            .nth(1)
-            .unwrap_or(stripped);
+        let after_scheme = stripped.split("://").nth(1).unwrap_or(stripped);
         // Clean up: filter empty segments, rejoin
-        let segments: Vec<&str> = after_scheme
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let segments: Vec<&str> = after_scheme.split('/').filter(|s| !s.is_empty()).collect();
         segments.join("/")
     };
     if name.is_empty() || name == "." || name == ".." {
@@ -185,7 +177,10 @@ pub(crate) async fn handle_skills_install_url(
             path: None,
             registry: None,
             checksum: None,
-            subdir: params.get("subdir").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            subdir: params
+                .get("subdir")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         },
         installed: false,
         installed_version: None,
@@ -246,8 +241,8 @@ pub(crate) async fn handle_skills_install_zip(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    use savfox_skill_registry::zip_installer;
     use savfox_skill_registry::ConflictStrategy;
+    use savfox_skill_registry::zip_installer;
 
     // Expect base64-encoded zip data.
     let data_b64 = require_str(params, "data")?;

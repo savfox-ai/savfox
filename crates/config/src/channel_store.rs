@@ -493,13 +493,10 @@ pub async fn merge_channel_config(
         .and_then(|v| v.as_str())
         .and_then(normalize_slug)
         .or_else(|| {
-            patch
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|name| {
-                    let slug = resolve_slug(&resolve_name(name));
-                    resolve_id(&slug, &kind)
-                })
+            patch.get("name").and_then(|v| v.as_str()).map(|name| {
+                let slug = resolve_slug(&resolve_name(name));
+                resolve_id(&slug, &kind)
+            })
         })
         .unwrap_or_else(|| {
             let slug = resolve_slug(&resolve_name(channel_name));

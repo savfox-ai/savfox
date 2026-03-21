@@ -307,7 +307,9 @@ pub(crate) enum AppEvent {
     OpenInstallSkillFromUrl,
 
     /// Install a skill from the given git URL.
-    InstallSkillFromUrl { url: String },
+    InstallSkillFromUrl {
+        url: String,
+    },
 
     /// Re-open the permissions presets popup.
     OpenPermissionsPopup,

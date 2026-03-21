@@ -58,10 +58,7 @@ pub(crate) async fn build_history_payload(
         });
     };
 
-    debug!(
-        "Loading rollout history from file: {}",
-        path.display()
-    );
+    debug!("Loading rollout history from file: {}", path.display());
     match RolloutRecorder::get_rollout_history(&path).await {
         Ok(history) => {
             let items = history.get_rollout_items();
@@ -178,10 +175,7 @@ async fn resolve_rollout_path(
     session_ref: &str,
     entry: Option<&SessionEntry>,
 ) -> Result<Option<PathBuf>, String> {
-    debug!(
-        "resolve_rollout_path called: session_ref={}",
-        session_ref
-    );
+    debug!("resolve_rollout_path called: session_ref={}", session_ref);
 
     if let Some(session_file) = entry.and_then(|v| v.session_file.as_deref()) {
         let path = PathBuf::from(session_file);
@@ -213,20 +207,14 @@ async fn resolve_rollout_path(
         }
     }
 
-    debug!(
-        "Searching for rollout with {:#?} candidate IDs",
-        candidates
-    );
+    debug!("Searching for rollout with {:#?} candidate IDs", candidates);
     for candidate in candidates {
         // First, try direct lookup as UUID v7 filename
         if Uuid::parse_str(&candidate).is_ok() {
             let direct_path = savfox_home
                 .join("sessions")
                 .join(format!("{}.jsonl", candidate));
-            debug!(
-                "Trying direct UUID v7 path: {}",
-                direct_path.display()
-            );
+            debug!("Trying direct UUID v7 path: {}", direct_path.display());
             if tokio::fs::try_exists(&direct_path).await.unwrap_or(false) {
                 debug!(
                     "Found rollout file by direct UUID lookup: {}",
@@ -254,10 +242,7 @@ async fn resolve_rollout_path(
         }
     }
 
-    debug!(
-        "No rollout file found for session_ref={}",
-        session_ref
-    );
+    debug!("No rollout file found for session_ref={}", session_ref);
     Ok(None)
 }
 
