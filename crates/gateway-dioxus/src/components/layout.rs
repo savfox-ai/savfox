@@ -238,7 +238,7 @@ pub fn Layout() -> Element {
     let ws_connected = use_signal(|| false);
     let ws_reconnect_epoch = use_signal(|| 0u64);
     let ws = use_signal(WsRpc::new);
-    let mut sidebar_open = use_signal(|| true);
+    let mut sidebar_open = use_signal(|| !is_narrow_viewport());
 
     // Determine initial group expansion from URL (deep-link support)
     let initial_route: Route = use_route();
@@ -661,7 +661,26 @@ pub fn Layout() -> Element {
                     aria_label: "{t(\"aria.main_nav\")}",
                     role: "navigation",
 
-                    // Nav links
+                    // Icon rail (visible when sidebar is collapsed on desktop)
+                    div { class: "sidebar-rail",
+                        { rail_icon_link(&current_route, Route::Overview {}, &t("nav.overview"), rsx! { LayoutDashboard { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Sessions {}, &t("nav.sessions"), rsx! { MessageSquareText { size: 18 } }) }
+                        div { class: "sidebar-rail__divider" }
+                        { rail_icon_link(&current_route, Route::Agents {}, &t("nav.agents"), rsx! { Bot { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Models {}, &t("nav.models"), rsx! { Brain { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 18 } }) }
+                        div { class: "sidebar-rail__divider" }
+                        { rail_icon_link(&current_route, Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 18 } }) }
+                        div { class: "sidebar-rail__divider" }
+                        { rail_icon_link(&current_route, Route::Config {}, &t("nav.config"), rsx! { Settings { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 18 } }) }
+                        { rail_icon_link_with_badge(&current_route, Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 18 } }, approvals_count) }
+                    }
+
+                    // Nav links (visible when sidebar is expanded)
                     div { class: "sidebar-nav",
                     // Dashboard group
                     { nav_group_header(&t("nav.dashboard"), expanded_main(), move |_| expanded_main.toggle()) }
@@ -937,6 +956,58 @@ fn nav_link_with_badge(
                 span {
                     class: "nav-badge",
                     aria_label: "{badge_count} pending items",
+                    "{badge_count}"
+                }
+            }
+        }
+    }
+}
+
+/// An icon-only link for the collapsed sidebar rail.
+fn rail_icon_link(current: &Route, target: Route, label: &str, icon: Element) -> Element {
+    let is_active = route_matches_section(current, &target);
+    let class = if is_active {
+        "sidebar-rail__item active"
+    } else {
+        "sidebar-rail__item"
+    };
+
+    rsx! {
+        Link {
+            to: target,
+            class: "{class}",
+            title: "{label}",
+            aria_label: "{label}",
+            {icon}
+        }
+    }
+}
+
+/// An icon-only link with badge for the collapsed sidebar rail.
+fn rail_icon_link_with_badge(
+    current: &Route,
+    target: Route,
+    label: &str,
+    icon: Element,
+    badge_count: usize,
+) -> Element {
+    let is_active = route_matches_section(current, &target);
+    let class = if is_active {
+        "sidebar-rail__item active"
+    } else {
+        "sidebar-rail__item"
+    };
+
+    rsx! {
+        Link {
+            to: target,
+            class: "{class}",
+            title: "{label}",
+            aria_label: "{label}",
+            {icon}
+            if badge_count > 0 {
+                span {
+                    class: "sidebar-rail__badge",
                     "{badge_count}"
                 }
             }
