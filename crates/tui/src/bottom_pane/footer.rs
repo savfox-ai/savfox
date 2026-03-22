@@ -287,8 +287,43 @@ pub(crate) enum SummaryLeft {
     None,
 }
 
+/// A candidate left-side footer layout, ordered by desirability.
+///
+/// The layout engine builds a prioritised list of these candidates and picks
+/// the first one that fits the available width.  Each candidate can request
+/// that the right-side context indicator be shown, hidden, or conditionally
+/// hidden.
+#[derive(Clone, Copy, Debug)]
+struct FooterCandidate {
+    state: LeftSideState,
+    /// Whether the right-side context indicator should be shown alongside
+    /// this candidate. `true` = show context, `false` = hide context.
+    show_context: bool,
+    /// When true, the context indicator is suppressed because the cycle hint
+    /// is applicable but was dropped in this candidate; we do not want the
+    /// right side to outlive the left-side "(shift+tab to cycle)".
+    context_blocked_by_missing_cycle: bool,
+}
+
 /// Compute the single-line footer layout and whether the right-side context
 /// indicator can be shown alongside it.
+///
+/// This function builds a prioritised list of `FooterCandidate`s (most
+/// desirable first) and picks the first one whose left-side content fits the
+/// terminal width—optionally alongside the right-side context indicator.
+/// The explicit candidate list replaces the former hand-rolled if/else cascade
+/// while preserving the same layout rules:
+///
+/// 1. Start with the fullest left-side hint plus the right-side context.
+/// 2. When the queue hint is active, prefer keeping the queue hint visible,
+///    even if it means dropping the right-side context earlier; the queue
+///    hint may also be shortened before it is removed.
+/// 3. When the queue hint is not active but the mode cycle hint is applicable,
+///    drop "? for shortcuts" before dropping "(shift+tab to cycle)".
+/// 4. If "(shift+tab to cycle)" cannot fit, also hide the right-side context
+///    to avoid too many state transitions in quick succession.
+/// 5. Finally, try a mode-only line (with and without context), and fall back
+///    to no left-side footer if nothing can fit.
 pub(crate) fn single_line_footer_layout(
     area: Rect,
     context_width: u16,
@@ -308,145 +343,91 @@ pub(crate) fn single_line_footer_layout(
         hint: hint_kind,
         show_cycle_hint,
     };
-    let default_line = left_side_line(collaboration_mode_indicator, default_state);
-    let default_width = default_line.width() as u16;
-    if default_width > 0 && can_show_left_with_context(area, default_width, context_width) {
-        return (SummaryLeft::Default, true);
-    }
 
-    let state_line = |state: LeftSideState| -> Line<'static> {
-        if state == default_state {
-            default_line.clone()
-        } else {
-            left_side_line(collaboration_mode_indicator, state)
-        }
-    };
-    let state_width = |state: LeftSideState| -> u16 { state_line(state).width() as u16 };
     // When the mode cycle hint is applicable (idle, non-queue mode), only show
     // the right-side context indicator if the "(shift+tab to cycle)" variant
     // can also fit.
     let context_requires_cycle_hint = show_cycle_hint && !show_queue_hint;
 
+    // ── Build candidate list (most desirable first) ─────────────
+
+    let mut candidates: Vec<FooterCandidate> = Vec::with_capacity(12);
+
     if show_queue_hint {
-        // In queue mode, prefer dropping context before dropping the queue hint.
+        // Queue mode: prefer keeping the queue hint; drop context before queue.
         let queue_states = [
-            default_state,
-            LeftSideState {
-                hint: SummaryHintKind::QueueMessage,
-                show_cycle_hint: false,
-            },
-            LeftSideState {
-                hint: SummaryHintKind::QueueShort,
-                show_cycle_hint: false,
-            },
+            LeftSideState { hint: SummaryHintKind::QueueMessage, show_cycle_hint },
+            LeftSideState { hint: SummaryHintKind::QueueMessage, show_cycle_hint: false },
+            LeftSideState { hint: SummaryHintKind::QueueShort, show_cycle_hint: false },
         ];
-
-        // Pass 1: keep the right-side context indicator if any queue variant
-        // can fit alongside it. We skip adjacent duplicates because
-        // `default_state` can already be the no-cycle queue variant.
-        let mut previous_state: Option<LeftSideState> = None;
         for state in queue_states {
-            if previous_state == Some(state) {
-                continue;
-            }
-            previous_state = Some(state);
-            let width = state_width(state);
-            if width > 0 && can_show_left_with_context(area, width, context_width) {
-                if state == default_state {
-                    return (SummaryLeft::Default, true);
-                }
-                return (SummaryLeft::Custom(state_line(state)), true);
-            }
-        }
-
-        // Pass 2: if context cannot fit, drop it before dropping the queue
-        // hint. Reuse the same dedupe so we do not try equivalent states twice.
-        let mut previous_state: Option<LeftSideState> = None;
-        for state in queue_states {
-            if previous_state == Some(state) {
-                continue;
-            }
-            previous_state = Some(state);
-            let width = state_width(state);
-            if width > 0 && left_fits(area, width) {
-                if state == default_state {
-                    return (SummaryLeft::Default, false);
-                }
-                return (SummaryLeft::Custom(state_line(state)), false);
-            }
+            candidates.push(FooterCandidate { state, show_context: true, context_blocked_by_missing_cycle: false });
+            candidates.push(FooterCandidate { state, show_context: false, context_blocked_by_missing_cycle: false });
         }
     } else if collaboration_mode_indicator.is_some() {
+        // Non-queue mode with collaboration: try full → drop shortcut hint
+        // → drop cycle hint → mode-only.
+        candidates.push(FooterCandidate { state: default_state, show_context: true, context_blocked_by_missing_cycle: false });
+
         if show_cycle_hint {
-            // First fallback: drop shortcut hint but keep the cycle
-            // hint on the mode label if it can fit.
-            let cycle_state = LeftSideState {
-                hint: SummaryHintKind::None,
-                show_cycle_hint: true,
-            };
-            let cycle_width = state_width(cycle_state);
-            if cycle_width > 0 && can_show_left_with_context(area, cycle_width, context_width) {
-                return (SummaryLeft::Custom(state_line(cycle_state)), true);
-            }
-            if cycle_width > 0 && left_fits(area, cycle_width) {
-                return (SummaryLeft::Custom(state_line(cycle_state)), false);
-            }
+            let cycle_state = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: true };
+            candidates.push(FooterCandidate { state: cycle_state, show_context: true, context_blocked_by_missing_cycle: false });
+            candidates.push(FooterCandidate { state: cycle_state, show_context: false, context_blocked_by_missing_cycle: false });
         }
 
-        // Next fallback: mode label only. If the cycle hint is applicable but
-        // cannot fit, we also suppress context so the right side does not
-        // outlive "(shift+tab to cycle)" on the left.
-        let mode_only_state = LeftSideState {
-            hint: SummaryHintKind::None,
-            show_cycle_hint: false,
-        };
-        let mode_only_width = state_width(mode_only_state);
-        if !context_requires_cycle_hint
-            && mode_only_width > 0
-            && can_show_left_with_context(area, mode_only_width, context_width)
-        {
-            return (
-                SummaryLeft::Custom(state_line(mode_only_state)),
-                true, // show_context
-            );
+        let mode_only = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: false };
+        if !context_requires_cycle_hint {
+            candidates.push(FooterCandidate { state: mode_only, show_context: true, context_blocked_by_missing_cycle: false });
         }
-        if mode_only_width > 0 && left_fits(area, mode_only_width) {
-            return (
-                SummaryLeft::Custom(state_line(mode_only_state)),
-                false, // show_context
-            );
-        }
+        candidates.push(FooterCandidate { state: mode_only, show_context: false, context_blocked_by_missing_cycle: context_requires_cycle_hint });
+    } else {
+        // No collaboration mode, simple case.
+        candidates.push(FooterCandidate { state: default_state, show_context: true, context_blocked_by_missing_cycle: false });
     }
 
-    // Final fallback: if queue variants (or other earlier states) could not fit
-    // at all, drop every hint and try to show just the mode label.
-    if let Some(collaboration_mode_indicator) = collaboration_mode_indicator {
-        let mode_only_state = LeftSideState {
-            hint: SummaryHintKind::None,
-            show_cycle_hint: false,
-        };
-        // Compute the width without going through `state_line` so we do not
-        // depend on `default_state` (which may still be a queue variant).
-        let mode_only_width =
-            left_side_line(Some(collaboration_mode_indicator), mode_only_state).width() as u16;
-        if !context_requires_cycle_hint
-            && can_show_left_with_context(area, mode_only_width, context_width)
-        {
-            return (
-                SummaryLeft::Custom(left_side_line(
-                    Some(collaboration_mode_indicator),
-                    mode_only_state,
-                )),
-                true, // show_context
-            );
+    // Final fallback: mode label only (covers queue mode where all queue
+    // variants were too wide for even a bare left side).
+    if let Some(_) = collaboration_mode_indicator {
+        let mode_only = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: false };
+        if !context_requires_cycle_hint {
+            candidates.push(FooterCandidate { state: mode_only, show_context: true, context_blocked_by_missing_cycle: false });
         }
-        if left_fits(area, mode_only_width) {
-            return (
-                SummaryLeft::Custom(left_side_line(
-                    Some(collaboration_mode_indicator),
-                    mode_only_state,
-                )),
-                false, // show_context
-            );
+        candidates.push(FooterCandidate { state: mode_only, show_context: false, context_blocked_by_missing_cycle: false });
+    }
+
+    // ── Pick the best candidate that fits ───────────────────────
+
+    // Deduplicate adjacent identical candidates.
+    candidates.dedup_by(|a, b| a.state == b.state && a.show_context == b.show_context);
+
+    for candidate in &candidates {
+        let line = left_side_line(collaboration_mode_indicator, candidate.state);
+        let width = line.width() as u16;
+        if width == 0 {
+            continue;
+        }
+
+        let fits_with_context = candidate.show_context
+            && !candidate.context_blocked_by_missing_cycle
+            && can_show_left_with_context(area, width, context_width);
+        let fits_without_context = left_fits(area, width);
+
+        if candidate.show_context && fits_with_context {
+            let left = if candidate.state == default_state {
+                SummaryLeft::Default
+            } else {
+                SummaryLeft::Custom(line)
+            };
+            return (left, true);
+        }
+
+        if !candidate.show_context && fits_without_context {
+            let left = if candidate.state == default_state {
+                SummaryLeft::Default
+            } else {
+                SummaryLeft::Custom(line)
+            };
+            return (left, false);
         }
     }
 
