@@ -106,7 +106,7 @@ pub fn ExecApprovalModal(
             aria_live: "polite",
             tabindex: "-1",
             onmounted: move |e| {
-                e.data().set_focus(true);
+                let _ = e.data().set_focus(true);
             },
             onkeydown: move |e: KeyboardEvent| {
                 if e.key() == Key::Tab {

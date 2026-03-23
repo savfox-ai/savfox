@@ -1822,7 +1822,7 @@ impl ChatScreen {
             }
             all_idle &= is_idle;
         }
-        if has_controller && all_idle {
+        if !has_controller || all_idle {
             self.app_event_tx.send(AppEvent::StopCommitAnimation);
         }
     }

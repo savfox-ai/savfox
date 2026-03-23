@@ -75,6 +75,14 @@ install:
     New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
     Get-ChildItem target/debug -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
 
+# Build debug and copy exes to ~/bin (fast dev iteration)
+dist-dev:
+    cargo build
+    New-Item -ItemType Directory -Force -Path "$HOME/bin" | Out-Null
+    Get-ChildItem target/debug -Filter "savfox*.exe" | Copy-Item -Destination "$HOME/bin" -Force
+    Write-Host "Copied to ~/bin:" -ForegroundColor Green
+    Get-ChildItem "$HOME/bin/savfox*.exe" | ForEach-Object { Write-Host "  $_" }
+
 # ── Utilities ────────────────────────────────────────────────────────────────
 
 # Print available recipes

@@ -23,7 +23,7 @@ pub fn ConfirmDialog(
             aria_label: "{title}",
             tabindex: "-1",
             onmounted: move |e| {
-                e.data().set_focus(true);
+                let _ = e.data().set_focus(true);
             },
             onkeydown: move |e: KeyboardEvent| {
                 match e.key() {

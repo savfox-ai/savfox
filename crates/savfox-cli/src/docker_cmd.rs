@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-const DOCKER_COMPOSE_TEMPLATE: &str = include_str!("../../../docker-compose.yml");
+const DOCKER_COMPOSE_TEMPLATE: &str = include_str!("../../../compose.yml");
 const DOCKER_ENV_TEMPLATE: &str = include_str!("../../../.env.example");
 
 #[derive(Debug, Parser)]
