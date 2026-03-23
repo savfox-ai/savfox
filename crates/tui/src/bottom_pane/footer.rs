@@ -315,15 +315,15 @@ struct FooterCandidate {
 /// while preserving the same layout rules:
 ///
 /// 1. Start with the fullest left-side hint plus the right-side context.
-/// 2. When the queue hint is active, prefer keeping the queue hint visible,
-///    even if it means dropping the right-side context earlier; the queue
-///    hint may also be shortened before it is removed.
-/// 3. When the queue hint is not active but the mode cycle hint is applicable,
-///    drop "? for shortcuts" before dropping "(shift+tab to cycle)".
-/// 4. If "(shift+tab to cycle)" cannot fit, also hide the right-side context
-///    to avoid too many state transitions in quick succession.
-/// 5. Finally, try a mode-only line (with and without context), and fall back
-///    to no left-side footer if nothing can fit.
+/// 2. When the queue hint is active, prefer keeping the queue hint visible, even if it means
+///    dropping the right-side context earlier; the queue hint may also be shortened before it is
+///    removed.
+/// 3. When the queue hint is not active but the mode cycle hint is applicable, drop "? for
+///    shortcuts" before dropping "(shift+tab to cycle)".
+/// 4. If "(shift+tab to cycle)" cannot fit, also hide the right-side context to avoid too many
+///    state transitions in quick succession.
+/// 5. Finally, try a mode-only line (with and without context), and fall back to no left-side
+///    footer if nothing can fit.
 pub(crate) fn single_line_footer_layout(
     area: Rect,
     context_width: u16,
@@ -356,43 +356,101 @@ pub(crate) fn single_line_footer_layout(
     if show_queue_hint {
         // Queue mode: prefer keeping the queue hint; drop context before queue.
         let queue_states = [
-            LeftSideState { hint: SummaryHintKind::QueueMessage, show_cycle_hint },
-            LeftSideState { hint: SummaryHintKind::QueueMessage, show_cycle_hint: false },
-            LeftSideState { hint: SummaryHintKind::QueueShort, show_cycle_hint: false },
+            LeftSideState {
+                hint: SummaryHintKind::QueueMessage,
+                show_cycle_hint,
+            },
+            LeftSideState {
+                hint: SummaryHintKind::QueueMessage,
+                show_cycle_hint: false,
+            },
+            LeftSideState {
+                hint: SummaryHintKind::QueueShort,
+                show_cycle_hint: false,
+            },
         ];
         for state in queue_states {
-            candidates.push(FooterCandidate { state, show_context: true, context_blocked_by_missing_cycle: false });
-            candidates.push(FooterCandidate { state, show_context: false, context_blocked_by_missing_cycle: false });
+            candidates.push(FooterCandidate {
+                state,
+                show_context: true,
+                context_blocked_by_missing_cycle: false,
+            });
+            candidates.push(FooterCandidate {
+                state,
+                show_context: false,
+                context_blocked_by_missing_cycle: false,
+            });
         }
     } else if collaboration_mode_indicator.is_some() {
         // Non-queue mode with collaboration: try full → drop shortcut hint
         // → drop cycle hint → mode-only.
-        candidates.push(FooterCandidate { state: default_state, show_context: true, context_blocked_by_missing_cycle: false });
+        candidates.push(FooterCandidate {
+            state: default_state,
+            show_context: true,
+            context_blocked_by_missing_cycle: false,
+        });
 
         if show_cycle_hint {
-            let cycle_state = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: true };
-            candidates.push(FooterCandidate { state: cycle_state, show_context: true, context_blocked_by_missing_cycle: false });
-            candidates.push(FooterCandidate { state: cycle_state, show_context: false, context_blocked_by_missing_cycle: false });
+            let cycle_state = LeftSideState {
+                hint: SummaryHintKind::None,
+                show_cycle_hint: true,
+            };
+            candidates.push(FooterCandidate {
+                state: cycle_state,
+                show_context: true,
+                context_blocked_by_missing_cycle: false,
+            });
+            candidates.push(FooterCandidate {
+                state: cycle_state,
+                show_context: false,
+                context_blocked_by_missing_cycle: false,
+            });
         }
 
-        let mode_only = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: false };
+        let mode_only = LeftSideState {
+            hint: SummaryHintKind::None,
+            show_cycle_hint: false,
+        };
         if !context_requires_cycle_hint {
-            candidates.push(FooterCandidate { state: mode_only, show_context: true, context_blocked_by_missing_cycle: false });
+            candidates.push(FooterCandidate {
+                state: mode_only,
+                show_context: true,
+                context_blocked_by_missing_cycle: false,
+            });
         }
-        candidates.push(FooterCandidate { state: mode_only, show_context: false, context_blocked_by_missing_cycle: context_requires_cycle_hint });
+        candidates.push(FooterCandidate {
+            state: mode_only,
+            show_context: false,
+            context_blocked_by_missing_cycle: context_requires_cycle_hint,
+        });
     } else {
         // No collaboration mode, simple case.
-        candidates.push(FooterCandidate { state: default_state, show_context: true, context_blocked_by_missing_cycle: false });
+        candidates.push(FooterCandidate {
+            state: default_state,
+            show_context: true,
+            context_blocked_by_missing_cycle: false,
+        });
     }
 
     // Final fallback: mode label only (covers queue mode where all queue
     // variants were too wide for even a bare left side).
     if let Some(_) = collaboration_mode_indicator {
-        let mode_only = LeftSideState { hint: SummaryHintKind::None, show_cycle_hint: false };
+        let mode_only = LeftSideState {
+            hint: SummaryHintKind::None,
+            show_cycle_hint: false,
+        };
         if !context_requires_cycle_hint {
-            candidates.push(FooterCandidate { state: mode_only, show_context: true, context_blocked_by_missing_cycle: false });
+            candidates.push(FooterCandidate {
+                state: mode_only,
+                show_context: true,
+                context_blocked_by_missing_cycle: false,
+            });
         }
-        candidates.push(FooterCandidate { state: mode_only, show_context: false, context_blocked_by_missing_cycle: false });
+        candidates.push(FooterCandidate {
+            state: mode_only,
+            show_context: false,
+            context_blocked_by_missing_cycle: false,
+        });
     }
 
     // ── Pick the best candidate that fits ───────────────────────

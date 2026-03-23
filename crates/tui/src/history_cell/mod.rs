@@ -12,9 +12,6 @@
 
 mod plan_cells;
 mod session_header;
-pub(crate) use plan_cells::{new_plan_update, new_proposed_plan, new_proposed_plan_stream};
-pub(crate) use session_header::SessionHeaderHistoryCell;
-
 use std::any::Any;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -23,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use image::{DynamicImage, ImageReader};
+pub(crate) use plan_cells::{new_plan_update, new_proposed_plan, new_proposed_plan_stream};
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style, Styled, Stylize};
 use ratatui::widgets::{Paragraph, Wrap};
@@ -37,6 +35,7 @@ use savfox_protocol::mcp::{Resource, ResourceTemplate};
 use savfox_protocol::models::WebSearchAction;
 use savfox_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputQuestion};
 use savfox_protocol::user_input::TextElement;
+pub(crate) use session_header::SessionHeaderHistoryCell;
 use tracing::error;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -1955,11 +1954,10 @@ mod tests {
     use savfox_otel::{RuntimeMetricTotals, RuntimeMetricsSummary};
     use savfox_protocol::mcp::{CallToolResult, Tool};
     use savfox_protocol::models::WebSearchAction;
-    use savfox_protocol::parse_command::ParsedCommand;
-    use serde_json::json;
-
     use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
+    use savfox_protocol::parse_command::ParsedCommand;
     use savfox_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
+    use serde_json::json;
 
     use super::*;
     use crate::exec_cell::{CommandOutput, ExecCall, ExecCell};

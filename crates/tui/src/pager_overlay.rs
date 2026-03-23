@@ -243,7 +243,7 @@ impl PagerView {
 
     /// Recompute cached heights if the width changed. Returns the total height.
     fn ensure_heights_cached(&mut self, width: u16) {
-        if let Some((cached_w, _, _)) = &self.cached_heights {
+        if let Some((cached_w, ..)) = &self.cached_heights {
             if *cached_w == width {
                 return;
             }
@@ -258,7 +258,10 @@ impl PagerView {
     }
 
     fn cached_total_height(&self) -> usize {
-        self.cached_heights.as_ref().map(|(_, _, t)| *t).unwrap_or(0)
+        self.cached_heights
+            .as_ref()
+            .map(|(_, _, t)| *t)
+            .unwrap_or(0)
     }
 
     /// Invalidate cached heights (e.g., when renderables change).

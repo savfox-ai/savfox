@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose;
+use savfox_skill_registry::package::SkillSourceType;
+use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
@@ -15,9 +17,6 @@ use crate::exec_approval::{
     persist_pending_approval, persist_resolved_approval,
 };
 use crate::session::GatewaySessionManager;
-use savfox_skill_registry::package::SkillSourceType;
-use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
-
 use crate::{approval_policy_store, skills_store, tts_service};
 
 // ── TTS (text-to-speech) ────────────────────────────────────────────────────
@@ -241,8 +240,7 @@ pub(crate) async fn handle_skills_install_zip(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    use savfox_skill_registry::ConflictStrategy;
-    use savfox_skill_registry::zip_installer;
+    use savfox_skill_registry::{ConflictStrategy, zip_installer};
 
     // Expect base64-encoded zip data.
     let data_b64 = require_str(params, "data")?;

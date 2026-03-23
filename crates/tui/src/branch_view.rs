@@ -50,18 +50,10 @@ pub(crate) fn build_branch_summary(
         }
     }
 
-    let active = active_user_index.and_then(|idx| {
-        if idx < entries.len() {
-            Some(idx)
-        } else {
-            None
-        }
-    });
+    let active =
+        active_user_index.and_then(|idx| if idx < entries.len() { Some(idx) } else { None });
 
-    BranchSummary {
-        entries,
-        active,
-    }
+    BranchSummary { entries, active }
 }
 
 /// Render the branch summary as lines for display in a pager overlay.
@@ -69,13 +61,11 @@ pub(crate) fn build_branch_summary(
 pub(crate) fn render_branch_lines(summary: &BranchSummary) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
-    lines.push(
-        Line::from(vec![
-            "Session History".bold(),
-            " — ".dim(),
-            "rollback points".dim(),
-        ]),
-    );
+    lines.push(Line::from(vec![
+        "Session History".bold(),
+        " — ".dim(),
+        "rollback points".dim(),
+    ]));
     lines.push(Line::from(""));
 
     if summary.entries.is_empty() {

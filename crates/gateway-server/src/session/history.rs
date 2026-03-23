@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use tracing::{debug, warn};
-
 use savfox_core::{
     RolloutRecorder, find_archived_session_path_by_id_str, find_session_path_by_id_str,
 };
@@ -10,6 +8,7 @@ use savfox_gateway_shared::{is_internal_session_message, normalize_session_label
 use savfox_protocol::models::{ContentItem, ResponseItem};
 use savfox_protocol::protocol::{EventMsg, RolloutItem};
 use serde_json::{Value, json};
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::channel::GatewayChannel;

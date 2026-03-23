@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use savfox_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use unicode_width::UnicodeWidthStr;
 
-use super::{HistoryCell, card_inner_width, with_border, SESSION_HEADER_MAX_INNER_WIDTH};
+use super::{HistoryCell, SESSION_HEADER_MAX_INNER_WIDTH, card_inner_width, with_border};
 use crate::exec_command::relativize_to_home;
 
 #[derive(Debug)]

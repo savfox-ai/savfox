@@ -340,10 +340,20 @@ impl From<ApprovalRequest> for ApprovalRequestState {
                 // Detect potentially dangerous commands and show a warning.
                 let full_cmd = strip_bash_lc_and_escape(&command);
                 let cmd_lower = full_cmd.to_ascii_lowercase();
-                let is_dangerous = ["rm -rf", "rm -r", "rmdir", "drop table", "drop database",
-                    "truncate", "format ", "mkfs", "dd if=", "> /dev/"]
-                    .iter()
-                    .any(|pat| cmd_lower.contains(pat));
+                let is_dangerous = [
+                    "rm -rf",
+                    "rm -r",
+                    "rmdir",
+                    "drop table",
+                    "drop database",
+                    "truncate",
+                    "format ",
+                    "mkfs",
+                    "dd if=",
+                    "> /dev/",
+                ]
+                .iter()
+                .any(|pat| cmd_lower.contains(pat));
 
                 if is_dangerous {
                     header.push(Line::from(
@@ -476,9 +486,7 @@ fn exec_options(
                 }
 
                 Some(ApprovalOption {
-                    label: format!(
-                        "Yes, and don't ask again for `{rendered_prefix}` (p)"
-                    ),
+                    label: format!("Yes, and don't ask again for `{rendered_prefix}` (p)"),
                     decision: ApprovalDecision::Review(
                         ReviewDecision::ApprovedExecpolicyAmendment {
                             proposed_execpolicy_amendment: prefix,

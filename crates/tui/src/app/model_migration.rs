@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use savfox_core::config::Config;
 pub(super) use savfox_core::models_manager::model_presets::{
-    HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG, HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG,
+    HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG, HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG,
 };
 use savfox_core::protocol::TokenUsage;
 use savfox_protocol::openai_models::{ModelPreset, ModelUpgrade};

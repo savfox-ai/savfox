@@ -104,10 +104,6 @@ fn merge_provider_store_model_providers(
             .and_then(|f| trim_nonempty(&f.provider_id))
             .unwrap_or_else(|| account_id.clone());
 
-        if model_providers.contains_key(account_id.as_str()) {
-            continue;
-        }
-
         // Look up base_url from the underlying provider (not the account id).
         let base_url = provider_default_base_url(provider_id.as_str())
             .or_else(|| provider_default_base_url(account_id.as_str()));
@@ -117,7 +113,8 @@ fn merge_provider_store_model_providers(
 
         // When account_id differs from provider_id, try to inherit wire_api
         // and other settings from the base provider's built-in entry.
-        let base_provider = model_providers.get(provider_id.as_str());
+        let base_provider = model_providers.get(provider_id.as_str()).cloned();
+        let existing_provider = model_providers.get(account_id.as_str()).cloned();
 
         let name = file
             .as_ref()
@@ -128,11 +125,76 @@ fn merge_provider_store_model_providers(
             .and_then(|f| f.auth.as_ref())
             .and_then(|auth| auth.env_key.as_deref())
             .and_then(trim_nonempty);
+        let has_stored_api_key = file
+            .as_ref()
+            .and_then(|f| f.auth.as_ref())
+            .and_then(|auth| auth.api_key.as_deref())
+            .and_then(trim_nonempty)
+            .is_some();
+
+        if account_id != provider_id
+            && let Some(base_provider) = base_provider.clone()
+        {
+            let mut merged = base_provider.clone();
+
+            // Account-scoped providers are synthetic aliases for an
+            // underlying provider id, so they should inherit the base
+            // provider's wire protocol and auth capabilities across restarts.
+            if let Some(existing) = existing_provider {
+                if let Some(existing_base_url) =
+                    existing.base_url.as_deref().and_then(trim_nonempty)
+                {
+                    merged.base_url = Some(existing_base_url);
+                } else {
+                    merged.base_url = Some(base_url.clone());
+                }
+                if let Some(existing_name) = trim_nonempty(&existing.name)
+                    && existing_name != account_id
+                {
+                    merged.name = existing_name;
+                }
+                if let Some(instructions) = existing.env_key_instructions {
+                    merged.env_key_instructions = Some(instructions);
+                }
+                if existing.experimental_bearer_token.is_some() {
+                    merged.experimental_bearer_token = existing.experimental_bearer_token;
+                }
+                if existing.query_params.is_some() {
+                    merged.query_params = existing.query_params;
+                }
+                if existing.http_headers.is_some() {
+                    merged.http_headers = existing.http_headers;
+                }
+                if existing.env_http_headers.is_some() {
+                    merged.env_http_headers = existing.env_http_headers;
+                }
+                if existing.request_max_retries.is_some() {
+                    merged.request_max_retries = existing.request_max_retries;
+                }
+                if existing.stream_max_retries.is_some() {
+                    merged.stream_max_retries = existing.stream_max_retries;
+                }
+                if existing.stream_idle_timeout_ms.is_some() {
+                    merged.stream_idle_timeout_ms = existing.stream_idle_timeout_ms;
+                }
+            } else {
+                merged.base_url = Some(base_url.clone());
+            }
+
+            if has_stored_api_key {
+                merged.env_key = env_key.or_else(|| merged.env_key.clone());
+            }
+
+            model_providers.insert(account_id.clone(), merged);
+            continue;
+        }
 
         let wire_api = base_provider
+            .as_ref()
             .map(|p| p.wire_api.clone())
             .unwrap_or(crate::WireApi::Chat);
         let supports_websockets = base_provider
+            .as_ref()
             .map(|p| p.supports_websockets)
             .unwrap_or(false);
 
@@ -142,17 +204,24 @@ fn merge_provider_store_model_providers(
                 id: account_id,
                 name,
                 base_url: Some(base_url),
-                env_key,
+                env_key: has_stored_api_key.then_some(env_key).flatten(),
                 env_key_instructions: None,
                 experimental_bearer_token: None,
                 wire_api,
-                query_params: base_provider.and_then(|p| p.query_params.clone()),
-                http_headers: base_provider.and_then(|p| p.http_headers.clone()),
-                env_http_headers: base_provider.and_then(|p| p.env_http_headers.clone()),
-                request_max_retries: base_provider.and_then(|p| p.request_max_retries),
-                stream_max_retries: base_provider.and_then(|p| p.stream_max_retries),
-                stream_idle_timeout_ms: base_provider.and_then(|p| p.stream_idle_timeout_ms),
-                requires_openai_auth: false,
+                query_params: base_provider.as_ref().and_then(|p| p.query_params.clone()),
+                http_headers: base_provider.as_ref().and_then(|p| p.http_headers.clone()),
+                env_http_headers: base_provider
+                    .as_ref()
+                    .and_then(|p| p.env_http_headers.clone()),
+                request_max_retries: base_provider.as_ref().and_then(|p| p.request_max_retries),
+                stream_max_retries: base_provider.as_ref().and_then(|p| p.stream_max_retries),
+                stream_idle_timeout_ms: base_provider
+                    .as_ref()
+                    .and_then(|p| p.stream_idle_timeout_ms),
+                requires_openai_auth: base_provider
+                    .as_ref()
+                    .map(|p| p.requires_openai_auth)
+                    .unwrap_or(false),
                 supports_websockets,
             },
         );
@@ -3925,6 +3994,75 @@ model_verbosity = "high"
         )?;
 
         assert_eq!(config.model_provider_id, "zhipuai-coding-plan");
+        Ok(())
+    }
+
+    #[test]
+    fn named_openai_account_inherits_base_provider_capabilities() -> std::io::Result<()> {
+        let mut cfg = ConfigToml {
+            model: Some(selected_model_from_id("openai-work/gpt-5.3-codex")),
+            ..Default::default()
+        };
+        cfg.model_providers.insert(
+            "openai-work".to_string(),
+            ModelProviderInfo {
+                id: String::new(),
+                name: String::new(),
+                base_url: Some("https://chatgpt.com/backend-api/codex".to_string()),
+                env_key: None,
+                env_key_instructions: None,
+                experimental_bearer_token: None,
+                wire_api: crate::WireApi::Chat,
+                query_params: None,
+                http_headers: None,
+                env_http_headers: None,
+                request_max_retries: None,
+                stream_max_retries: None,
+                stream_idle_timeout_ms: None,
+                requires_openai_auth: false,
+                supports_websockets: false,
+            },
+        );
+
+        let cwd = TempDir::new()?;
+        std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
+        let savfox_home = TempDir::new()?;
+        let models_dir = savfox_home.path().join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        std::fs::write(
+            models_dir.join("openai-work.json"),
+            r#"{
+  "version": 2,
+  "id": "openai-work",
+  "provider_id": "openai",
+  "name": "Work",
+  "auth": {
+    "type": "chatgpt_oauth",
+    "env_key": "OPENAI_API_KEY"
+  },
+  "enabled_models": ["gpt-5.3-codex"]
+}"#,
+        )?;
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides {
+                cwd: Some(cwd.path().to_path_buf()),
+                ..Default::default()
+            },
+            savfox_home.path().to_path_buf(),
+        )?;
+
+        assert_eq!(config.model_provider_id, "openai-work");
+        assert_eq!(config.model_provider.id, "openai");
+        assert_eq!(
+            config.model_provider.base_url.as_deref(),
+            Some("https://chatgpt.com/backend-api/codex")
+        );
+        assert_eq!(config.model_provider.wire_api, crate::WireApi::Responses);
+        assert!(config.model_provider.requires_openai_auth);
+        assert!(config.model_provider.supports_websockets);
+        assert_eq!(config.model_provider.env_key, None);
         Ok(())
     }
 

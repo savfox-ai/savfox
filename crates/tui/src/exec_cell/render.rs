@@ -147,12 +147,10 @@ pub(crate) fn output_lines(
     };
     if show_ellipsis {
         let omitted = total - 2 * line_limit;
-        out.push(
-            Line::from(vec![
-                Span::from(format!("… +{omitted} lines")).dim(),
-                Span::from(" (ctrl+t to view full output)").dim().italic(),
-            ]),
-        );
+        out.push(Line::from(vec![
+            Span::from(format!("… +{omitted} lines")).dim(),
+            Span::from(" (ctrl+t to view full output)").dim().italic(),
+        ]));
     }
 
     let tail_start = if show_ellipsis {

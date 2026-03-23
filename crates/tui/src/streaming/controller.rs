@@ -95,7 +95,9 @@ impl StreamController {
         Self {
             state: StreamState::new(width),
             finishing_after_drain: false,
-            emitter: AgentMessageEmitter { header_emitted: false },
+            emitter: AgentMessageEmitter {
+                header_emitted: false,
+            },
         }
     }
 

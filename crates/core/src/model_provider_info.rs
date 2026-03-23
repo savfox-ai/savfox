@@ -305,8 +305,8 @@ impl ModelProviderInfo {
         {
             base_url.to_string()
         } else {
-            let is_openai_provider = provider_id.is_some_and(is_openai_provider_id)
-                || (provider_id.is_none() && self.is_openai());
+            let is_openai_provider =
+                provider_id.is_some_and(is_openai_provider_id) || self.is_openai();
 
             if matches!(auth_mode, Some(AuthMode::Chatgpt)) && is_openai_provider {
                 default_chatgpt_openai_base_url(chatgpt_base_url)
@@ -1029,6 +1029,22 @@ env_key = "GEMINI_API_KEY"
         let api_provider = provider
             .to_api_provider(
                 Some("openai"),
+                Some(AuthMode::Chatgpt),
+                Some("https://chatgpt.com/backend-api/"),
+            )
+            .expect("convert provider");
+        assert_eq!(
+            api_provider.base_url,
+            "https://chatgpt.com/backend-api/codex"
+        );
+    }
+
+    #[test]
+    fn to_api_provider_treats_account_scoped_openai_provider_as_openai() {
+        let provider = ModelProviderInfo::create_openai_provider();
+        let api_provider = provider
+            .to_api_provider(
+                Some("openai-work"),
                 Some(AuthMode::Chatgpt),
                 Some("https://chatgpt.com/backend-api/"),
             )
