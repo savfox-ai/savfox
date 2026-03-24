@@ -30,7 +30,7 @@ fn default_auth_type() -> String {
 }
 
 /// On-disk representation of `models/{account_id}.json` (v1).
-/// Persisted shape is `enabled_models` plus auth/provider metadata.
+/// Persisted shape is `disabled_models` (blacklist) plus auth/provider metadata.
 /// `models` is kept runtime-only for RPC responses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderFile {
@@ -49,8 +49,8 @@ struct ProviderFile {
     auth: Option<ProviderAuth>,
     #[serde(default, rename = "models", skip_serializing)]
     models: Vec<Value>,
-    #[serde(default)]
-    enabled_models: Vec<String>,
+    #[serde(default, alias = "enabled_models")]
+    disabled_models: Vec<String>,
 }
 
 impl ProviderFile {
@@ -75,10 +75,10 @@ struct ProviderAuth {
     api_key: Option<String>,
 }
 
-fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[String]) -> Vec<Value> {
+fn provider_models_from_slugs(provider_id: &str, slugs: &[String]) -> Vec<Value> {
     let canonical_provider = savfox_core::canonical_provider_id(provider_id);
     let default_slug = savfox_core::provider_default_model_slug(provider_id);
-    let normalized_enabled: Vec<String> = enabled_models
+    let normalized: Vec<String> = slugs
         .iter()
         .filter_map(|slug| {
             let trimmed = slug.trim();
@@ -93,7 +93,7 @@ fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[Stri
         })
         .collect();
 
-    savfox_core::provider_models_from_enabled_slugs(provider_id, &normalized_enabled)
+    savfox_core::provider_models_from_slugs(provider_id, &normalized)
         .into_iter()
         .map(|model| {
             let model_slug = model.slug;
@@ -109,62 +109,26 @@ fn provider_models_from_enabled_models(provider_id: &str, enabled_models: &[Stri
         .collect()
 }
 
-fn provider_enabled_models_from_models(models: &[Value]) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut enabled_models = Vec::new();
-    for model in models {
-        let slug = model
-            .get("model_slug")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                model
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(|id| {
-                        savfox_core::parse_provider_prefixed_model(id)
-                            .map(|(_, model_slug)| model_slug)
-                            .unwrap_or(id)
-                    })
-            });
-        let Some(slug) = slug else {
-            continue;
-        };
-        let slug = slug.to_string();
-        if seen.insert(slug.clone()) {
-            enabled_models.push(slug);
-        }
-    }
-    enabled_models
-}
-
-fn hydrate_provider_file_enabled_models(file: &mut ProviderFile) {
-    if file.enabled_models.is_empty() && !file.models.is_empty() {
-        file.enabled_models = provider_enabled_models_from_models(&file.models);
-    } else if !file.enabled_models.is_empty() {
-        file.enabled_models = file
-            .enabled_models
-            .iter()
-            .filter_map(|slug| {
-                let trimmed = slug.trim();
-                if trimmed.is_empty() {
-                    return None;
-                }
-                Some(
-                    savfox_core::parse_provider_prefixed_model(trimmed)
-                        .map(|(_, model_slug)| model_slug.to_string())
-                        .unwrap_or_else(|| trimmed.to_string()),
-                )
-            })
-            .collect();
-    }
+fn hydrate_provider_file_disabled_models(file: &mut ProviderFile) {
+    file.disabled_models = file
+        .disabled_models
+        .iter()
+        .filter_map(|slug| {
+            let trimmed = slug.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            Some(
+                savfox_core::parse_provider_prefixed_model(trimmed)
+                    .map(|(_, model_slug)| model_slug.to_string())
+                    .unwrap_or_else(|| trimmed.to_string()),
+            )
+        })
+        .collect();
 }
 
 fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str) {
-    if !file.models.is_empty() || file.enabled_models.is_empty() {
+    if !file.models.is_empty() {
         return;
     }
 
@@ -180,7 +144,15 @@ fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str)
     if file.provider_id.trim().is_empty() {
         file.provider_id = provider_id.clone();
     }
-    file.models = provider_models_from_enabled_models(&provider_id, &file.enabled_models);
+
+    // Build models from all provider defaults, excluding disabled ones.
+    let disabled: HashSet<&str> = file.disabled_models.iter().map(String::as_str).collect();
+    let all_slugs: Vec<String> = savfox_model::provider_default_models(&provider_id)
+        .iter()
+        .filter(|m| !disabled.contains(m.slug.as_str()))
+        .map(|m| m.slug.clone())
+        .collect();
+    file.models = provider_models_from_slugs(&provider_id, &all_slugs);
 }
 
 /// Load a provider file, auto-detecting v1 (bare array) vs v2 (object).
@@ -197,7 +169,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
             slug: String::new(),
             auth: None,
             models: Vec::new(),
-            enabled_models: Vec::new(),
+            disabled_models: Vec::new(),
         };
     };
 
@@ -211,7 +183,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
         if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
             file.slug = savfox_utils::string::normalize_slug(&file.name).unwrap_or_default();
         }
-        hydrate_provider_file_enabled_models(&mut file);
+        hydrate_provider_file_disabled_models(&mut file);
         hydrate_provider_file_models(&mut file, account_id);
         return file;
     }
@@ -224,7 +196,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
             slug: String::new(),
             auth: None,
             models,
-            enabled_models: Vec::new(),
+            disabled_models: Vec::new(),
         };
     }
 
@@ -236,7 +208,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
         slug: String::new(),
         auth: None,
         models: Vec::new(),
-        enabled_models: Vec::new(),
+        disabled_models: Vec::new(),
     }
 }
 
@@ -248,17 +220,26 @@ async fn save_provider_file(
     file: &ProviderFile,
 ) -> Result<(), String> {
     let mut file_to_write = file.clone();
-    hydrate_provider_file_enabled_models(&mut file_to_write);
+    hydrate_provider_file_disabled_models(&mut file_to_write);
     let dir = models_dir(channel);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("create models dir: {e}"))?;
     let path = dir.join(format!("{account_id}.json"));
     if file_to_write.models.is_empty()
-        && file_to_write.enabled_models.is_empty()
+        && file_to_write.disabled_models.is_empty()
         && file_to_write.auth.is_none()
     {
         let _ = tokio::fs::remove_file(&path).await;
+        // If the removed provider was the default, fall back to another one.
+        let savfox_home = channel.config().savfox_home.clone();
+        let account = account_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            savfox_core::config::provider_store::fallback_default_provider_if_removed(
+                &savfox_home,
+                &account,
+            );
+        });
         return Ok(());
     }
     let data = serde_json::to_string_pretty(&file_to_write)

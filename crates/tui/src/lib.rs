@@ -202,9 +202,23 @@ fn load_provider_model_catalog(savfox_home: &Path) -> Vec<ProviderModelCatalog> 
         {
             let provider_id = trim_nonempty(file.account_id()).unwrap_or(provider_from_filename);
             let models: Vec<Value> = if !file.models.is_empty() {
+                let disabled: HashSet<&str> =
+                    file.disabled_models.iter().map(String::as_str).collect();
                 file.models
+                    .into_iter()
+                    .filter(|m| {
+                        let slug = m
+                            .get("model_slug")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| m.get("id").and_then(|v| v.as_str()));
+                        match slug {
+                            Some(s) => !disabled.contains(s),
+                            None => true,
+                        }
+                    })
+                    .collect()
             } else {
-                file.enabled_models.into_iter().map(Value::String).collect()
+                Vec::new()
             };
             (provider_id, models)
         } else if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
@@ -1452,9 +1466,7 @@ trust_level = "untrusted"
     "env_key": "ZHIPUAI_API_KEY",
     "api_key": "sk-test-zhipu"
   },
-  "enabled_models": [
-    "glm-5"
-  ]
+  "disabled_models": []
 }"#,
         )?;
 
@@ -1474,10 +1486,7 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "enabled_models": [
-    "glm-5",
-    "glm-4.7"
-  ]
+  "disabled_models": []
 }"#,
         )?;
 
@@ -1514,10 +1523,7 @@ trust_level = "untrusted"
             r#"{
   "version": 2,
   "provider_id": "zhipuai-coding-plan",
-  "enabled_models": [
-    "zhipuai-coding-plan/glm-4.5",
-    "zhipuai-coding-plan/glm-5"
-  ]
+  "disabled_models": []
 }"#,
         )?;
 

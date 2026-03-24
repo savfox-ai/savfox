@@ -187,16 +187,16 @@ pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelI
     Some(model_info_with_defaults(slug, slug))
 }
 
-/// Expand a provider's enabled model slug list into detailed model metadata.
+/// Expand a provider's model slug list into detailed model metadata.
 ///
 /// Unknown providers are ignored. Duplicate slugs are removed while preserving
 /// the first occurrence order.
-pub fn provider_models_from_enabled_slugs(
+pub fn provider_models_from_slugs(
     provider_id: &str,
-    enabled_models: &[String],
+    model_slugs: &[String],
 ) -> Vec<ModelInfo> {
     let mut seen = HashSet::new();
-    enabled_models
+    model_slugs
         .iter()
         .filter_map(|slug| {
             let trimmed = slug.trim();
@@ -212,7 +212,7 @@ pub fn provider_models_from_enabled_slugs(
 mod tests {
     use super::{
         DEFAULT_OPENAI_API_BASE_URL, canonical_provider_id, provider_default_base_url,
-        provider_default_base_url_entry, provider_model_info, provider_models_from_enabled_slugs,
+        provider_default_base_url_entry, provider_model_info, provider_models_from_slugs,
         provider_registry,
     };
 
@@ -270,8 +270,8 @@ mod tests {
     }
 
     #[test]
-    fn provider_models_from_enabled_slugs_dedupes_and_preserves_order() {
-        let models = provider_models_from_enabled_slugs(
+    fn provider_models_from_slugs_dedupes_and_preserves_order() {
+        let models = provider_models_from_slugs(
             "openai",
             &[
                 "model-a".to_string(),

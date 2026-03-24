@@ -133,8 +133,8 @@ pub fn ConnectProvider() -> Element {
     let mut test_status = use_signal(|| Option::<(bool, String)>::None);
     let mut testing = use_signal(|| false);
 
-    // Step 3: Models selection (enabled set)
-    let mut enabled_models = use_signal(std::collections::HashSet::<String>::new);
+    // Step 3: Models selection (disabled set - all enabled by default)
+    let mut disabled_models = use_signal(std::collections::HashSet::<String>::new);
     let mut fetched_models = use_signal(|| Option::<Vec<ModelEntry>>::None);
     let mut models_loading = use_signal(|| false);
     let mut models_error = use_signal(|| Option::<String>::None);
@@ -159,7 +159,7 @@ pub fn ConnectProvider() -> Element {
                 || !api_key().trim().is_empty()
                 || test_status().map(|(ok, _)| ok).unwrap_or(false)
         }
-        3 => !enabled_models().is_empty(),
+        3 => fetched_models().map(|m| !m.is_empty()).unwrap_or(false),
         4 => true,
         _ => false,
     };
@@ -179,7 +179,7 @@ pub fn ConnectProvider() -> Element {
                         api_key.set(String::new());
                         account_name.set(String::new());
                         test_status.set(None);
-                        enabled_models.write().clear();
+                        disabled_models.write().clear();
                         fetched_models.set(None);
                         models_error.set(None);
                         apply_result.set(None);
@@ -249,7 +249,7 @@ pub fn ConnectProvider() -> Element {
                     3 => rsx! {
                         {render_step_model(
                             ws.clone(),
-                            enabled_models,
+                            disabled_models,
                             fetched_models,
                             models_loading,
                             models_error,
@@ -269,7 +269,7 @@ pub fn ConnectProvider() -> Element {
                             &custom_base_url(),
                             &api_key(),
                             &account_name(),
-                            &enabled_models(),
+                            &disabled_models(),
                             &fetched_models(),
                             applying,
                             apply_result,
@@ -311,7 +311,7 @@ pub fn ConnectProvider() -> Element {
                                     models_loading.set(true);
                                     models_error.set(None);
                                     fetched_models.set(None);
-                                    enabled_models.write().clear();
+                                    disabled_models.write().clear();
                                     let selected_provider_id = selected_provider()
                                         .as_deref()
                                         .map(canonical_provider_id);
@@ -338,8 +338,7 @@ pub fn ConnectProvider() -> Element {
                                             Ok(resp) => {
                                                 let entries =
                                                     build_model_entries(resp, selected_provider_id);
-                                                let enabled_ids = initial_enabled_models(&entries);
-                                                enabled_models.set(enabled_ids);
+                                                disabled_models.set(initial_disabled_models(&entries));
                                                 fetched_models.set(Some(entries));
                                             }
                                             Err(e) => {
@@ -363,7 +362,7 @@ pub fn ConnectProvider() -> Element {
                                             models_loading.set(true);
                                             models_error.set(None);
                                             fetched_models.set(None);
-                                            enabled_models.write().clear();
+                                            disabled_models.write().clear();
                                             let selected_provider_id = selected_provider()
                                                 .as_deref()
                                                 .map(canonical_provider_id);
@@ -397,9 +396,7 @@ pub fn ConnectProvider() -> Element {
                                                     Ok(resp) => {
                                                         let entries =
                                                             build_model_entries(resp, selected_provider_id);
-                                                        let enabled_ids =
-                                                            initial_enabled_models(&entries);
-                                                        enabled_models.set(enabled_ids);
+                                                        disabled_models.set(initial_disabled_models(&entries));
                                                         fetched_models.set(Some(entries));
                                                     }
                                                     Err(e) => {
@@ -513,24 +510,19 @@ fn model_visibility_key(model: &ModelEntry) -> ModelKey {
     ModelKey::new(provider_id, model_id)
 }
 
-fn initial_enabled_models(entries: &[ModelEntry]) -> std::collections::HashSet<String> {
+fn initial_disabled_models(entries: &[ModelEntry]) -> std::collections::HashSet<String> {
     let prefs = load_model_preferences();
-    let mut enabled = entries
+    entries
         .iter()
         .filter_map(|entry| {
             let key = model_visibility_key(entry);
-            if is_model_visible(&prefs, &key) {
+            if !is_model_visible(&prefs, &key) {
                 Some(entry.id.clone())
             } else {
                 None
             }
         })
-        .collect::<std::collections::HashSet<_>>();
-
-    if enabled.is_empty() {
-        enabled.extend(entries.iter().map(|entry| entry.id.clone()));
-    }
-    enabled
+        .collect()
 }
 
 // ── Step 1: Choose Provider ─────────────────────────────────────────
@@ -844,20 +836,20 @@ fn render_step_api_key(
 #[allow(clippy::too_many_arguments)]
 fn render_step_model(
     ws: WsRpc,
-    mut enabled_models: Signal<std::collections::HashSet<String>>,
+    mut disabled_models: Signal<std::collections::HashSet<String>>,
     mut fetched_models: Signal<Option<Vec<ModelEntry>>>,
     mut models_loading: Signal<bool>,
     mut models_error: Signal<Option<String>>,
     selected_provider_id: Option<String>,
     models_list_params: Option<Value>,
 ) -> Element {
-    let enabled_snapshot = enabled_models();
+    let disabled_snapshot = disabled_models();
     let models = fetched_models();
 
     rsx! {
         div { class: "wiz-step",
             p { class: "wiz-step__desc",
-                "Enable the models you want available in model selector."
+                "All models are enabled by default. Disable any you don't need."
             }
 
             if models_loading() {
@@ -889,8 +881,7 @@ fn render_step_model(
                                     match result {
                                         Ok(resp) => {
                                             let entries = build_model_entries(resp, selected_provider_id);
-                                            let enabled_ids = initial_enabled_models(&entries);
-                                            enabled_models.set(enabled_ids);
+                                            disabled_models.set(initial_disabled_models(&entries));
                                             fetched_models.set(Some(entries));
                                         }
                                         Err(e) => {
@@ -915,12 +906,12 @@ fn render_step_model(
                     }
                 } else {
                     div { class: "wiz-model-count",
-                        "{enabled_snapshot.len()} enabled / {model_list.len()} total"
+                        "{model_list.len() - disabled_snapshot.len()} enabled / {model_list.len()} total"
                     }
                     div { class: "wiz-model-list",
                         for model in model_list.iter() {
                             {
-                                let is_enabled = enabled_snapshot.contains(model.id.as_str());
+                                let is_enabled = !disabled_snapshot.contains(model.id.as_str());
                                 let model_id = model.id.clone();
                                 let prov_display = model.provider.clone().unwrap_or_default();
                                 let model_entry = model.clone();
@@ -953,13 +944,13 @@ fn render_step_model(
                                             aria_label: if is_enabled { "Disable model" } else { "Enable model" },
                                             onclick: move |_| {
                                                 let next_enabled = {
-                                                    let mut set = enabled_models.write();
+                                                    let mut set = disabled_models.write();
                                                     if set.contains(model_id.as_str()) {
                                                         set.remove(model_id.as_str());
-                                                        false
+                                                        true
                                                     } else {
                                                         set.insert(model_id.clone());
-                                                        true
+                                                        false
                                                     }
                                                 };
 
@@ -990,7 +981,7 @@ fn render_step_summary(
     custom_base_url: &str,
     api_key: &str,
     account_name: &str,
-    enabled_model_ids: &std::collections::HashSet<String>,
+    disabled_model_ids: &std::collections::HashSet<String>,
     fetched_models: &Option<Vec<ModelEntry>>,
     mut applying: Signal<bool>,
     mut apply_result: Signal<Option<(bool, String)>>,
@@ -1020,7 +1011,7 @@ fn render_step_summary(
         .map(|entries| {
             entries
                 .iter()
-                .filter(|entry| enabled_model_ids.contains(entry.id.as_str()))
+                .filter(|entry| !disabled_model_ids.contains(entry.id.as_str()))
                 .cloned()
                 .collect::<Vec<_>>()
         })

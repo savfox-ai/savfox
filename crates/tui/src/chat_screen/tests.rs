@@ -3428,9 +3428,7 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-a",
   "name": "Provider A",
-  "enabled_models": [
-    "provider-a/model-one"
-  ]
+  "disabled_models": []
 }"#,
     )
     .expect("write provider-a");
@@ -3440,9 +3438,7 @@ async fn model_popup_prefers_provider_store_models() {
   "version": 2,
   "provider_id": "provider-b",
   "name": "Provider B",
-  "enabled_models": [
-    "provider-b/model-two"
-  ]
+  "disabled_models": []
 }"#,
     )
     .expect("write provider-b");
@@ -3479,7 +3475,7 @@ async fn model_popup_prefers_provider_store_models() {
 }
 
 #[test]
-fn provider_store_loader_parses_enabled_models_field() {
+fn provider_store_loader_parses_disabled_models_field() {
     let savfox_home = tempdir().expect("tempdir");
     let models_dir = savfox_home.path().join("models");
     std::fs::create_dir_all(&models_dir).expect("create models dir");
@@ -3489,10 +3485,7 @@ fn provider_store_loader_parses_enabled_models_field() {
   "version": 2,
   "provider_id": "provider-enabled",
   "name": "Provider Enabled",
-  "enabled_models": [
-    "provider-enabled/model-a",
-    "provider-enabled/model-b"
-  ]
+  "disabled_models": []
 }"#,
     )
     .expect("write enabled models file");
@@ -3505,7 +3498,7 @@ fn provider_store_loader_parses_enabled_models_field() {
 }
 
 #[test]
-fn provider_store_loader_prefers_models_field_over_enabled_models() {
+fn provider_store_loader_uses_models_field() {
     let savfox_home = tempdir().expect("tempdir");
     let models_dir = savfox_home.path().join("models");
     std::fs::create_dir_all(&models_dir).expect("create models dir");
@@ -3515,9 +3508,7 @@ fn provider_store_loader_prefers_models_field_over_enabled_models() {
   "version": 2,
   "provider_id": "provider-full",
   "name": "Provider Full",
-  "enabled_models": [
-    "provider-full/model-a"
-  ],
+  "disabled_models": [],
   "models": [
     { "id": "provider-full/model-a", "name": "Model A" },
     { "id": "provider-full/model-b", "name": "Model B" }

@@ -741,7 +741,7 @@ mod tests {
         )
         .expect("parse persisted provider file");
         assert_eq!(
-            raw.get("enabled_models")
+            raw.get("disabled_models")
                 .and_then(Value::as_array)
                 .and_then(|arr| arr.first())
                 .and_then(Value::as_str),
@@ -775,9 +775,7 @@ mod tests {
     "env_key": "ZHIPUAI_API_KEY",
     "api_key": "sk-test-zhipu"
   },
-  "enabled_models": [
-    "zhipuai-coding-plan/glm-5"
-  ]
+  "disabled_models": []
 }"#,
         )
         .expect("write provider file");
@@ -812,7 +810,7 @@ mod tests {
       "access_token": "access-token"
     }
   },
-  "enabled_models": []
+  "disabled_models": []
 }"#,
         )
         .expect("write chatgpt provider file");

@@ -4204,7 +4204,9 @@ impl ChatScreen {
     fn model_presets_for_popup(&self) -> Result<Vec<ModelPreset>, ()> {
         if let Some(presets) = load_provider_store_model_presets(self.config.savfox_home.as_path())
         {
-            return Ok(presets);
+            if !presets.is_empty() {
+                return Ok(presets);
+            }
         }
         self.models_manager
             .try_list_models(&self.config)
@@ -7079,16 +7081,22 @@ fn load_provider_store_model_presets(savfox_home: &Path) -> Option<Vec<ModelPres
 
 fn parse_provider_store_models(data: &str) -> Vec<serde_json::Value> {
     if let Ok(file) = serde_json::from_str::<ProviderStoreFile>(data) {
-        // Prefer full provider catalogs when available. `enabled_models` can be a subset
-        // selected by other clients, but `/model` should list all provider-supported models.
         if !file.models.is_empty() {
-            return file.models;
-        }
-        if !file.enabled_models.is_empty() {
+            let disabled: HashSet<&str> =
+                file.disabled_models.iter().map(String::as_str).collect();
             return file
-                .enabled_models
+                .models
                 .into_iter()
-                .map(serde_json::Value::String)
+                .filter(|m| {
+                    let slug = m
+                        .get("model_slug")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| m.get("id").and_then(|v| v.as_str()));
+                    match slug {
+                        Some(s) => !disabled.contains(s),
+                        None => true,
+                    }
+                })
                 .collect();
         }
         return Vec::new();

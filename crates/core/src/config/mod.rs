@@ -1522,17 +1522,24 @@ impl Config {
         } else {
             None
         };
-        let model_provider_id = explicit_model_provider
+        // Only accept explicit/inferred providers that actually exist in the
+        // providers map.  If the configured value points to a provider that
+        // has been removed, fall through so we can pick a valid one.
+        let validated_provider = explicit_model_provider
             .or(inferred_model_provider)
-            .unwrap_or_else(|| "openai".to_string());
-        let model_provider = model_providers
-            .get(&model_provider_id)
+            .filter(|id| model_providers.contains_key(id));
+
+        let model_provider_id = validated_provider
+            .or_else(|| model_providers.keys().next().cloned())
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Model provider `{model_provider_id}` not found"),
+                    "No model providers configured".to_string(),
                 )
-            })?
+            })?;
+        let model_provider = model_providers
+            .get(&model_provider_id)
+            .expect("model_provider_id was selected from model_providers keys")
             .clone();
 
         let shell_environment_policy = cfg.shell_environment_policy.into();
@@ -4040,7 +4047,7 @@ model_verbosity = "high"
     "type": "chatgpt_oauth",
     "env_key": "OPENAI_API_KEY"
   },
-  "enabled_models": ["gpt-5.3-codex"]
+  "disabled_models": []
 }"#,
         )?;
 

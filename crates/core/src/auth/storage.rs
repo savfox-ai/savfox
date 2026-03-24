@@ -11,7 +11,6 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
-use savfox_model::provider_default_models;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -77,18 +76,11 @@ impl From<&AuthDotJson> for ProviderStoreFile {
                 tokens: auth.tokens.clone(),
                 last_refresh: auth.last_refresh,
             }),
-            enabled_models: default_openai_enabled_models(),
+            disabled_models: Vec::new(),
             models: Vec::new(),
             models_fetched_at: None,
         }
     }
-}
-
-fn default_openai_enabled_models() -> Vec<String> {
-    provider_default_models(AUTH_PROVIDER_ID)
-        .iter()
-        .map(|model| model.slug.clone())
-        .collect()
 }
 
 impl ProviderStoreFile {
@@ -241,8 +233,8 @@ impl FileAuthStorage {
             provider_file.slug =
                 savfox_utils::string::normalize_slug(&provider_file.name).unwrap_or_default();
         }
-        if provider_file.enabled_models.is_empty() && provider_file.models.is_empty() {
-            provider_file.enabled_models = auth_only_file.enabled_models;
+        if provider_file.models.is_empty() {
+            provider_file.disabled_models = auth_only_file.disabled_models;
         }
         provider_file.auth = auth_only_file.auth;
 
@@ -269,7 +261,6 @@ impl FileAuthStorage {
 
         if let Ok(mut provider_file) = serde_json::from_str::<ProviderStoreFile>(&existing) {
             let should_preserve_file = !provider_file.models.is_empty()
-                || !provider_file.enabled_models.is_empty()
                 || provider_file.id.trim() != AUTH_PROVIDER_ID;
             if provider_file.auth.is_some() && should_preserve_file {
                 provider_file.auth = None;
@@ -585,19 +576,12 @@ mod tests {
         assert_eq!(raw_file["auth"]["type"], "api_key");
         assert_eq!(raw_file["auth"]["env_key"], "OPENAI_API_KEY");
         assert_eq!(raw_file["auth"]["api_key"], "test-key");
-        let enabled_models = raw_file["enabled_models"]
+        let disabled_models = raw_file["disabled_models"]
             .as_array()
-            .expect("provider store file should include an enabled_models array");
+            .expect("provider store file should include a disabled_models array");
         assert!(
-            !enabled_models.is_empty(),
-            "provider store file should include default OpenAI enabled models"
-        );
-        assert_eq!(enabled_models[0], json!("gpt-5.3-codex"));
-        assert!(
-            enabled_models
-                .iter()
-                .any(|model_slug| model_slug == &json!("gpt-5.3-codex")),
-            "provider store file should include gpt-5.3-codex in default OpenAI enabled models"
+            disabled_models.is_empty(),
+            "provider store file should have empty disabled_models (all models enabled by default)"
         );
         Ok(())
     }
