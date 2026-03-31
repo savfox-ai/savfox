@@ -34,7 +34,7 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
 
       - name: Upload changelog artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: changelog
           path: CHANGELOG.md
@@ -151,14 +151,14 @@ jobs:
           # rm -f /tmp/signing.key
 
       - name: Upload archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARCHIVE }}
           path: ${{ env.ARCHIVE }}
           if-no-files-found: error
 
       - name: Upload checksum
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARCHIVE }}.sha256
           path: ${{ env.ARCHIVE }}.sha256
