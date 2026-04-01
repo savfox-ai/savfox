@@ -1204,14 +1204,13 @@ pub(crate) fn build_specs(
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
+    use serde_json::json;
 
     use super::*;
-    use crate::client_common::tools::FreeformTool;
-    use crate::client_common::tools::ResponsesApiTool;
+    use crate::client_common::tools::{FreeformTool, ResponsesApiTool};
     use crate::config::test_config;
     use crate::models_manager::manager::ModelsManager;
     use crate::tools::registry::ConfiguredToolSpec;
-    use serde_json::json;
 
     fn mcp_tool(
         name: &str,

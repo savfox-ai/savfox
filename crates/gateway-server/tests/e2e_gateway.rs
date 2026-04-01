@@ -16,9 +16,8 @@
 
 mod helpers;
 
-use serde_json::{Value, json};
-
 use helpers::http_client_with_timeout;
+use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
 // Helpers

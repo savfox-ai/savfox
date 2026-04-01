@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use pretty_assertions::assert_eq;
+use savfox_config::fingerprint::version_for_toml;
 use savfox_protocol::config_types::TrustLevel;
 use savfox_protocol::protocol::AskForApproval;
 #[cfg(target_os = "macos")]
@@ -20,7 +21,6 @@ use crate::config_loader::{
     CloudRequirementsLoader, ConfigLayerEntry, ConfigLoadError, ConfigRequirements,
     ConfigRequirementsToml, load_requirements_toml,
 };
-use savfox_config::fingerprint::version_for_toml;
 
 fn config_error_from_io(err: &std::io::Error) -> &super::ConfigError {
     err.get_ref()
