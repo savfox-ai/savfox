@@ -12,7 +12,7 @@ use time::OffsetDateTime;
 use tokio::net::lookup_host;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{NetworkMode, NetworkProxyConfig};
 use crate::policy::{Host, is_loopback_host, is_non_public_ip, normalize_host};
@@ -389,12 +389,22 @@ async fn host_resolves_to_non_public_ip(host: &str, port: u16) -> bool {
         return is_non_public_ip(ip);
     }
 
-    // If DNS lookup fails, default to "not local/private" rather than blocking. In practice, the
-    // subsequent connect attempt will fail anyway, and blocking on transient resolver issues would
-    // make the proxy fragile. The allowlist/denylist remains the primary control plane.
+    // Block the request if this DNS lookup fails. We resolve the hostname again when we connect,
+    // so a failed check here does not prove the destination is public.
     let addrs = match timeout(DNS_LOOKUP_TIMEOUT, lookup_host((host, port))).await {
         Ok(Ok(addrs)) => addrs,
-        Ok(Err(_)) | Err(_) => return false,
+        Ok(Err(err)) => {
+            debug!(
+                "blocking host because DNS lookup failed during local/private IP check (host={host}, port={port}): {err}"
+            );
+            return true;
+        }
+        Err(_) => {
+            debug!(
+                "blocking host because DNS lookup timed out during local/private IP check (host={host}, port={port})"
+            );
+            return true;
+        }
     };
 
     for addr in addrs {
@@ -691,6 +701,23 @@ mod tests {
 
         assert_eq!(
             state.host_blocked("127.0.0.1", 80).await.unwrap(),
+            HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal)
+        );
+    }
+
+    #[tokio::test]
+    async fn host_blocked_rejects_allowlisted_hostname_when_dns_lookup_fails() {
+        let state = network_proxy_state_for_policy(NetworkPolicy {
+            allowed_domains: vec!["does-not-resolve.invalid".to_string()],
+            allow_local_binding: false,
+            ..NetworkPolicy::default()
+        });
+
+        assert_eq!(
+            state
+                .host_blocked("does-not-resolve.invalid", 80)
+                .await
+                .unwrap(),
             HostBlockDecision::Blocked(HostBlockReason::NotAllowedLocal)
         );
     }
