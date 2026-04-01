@@ -248,6 +248,7 @@ mod tests {
         savfox_core::config::channel_store::ChannelConfig {
             id: "dingtalk-test".to_string(),
             kind: "dingtalk".to_string(),
+            slug: "dingtalk-test".to_string(),
             name: "dingtalk-test".to_string(),
             enabled: true,
             config,

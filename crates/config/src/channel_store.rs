@@ -658,6 +658,7 @@ mod tests {
         let config = ChannelConfig {
             id: "matrix".to_string(),
             kind: "matrix".to_string(),
+            slug: String::new(),
             name: "Matrix".to_string(),
             enabled: true,
             config: json!({
@@ -716,6 +717,7 @@ mod tests {
         let first = ChannelConfig {
             id: String::new(),
             kind: "matrix".to_string(),
+            slug: String::new(),
             name: "Primary Matrix".to_string(),
             enabled: true,
             config: json!({ "homeserver": "http://127.0.0.1:6006" }),
@@ -741,6 +743,7 @@ mod tests {
         let second = ChannelConfig {
             id: "matrix-primary-matrix".to_string(),
             kind: "matrix".to_string(),
+            slug: String::new(),
             name: "Renamed Matrix".to_string(),
             enabled: true,
             config: json!({ "homeserver": "http://127.0.0.1:6006" }),

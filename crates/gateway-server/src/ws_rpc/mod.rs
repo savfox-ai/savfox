@@ -776,6 +776,7 @@ mod tests {
         savfox_core::config::channel_store::ChannelConfig {
             id: id.to_string(),
             kind: kind.to_string(),
+            slug: String::new(),
             name: format!("{kind}-test"),
             enabled,
             config,

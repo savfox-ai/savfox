@@ -289,7 +289,7 @@ mod tests {
         let timestamp = "1700000000";
         let body = br#"{"type":"event_callback","event":{"text":"/savfox hi"}}"#;
 
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac init");
         let base = format!("v0:{timestamp}:{}", String::from_utf8_lossy(body));
@@ -310,7 +310,7 @@ mod tests {
         let secret = "webhook-secret";
         let body = br#"{"action":"start_thread","prompt":"hello"}"#;
 
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("hmac init");
         mac.update(body);

@@ -68,10 +68,17 @@ impl TurnDiffTracker {
                     let mode_val = mode.unwrap_or(FileMode::Regular);
                     let content = blob_bytes(path, mode_val).unwrap_or_default();
                     let oid = if mode == Some(FileMode::Symlink) {
-                        git_blob_sha1_hex_bytes(&content).iter().map(|b| format!("{b:02x}")).collect::<String>()
+                        git_blob_sha1_hex_bytes(&content)
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
                     } else {
-                        self.git_blob_oid_for_path(path)
-                            .unwrap_or_else(|| git_blob_sha1_hex_bytes(&content).iter().map(|b| format!("{b:02x}")).collect::<String>())
+                        self.git_blob_oid_for_path(path).unwrap_or_else(|| {
+                            git_blob_sha1_hex_bytes(&content)
+                                .iter()
+                                .map(|b| format!("{b:02x}"))
+                                .collect::<String>()
+                        })
                     };
                     Some(BaselineFileInfo {
                         path: path.clone(),
@@ -278,10 +285,18 @@ impl TurnDiffTracker {
         // Compute right oid before borrowing baseline content.
         let right_oid = if let Some(b) = right_bytes.as_ref() {
             if current_mode == FileMode::Symlink {
-                git_blob_sha1_hex_bytes(b).iter().map(|b| format!("{b:02x}")).collect::<String>()
+                git_blob_sha1_hex_bytes(b)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
             } else {
                 self.git_blob_oid_for_path(&current_external_path)
-                    .unwrap_or_else(|| git_blob_sha1_hex_bytes(b).iter().map(|b| format!("{b:02x}")).collect::<String>())
+                    .unwrap_or_else(|| {
+                        git_blob_sha1_hex_bytes(b)
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    })
             }
         } else {
             ZERO_OID.to_string()
@@ -382,6 +397,13 @@ fn git_blob_sha1_hex_bytes(data: &[u8]) -> Output<sha1::Sha1> {
     hasher.finalize()
 }
 
+fn git_blob_sha1_hex_string(data: &[u8]) -> String {
+    git_blob_sha1_hex_bytes(data)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FileMode {
     Regular,
@@ -477,7 +499,7 @@ mod tests {
     /// Compute the Git SHA-1 blob object ID for the given content (string).
     /// This delegates to the bytes version to avoid UTF-8 lossy conversions here.
     fn git_blob_sha1_hex(data: &str) -> String {
-        format!("{:x}", git_blob_sha1_hex_bytes(data.as_bytes()))
+        git_blob_sha1_hex_string(data.as_bytes())
     }
 
     fn normalize_diff_for_test(input: &str, root: &Path) -> String {
@@ -817,8 +839,8 @@ index {left_oid_b}..{ZERO_OID}
         let diff = acc.get_unified_diff().unwrap().unwrap();
         let diff = normalize_diff_for_test(&diff, dir.path());
         let expected = {
-            let left_oid = format!("{:x}", git_blob_sha1_hex_bytes(&left_bytes));
-            let right_oid = format!("{:x}", git_blob_sha1_hex_bytes(&right_bytes));
+            let left_oid = git_blob_sha1_hex_string(&left_bytes);
+            let right_oid = git_blob_sha1_hex_string(&right_bytes);
             format!(
                 r#"diff --git a/<TMP>/bin.dat b/<TMP>/bin.dat
 index {left_oid}..{right_oid}

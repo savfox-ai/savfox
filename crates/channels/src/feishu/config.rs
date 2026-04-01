@@ -376,6 +376,7 @@ mod tests {
         savfox_core::config::channel_store::ChannelConfig {
             id: "feishu-test".to_string(),
             kind: "feishu".to_string(),
+            slug: "feishu-test".to_string(),
             name: "feishu-test".to_string(),
             enabled: true,
             config,

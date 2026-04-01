@@ -1,7 +1,7 @@
 ﻿# ---------------------------------------------------------------------------
 # Stage 1: Build the Dioxus web UI (WASM)
 # ---------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS web-builder
+FROM rust:1.94-bookworm AS web-builder
 
 RUN cargo install dioxus-cli
 
@@ -16,7 +16,7 @@ RUN dx build --release
 # ---------------------------------------------------------------------------
 # Stage 2: Build the Rust binary
 # ---------------------------------------------------------------------------
-FROM rust:1.93-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

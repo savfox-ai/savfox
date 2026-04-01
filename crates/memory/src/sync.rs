@@ -87,7 +87,11 @@ impl MemoryFileSync {
     fn hash_content(content: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
-        hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 }
 

@@ -16,11 +16,11 @@ use crate::config::{
     ConstraintError, ProjectConfig,
 };
 use crate::config_loader::config_requirements::{ConfigRequirementsWithSources, RequirementSource};
-use crate::config_loader::fingerprint::version_for_toml;
 use crate::config_loader::{
     CloudRequirementsLoader, ConfigLayerEntry, ConfigLoadError, ConfigRequirements,
     ConfigRequirementsToml, load_requirements_toml,
 };
+use savfox_config::fingerprint::version_for_toml;
 
 fn config_error_from_io(err: &std::io::Error) -> &super::ConfigError {
     err.get_ref()

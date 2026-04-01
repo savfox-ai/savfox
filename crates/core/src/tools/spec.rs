@@ -1207,25 +1207,22 @@ mod tests {
 
     use super::*;
     use crate::client_common::tools::FreeformTool;
+    use crate::client_common::tools::ResponsesApiTool;
     use crate::config::test_config;
     use crate::models_manager::manager::ModelsManager;
     use crate::tools::registry::ConfiguredToolSpec;
+    use serde_json::json;
 
     fn mcp_tool(
         name: &str,
         description: &str,
         input_schema: serde_json::Value,
     ) -> rmcp::model::Tool {
-        rmcp::model::Tool {
-            name: name.to_string().into(),
-            title: None,
-            description: Some(description.to_string().into()),
-            input_schema: std::sync::Arc::new(rmcp::model::object(input_schema)),
-            output_schema: None,
-            annotations: None,
-            icons: None,
-            meta: None,
-        }
+        rmcp::model::Tool::new_with_raw(
+            name.to_string(),
+            Some(description.to_string().into()),
+            std::sync::Arc::new(rmcp::model::object(input_schema)),
+        )
     }
 
     #[test]
@@ -1233,16 +1230,11 @@ mod tests {
         let mut schema = rmcp::model::JsonObject::new();
         schema.insert("type".to_string(), serde_json::json!("object"));
 
-        let tool = rmcp::model::Tool {
-            name: "no_props".to_string().into(),
-            title: None,
-            description: Some("No properties".to_string().into()),
-            input_schema: std::sync::Arc::new(schema),
-            output_schema: None,
-            annotations: None,
-            icons: None,
-            meta: None,
-        };
+        let tool = rmcp::model::Tool::new_with_raw(
+            "no_props".to_string(),
+            Some("No properties".to_string().into()),
+            std::sync::Arc::new(schema),
+        );
 
         let openai_tool =
             mcp_tool_to_openai_tool("server/no_props".to_string(), tool).expect("convert tool");

@@ -297,7 +297,9 @@ impl MessageProcessor {
 
     async fn handle_call_tool(&self, id: RequestId, params: CallToolRequestParam) {
         tracing::info!("tools/call -> params: {:?}", params);
-        let CallToolRequestParam { name, arguments, .. } = params;
+        let CallToolRequestParam {
+            name, arguments, ..
+        } = params;
 
         match name.as_ref() {
             "savfox" => self.handle_tool_call_savfox(id, arguments).await,
