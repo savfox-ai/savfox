@@ -12,6 +12,8 @@ use tokio::sync::{Mutex, broadcast};
 use tracing::{info, warn};
 pub use wake_word::{WakeWordDetector, WakeWordEvent};
 
+use crate::home_paths::voice_wake_config_path;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceWakeConfig {
     #[serde(default)]
@@ -43,17 +45,13 @@ impl Default for VoiceWakeConfig {
     }
 }
 
-fn config_path(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("voice-wake-config.json")
-}
-
 pub async fn load_config(savfox_home: &Path) -> Result<VoiceWakeConfig, String> {
-    let path = config_path(savfox_home);
+    let path = voice_wake_config_path(savfox_home);
     crate::json_store::load_json(&path, "voice wake config").await
 }
 
 pub async fn save_config(savfox_home: &Path, config: &VoiceWakeConfig) -> Result<(), String> {
-    let path = config_path(savfox_home);
+    let path = voice_wake_config_path(savfox_home);
     crate::json_store::save_json(&path, config, "voice wake config").await
 }
 

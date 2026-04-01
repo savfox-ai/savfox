@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::info;
 
+use crate::home_paths::stt_config_path;
+
 /// STT provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -151,7 +153,7 @@ pub fn provider_info() -> Value {
 
 /// Load STT config from disk
 pub async fn load_stt_config(savfox_home: &Path) -> SttConfig {
-    let path = savfox_home.join("gateway").join("stt-config.json");
+    let path = stt_config_path(savfox_home);
     crate::json_store::load_json(&path, "STT config")
         .await
         .unwrap_or_default()
@@ -159,7 +161,7 @@ pub async fn load_stt_config(savfox_home: &Path) -> SttConfig {
 
 /// Save STT config to disk
 pub async fn save_stt_config(savfox_home: &Path, config: &SttConfig) -> Result<(), String> {
-    let path = savfox_home.join("gateway").join("stt-config.json");
+    let path = stt_config_path(savfox_home);
     crate::json_store::save_json(&path, config, "STT config").await
 }
 

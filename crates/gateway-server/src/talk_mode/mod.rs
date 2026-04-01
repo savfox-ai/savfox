@@ -2,13 +2,15 @@ pub mod conversation;
 pub mod talk_mode;
 pub mod turn_detection;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub use conversation::{ConversationState, ConversationTurn};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 pub use talk_mode::TalkModeService;
 use tracing::info;
+
+use crate::home_paths::talk_mode_config_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TalkModeState {
@@ -70,17 +72,13 @@ impl Default for TalkModeConfig {
     }
 }
 
-fn config_path(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("talk-mode-config.json")
-}
-
 pub async fn load_config(savfox_home: &Path) -> Result<TalkModeConfig, String> {
-    let path = config_path(savfox_home);
+    let path = talk_mode_config_path(savfox_home);
     crate::json_store::load_json(&path, "talk mode config").await
 }
 
 pub async fn save_config(savfox_home: &Path, config: &TalkModeConfig) -> Result<(), String> {
-    let path = config_path(savfox_home);
+    let path = talk_mode_config_path(savfox_home);
     crate::json_store::save_json(&path, config, "talk mode config").await
 }
 

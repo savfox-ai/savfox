@@ -60,6 +60,12 @@ pub use service::{ConfigService, ConfigServiceError};
 pub(crate) const PROJECT_DOC_MAX_BYTES: usize = 32 * 1024; // 32 KiB
 pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
 
+/// Normalize a skill config path so UI state and persisted config entries
+/// compare the same canonical location.
+pub fn normalize_skill_config_path(path: &Path) -> PathBuf {
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())

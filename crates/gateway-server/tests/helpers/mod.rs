@@ -1,4 +1,5 @@
 //! Shared test helpers for gateway integration tests.
+#![allow(dead_code)]
 
 use std::net::TcpListener;
 use std::time::Duration;
@@ -30,8 +31,13 @@ pub(crate) async fn wait_for_port(port: u16, timeout: Duration) -> bool {
 
 /// Build an HTTP client with common defaults.
 pub(crate) fn http_client() -> reqwest::Client {
+    http_client_with_timeout(Duration::from_secs(10))
+}
+
+/// Build an HTTP client with a custom timeout.
+pub(crate) fn http_client_with_timeout(timeout: Duration) -> reqwest::Client {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(timeout)
         .build()
         .expect("build HTTP client")
 }

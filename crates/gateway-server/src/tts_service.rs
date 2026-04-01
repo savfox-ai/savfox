@@ -1,9 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::home_paths::{tts_audio_dir, tts_config_path};
 use crate::{tts_deepgram, tts_edge};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,16 +40,8 @@ impl Default for TtsConfig {
     }
 }
 
-fn config_path(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("tts-config.json")
-}
-
-fn output_dir(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("tts-audio")
-}
-
 pub(crate) async fn load_tts_config(savfox_home: &Path) -> Result<TtsConfig, String> {
-    let path = config_path(savfox_home);
+    let path = tts_config_path(savfox_home);
     let data = tokio::fs::read_to_string(path).await.unwrap_or_default();
     if data.trim().is_empty() {
         return Ok(TtsConfig::default());
@@ -58,7 +51,7 @@ pub(crate) async fn load_tts_config(savfox_home: &Path) -> Result<TtsConfig, Str
 }
 
 pub(crate) async fn save_tts_config(savfox_home: &Path, cfg: &TtsConfig) -> Result<(), String> {
-    let path = config_path(savfox_home);
+    let path = tts_config_path(savfox_home);
     crate::json_store::save_json(&path, cfg, "TTS config").await
 }
 
@@ -478,7 +471,7 @@ pub(crate) async fn convert(
         _ => return Err(format!("unsupported provider: {provider}")),
     };
 
-    let dir = output_dir(savfox_home);
+    let dir = tts_audio_dir(savfox_home);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|err| format!("failed to create tts output dir: {err}"))?;

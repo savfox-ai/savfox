@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use super::super::heartbeat_config_path;
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use super::super::utils::{now_ms, opt_bool, opt_str, opt_u64, require_str};
+use super::config::primary_config_toml_path;
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 use crate::{voice_store, wizard_store};
@@ -1272,7 +1273,7 @@ pub(crate) async fn handle_providers_health(_channel: &GatewayChannel) -> RpcRes
 // ─── Config Reload / Validate / Migrate handlers ────────────────────────────
 
 pub(crate) async fn handle_config_reload(channel: &GatewayChannel) -> RpcResult {
-    let config_path = channel.config().savfox_home.join("config.toml");
+    let config_path = primary_config_toml_path(channel);
     let service = crate::config::reload::ConfigReloadService::new(config_path);
 
     // Load current config first so diff works
@@ -1322,7 +1323,7 @@ pub(crate) async fn handle_config_migrate(channel: &GatewayChannel) -> RpcResult
     // Auto-snapshot before migration (#33)
     let _ = handle_config_snapshot(channel).await;
 
-    let config_path = channel.config().savfox_home.join("config.toml");
+    let config_path = primary_config_toml_path(channel);
     if config_path.exists() {
         let data = tokio::fs::read_to_string(&config_path)
             .await
@@ -1532,7 +1533,7 @@ pub(crate) async fn handle_plugins_config(params: &Value, channel: &GatewayChann
 // ── Config Snapshots (#33) ──────────────────────────────────────────────────
 
 pub(crate) async fn handle_config_snapshot(channel: &GatewayChannel) -> RpcResult {
-    let config_path = channel.config().savfox_home.join("config.toml");
+    let config_path = primary_config_toml_path(channel);
     let backups_dir = channel.config().savfox_home.join("config-backups");
 
     if !backups_dir.exists() {
@@ -1619,7 +1620,7 @@ pub(crate) async fn handle_config_restore(params: &Value, channel: &GatewayChann
     // Auto-snapshot current config before restoring
     let _ = handle_config_snapshot(channel).await;
 
-    let config_path = channel.config().savfox_home.join("config.toml");
+    let config_path = primary_config_toml_path(channel);
     tokio::fs::write(&config_path, &content)
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;

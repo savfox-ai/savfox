@@ -14,8 +14,11 @@
 //! Or use the helper script `scripts/test-e2e.sh` which starts a gateway,
 //! waits for it to be healthy, and runs these tests automatically.
 
-use reqwest::Client;
+mod helpers;
+
 use serde_json::{Value, json};
+
+use helpers::http_client_with_timeout;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,14 +54,6 @@ macro_rules! require_gateway {
         };
         (url, token)
     }};
-}
-
-/// Build a `reqwest::Client` with reasonable defaults for the test suite.
-fn http_client() -> Client {
-    Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .expect("failed to build HTTP client")
 }
 
 type WsStream =
@@ -200,7 +195,7 @@ async fn ws_rpc_call(ws: &mut WsStream, id: u64, method: &str, params: Value) ->
 #[ignore]
 async fn health_check() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/health"))
@@ -224,7 +219,7 @@ async fn health_check() {
 #[ignore]
 async fn auth_missing_token() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .post(format!("{url}/v1/chat/completions"))
@@ -249,7 +244,7 @@ async fn auth_missing_token() {
 #[ignore]
 async fn auth_invalid_token() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .post(format!("{url}/v1/chat/completions"))
@@ -275,7 +270,7 @@ async fn auth_invalid_token() {
 #[ignore]
 async fn models_list() {
     let (url, token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/v1/models"))
@@ -303,7 +298,7 @@ async fn models_list() {
 #[ignore]
 async fn models_list_no_auth() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/v1/models"))
@@ -324,7 +319,7 @@ async fn models_list_no_auth() {
 #[ignore]
 async fn chat_completions_bad_request() {
     let (url, token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     // Send a body that is missing the required `model` field.
     let resp = client
@@ -356,7 +351,7 @@ async fn chat_completions_bad_request() {
 #[ignore]
 async fn api_status() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/api/status"))
@@ -383,7 +378,7 @@ async fn api_status() {
 #[ignore]
 async fn token_validate_valid() {
     let (url, token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .post(format!("{url}/api/token/validate"))
@@ -411,7 +406,7 @@ async fn token_validate_valid() {
 #[ignore]
 async fn token_validate_invalid() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .post(format!("{url}/api/token/validate"))
@@ -442,7 +437,7 @@ async fn token_validate_invalid() {
 #[ignore]
 async fn token_validate_missing() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .post(format!("{url}/api/token/validate"))
@@ -463,7 +458,7 @@ async fn token_validate_missing() {
 #[ignore]
 async fn api_config() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/api/config"))
@@ -489,7 +484,7 @@ async fn api_config() {
 #[ignore]
 async fn api_sessions() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/api/sessions"))
@@ -516,7 +511,7 @@ async fn api_sessions() {
 #[ignore]
 async fn api_channels() {
     let (url, _token) = require_gateway!();
-    let client = http_client();
+    let client = http_client_with_timeout(std::time::Duration::from_secs(30));
 
     let resp = client
         .get(format!("{url}/api/channels"))

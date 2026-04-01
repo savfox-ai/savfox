@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::dm_policy::{DmPolicyMode, DmPolicyStore};
+use crate::home_paths::{config_candidates, config_toml_path};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ConfigFile {
@@ -16,12 +17,7 @@ pub(crate) struct ConfigFile {
 
 /// Load config from `{savfox_home}/config.{toml,json,yaml,yml}`.
 pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFile, String> {
-    let candidates = [
-        ("toml", savfox_home.join("config.toml")),
-        ("json", savfox_home.join("config.json")),
-        ("yaml", savfox_home.join("config.yaml")),
-        ("yaml", savfox_home.join("config.yml")),
-    ];
+    let candidates = config_candidates(savfox_home);
 
     for (format, path) in candidates {
         if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
@@ -55,7 +51,7 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFil
 
     Ok(ConfigFile {
         format: "toml".to_string(),
-        path: savfox_home.join("config.toml"),
+        path: config_toml_path(savfox_home),
         value: Value::Object(serde_json::Map::new()),
     })
 }
