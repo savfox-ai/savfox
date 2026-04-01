@@ -50,7 +50,7 @@ const WAIT_TIMEOUT: u32 = 0x0000_0102;
 
 unsafe fn create_job_kill_on_close() -> Result<HANDLE> {
     let h = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
-    if h == 0 {
+    if h.is_null() {
         return Err(anyhow::anyhow!("CreateJobObjectW failed"));
     }
     let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
@@ -134,7 +134,7 @@ pub fn main() -> Result<()> {
                 std::ptr::null_mut(),
                 OPEN_EXISTING,
                 0,
-                0,
+                std::ptr::null_mut(),
             )
         };
         if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
@@ -244,10 +244,10 @@ pub fn main() -> Result<()> {
             );
             exit_code = raw_exit as i32;
         }
-        if proc_info.hThread != 0 {
+        if !proc_info.hThread.is_null() {
             CloseHandle(proc_info.hThread);
         }
-        if proc_info.hProcess != 0 {
+        if !proc_info.hProcess.is_null() {
             CloseHandle(proc_info.hProcess);
         }
         CloseHandle(h_stdin);

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CancelledNotificationParam, ClientInfo, CreateElicitationRequestParam, CreateElicitationResult,
+    CancelledNotificationParam, ClientInfo, CreateElicitationRequestParams, CreateElicitationResult,
     LoggingLevel, LoggingMessageNotificationParam, ProgressNotificationParam,
     ResourceUpdatedNotificationParam,
 };
@@ -29,7 +29,7 @@ impl LoggingClientHandler {
 impl ClientHandler for LoggingClientHandler {
     async fn create_elicitation(
         &self,
-        request: CreateElicitationRequestParam,
+        request: CreateElicitationRequestParams,
         context: RequestContext<RoleClient>,
     ) -> Result<CreateElicitationResult, rmcp::ErrorData> {
         (self.send_elicitation)(context.id, request)

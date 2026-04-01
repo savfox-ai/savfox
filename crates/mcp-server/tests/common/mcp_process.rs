@@ -5,10 +5,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use anyhow::Context;
 use pretty_assertions::assert_eq;
 use rmcp::model::{
-    CallToolRequestParam, ClientCapabilities, CustomNotification, CustomRequest,
-    ElicitationCapability, Implementation, InitializeRequestParam, JsonRpcMessage,
-    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, JsonRpcVersion2_0, ProtocolVersion,
-    RequestId,
+    CallToolRequestParams, ClientCapabilities, CustomNotification, CustomRequest, Implementation,
+    InitializeRequestParams, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
+    JsonRpcVersion2_0, ProtocolVersion, RequestId,
 };
 use savfox_mcp_server::SavfoxToolCallParam;
 use serde_json::json;
@@ -97,24 +96,13 @@ impl McpProcess {
     pub async fn initialize(&mut self) -> anyhow::Result<()> {
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
 
-        let params = InitializeRequestParam {
-            capabilities: ClientCapabilities {
-                elicitation: Some(ElicitationCapability {
-                    schema_validation: None,
-                }),
-                experimental: None,
-                roots: None,
-                sampling: None,
-            },
-            client_info: Implementation {
-                name: "elicitation test".into(),
-                title: Some("Elicitation Test".into()),
-                version: "0.0.0".into(),
-                icons: None,
-                website_url: None,
-            },
-            protocol_version: ProtocolVersion::V_2025_03_26,
-        };
+        let capabilities = ClientCapabilities::builder()
+            .enable_elicitation()
+            .build();
+        let client_info =
+            Implementation::new("elicitation test", "0.0.0").with_title("Elicitation Test");
+        let params = InitializeRequestParams::new(capabilities, client_info)
+            .with_protocol_version(ProtocolVersion::V_2025_03_26);
         let params_value = serde_json::to_value(params)?;
 
         self.send_jsonrpc_message(JsonRpcMessage::Request(JsonRpcRequest {
@@ -179,13 +167,12 @@ impl McpProcess {
         &mut self,
         params: SavfoxToolCallParam,
     ) -> anyhow::Result<i64> {
-        let savfox_tool_call_params = CallToolRequestParam {
-            name: "savfox".into(),
-            arguments: Some(match serde_json::to_value(params)? {
+        let savfox_tool_call_params =
+            CallToolRequestParams::new("savfox").with_arguments(match serde_json::to_value(params)?
+            {
                 serde_json::Value::Object(map) => map,
                 _ => unreachable!("params serialize to object"),
-            }),
-        };
+            });
         self.send_request(
             "tools/call",
             Some(serde_json::to_value(savfox_tool_call_params)?),

@@ -9,8 +9,8 @@ use futures::future::BoxFuture;
 use futures::prelude::*;
 use futures::stream::FuturesOrdered;
 use rmcp::model::{
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam,
-    ReadResourceRequestParam, ReadResourceResult, RequestId,
+    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResult, RequestId,
 };
 use savfox_async_utils::OrCancelExt;
 use savfox_otel::OtelManager;

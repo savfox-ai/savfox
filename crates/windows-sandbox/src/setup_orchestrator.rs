@@ -170,7 +170,7 @@ fn is_elevated() -> Result<bool> {
             ));
         }
         let mut is_member = 0i32;
-        let check = CheckTokenMembership(0, administrators_group, &mut is_member as *mut _);
+        let check = CheckTokenMembership(std::ptr::null_mut(), administrators_group, &mut is_member as *mut _);
         FreeSid(administrators_group as *mut _);
         if check == 0 {
             return Err(anyhow!("CheckTokenMembership failed: {}", GetLastError()));
@@ -399,7 +399,7 @@ fn run_setup_exe(
     // Hide the window for the elevated helper.
     sei.nShow = 0; // SW_HIDE
     let ok = unsafe { ShellExecuteExW(&mut sei) };
-    if ok == 0 || sei.hProcess == 0 {
+    if ok == 0 || sei.hProcess.is_null() {
         let last_error = unsafe { GetLastError() };
         let code = if last_error == ERROR_CANCELLED {
             SetupErrorCode::OrchestratorHelperLaunchCanceled

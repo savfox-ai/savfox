@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use salvo::prelude::*;
 use savfox_channels::whatsapp::{parse_start_meta, parse_webhook_payload};
 use serde_json::{Value, json};

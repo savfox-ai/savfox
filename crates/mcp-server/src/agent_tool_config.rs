@@ -11,7 +11,7 @@ use savfox_protocol::SessionId;
 use savfox_protocol::config_types::SandboxMode;
 use savfox_utils::json_to_toml::json_to_toml;
 use schemars::JsonSchema;
-use schemars::r#gen::SchemaSettings;
+use schemars::generate::SchemaSettings;
 use serde::{Deserialize, Serialize};
 
 /// Client-supplied configuration for a `savfox` tool-call.
@@ -108,26 +108,20 @@ pub(crate) fn create_tool_for_savfox_tool_call_param() -> Tool {
     let schema = SchemaSettings::draft2019_09()
         .with(|s| {
             s.inline_subschemas = true;
-            s.option_add_null_type = false;
+            // s.option_add_null_type = false;
         })
         .into_generator()
         .into_root_schema_for::<SavfoxToolCallParam>();
 
     let input_schema = create_tool_input_schema(schema, "Savfox tool schema should serialize");
 
-    Tool {
-        name: "savfox".into(),
-        title: Some("Savfox".to_string()),
+    Tool::new(
+        "savfox",
+        "Run a Savfox session. Accepts configuration parameters matching the Savfox Config struct.",
         input_schema,
-        output_schema: Some(savfox_tool_output_schema()),
-        description: Some(
-            "Run a Savfox session. Accepts configuration parameters matching the Savfox Config struct."
-                .into(),
-        ),
-        annotations: None,
-        icons: None,
-        meta: None,
-    }
+    )
+    .with_title("Savfox")
+    .with_raw_output_schema(savfox_tool_output_schema())
 }
 
 fn savfox_tool_output_schema() -> Arc<JsonObject> {
@@ -213,7 +207,7 @@ pub(crate) fn create_tool_for_savfox_tool_call_reply_param() -> Tool {
     let schema = SchemaSettings::draft2019_09()
         .with(|s| {
             s.inline_subschemas = true;
-            s.option_add_null_type = false;
+            // s.option_add_null_type = false;
         })
         .into_generator()
         .into_root_schema_for::<SavfoxToolCallReplyParam>();
@@ -221,22 +215,17 @@ pub(crate) fn create_tool_for_savfox_tool_call_reply_param() -> Tool {
     let input_schema =
         create_tool_input_schema(schema, "Savfox reply tool schema should serialize");
 
-    Tool {
-        name: "savfox-reply".into(),
-        title: Some("Savfox Reply".to_string()),
+    Tool::new(
+        "savfox-reply",
+        "Continue a Savfox conversation by providing the session id and prompt.",
         input_schema,
-        output_schema: Some(savfox_tool_output_schema()),
-        description: Some(
-            "Continue a Savfox conversation by providing the session id and prompt.".into(),
-        ),
-        annotations: None,
-        icons: None,
-        meta: None,
-    }
+    )
+    .with_title("Savfox Reply")
+    .with_raw_output_schema(savfox_tool_output_schema())
 }
 
 fn create_tool_input_schema(
-    schema: schemars::schema::RootSchema,
+    schema: schemars::Schema,
     panic_message: &str,
 ) -> Arc<JsonObject> {
     #[expect(clippy::expect_used)]

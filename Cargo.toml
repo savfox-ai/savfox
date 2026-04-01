@@ -191,12 +191,12 @@ nucleo = { git = "https://github.com/helix-editor/nucleo.git", rev = "4253de9faa
 oauth2 = "5"
 once_cell = "1.21.4"
 openssl-sys = "*"
-opentelemetry = { version = "0.31", default-features = false }
-opentelemetry-appender-tracing = "0.31.1"
-opentelemetry-http = { version = "0.31", default-features = false }
-opentelemetry-otlp = "0.31.1"
-opentelemetry-semantic-conventions = { version = "0.31", default-features = false }
-opentelemetry_sdk = "0.31.0"
+opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main", default-features = false }
+opentelemetry-appender-tracing = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-http = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main", default-features = false }
+opentelemetry-otlp = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-semantic-conventions = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main", default-features = false }
+opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
 os_info = "3.14.0"
 owo-colors = "4.3.0"
 parking_lot = "0.12"
@@ -401,6 +401,17 @@ use_self = "warn"
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
+
+# ── Patch crates-io ─────────────────────────────────────────────────────────
+# Ensure transitive dependencies (e.g. tracing-opentelemetry) use the same
+# git revision of the opentelemetry crates as our workspace.
+[patch.crates-io]
+opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-http = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-otlp = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-appender-tracing = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
+opentelemetry-semantic-conventions = { git = "https://github.com/open-telemetry/opentelemetry-rust.git", branch = "main" }
 
 # ── Build profiles ──────────────────────────────────────────────────────────
 

@@ -11,10 +11,10 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use reqwest::header::HeaderMap;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, ClientNotification, ClientRequest,
-    CreateElicitationRequestParam, CreateElicitationResult, CustomNotification, CustomRequest,
-    Extensions, InitializeRequestParam, InitializeResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParam, ReadResourceRequestParam,
+    CallToolRequestParams, CallToolResult, ClientNotification, ClientRequest,
+    CreateElicitationRequestParams, CreateElicitationResult, CustomNotification, CustomRequest,
+    Extensions, InitializeRequestParams, InitializeResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
     ReadResourceResult, RequestId, ServerResult, Tool,
 };
 use rmcp::service::{
@@ -59,7 +59,7 @@ enum ClientState {
     },
 }
 
-pub type Elicitation = CreateElicitationRequestParam;
+pub type Elicitation = CreateElicitationRequestParams;
 pub type ElicitationResponse = CreateElicitationResult;
 
 /// Interface for sending elicitation requests to the UI and awaiting a response.
@@ -199,7 +199,7 @@ impl RmcpClient {
     /// https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle#initialization
     pub async fn initialize(
         &self,
-        params: InitializeRequestParam,
+        params: InitializeRequestParams,
         timeout: Option<Duration>,
         send_elicitation: SendElicitation,
     ) -> Result<InitializeResult> {
@@ -265,7 +265,7 @@ impl RmcpClient {
 
     pub async fn list_tools(
         &self,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
         timeout: Option<Duration>,
     ) -> Result<ListToolsResult> {
         self.refresh_oauth_if_needed().await;
@@ -278,7 +278,7 @@ impl RmcpClient {
 
     pub async fn list_tools_with_connector_ids(
         &self,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
         timeout: Option<Duration>,
     ) -> Result<ListToolsWithConnectorIdResult> {
         self.refresh_oauth_if_needed().await;
@@ -318,7 +318,7 @@ impl RmcpClient {
 
     pub async fn list_resources(
         &self,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
         timeout: Option<Duration>,
     ) -> Result<ListResourcesResult> {
         self.refresh_oauth_if_needed().await;
@@ -332,7 +332,7 @@ impl RmcpClient {
 
     pub async fn list_resource_templates(
         &self,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
         timeout: Option<Duration>,
     ) -> Result<ListResourceTemplatesResult> {
         self.refresh_oauth_if_needed().await;
@@ -346,7 +346,7 @@ impl RmcpClient {
 
     pub async fn read_resource(
         &self,
-        params: ReadResourceRequestParam,
+        params: ReadResourceRequestParams,
         timeout: Option<Duration>,
     ) -> Result<ReadResourceResult> {
         self.refresh_oauth_if_needed().await;
@@ -374,10 +374,10 @@ impl RmcpClient {
             }
             None => None,
         };
-        let rmcp_params = CallToolRequestParam {
-            name: name.into(),
-            arguments,
-        };
+        let mut rmcp_params = CallToolRequestParams::new(name);
+        if let Some(arguments) = arguments {
+            rmcp_params = rmcp_params.with_arguments(arguments);
+        }
         let fut = service.call_tool(rmcp_params);
         let result = run_with_timeout(fut, timeout, "tools/call").await?;
         self.persist_oauth_tokens().await;
@@ -476,7 +476,7 @@ async fn create_oauth_transport_and_runtime(
     let manager = match oauth_state {
         OAuthState::Authorized(manager) => manager,
         OAuthState::Unauthorized(manager) => manager,
-        OAuthState::Session(_) | OAuthState::AuthorizedHttpClient(_) => {
+        OAuthState::Session(_) | OAuthState::AuthorizedHttpClient(_) | _ => {
             return Err(anyhow!("unexpected OAuth state during client setup"));
         }
     };

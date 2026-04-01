@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use base64::Engine;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use savfox_core::channel::{Channel, ChannelAction};
 use serde_json::{Value, json};
 use sha2::Sha256;

@@ -147,12 +147,12 @@ mod windows_impl {
     }
 
     unsafe fn setup_stdio_pipes() -> io::Result<PipeHandles> {
-        let mut in_r: HANDLE = 0;
-        let mut in_w: HANDLE = 0;
-        let mut out_r: HANDLE = 0;
-        let mut out_w: HANDLE = 0;
-        let mut err_r: HANDLE = 0;
-        let mut err_w: HANDLE = 0;
+        let mut in_r: HANDLE = std::ptr::null_mut();
+        let mut in_w: HANDLE = std::ptr::null_mut();
+        let mut out_r: HANDLE = std::ptr::null_mut();
+        let mut out_w: HANDLE = std::ptr::null_mut();
+        let mut err_r: HANDLE = std::ptr::null_mut();
+        let mut err_w: HANDLE = std::ptr::null_mut();
         if CreatePipe(&mut in_r, &mut in_w, ptr::null_mut(), 0) == 0 {
             return Err(io::Error::from_raw_os_error(GetLastError() as i32));
         }
@@ -335,16 +335,21 @@ mod windows_impl {
             CloseHandle(err_w);
         }
 
+        // SAFETY: Windows HANDLEs are process-wide and safe to use from any thread.
+        // We cast to isize so the closure satisfies Send.
+        let out_r_raw = out_r as isize;
+        let err_r_raw = err_r as isize;
         let (tx_out, rx_out) = std::sync::mpsc::channel::<Vec<u8>>();
         let (tx_err, rx_err) = std::sync::mpsc::channel::<Vec<u8>>();
         let t_out = std::thread::spawn(move || {
+            let h = out_r_raw as HANDLE;
             let mut buf = Vec::new();
             let mut tmp = [0u8; 8192];
             loop {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        out_r,
+                        h,
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -359,13 +364,14 @@ mod windows_impl {
             let _ = tx_out.send(buf);
         });
         let t_err = std::thread::spawn(move || {
+            let h = err_r_raw as HANDLE;
             let mut buf = Vec::new();
             let mut tmp = [0u8; 8192];
             loop {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        err_r,
+                        h,
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -395,10 +401,10 @@ mod windows_impl {
         }
 
         unsafe {
-            if pi.hThread != 0 {
+            if !pi.hThread.is_null() {
                 CloseHandle(pi.hThread);
             }
-            if pi.hProcess != 0 {
+            if !pi.hProcess.is_null() {
                 CloseHandle(pi.hProcess);
             }
             CloseHandle(h_token);

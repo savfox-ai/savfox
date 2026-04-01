@@ -171,7 +171,7 @@ pub fn verify_signature(
     body: &[u8],
     expected_sig: &str,
 ) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     let sig_basestring = format!("v0:{timestamp}:{}", String::from_utf8_lossy(body));

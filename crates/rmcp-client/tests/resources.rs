@@ -4,9 +4,8 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rmcp::model::{
-    AnnotateAble, ClientCapabilities, ElicitationCapability, Implementation,
-    InitializeRequestParam, ListResourceTemplatesResult, ProtocolVersion, ReadResourceRequestParam,
-    ResourceContents,
+    AnnotateAble, ClientCapabilities, Implementation, InitializeRequestParams,
+    ListResourceTemplatesResult, ProtocolVersion, ReadResourceRequestParams, ResourceContents,
 };
 use savfox_rmcp_client::{ElicitationAction, ElicitationResponse, RmcpClient};
 use savfox_utils::cargo_bin::CargoBinError;
@@ -18,25 +17,14 @@ fn stdio_server_bin() -> Result<PathBuf, CargoBinError> {
     savfox_utils::cargo_bin::cargo_bin("test_stdio_server")
 }
 
-fn init_params() -> InitializeRequestParam {
-    InitializeRequestParam {
-        capabilities: ClientCapabilities {
-            experimental: None,
-            roots: None,
-            sampling: None,
-            elicitation: Some(ElicitationCapability {
-                schema_validation: None,
-            }),
-        },
-        client_info: Implementation {
-            name: "savfox-test".into(),
-            version: "0.0.0-test".into(),
-            title: Some("Savfox rmcp resource test".into()),
-            icons: None,
-            website_url: None,
-        },
-        protocol_version: ProtocolVersion::V_2025_06_18,
-    }
+fn init_params() -> InitializeRequestParams {
+    let capabilities = ClientCapabilities::builder()
+        .enable_elicitation()
+        .build();
+    let client_info = Implementation::new("savfox-test", "0.0.0-test")
+        .with_title("Savfox rmcp resource test");
+    InitializeRequestParams::new(capabilities, client_info)
+        .with_protocol_version(ProtocolVersion::V_2025_06_18)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -105,6 +93,7 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
                         "Template for memo://savfox/{slug} resources used in tests.".to_string(),
                     ),
                     mime_type: Some("text/plain".to_string()),
+                    icons: None,
                 }
                 .no_annotation()
             ],
@@ -113,9 +102,7 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
 
     let read = client
         .read_resource(
-            ReadResourceRequestParam {
-                uri: RESOURCE_URI.to_string(),
-            },
+            ReadResourceRequestParams::new(RESOURCE_URI),
             Some(Duration::from_secs(5)),
         )
         .await?;

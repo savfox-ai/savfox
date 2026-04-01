@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use rmcp::model::{
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam,
-    ReadResourceRequestParam, ReadResourceResult, Resource, ResourceTemplate,
+    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResult, Resource, ResourceTemplate,
 };
 use savfox_protocol::mcp::CallToolResult;
 use serde::de::DeserializeOwned;
@@ -245,8 +245,8 @@ async fn handle_list_resources(
 
     let payload_result: Result<ListResourcesPayload, FunctionCallError> = async {
         if let Some(server_name) = server.clone() {
-            let params = cursor.clone().map(|value| PaginatedRequestParam {
-                cursor: Some(value),
+            let params = cursor.clone().map(|value| {
+                PaginatedRequestParams::default().with_cursor(Some(value))
             });
             let result = session
                 .list_resources(&server_name, params)
@@ -348,8 +348,8 @@ async fn handle_list_resource_templates(
 
     let payload_result: Result<ListResourceTemplatesPayload, FunctionCallError> = async {
         if let Some(server_name) = server.clone() {
-            let params = cursor.clone().map(|value| PaginatedRequestParam {
-                cursor: Some(value),
+            let params = cursor.clone().map(|value| {
+                PaginatedRequestParams::default().with_cursor(Some(value))
             });
             let result = session
                 .list_resource_templates(&server_name, params)
@@ -451,7 +451,7 @@ async fn handle_read_resource(
 
     let payload_result: Result<ReadResourcePayload, FunctionCallError> = async {
         let result = session
-            .read_resource(&server, ReadResourceRequestParam { uri: uri.clone() })
+            .read_resource(&server, ReadResourceRequestParams::new(uri.clone()))
             .await
             .or_else(|err| model_err(format!("resources/read failed: {err:#}")))?;
 

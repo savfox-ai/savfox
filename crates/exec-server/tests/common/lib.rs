@@ -4,8 +4,8 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use rmcp::model::{
-    ClientCapabilities, ClientInfo, ClientRequest, CreateElicitationRequestParam,
-    CreateElicitationResult, CustomRequest, ElicitationAction, ServerResult,
+    ClientCapabilities, ClientInfo, ClientRequest, CreateElicitationRequestParams,
+    CreateElicitationResult, CustomRequest, ElicitationAction, Implementation, ServerResult,
 };
 use rmcp::service::RunningService;
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
@@ -130,21 +130,18 @@ where
 
 pub struct InteractiveClient {
     pub elicitations_to_accept: HashSet<String>,
-    pub elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParam>>>,
+    pub elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParams>>>,
 }
 
 impl ClientHandler for InteractiveClient {
     fn get_info(&self) -> ClientInfo {
         let capabilities = ClientCapabilities::builder().enable_elicitation().build();
-        ClientInfo {
-            capabilities,
-            ..Default::default()
-        }
+        ClientInfo::new(capabilities, Implementation::from_build_env())
     }
 
     fn create_elicitation(
         &self,
-        request: CreateElicitationRequestParam,
+        request: CreateElicitationRequestParams,
         _context: rmcp::service::RequestContext<RoleClient>,
     ) -> impl std::future::Future<Output = Result<CreateElicitationResult, McpError>> + Send + '_
     {
@@ -153,7 +150,13 @@ impl ClientHandler for InteractiveClient {
             .unwrap()
             .push(request.clone());
 
-        let accept = self.elicitations_to_accept.contains(&request.message);
+        let message = match &request {
+            CreateElicitationRequestParams::FormElicitationParams { message, .. }
+            | CreateElicitationRequestParams::UrlElicitationParams { message, .. } => {
+                message.clone()
+            }
+        };
+        let accept = self.elicitations_to_accept.contains(&message);
         async move {
             if accept {
                 Ok(CreateElicitationResult {

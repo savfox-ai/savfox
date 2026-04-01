@@ -325,7 +325,7 @@ fn compute_store_key(savfox_home: &Path) -> std::io::Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(path_str.as_bytes());
     let digest = hasher.finalize();
-    let hex = format!("{digest:x}");
+    let hex = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
     let truncated = hex.get(..16).unwrap_or(&hex);
     Ok(format!("cli|{truncated}"))
 }

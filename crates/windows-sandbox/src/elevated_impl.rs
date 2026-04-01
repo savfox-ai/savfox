@@ -151,7 +151,7 @@ mod windows_impl {
                 &mut sa as *mut SECURITY_ATTRIBUTES,
             )
         };
-        if h == 0 || h == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        if h.is_null() || h == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             return Err(io::Error::from_raw_os_error(unsafe {
                 GetLastError() as i32
             }));
@@ -353,16 +353,21 @@ mod windows_impl {
         }
 
         // Read stdout/stderr.
+        // SAFETY: Windows HANDLEs are process-wide and safe to use from any thread.
+        // We cast to isize so the closure satisfies Send.
+        let stdout_pipe_raw = h_stdout_pipe as isize;
+        let stderr_pipe_raw = h_stderr_pipe as isize;
         let (tx_out, rx_out) = std::sync::mpsc::channel::<Vec<u8>>();
         let (tx_err, rx_err) = std::sync::mpsc::channel::<Vec<u8>>();
         let t_out = std::thread::spawn(move || {
+            let h = stdout_pipe_raw as HANDLE;
             let mut buf = Vec::new();
             let mut tmp = [0u8; 8192];
             loop {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        h_stdout_pipe,
+                        h,
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -377,13 +382,14 @@ mod windows_impl {
             let _ = tx_out.send(buf);
         });
         let t_err = std::thread::spawn(move || {
+            let h = stderr_pipe_raw as HANDLE;
             let mut buf = Vec::new();
             let mut tmp = [0u8; 8192];
             loop {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        h_stderr_pipe,
+                        h,
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -413,10 +419,10 @@ mod windows_impl {
         }
 
         unsafe {
-            if pi.hThread != 0 {
+            if !pi.hThread.is_null() {
                 CloseHandle(pi.hThread);
             }
-            if pi.hProcess != 0 {
+            if !pi.hProcess.is_null() {
                 CloseHandle(pi.hProcess);
             }
             CloseHandle(h_stdout_pipe);

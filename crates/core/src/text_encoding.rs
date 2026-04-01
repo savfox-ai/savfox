@@ -45,9 +45,9 @@ const WINDOWS_1252_PUNCT_BYTES: [u8; 8] = [
 ];
 
 fn detect_encoding(bytes: &[u8]) -> &'static Encoding {
-    let mut detector = EncodingDetector::new();
+    let mut detector = EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
     detector.feed(bytes, true);
-    let (encoding, _is_confident) = detector.guess_assess(None, true);
+    let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
 
     // chardetng occasionally reports IBM866 for short strings that only contain Windows-1252 “smart
     // punctuation” bytes (0x80-0x9F) because that range maps to Cyrillic letters in IBM866. When

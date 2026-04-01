@@ -108,7 +108,7 @@ fn hide_users_in_winlogon(usernames: &[String], log_base: &Path) -> anyhow::Resu
 
 fn create_userlist_key() -> anyhow::Result<HKEY> {
     let key_path = to_wide(USERLIST_KEY_PATH);
-    let mut key: HKEY = 0;
+    let mut key: HKEY = std::ptr::null_mut();
     let status = unsafe {
         RegCreateKeyExW(
             HKEY_LOCAL_MACHINE,

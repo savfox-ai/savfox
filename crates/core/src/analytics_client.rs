@@ -239,7 +239,7 @@ fn skill_id_for_local_skill(
     let raw_id = format!("{prefix}_{path}_{skill_name}");
     let mut hasher = Sha1::new();
     hasher.update(raw_id.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
 /// Returns a normalized path for skill ID construction.

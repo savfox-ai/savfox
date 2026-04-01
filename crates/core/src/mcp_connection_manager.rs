@@ -17,9 +17,9 @@ use anyhow::{Context, Result, anyhow};
 use async_channel::Sender;
 use futures::future::{BoxFuture, FutureExt, Shared};
 use rmcp::model::{
-    ClientCapabilities, ElicitationCapability, Implementation, InitializeRequestParam,
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParam, ProtocolVersion,
-    ReadResourceRequestParam, ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
+    ClientCapabilities, Implementation, InitializeRequestParams,
+    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
 };
 use savfox_async_utils::{CancelErr, OrCancelExt};
 use savfox_protocol::approvals::ElicitationRequestEvent;
@@ -81,7 +81,7 @@ fn sha1_hex(s: &str) -> String {
     let mut hasher = Sha1::new();
     hasher.update(s.as_bytes());
     let sha1 = hasher.finalize();
-    format!("{sha1:x}")
+    sha1.iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
 fn qualify_tools<I>(tools: I) -> HashMap<String, ToolInfo>
@@ -183,7 +183,10 @@ impl ElicitationRequestManager {
                                     ProtocolRequestId::Integer(value)
                                 }
                             },
-                            message: elicitation.message,
+                            message: match &elicitation {
+                                rmcp::model::CreateElicitationRequestParams::FormElicitationParams { message, .. } => message.clone(),
+                                rmcp::model::CreateElicitationRequestParams::UrlElicitationParams { message, .. } => message.clone(),
+                            },
                         }),
                     })
                     .await;
@@ -477,8 +480,8 @@ impl McpConnectionManager {
                 let mut cursor: Option<String> = None;
 
                 loop {
-                    let params = cursor.as_ref().map(|next| PaginatedRequestParam {
-                        cursor: Some(next.clone()),
+                    let params = cursor.as_ref().map(|next| {
+                        PaginatedRequestParams::default().with_cursor(Some(next.clone()))
                     });
                     let response = match client.list_resources(params, timeout).await {
                         Ok(result) => result,
@@ -542,8 +545,8 @@ impl McpConnectionManager {
                 let mut cursor: Option<String> = None;
 
                 loop {
-                    let params = cursor.as_ref().map(|next| PaginatedRequestParam {
-                        cursor: Some(next.clone()),
+                    let params = cursor.as_ref().map(|next| {
+                        PaginatedRequestParams::default().with_cursor(Some(next.clone()))
                     });
                     let response = match client.list_resource_templates(params, timeout).await {
                         Ok(result) => result,
@@ -632,7 +635,7 @@ impl McpConnectionManager {
     pub async fn list_resources(
         &self,
         server: &str,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
     ) -> Result<ListResourcesResult> {
         let managed = self.client_by_name(server).await?;
         let timeout = managed.tool_timeout;
@@ -648,7 +651,7 @@ impl McpConnectionManager {
     pub async fn list_resource_templates(
         &self,
         server: &str,
-        params: Option<PaginatedRequestParam>,
+        params: Option<PaginatedRequestParams>,
     ) -> Result<ListResourceTemplatesResult> {
         let managed = self.client_by_name(server).await?;
         let client = managed.client.clone();
@@ -664,7 +667,7 @@ impl McpConnectionManager {
     pub async fn read_resource(
         &self,
         server: &str,
-        params: ReadResourceRequestParam,
+        params: ReadResourceRequestParams,
     ) -> Result<ReadResourceResult> {
         let managed = self.client_by_name(server).await?;
         let client = managed.client.clone();
@@ -847,25 +850,19 @@ async fn start_server_task(
     tx_event: Sender<Event>,
     elicitation_requests: ElicitationRequestManager,
 ) -> Result<ManagedClient, StartupOutcomeError> {
-    let params = InitializeRequestParam {
-        capabilities: ClientCapabilities {
-            experimental: None,
-            roots: None,
-            sampling: None,
-            // https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation#capabilities
-            // indicates this should be an empty object.
-            elicitation: Some(ElicitationCapability {
-                schema_validation: None,
-            }),
-        },
-        client_info: Implementation {
-            name: "savfox-mcp-client".to_owned(),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            title: Some("Savfox".into()),
-            icons: None,
-            website_url: None,
-        },
-        protocol_version: ProtocolVersion::V_2025_06_18,
+    let params = {
+        // https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation#capabilities
+        // indicates this should be an empty object.
+        let caps = ClientCapabilities::builder()
+            .enable_elicitation()
+            .build();
+        let client_info = Implementation::new(
+            "savfox-mcp-client",
+            env!("CARGO_PKG_VERSION"),
+        )
+        .with_title("Savfox");
+        InitializeRequestParams::new(caps, client_info)
+            .with_protocol_version(ProtocolVersion::V_2025_06_18)
     };
 
     let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event);

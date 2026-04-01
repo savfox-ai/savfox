@@ -1268,7 +1268,7 @@ pub(crate) fn verify_discord_signature(
 
 /// Verify a generic webhook HMAC-SHA256 signature.
 pub(crate) fn verify_webhook_hmac(secret: &str, signature: &str, body: &[u8]) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     let mut mac = match Hmac::<Sha256>::new_from_slice(secret.as_bytes()) {

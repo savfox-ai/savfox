@@ -93,7 +93,7 @@ impl ZaloChannel {
 
     /// Verify the webhook signature using HMAC-SHA256 with the app secret.
     fn verify_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let mut mac = match Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) {

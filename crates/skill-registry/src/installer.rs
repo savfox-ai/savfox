@@ -137,7 +137,10 @@ impl SkillInstaller {
         }
 
         if let Some(expected) = &package.source.checksum {
-            let actual = format!("{:x}", Sha256::digest(&bytes));
+            let actual = Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>();
             if actual != *expected {
                 return Ok(InstallResult {
                     success: false,

@@ -87,13 +87,14 @@ pub fn generate_ts_with_options(
     ensure_dir(out_dir)?;
     ensure_dir(&v2_out_dir)?;
 
-    ClientRequest::export_all_to(out_dir)?;
+    let ts_cfg = ts_rs::Config::new().with_out_dir(out_dir);
+    ClientRequest::export_all(&ts_cfg)?;
     export_client_responses(out_dir)?;
-    ClientNotification::export_all_to(out_dir)?;
+    ClientNotification::export_all(&ts_cfg)?;
 
-    ServerRequest::export_all_to(out_dir)?;
+    ServerRequest::export_all(&ts_cfg)?;
     export_server_responses(out_dir)?;
-    ServerNotification::export_all_to(out_dir)?;
+    ServerNotification::export_all(&ts_cfg)?;
 
     if !options.experimental_api {
         filter_experimental_ts(out_dir)?;

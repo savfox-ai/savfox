@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use savfox_config::types::RawMcpServerConfig;
-use schemars::r#gen::{SchemaGenerator, SchemaSettings};
-use schemars::schema::{InstanceType, ObjectValidation, RootSchema, Schema, SchemaObject};
+use schemars::generate::SchemaSettings;
+use schemars::{Schema, SchemaGenerator};
 use serde_json::{Map, Value};
 
 use crate::config::ConfigToml;
@@ -10,50 +10,39 @@ use crate::features::FEATURES;
 
 /// Schema for the `[features]` map with known + legacy keys only.
 pub(crate) fn features_schema(schema_gen: &mut SchemaGenerator) -> Schema {
-    let mut object = SchemaObject {
-        instance_type: Some(InstanceType::Object.into()),
-        ..Default::default()
-    };
-
-    let mut validation = ObjectValidation::default();
+    let mut properties = Map::new();
     for feature in FEATURES {
-        validation
-            .properties
-            .insert(feature.key.to_string(), schema_gen.subschema_for::<bool>());
+        let bool_schema = schema_gen.subschema_for::<bool>();
+        properties.insert(feature.key.to_string(), bool_schema.into());
     }
     for legacy_key in crate::features::legacy_feature_keys() {
-        validation
-            .properties
-            .insert(legacy_key.to_string(), schema_gen.subschema_for::<bool>());
+        let bool_schema = schema_gen.subschema_for::<bool>();
+        properties.insert(legacy_key.to_string(), bool_schema.into());
     }
-    validation.additional_properties = Some(Box::new(Schema::Bool(false)));
-    object.object = Some(Box::new(validation));
 
-    Schema::Object(object)
+    serde_json::json!({
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": false,
+    })
+    .try_into()
+    .expect("valid schema value")
 }
 
 /// Schema for the `[mcp_servers]` map using the raw input shape.
 pub(crate) fn mcp_servers_schema(schema_gen: &mut SchemaGenerator) -> Schema {
-    let mut object = SchemaObject {
-        instance_type: Some(InstanceType::Object.into()),
-        ..Default::default()
-    };
-
-    let validation = ObjectValidation {
-        additional_properties: Some(Box::new(schema_gen.subschema_for::<RawMcpServerConfig>())),
-        ..Default::default()
-    };
-    object.object = Some(Box::new(validation));
-
-    Schema::Object(object)
+    let additional: Value = schema_gen.subschema_for::<RawMcpServerConfig>().into();
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": additional,
+    })
+    .try_into()
+    .expect("valid schema value")
 }
 
 /// Build the config schema for `config.toml`.
-pub fn config_schema() -> RootSchema {
+pub fn config_schema() -> Schema {
     SchemaSettings::draft07()
-        .with(|settings| {
-            settings.option_add_null_type = false;
-        })
         .into_generator()
         .into_root_schema_for::<ConfigToml>()
 }
@@ -78,7 +67,7 @@ fn canonicalize(value: &Value) -> Value {
 /// Render the config schema as pretty-printed JSON.
 pub fn config_schema_json() -> anyhow::Result<Vec<u8>> {
     let schema = config_schema();
-    let value = serde_json::to_value(schema)?;
+    let value: Value = schema.into();
     let value = canonicalize(&value);
     let json = serde_json::to_vec_pretty(&value)?;
     Ok(json)

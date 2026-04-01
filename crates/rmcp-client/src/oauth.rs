@@ -28,8 +28,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Error, Result};
 use oauth2::basic::BasicTokenType;
-use oauth2::{AccessToken, EmptyExtraTokenFields, RefreshToken, Scope, TokenResponse};
-use rmcp::transport::auth::{AuthorizationManager, OAuthTokenResponse};
+use oauth2::{AccessToken, RefreshToken, Scope, TokenResponse};
+use rmcp::transport::auth::{AuthorizationManager, OAuthTokenResponse, VendorExtraTokenFields};
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
 use savfox_utils::home_dir::find_savfox_home;
 use schemars::JsonSchema;
@@ -401,7 +401,7 @@ fn load_oauth_tokens_from_file(server_name: &str, url: &str) -> Result<Option<St
         let mut token_response = OAuthTokenResponse::new(
             AccessToken::new(entry.access_token.clone()),
             BasicTokenType::Bearer,
-            EmptyExtraTokenFields {},
+            VendorExtraTokenFields::default(),
         );
 
         if let Some(refresh) = entry.refresh_token.clone() {
@@ -614,7 +614,7 @@ fn sha_256_prefix(value: &Value) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(serialized.as_bytes());
     let digest = hasher.finalize();
-    let hex = format!("{digest:x}");
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let truncated = &hex[..16];
     Ok(truncated.to_string())
 }
@@ -900,8 +900,8 @@ mod tests {
         );
         assert_eq!(actual_response.scopes(), expected_response.scopes());
         assert_eq!(
-            actual_response.extra_fields(),
-            expected_response.extra_fields()
+            actual_response.extra_fields().0,
+            expected_response.extra_fields().0
         );
         assert_eq!(
             actual_response.expires_in().is_some(),
@@ -913,7 +913,7 @@ mod tests {
         let mut response = OAuthTokenResponse::new(
             AccessToken::new("access-token".to_string()),
             BasicTokenType::Bearer,
-            EmptyExtraTokenFields {},
+            VendorExtraTokenFields::default(),
         );
         response.set_refresh_token(Some(RefreshToken::new("refresh-token".to_string())));
         response.set_scopes(Some(vec![

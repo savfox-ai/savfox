@@ -66,7 +66,7 @@ pub(crate) fn build_grpc_tls_config(
 /// Build a blocking HTTP client with TLS configuration for OTLP HTTP exporters.
 ///
 /// We use `reqwest::blocking::Client` because OTEL exporters run on dedicated
-/// OS sessions that are not necessarily backed by tokio.
+/// OS threads that are not necessarily backed by tokio.
 pub(crate) fn build_http_client(
     tls: &OtelTlsConfig,
     timeout_var: &str,
@@ -93,9 +93,7 @@ fn build_http_client_inner(
                 location.display()
             ))
         })?;
-        builder = builder
-            .tls_built_in_root_certs(false)
-            .add_root_certificate(certificate);
+        builder = builder.tls_certs_only([certificate]);
     }
 
     match (&tls.client_certificate, &tls.client_private_key) {

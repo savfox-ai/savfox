@@ -36,12 +36,13 @@ pub(crate) fn create_call_tool_result_with_session_id(
         "sessionId": session_id,
         "content": content_text,
     });
-    CallToolResult {
-        content,
-        is_error,
-        structured_content: Some(structured_content),
-        meta: None,
-    }
+    let mut result = if is_error == Some(true) {
+        CallToolResult::error(content)
+    } else {
+        CallToolResult::success(content)
+    };
+    result.structured_content = Some(structured_content);
+    result
 }
 
 /// Run a complete Savfox session and stream events back to the client.
@@ -63,14 +64,9 @@ pub async fn run_savfox_tool_session(
     } = match session_manager.start_session(config).await {
         Ok(res) => res,
         Err(e) => {
-            let result = CallToolResult {
-                content: vec![Content::text(format!(
-                    "Failed to start Savfox session: {e}"
-                ))],
-                is_error: Some(true),
-                structured_content: None,
-                meta: None,
-            };
+            let result = CallToolResult::error(vec![Content::text(format!(
+                "Failed to start Savfox session: {e}"
+            ))]);
             outgoing.send_response(id.clone(), result).await;
             return;
         }
