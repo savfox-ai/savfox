@@ -3,9 +3,7 @@
 [![CI](https://github.com/savfox-ai/savfox/workflows/CI/badge.svg)](https://github.com/savfox-ai/savfox/actions)
 [![codecov](https://codecov.io/gh/savfox-ai/savfox/graph/badge.svg)](https://codecov.io/gh/savfox-ai/savfox)
 
-Savfox is an AI assistant. It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI.
-
-> **Background:** This project is a Rust rewrite based on a leaked version of Claude Code's source code, with an [OpenClaw](https://github.com/nicepkg/openclaw)-style gateway layer on top — providing remote access, session management, and multi-channel chat integration.
+Savfox is a Rust-based AI coding assistant forked from [Codex](https://github.com/openai/codex). It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI. Savfox extends the original with a full gateway server layer — providing remote HTTP/WebSocket access, session management, cron scheduling, and multi-channel chat integration (Discord, Telegram, Slack, and more).
 
 [Documentation](docs/en/getting-started.md)
 
