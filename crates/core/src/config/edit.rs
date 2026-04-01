@@ -444,7 +444,9 @@ impl ConfigFile {
     }
 
     fn set_skill_config(&mut self, path: &Path, enabled: bool) -> bool {
-        let normalized_path = normalize_skill_config_path(path);
+        let normalized_path = crate::config::normalize_skill_config_path(path)
+            .to_string_lossy()
+            .to_string();
         let mut remove_skills_table = false;
         let mut mutated = false;
 
@@ -507,7 +509,8 @@ impl ConfigFile {
                     .get("path")
                     .and_then(|item| item.as_str())
                     .map(Path::new)
-                    .map(normalize_skill_config_path)
+                    .map(crate::config::normalize_skill_config_path)
+                    .map(|path| path.to_string_lossy().to_string())
                     .filter(|value| *value == normalized_path)
                     .map(|_| idx)
             });
@@ -642,13 +645,6 @@ impl ConfigFile {
             _ => {}
         }
     }
-}
-
-fn normalize_skill_config_path(path: &Path) -> String {
-    dunce::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string()
 }
 
 /// Persist edits using a blocking strategy. Always writes TOML format.

@@ -18,6 +18,7 @@ use crate::chat_session::{
 };
 use crate::config::GatewayConfig;
 use crate::cron_service::CronService;
+use crate::home_paths::config_toml_path as gateway_config_toml_path;
 use crate::otel::{self, GatewayMetrics};
 use crate::plugin::{self, PluginState};
 use crate::routing::{openai, openresponses};
@@ -696,7 +697,7 @@ fn merge_json_patch(target: &mut Value, patch: &Value) {
 }
 
 fn config_toml_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("config.toml")
+    gateway_config_toml_path(&channel.config().savfox_home)
 }
 
 async fn read_config_json(path: &std::path::Path) -> Result<Value, String> {

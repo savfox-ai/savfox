@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use savfox_core::config::normalize_skill_config_path;
 use savfox_core::connectors::{AppInfo, connector_mention_slug};
 use savfox_core::protocol::{
     ListSkillsResponseEvent, SkillMetadata as ProtocolSkillMetadata, SkillsListEntry,
@@ -211,10 +212,6 @@ fn protocol_skill_to_core(skill: &ProtocolSkillMetadata) -> SkillMetadata {
         path: skill.path.clone(),
         scope: skill.scope,
     }
-}
-
-fn normalize_skill_config_path(path: &Path) -> PathBuf {
-    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub(crate) fn collect_tool_mentions(

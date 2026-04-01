@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 use crate::auth::{GatewayAuth, TokenInfo, has_scope, required_scope};
 use crate::channel::GatewayChannel;
 use crate::cron_service::CronService;
+use crate::home_paths::heartbeat_config_path as gateway_heartbeat_config_path;
 use crate::session::{GatewaySessionManager, SessionStore};
 
 mod handlers;
@@ -468,7 +469,7 @@ pub(crate) async fn dispatch_rpc(
 // ─── Method handlers ─────────────────────────────────────────────────────────
 
 pub(crate) fn heartbeat_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("heartbeat-config.json")
+    gateway_heartbeat_config_path(&channel.config().savfox_home)
 }
 
 #[derive(Debug, Clone, Serialize)]

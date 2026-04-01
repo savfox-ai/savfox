@@ -10,6 +10,7 @@ use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcRe
 use super::browser::handle_config_snapshot;
 use super::model::model_test_default_base_url;
 use crate::channel::GatewayChannel;
+use crate::home_paths::{config_backup_path, config_candidates, config_toml_path};
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -338,7 +339,7 @@ pub(crate) async fn load_config_intermediate(
 }
 
 pub(crate) fn primary_config_toml_path(channel: &GatewayChannel) -> PathBuf {
-    channel.config().savfox_home.join("config.toml")
+    config_toml_path(&channel.config().savfox_home)
 }
 
 pub(crate) async fn load_config_value_or_empty(channel: &GatewayChannel) -> Value {
@@ -485,7 +486,7 @@ pub(crate) async fn handle_config_apply(
 
     // Create a backup before applying.
     if config_path.exists() {
-        let backup = channel.config().savfox_home.join("config.toml.bak");
+        let backup = config_backup_path(&channel.config().savfox_home);
         let _ = tokio::fs::copy(&config_path, &backup).await;
     }
 
@@ -525,7 +526,7 @@ pub(crate) async fn handle_config_patch(
 // ── Hooks Event Bus (#31) ───────────────────────────────────────────────────
 
 fn hooks_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("hooks-config.json")
+    crate::home_paths::hooks_config_path(&channel.config().savfox_home)
 }
 
 pub(crate) async fn handle_hooks_list(channel: &GatewayChannel) -> RpcResult {
@@ -655,7 +656,7 @@ pub(crate) async fn handle_reactions_remove(
 // ── Streaming Config (#36) ──────────────────────────────────────────────────
 
 fn streaming_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("streaming-config.json")
+    crate::home_paths::streaming_config_path(&channel.config().savfox_home)
 }
 
 pub(crate) async fn handle_streaming_config_get(channel: &GatewayChannel) -> RpcResult {
@@ -701,12 +702,7 @@ pub(crate) async fn handle_streaming_config_set(
 /// Detect which config format is currently in use (.json, .yaml, .toml).
 pub(crate) async fn handle_config_format(channel: &GatewayChannel) -> RpcResult {
     let home = &channel.config().savfox_home;
-    let candidates = [
-        ("toml", home.join("config.toml")),
-        ("json", home.join("config.json")),
-        ("yaml", home.join("config.yaml")),
-        ("yaml", home.join("config.yml")),
-    ];
+    let candidates = config_candidates(home);
 
     let mut detected = "unknown";
     let mut path_str = String::new();

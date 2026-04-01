@@ -37,6 +37,7 @@ pub(crate) mod discovery;
 pub mod dm_policy;
 mod exec_approval;
 pub mod gateway_cli;
+pub(crate) mod home_paths;
 pub mod hooks;
 pub mod identity_links;
 mod json_store;

@@ -11,6 +11,7 @@ use super::super::types::{
 };
 use super::config::load_config_intermediate;
 use crate::channel::GatewayChannel;
+use crate::home_paths::log_rotation_config_path;
 use crate::session::{GatewaySessionManager, SessionStore};
 use crate::{log_store, pairing_store, plugin};
 
@@ -203,10 +204,7 @@ pub(crate) async fn handle_usage_export(
 
 /// Path to log rotation config file.
 fn log_config_path(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel
-        .config()
-        .savfox_home
-        .join("log-rotation-config.json")
+    log_rotation_config_path(&channel.config().savfox_home)
 }
 
 /// Trigger log rotation: clear in-memory log buffer and archive to a timestamped file.

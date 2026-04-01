@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::home_paths::exec_approval_policy_path;
 use crate::json_store;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,18 +34,21 @@ impl Default for ExecApprovalPolicyStore {
     }
 }
 
-fn store_path(savfox_home: &Path) -> PathBuf {
-    savfox_home
-        .join("gateway")
-        .join("exec-approval-policy.json")
-}
-
 async fn load_store(savfox_home: &Path) -> Result<ExecApprovalPolicyStore, String> {
-    json_store::load_json(&store_path(savfox_home), "exec approval policy").await
+    json_store::load_json(
+        &exec_approval_policy_path(savfox_home),
+        "exec approval policy",
+    )
+    .await
 }
 
 async fn save_store(savfox_home: &Path, store: &ExecApprovalPolicyStore) -> Result<(), String> {
-    json_store::save_json(&store_path(savfox_home), store, "exec approval policy").await
+    json_store::save_json(
+        &exec_approval_policy_path(savfox_home),
+        store,
+        "exec approval policy",
+    )
+    .await
 }
 
 pub(crate) async fn get_global(savfox_home: &Path) -> Result<Value, String> {
