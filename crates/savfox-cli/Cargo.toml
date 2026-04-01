@@ -1,0 +1,73 @@
+[package]
+name = "savfox-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "savfox"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_cli"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+clap_complete = { workspace = true }
+savfox-app-server = { workspace = true }
+savfox-app-server-protocol = { workspace = true }
+savfox-arg0 = { workspace = true }
+savfox-common = { workspace = true, features = ["cli"] }
+savfox-core = { workspace = true }
+savfox-exec = { workspace = true }
+savfox-exec-policy = { workspace = true }
+savfox-gateway-server = { workspace = true }
+savfox-login-oauth = { workspace = true }
+savfox-mcp-server = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-rmcp-client = { workspace = true }
+savfox-stdio-to-uds = { workspace = true }
+savfox-tui = { workspace = true }
+libc = { workspace = true }
+owo-colors = { workspace = true }
+regex-lite = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+supports-color = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+] }
+toml = { workspace = true }
+tracing = { workspace = true }
+which = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+semver = { workspace = true }
+dirs = { workspace = true }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+futures-util = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+zip = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+savfox-windows-sandbox = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+assert_matches = { workspace = true }
+savfox-utils = { workspace = true }
+predicates = { workspace = true }
+pretty_assertions = { workspace = true }

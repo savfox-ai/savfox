@@ -1,0 +1,14 @@
+﻿---
+source: tui/src/chat_screen/tests.rs
+expression: popup
+---
+  Upload logs?
+
+  The following files will be sent:
+    • savfox-logs.log
+
+› 1. Yes  Share the current Savfox session logs with the team for
+          troubleshooting.
+  2. No
+
+  Press enter to confirm or esc to go back

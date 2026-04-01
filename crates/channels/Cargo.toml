@@ -1,0 +1,36 @@
+[package]
+name = "savfox-channels"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+
+[lib]
+name = "savfox_channels"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+dingtalk-sdk = { workspace = true }
+feishu-sdk = { workspace = true }
+form_urlencoded = { workspace = true }
+futures-util = { workspace = true, features = ["alloc"] }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+reqwest = { workspace = true }
+savfox-core = { workspace = true }
+serde_json = { workspace = true }
+serenity = { workspace = true }
+sha2 = { workspace = true }
+teloxide = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true, features = ["v7"] }

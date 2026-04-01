@@ -1,0 +1,8 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: combined
+---
+↳ Interacted with background terminal · cargo test -p savfox-core
+  └ (waited)
+
+• Final response.

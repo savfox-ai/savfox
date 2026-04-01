@@ -1,0 +1,30 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+              ▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██
+              ██        ██  ██  ██    ██ ██     ██    ██  ██  ██
+               ██████  ████████ ██    ██ █████  ██    ██   ████
+                    ██ ██    ██  ██  ██  ██     ██    ██  ██  ██
+               ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+
+  Select model
+  Configured providers and their available models.
+
+  Search model
+  OpenAI
+› gpt-5.2-codex (default)  Latest frontier agentic coding model.
+  gpt-5.1-codex-max        Codex-optimized flagship for deep and fast
+                           reasoning.
+  gpt-5.1-codex-mini       Optimized for codex. Cheaper, faster, but less
+                           capable.
+  gpt-5.2                  Latest frontier model with improvements across
+                           knowledge, reasoning and coding
+
+  Press enter to select reasoning effort, or esc to dismiss.

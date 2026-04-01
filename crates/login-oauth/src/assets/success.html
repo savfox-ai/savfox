@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Signed in | Savfox</title>
+    <link
+      rel="icon"
+      href='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Cdefs%3E%3ClinearGradient id="g" x1="12" y1="10" x2="52" y2="54" gradientUnits="userSpaceOnUse"%3E%3Cstop stop-color="%23ff9a6c"/%3E%3Cstop offset="1" stop-color="%23ef6b6f"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x="6" y="6" width="52" height="52" rx="18" fill="%231a0f15"/%3E%3Crect x="10" y="10" width="44" height="44" rx="14" fill="url(%23g)"/%3E%3Cpath d="M20 33.5 28 41.5 44 25.5" fill="none" stroke="%23fff7f4" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E'
+      type="image/svg+xml"
+    />
+    <style>
+      :root {
+        --bg-primary: #11090d;
+        --bg-secondary: #1a0f15;
+        --text-primary: #fff6f1;
+        --text-secondary: #ecd0c7;
+        --text-muted: #c29ca2;
+        --accent: #ef6b6f;
+        --accent-ember: #ff9a6c;
+        --accent-pearl: #fff0e6;
+        --ornament: #f6c58d;
+        --success: #22c55e;
+        --font-body:
+          "Manrope", "Noto Sans SC", "Segoe UI Variable Text", "SF Pro Text",
+          "Helvetica Neue", Arial, sans-serif;
+        --font-display:
+          "Space Grotesk", "Noto Sans SC", "Segoe UI Variable Display",
+          "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+        --font-mono:
+          "JetBrains Mono", "SF Mono", "Fira Code", "Fira Mono", Menlo,
+          Consolas, monospace;
+        --surface-panel-strong:
+          linear-gradient(
+            180deg,
+            rgba(63, 34, 44, 0.84) 0%,
+            rgba(26, 15, 21, 0.8) 100%
+          );
+        --surface-flat-soft: rgba(42, 24, 32, 0.58);
+        --surface-stroke: rgba(255, 243, 237, 0.11);
+        --surface-stroke-strong: rgba(246, 197, 141, 0.2);
+        --surface-shadow: 0 24px 56px rgba(10, 3, 5, 0.34);
+        --surface-inner: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        --surface-glow:
+          0 0 0 1px rgba(239, 107, 111, 0.07),
+          0 16px 34px rgba(246, 197, 141, 0.06);
+        --mist-blush: rgba(239, 107, 111, 0.12);
+        --mist-spring: rgba(255, 154, 108, 0.1);
+        --mist-gold: rgba(246, 197, 141, 0.12);
+        --badge-surface:
+          linear-gradient(
+            135deg,
+            rgba(255, 154, 108, 0.26) 0%,
+            rgba(239, 107, 111, 0.34) 100%
+          );
+        --badge-border: rgba(255, 240, 230, 0.18);
+        --badge-shadow: rgba(10, 3, 5, 0.28);
+        --success-surface:
+          linear-gradient(180deg, #35cf6f 0%, #22c55e 100%);
+        --panel-blur: 28px;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg-primary: #fff7f4;
+          --bg-secondary: #fffdfb;
+          --text-primary: #372127;
+          --text-secondary: #7e585f;
+          --text-muted: #ab838a;
+          --accent: #d85d68;
+          --accent-ember: #f59669;
+          --accent-pearl: #fff6f0;
+          --ornament: #e8ac69;
+          --success: #16a34a;
+          --surface-panel-strong:
+            linear-gradient(
+              180deg,
+              rgba(255, 255, 255, 0.88) 0%,
+              rgba(255, 244, 238, 0.8) 100%
+            );
+          --surface-flat-soft: rgba(255, 243, 236, 0.62);
+          --surface-stroke: rgba(123, 79, 86, 0.11);
+          --surface-stroke-strong: rgba(216, 93, 104, 0.18);
+          --surface-shadow: 0 22px 52px rgba(147, 108, 102, 0.1);
+          --surface-inner: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+          --surface-glow:
+            0 0 0 1px rgba(216, 93, 104, 0.08),
+            0 18px 38px rgba(232, 172, 105, 0.1);
+          --mist-blush: rgba(216, 93, 104, 0.14);
+          --mist-spring: rgba(245, 150, 105, 0.12);
+          --mist-gold: rgba(232, 172, 105, 0.12);
+          --badge-surface:
+            linear-gradient(
+              135deg,
+              rgba(245, 150, 105, 0.22) 0%,
+              rgba(216, 93, 104, 0.24) 100%
+            );
+          --badge-border: rgba(216, 93, 104, 0.16);
+          --badge-shadow: rgba(147, 108, 102, 0.16);
+          --success-surface:
+            linear-gradient(180deg, #2dc86a 0%, #16a34a 100%);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        display: grid;
+        place-items: center;
+        font-family: var(--font-body);
+        color: var(--text-primary);
+        background:
+          radial-gradient(circle at 18% 16%, var(--mist-blush) 0%, transparent 32%),
+          radial-gradient(circle at 82% 14%, var(--mist-gold) 0%, transparent 24%),
+          radial-gradient(circle at 50% 100%, var(--mist-spring) 0%, transparent 28%),
+          linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+      }
+
+      .card {
+        position: relative;
+        overflow: hidden;
+        width: min(100%, 460px);
+        padding: 34px 32px 30px;
+        border-radius: 28px;
+        border: 1px solid var(--surface-stroke);
+        background: var(--surface-panel-strong);
+        box-shadow: var(--surface-inner), var(--surface-shadow), var(--surface-glow);
+        text-align: center;
+        backdrop-filter: blur(var(--panel-blur)) saturate(150%);
+        -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(150%);
+        animation: card-enter 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      .card::before,
+      .card::after {
+        content: "";
+        position: absolute;
+        pointer-events: none;
+      }
+
+      .card::before {
+        inset: -20% auto auto -16%;
+        width: 220px;
+        height: 220px;
+        border-radius: 50%;
+        background: radial-gradient(circle, var(--mist-blush) 0%, transparent 66%);
+        filter: blur(10px);
+      }
+
+      .card::after {
+        inset: 0;
+        background:
+          linear-gradient(
+            130deg,
+            rgba(255, 255, 255, 0.08) 0%,
+            transparent 28%,
+            transparent 72%,
+            rgba(255, 255, 255, 0.03) 100%
+          );
+        opacity: 0.55;
+      }
+
+      .eyebrow {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: var(--surface-flat-soft);
+        border: 1px solid var(--surface-stroke);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .hero {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+        margin: 18px 0 22px;
+      }
+
+      .provider-mark {
+        position: relative;
+        width: 110px;
+        height: 110px;
+        display: grid;
+        place-items: center;
+        animation: badge-float 3.6s ease-in-out infinite;
+      }
+
+      .provider-mark::before {
+        content: "";
+        position: absolute;
+        inset: 7px;
+        border-radius: 30px;
+        border: 1px solid var(--surface-stroke-strong);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+      }
+
+      .provider-mark::after {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 34px;
+        background: radial-gradient(circle, var(--mist-gold) 0%, transparent 68%);
+        opacity: 0.8;
+        z-index: -1;
+      }
+
+      .provider-mark__core {
+        position: relative;
+        width: 82px;
+        height: 82px;
+        display: grid;
+        place-items: center;
+        border-radius: 24px;
+        background: var(--badge-surface);
+        border: 1px solid var(--badge-border);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.14),
+          0 18px 34px var(--badge-shadow);
+      }
+
+      .provider-mark__core::after {
+        content: "";
+        position: absolute;
+        inset: 1px;
+        border-radius: 23px;
+        background:
+          linear-gradient(
+            145deg,
+            rgba(255, 255, 255, 0.16) 0%,
+            transparent 30%,
+            transparent 74%,
+            rgba(255, 255, 255, 0.06) 100%
+          );
+      }
+
+      .provider-mark__initials {
+        position: relative;
+        z-index: 1;
+        font-family: var(--font-display);
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-primary);
+      }
+
+      .provider-mark__check {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--success-surface);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 12px 24px rgba(34, 197, 94, 0.22);
+      }
+
+      .provider-mark__check svg {
+        width: 16px;
+        height: 16px;
+        stroke: #ffffff;
+        stroke-width: 3;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .provider-pill {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: var(--surface-flat-soft);
+        border: 1px solid var(--surface-stroke-strong);
+        color: var(--text-secondary);
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .provider-pill::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 12px rgba(34, 197, 94, 0.35);
+      }
+
+      .title {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(28px, 5vw, 34px);
+        font-weight: 700;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        background: linear-gradient(
+          135deg,
+          var(--accent-pearl) 0%,
+          var(--ornament) 24%,
+          var(--accent) 68%,
+          var(--accent-ember) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .subtitle {
+        position: relative;
+        z-index: 1;
+        margin: 12px auto 0;
+        max-width: 30ch;
+        color: var(--text-secondary);
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .hint {
+        position: relative;
+        z-index: 1;
+        margin: 22px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      @keyframes card-enter {
+        from {
+          opacity: 0;
+          transform: translateY(16px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes badge-float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-4px);
+        }
+      }
+
+      @media (max-width: 480px) {
+        body {
+          padding: 16px;
+        }
+
+        .card {
+          padding: 26px 20px 24px;
+          border-radius: 24px;
+        }
+
+        .hero {
+          margin: 16px 0 20px;
+        }
+
+        .provider-mark {
+          width: 98px;
+          height: 98px;
+        }
+
+        .provider-mark__core {
+          width: 74px;
+          height: 74px;
+          border-radius: 22px;
+        }
+
+        .provider-mark__initials {
+          font-size: 28px;
+        }
+
+        .provider-mark__check {
+          right: 8px;
+          bottom: 8px;
+        }
+
+        .provider-pill {
+          font-size: 13px;
+        }
+
+        .subtitle {
+          font-size: 14px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .card,
+        .provider-mark {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main" aria-labelledby="title">
+      <div class="eyebrow">Savfox Connect</div>
+      <div class="hero">
+        <div class="provider-mark" aria-hidden="true">
+          <div class="provider-mark__core">
+            <span class="provider-mark__initials" id="provider-initials">AI</span>
+          </div>
+          <div class="provider-mark__check">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12.5 9.2 16.7 19 7.5" />
+            </svg>
+          </div>
+        </div>
+        <div class="provider-pill" id="provider-pill">Provider connected</div>
+      </div>
+      <h1 class="title" id="title">Signed in</h1>
+      <p class="subtitle">
+        Your connection is active. Return to Savfox and close this tab when you
+        are done.
+      </p>
+      <p class="hint">This local callback page only confirms that login succeeded.</p>
+    </main>
+    <script>
+      function initialsForProvider(name) {
+        var provider = (name || "").trim();
+        if (!provider) return "AI";
+
+        var special = {
+          openai: "OA",
+          anthropic: "AN",
+          google: "GO",
+          openrouter: "OR",
+          chatgpt: "CG",
+        };
+        var normalized = provider.toLowerCase();
+        if (special[normalized]) return special[normalized];
+
+        var capitals = provider.match(/[A-Z0-9]/g);
+        if (capitals && capitals.length >= 2) {
+          return capitals.slice(0, 2).join("");
+        }
+
+        var parts = provider
+          .replace(/[^a-z0-9]+/gi, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+
+        if (parts.length >= 2) {
+          return (parts[0][0] + parts[1][0]).toUpperCase();
+        }
+
+        return provider.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "AI";
+      }
+
+      var provider = new URLSearchParams(window.location.search).get("provider");
+      if (provider) {
+        document.getElementById("title").textContent = "Signed in to " + provider;
+        document.getElementById("provider-pill").textContent = provider;
+        document.getElementById("provider-initials").textContent = initialsForProvider(provider);
+        document.title = "Signed in to " + provider + " | Savfox";
+      }
+    </script>
+  </body>
+</html>

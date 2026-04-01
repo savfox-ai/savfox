@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ─── Generate changelog from conventional commits ─────────────────
+  changelog:
+    name: Generate changelog
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout (full history for changelog)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: .github/cliff.toml
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: changelog
+          path: CHANGELOG.md
+
+  # ─── Build release binaries ───────────────────────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: savfox
+            ext: tar.gz
+          # Linux arm64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: savfox
+            ext: tar.gz
+          # macOS x64 (Intel)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: savfox
+            ext: tar.gz
+          # macOS arm64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: savfox
+            ext: tar.gz
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: savfox.exe
+            ext: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      # Cross-compile support for aarch64-linux
+      - name: Install cross-compilation tools (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --bin savfox
+
+      # ── Package: tar.gz for Linux/macOS ──
+      - name: Package (tar.gz)
+        if: matrix.ext == 'tar.gz'
+        shell: bash
+        run: |
+          ARCHIVE="savfox-${{ steps.tag.outputs.version }}-${{ matrix.target }}.tar.gz"
+          cd target/${{ matrix.target }}/release
+          tar czf "../../../${ARCHIVE}" ${{ matrix.artifact }}
+          cd ../../..
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      # ── Package: zip for Windows ──
+      - name: Package (zip)
+        if: matrix.ext == 'zip'
+        shell: bash
+        run: |
+          ARCHIVE="savfox-${{ steps.tag.outputs.version }}-${{ matrix.target }}.zip"
+          cd target/${{ matrix.target }}/release
+          7z a "../../../${ARCHIVE}" ${{ matrix.artifact }}
+          cd ../../..
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      # ── SHA256 checksum ──
+      - name: Generate SHA256 checksum
+        shell: bash
+        run: |
+          if command -v sha256sum &> /dev/null; then
+            sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          else
+            shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          fi
+          cat "${ARCHIVE}.sha256"
+
+      # ── Sign binary (placeholder: requires SIGNING_KEY secret) ──
+      - name: Sign binary (placeholder)
+        if: env.SIGNING_KEY != ''
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          echo "::notice::Binary signing is configured but requires SIGNING_KEY secret to be set."
+          echo "To enable signing, add a GPG or cosign key as the SIGNING_KEY repository secret."
+          # When SIGNING_KEY is set, the following would sign the archive:
+          # echo "${SIGNING_KEY}" | base64 -d > /tmp/signing.key
+          # cosign sign-blob --key /tmp/signing.key "${ARCHIVE}" --output-signature "${ARCHIVE}.sig"
+          # rm -f /tmp/signing.key
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+      - name: Upload checksum
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}.sha256
+          path: ${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  # ─── Create GitHub Release with changelog and artifacts ───────────
+  release:
+    name: Publish release
+    needs: [changelog, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lhR artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: artifacts/CHANGELOG.md
+          files: |
+            artifacts/savfox-*

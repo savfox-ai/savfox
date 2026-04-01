@@ -1,0 +1,15 @@
+[package]
+name = "savfox-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "savfox_model"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+savfox-protocol = { workspace = true }

@@ -1,0 +1,25 @@
+﻿[application]
+name = "savfox-gateway-dioxus"
+default_platform = "web"
+out_dir = "dist"
+asset_dir = "assets"
+
+[web.app]
+title = "Savfox | AI Assistant"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets", "Dioxus.toml"]
+index_on_404 = true
+
+[[web.proxy]]
+backend = "http://127.0.0.1:18881/api/"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:18881/health"
+
+[[web.proxy]]
+backend = "http://127.0.0.1:18881/ws"
+
+[web.wasm_opt]
+level = "0"

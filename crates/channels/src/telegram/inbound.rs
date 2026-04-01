@@ -1,0 +1,228 @@
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use async_trait::async_trait;
+use futures_util::StreamExt;
+use teloxide::Bot;
+use teloxide::prelude::Request;
+use teloxide::requests::Requester;
+use teloxide::types::AllowedUpdate;
+use teloxide::update_listeners::{AsUpdateStream, Polling};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use tracing::{info, warn};
+
+use super::config::TelegramChannelConfig;
+
+fn telegram_log_preview(text: &str, max_chars: usize) -> String {
+    let mut preview = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        preview.push_str("...");
+    }
+    preview
+}
+
+fn describe_update(payload: &serde_json::Value) -> (String, String, usize) {
+    let kind = if payload.get("message").is_some() {
+        "message"
+    } else if payload.get("channel_post").is_some() {
+        "channel_post"
+    } else if payload.get("callback_query").is_some() {
+        "callback_query"
+    } else {
+        "unknown"
+    };
+    let message = payload
+        .get("message")
+        .or_else(|| payload.get("channel_post"))
+        .unwrap_or(&serde_json::Value::Null);
+    let chat_id = message
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let text = message
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| message.get("caption").and_then(serde_json::Value::as_str))
+        .unwrap_or("");
+    (kind.to_string(), chat_id, text.len())
+}
+
+#[async_trait]
+pub trait TelegramUpdateSink: Send + Sync {
+    async fn handle_update(&self, payload: serde_json::Value);
+}
+
+#[derive(Debug)]
+struct PollingTaskEntry {
+    generation: u64,
+    handle: JoinHandle<()>,
+}
+
+fn polling_handles() -> &'static Mutex<HashMap<String, PollingTaskEntry>> {
+    static HANDLES: OnceLock<Mutex<HashMap<String, PollingTaskEntry>>> = OnceLock::new();
+    HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn next_polling_generation() -> u64 {
+    static GENERATION: AtomicU64 = AtomicU64::new(1);
+    GENERATION.fetch_add(1, Ordering::Relaxed)
+}
+
+pub async fn start_telegram_polling(
+    channel_id: &str,
+    config: &TelegramChannelConfig,
+    sink: Arc<dyn TelegramUpdateSink>,
+) -> anyhow::Result<()> {
+    if !config.polling {
+        return Ok(());
+    }
+
+    let bot_token = config
+        .bot_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Telegram polling mode requires bot_token"))?;
+    println!(
+        "[telegram] Polling start requested: channel_id={}, polling={}, webhook_url={:?}, bot_token=configured",
+        channel_id, config.polling, config.webhook_url
+    );
+
+    let bot = Bot::new(bot_token.to_string());
+    bot.delete_webhook()
+        .send()
+        .await
+        .map_err(|err| anyhow::anyhow!("failed to disable Telegram webhook for polling: {err}"))?;
+    println!(
+        "[telegram] Polling mode enabled for channel '{}'; existing webhook cleared",
+        channel_id
+    );
+
+    let generation = next_polling_generation();
+    let tracked_channel_id = channel_id.to_string();
+    let task_channel_id = tracked_channel_id.clone();
+    let mut listener = Polling::builder(bot)
+        .drop_pending_updates()
+        .allowed_updates(vec![
+            AllowedUpdate::Message,
+            AllowedUpdate::ChannelPost,
+            AllowedUpdate::CallbackQuery,
+            AllowedUpdate::EditedMessage,
+        ])
+        .build();
+    println!(
+        "[telegram] Polling listener built for channel '{}', spawning polling task...",
+        channel_id
+    );
+    let handle = tokio::spawn(async move {
+        println!(
+            "[telegram] Polling task started for channel '{}'",
+            task_channel_id
+        );
+        info!(channel_id = %task_channel_id, "Telegram polling channel starting");
+
+        let stream = listener.as_stream();
+        tokio::pin!(stream);
+        println!(
+            "[telegram] Polling stream created for channel '{}', waiting for updates...",
+            task_channel_id
+        );
+        while let Some(update_result) = stream.next().await {
+            match update_result {
+                Ok(update) => match serde_json::to_value(&update) {
+                    Ok(payload) => {
+                        let update_id = payload
+                            .get("update_id")
+                            .and_then(serde_json::Value::as_i64)
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        let (kind, chat_id, text_len) = describe_update(&payload);
+                        println!(
+                            "[telegram] Polling update received: channel_id={}, update_id={}, kind={}, chat_id={}, text_len={}, payload_preview={}",
+                            task_channel_id,
+                            update_id,
+                            kind,
+                            chat_id,
+                            text_len,
+                            telegram_log_preview(&payload.to_string(), 220)
+                        );
+                        sink.handle_update(payload).await;
+                    }
+                    Err(err) => {
+                        println!(
+                            "[telegram] Polling update serialization failed: channel_id={}, error={}",
+                            task_channel_id, err
+                        );
+                        warn!(
+                            channel_id = %task_channel_id,
+                            error = %err,
+                            "Telegram polling update serialization failed"
+                        );
+                    }
+                },
+                Err(err) => {
+                    println!(
+                        "[telegram] Polling listener error: channel_id={}, error={}",
+                        task_channel_id, err
+                    );
+                    warn!(
+                        channel_id = %task_channel_id,
+                        error = %err,
+                        "Telegram polling listener error"
+                    );
+                }
+            }
+        }
+
+        println!(
+            "[telegram] Polling stream ended for channel '{}'",
+            task_channel_id
+        );
+        info!(channel_id = %task_channel_id, "Telegram polling channel stopped");
+        let mut handles = polling_handles().lock().await;
+        if handles
+            .get(&tracked_channel_id)
+            .is_some_and(|entry| entry.generation == generation)
+        {
+            handles.remove(&tracked_channel_id);
+        }
+    });
+
+    let mut handles = polling_handles().lock().await;
+    if let Some(previous) = handles.insert(
+        channel_id.to_string(),
+        PollingTaskEntry { generation, handle },
+    ) {
+        println!(
+            "[telegram] Replacing existing polling task for channel '{}'",
+            channel_id
+        );
+        previous.handle.abort();
+    }
+    Ok(())
+}
+
+pub async fn stop_telegram_polling(channel_id: &str) -> bool {
+    let mut handles = polling_handles().lock().await;
+    if let Some(entry) = handles.remove(channel_id) {
+        println!(
+            "[telegram] Stopping polling task for channel '{}'",
+            channel_id
+        );
+        entry.handle.abort();
+        true
+    } else {
+        println!(
+            "[telegram] Stop polling requested but no task was running for channel '{}'",
+            channel_id
+        );
+        false
+    }
+}
+
+pub async fn is_telegram_polling_running(channel_id: &str) -> bool {
+    polling_handles().lock().await.contains_key(channel_id)
+}

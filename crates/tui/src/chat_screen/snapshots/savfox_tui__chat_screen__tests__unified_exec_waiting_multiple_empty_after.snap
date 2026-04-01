@@ -1,0 +1,6 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: combined
+---
+↳ Interacted with background terminal · just fix
+  └ (waited)

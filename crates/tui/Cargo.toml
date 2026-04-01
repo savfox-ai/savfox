@@ -1,0 +1,131 @@
+[package]
+name = "savfox-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "savfox-tui"
+path = "src/main.rs"
+
+[lib]
+name = "savfox_tui"
+path = "src/lib.rs"
+
+[features]
+# Enable vt100-based tests (emulator) when running with `--features vt100-tests`.
+vt100-tests = []
+# Gate verbose debug logging inside the TUI implementation.
+debug-logs = []
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
+savfox-ansi-escape = { workspace = true }
+savfox-app-server-protocol = { workspace = true }
+savfox-arg0 = { workspace = true }
+savfox-common = { workspace = true, features = [
+    "cli",
+    "elapsed",
+    "sandbox_summary",
+] }
+savfox-core = { workspace = true }
+savfox-skill-registry = { workspace = true }
+savfox-feedback = { workspace = true }
+savfox-file-search = { workspace = true }
+savfox-login-oauth = { workspace = true }
+savfox-otel = { workspace = true }
+savfox-protocol = { workspace = true }
+savfox-state = { workspace = true }
+savfox-utils = { workspace = true }
+color-eyre = { workspace = true }
+crossterm = { workspace = true, features = ["bracketed-paste", "event-stream"] }
+derive_more = { workspace = true, features = ["is_variant"] }
+diffy = { workspace = true }
+dirs = { workspace = true }
+dunce = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png"] }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+pathdiff = { workspace = true }
+pulldown-cmark = { workspace = true }
+rand = { workspace = true }
+ratatui = { workspace = true, features = [
+    "scrolling-regions",
+    "unstable-backend-writer",
+    "unstable-rendered-line-info",
+    "unstable-widget-ref",
+] }
+ratatui-image = { workspace = true }
+ratatui-macros = { workspace = true }
+regex-lite = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+rmcp = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+shlex = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+supports-color = { workspace = true }
+tempfile = { workspace = true }
+textwrap = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "test-util",
+    "time",
+] }
+tokio-stream = { workspace = true, features = ["sync"] }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tracing = { workspace = true, features = ["log"] }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tree-sitter-bash = { workspace = true }
+tree-sitter-highlight = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+savfox-windows-sandbox = { workspace = true }
+tokio-util = { workspace = true, features = ["time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+which = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+] }
+winsplit = { workspace = true }
+
+# Clipboard support via `arboard` is not available on Android/Termux.
+# Only include it for non-Android targets so the crate builds on Android.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = { workspace = true }
+
+
+[dev-dependencies]
+savfox-cli = { workspace = true }
+savfox-core = { workspace = true, features = ["test-support"] }
+assert_matches = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+insta = { workspace = true }
+pretty_assertions = { workspace = true }
+proptest = "1"
+rand = { workspace = true }
+serial_test = { workspace = true }
+vt100 = { workspace = true }
+uuid = { workspace = true }

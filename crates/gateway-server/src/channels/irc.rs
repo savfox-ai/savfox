@@ -1,0 +1,145 @@
+use async_trait::async_trait;
+use salvo::prelude::*;
+use savfox_channels::http::warn_on_error;
+use serde_json::{Value, json};
+use tracing::info;
+
+use super::{Channel, RichMessage, runtime};
+use crate::protocol::ChannelAction;
+
+/// IRC channel via an HTTP relay service.
+/// IRC doesn't have a native HTTP API, so this communicates with a local channel
+/// service (e.g., IRC-to-HTTP relay) that exposes REST endpoints.
+pub(crate) struct IrcChannel {
+    channel_url: String,
+    http_client: reqwest::Client,
+}
+
+impl IrcChannel {
+    #[must_use]
+    pub(crate) fn new(channel_url: String, http_client: reqwest::Client) -> Self {
+        Self {
+            channel_url,
+            http_client,
+        }
+    }
+}
+
+#[async_trait]
+impl Channel for IrcChannel {
+    async fn start(&mut self) -> anyhow::Result<()> {
+        info!(channel_url = %self.channel_url, "IRC channel starting");
+        Ok(())
+    }
+
+    async fn send_message(&self, channel: &str, message: &str) -> anyhow::Result<()> {
+        let url = format!("{}/send", self.channel_url);
+        let body = json!({ "channel": channel, "message": message });
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .body(body.to_string())
+            .send()
+            .await?;
+        warn_on_error(response, "IRC channel send error").await;
+        Ok(())
+    }
+
+    async fn send_rich_message(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()> {
+        // IRC doesn't support rich formatting well; send as plain text.
+        self.send_message(channel, &msg.text).await
+    }
+
+    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
+        let message = payload
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("");
+        let channel_name = payload
+            .get("channel")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_owned();
+        let _nick = payload
+            .get("nick")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_owned();
+
+        if let Some(prompt) = message.strip_prefix("!savfox ") {
+            let prompt = prompt.trim().to_owned();
+            if !prompt.is_empty() {
+                return Ok(ChannelAction::StartThread {
+                    channel: channel_name,
+                    prompt,
+                });
+            }
+        }
+        Ok(ChannelAction::Ignore)
+    }
+}
+
+#[handler]
+pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(body) = super::parse_json_body(req, res, "irc").await else {
+        return;
+    };
+
+    let message = body.get("message").and_then(|m| m.as_str()).unwrap_or("");
+    let channel = body
+        .get("channel")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_owned();
+    let prompt = message
+        .strip_prefix("!savfox ")
+        .map(str::trim)
+        .unwrap_or("")
+        .to_owned();
+    let dedupe_key = body
+        .get("message_id")
+        .or_else(|| body.get("id"))
+        .and_then(|v| v.as_str())
+        .map(|id| format!("irc:{id}"))
+        .or_else(|| {
+            if channel.is_empty() || message.is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "irc:{}:{}:{}",
+                    channel,
+                    body.get("nick").and_then(|v| v.as_str()).unwrap_or(""),
+                    message
+                ))
+            }
+        });
+
+    if runtime::should_drop_duplicate(dedupe_key).await {
+        res.status_code(StatusCode::OK);
+        res.render(Json(json!({ "status": "duplicate_ignored" })));
+        return;
+    }
+
+    if !channel.is_empty() && !prompt.is_empty() {
+        let Some((gateway_channel, session_store)) = super::obtain_channel_and_store(depot, res)
+        else {
+            return;
+        };
+        tokio::spawn(async move {
+            runtime::spawn_start_thread_pipeline(
+                gateway_channel,
+                session_store,
+                "irc",
+                channel,
+                prompt,
+                None,
+            )
+            .await;
+        });
+    }
+
+    info!("IRC webhook received");
+    res.status_code(StatusCode::OK);
+    res.render(Json(json!({ "status": "ok" })));
+}

@@ -1,0 +1,6 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: lines_to_single_string(&aborted_long)
+---
+✗ You canceled the request to run echo
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...

@@ -1,0 +1,8 @@
+﻿{
+  email {$SAVFOX_TLS_EMAIL}
+}
+
+{$SAVFOX_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy gateway:18881
+}

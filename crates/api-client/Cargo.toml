@@ -1,0 +1,34 @@
+﻿[package]
+name = "savfox-api-client"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+eventsource-stream = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+regex-lite = { workspace = true }
+savfox-http-client = { workspace = true }
+savfox-protocol = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+tokio-util = { workspace = true, features = ["codec"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+assert_matches = { workspace = true }
+pretty_assertions = { workspace = true }
+reqwest = { workspace = true }
+tokio-test = { workspace = true }
+wiremock = { workspace = true }
+
+[lints]
+workspace = true

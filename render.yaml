@@ -1,0 +1,19 @@
+﻿# Render.com deployment configuration
+
+services:
+  - type: web
+    name: savfox-gateway
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: oregon
+    healthCheckPath: /health
+    envVars:
+      - key: RUST_LOG
+        value: info
+      - key: SAVFOX_HOME
+        value: /data
+    disk:
+      name: savfox-data
+      mountPath: /data
+      sizeGB: 1

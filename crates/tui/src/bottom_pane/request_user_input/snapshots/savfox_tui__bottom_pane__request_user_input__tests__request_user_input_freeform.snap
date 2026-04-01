@@ -1,0 +1,13 @@
+---
+source: crates/tui/src/bottom_pane/request_user_input/mod.rs
+expression: "render_snapshot(&overlay, area)"
+---
+                                                                                                                        
+  Question 1/1 (1 unanswered)                                                                                           
+  Share details.                                                                                                        
+                                                                                                                        
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  ❯ Type @ to mention files, / for commands, or ? for shortcuts                                                         
+                                                                                                                        
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+  enter to submit answer | esc to interrupt

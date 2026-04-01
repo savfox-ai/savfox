@@ -1,0 +1,20 @@
+---
+source: crates/tui/src/chat_screen/tests.rs
+expression: popup
+---
+              ▄█▀▀▀▀█▄  ▄█▀▀█▄  ██    ██ ██████  ▄█▀▀█▄  ██    ██
+              ██        ██  ██  ██    ██ ██     ██    ██  ██  ██
+               ██████  ████████ ██    ██ █████  ██    ██   ████
+                    ██ ██    ██  ██  ██  ██     ██    ██  ██  ██
+               ▀████▀  ██    ██   ▀██▀   ██      ▀█▄▄█▀  ██    ██
+
+                                Welcome to Savfox
+                            Your AI coding assistant
+
+
+
+D:\Works\savfox-ai\savfox\crates\tui                              gpt-5 OpenAI
+────────────────────────────────────────────────────────────────────────────────
+❯ Type @ to mention files, / for commands, or ? for shortcuts
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts                                            100% context left

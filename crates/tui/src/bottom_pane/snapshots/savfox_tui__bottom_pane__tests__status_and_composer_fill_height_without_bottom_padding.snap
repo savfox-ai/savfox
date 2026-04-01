@@ -1,0 +1,11 @@
+---
+source: crates/tui/src/bottom_pane/mod.rs
+expression: "render_snapshot(&pane, area)"
+---
+• Working (0s • esc to interru
+                              
+                              
+──────────────────────────────
+❯ Type @ to mention files, /  
+──────────────────────────────
+           100% context left

@@ -1,0 +1,6 @@
+---
+source: tui/src/chat_screen/tests.rs
+expression: blob2
+---
+• Explored
+  └ List ls -la

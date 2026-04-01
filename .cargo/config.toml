@@ -1,0 +1,14 @@
+[target.'cfg(all(windows, target_env = "msvc"))']
+linker = "C:\\Program Files\\LLVM\\bin\\lld-link.exe"
+rustflags = ["-C", "link-arg=/STACK:8388608"]
+
+[target.'cfg(all(windows, target_env = "gnu"))']
+rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]
+
+[target.'cfg(target_os = "linux")']
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# Uncomment locally if you have LLVM lld installed via Homebrew:
+# [target.'cfg(target_os = "macos")']
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]

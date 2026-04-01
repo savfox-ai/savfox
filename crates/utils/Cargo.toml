@@ -1,0 +1,57 @@
+[package]
+name = "savfox-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+anyhow = { workspace = true }
+assert_cmd = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+dirs = { workspace = true }
+image = { workspace = true, features = ["jpeg", "png"] }
+lru = { workspace = true }
+once_cell = { workspace = true }
+path-absolutize = { workspace = true }
+portable-pty = { workspace = true }
+regex = { workspace = true }
+runfiles = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+toml = { workspace = true }
+ts-rs = { workspace = true, features = ["no-serde-warnings", "serde-json-impl", "uuid-impl"] }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+pretty_assertions = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(all(not(target_arch = "wasm32"), windows))'.dependencies]
+filedescriptor = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+shared_library = { workspace = true }
+winapi = { workspace = true, features = [
+    "handleapi",
+    "minwinbase",
+    "processthreadsapi",
+    "synchapi",
+    "winbase",
+    "wincon",
+    "winerror",
+    "winnt",
+] }
+
+[target.'cfg(all(not(target_arch = "wasm32"), unix))'.dependencies]
+libc = { workspace = true }

@@ -1,0 +1,14 @@
+---
+source: crates/tui/src/bottom_pane/mod.rs
+assertion_line: 1224
+expression: "render_snapshot(&pane, area)"
+---
+• Working (0s • esc to interrupt)               
+                                                
+  ↳ Queued follow-up question                   
+    ⌥ + ↑ edit                                  
+                                                
+────────────────────────────────────────────────
+❯ Type @ to mention files, / for commands, or ? 
+────────────────────────────────────────────────
+  ? for shortcuts              [░░░░░░░░░░] 0%

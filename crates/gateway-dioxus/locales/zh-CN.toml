@@ -1,0 +1,118 @@
+# 简体中文翻译 - Savfox 网关 UI
+
+[app]
+title = "Savfox - 你的 AI 助手"
+
+[auth]
+title = "Savfox 网关"
+subtitle = "请输入网关令牌以继续"
+placeholder = "网关令牌"
+validating = "验证中..."
+connect = "连接"
+invalid_token = "无效令牌"
+
+[nav]
+dashboard = "仪表盘"
+manage = "管理"
+media = "媒体"
+system = "系统"
+overview = "概览"
+sessions = "会话"
+session = "会话"
+agents = "智能体"
+models = "模型"
+channels = "频道"
+cron_jobs = "定时任务"
+skills = "技能"
+tts = "语音合成"
+voice = "语音"
+config = "配置"
+instances = "实例"
+logs = "日志"
+usage = "用量"
+approvals = "审批"
+nodes = "节点"
+debug = "调试"
+more = "更多"
+navigation = "导航"
+connect_provider = "接入提供商"
+command_palette = "命令面板"
+skip_to_content = "跳转到主要内容"
+settings = "设置"
+
+[header]
+ai_assistant = "AI 助手"
+health_ok = "运行正常"
+offline = "已离线"
+follow_system_theme = "跟随系统主题"
+light_theme = "浅色主题"
+dark_theme = "深色主题"
+pending_approvals = "{count} 项待审批"
+no_pending_approvals = "无待审批项"
+
+[ws]
+connection_lost = "连接已断开，正在重新连接…"
+reconnect_now = "立即重连"
+connected = "已连接"
+connecting = "正在连接服务器…"
+
+[chat]
+placeholder = "输入消息...（Enter 发送，Shift+Enter 换行）"
+agent_label = "智能体："
+model_label = "模型："
+default_model = "默认模型"
+default = "默认"
+attach_image = "添加图片"
+select_agent = "选择智能体"
+reasoning_effort = "推理力度"
+reasoning_default = "推理：默认"
+send_hint = "Enter 发送 · Shift+Enter 换行"
+send_message = "发送消息"
+stop_generation = "停止生成"
+default_suffix = "（默认）"
+
+[model_selector]
+default_model = "默认模型"
+default_suffix = "（默认）"
+choose_model = "选择模型"
+search_models = "搜索模型"
+connect_provider = "接入提供商"
+manage_providers = "管理提供商"
+manage = "管理"
+loading_models = "正在加载模型..."
+failed_to_load = "模型加载失败。"
+retry = "重试"
+no_matching = "没有匹配的模型"
+default_group = "默认"
+follow_system_default = "跟随系统默认"
+
+[common]
+confirm = "确认"
+cancel = "取消"
+save = "保存"
+delete = "删除"
+search = "搜索..."
+matches = "{count} 个匹配"
+close = "关闭"
+refresh = "刷新"
+loading = "加载中..."
+
+[notifications]
+exec_approval_required = "需要执行审批"
+new_command_approval = "有新命令需要您的审批。"
+
+[time]
+just_now = "刚刚"
+minutes_ago = "{count} 分钟前"
+hours_ago = "{count} 小时前"
+days_ago = "{count} 天前"
+weeks_ago = "{count} 周前"
+
+[aria]
+close_nav = "关闭导航菜单"
+open_nav = "打开导航菜单"
+main_nav = "主导航"
+theme = "主题"
+toggle_nav_group = "切换{group}导航分组"
+session_input = "会话消息输入"
+pending_items = "{count} 项待处理"
