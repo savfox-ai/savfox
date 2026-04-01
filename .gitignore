@@ -34,3 +34,4 @@ crates/app-server-protocol/schema
 *.tmp
 .gitnexus
 .e2e-savfox-home-*
+_*.md
