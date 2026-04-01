@@ -170,7 +170,11 @@ fn is_elevated() -> Result<bool> {
             ));
         }
         let mut is_member = 0i32;
-        let check = CheckTokenMembership(std::ptr::null_mut(), administrators_group, &mut is_member as *mut _);
+        let check = CheckTokenMembership(
+            std::ptr::null_mut(),
+            administrators_group,
+            &mut is_member as *mut _,
+        );
         FreeSid(administrators_group as *mut _);
         if check == 0 {
             return Err(anyhow!("CheckTokenMembership failed: {}", GetLastError()));

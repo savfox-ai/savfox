@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use rmcp::model::{
-    CancelledNotificationParam, ClientInfo, CreateElicitationRequestParams, CreateElicitationResult,
-    LoggingLevel, LoggingMessageNotificationParam, ProgressNotificationParam,
-    ResourceUpdatedNotificationParam,
+    CancelledNotificationParam, ClientInfo, CreateElicitationRequestParams,
+    CreateElicitationResult, LoggingLevel, LoggingMessageNotificationParam,
+    ProgressNotificationParam, ResourceUpdatedNotificationParam,
 };
 use rmcp::service::{NotificationContext, RequestContext};
 use rmcp::{ClientHandler, RoleClient};

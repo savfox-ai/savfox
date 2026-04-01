@@ -488,7 +488,7 @@ mod tests {
     }
 
     fn remote_model_with_visibility(
-        id: &str,
+        slug: &str,
         display: &str,
         priority: i32,
         visibility: &str,

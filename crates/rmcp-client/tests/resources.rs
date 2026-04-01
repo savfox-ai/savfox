@@ -18,11 +18,9 @@ fn stdio_server_bin() -> Result<PathBuf, CargoBinError> {
 }
 
 fn init_params() -> InitializeRequestParams {
-    let capabilities = ClientCapabilities::builder()
-        .enable_elicitation()
-        .build();
-    let client_info = Implementation::new("savfox-test", "0.0.0-test")
-        .with_title("Savfox rmcp resource test");
+    let capabilities = ClientCapabilities::builder().enable_elicitation().build();
+    let client_info =
+        Implementation::new("savfox-test", "0.0.0-test").with_title("Savfox rmcp resource test");
     InitializeRequestParams::new(capabilities, client_info)
         .with_protocol_version(ProtocolVersion::V_2025_06_18)
 }

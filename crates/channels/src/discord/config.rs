@@ -136,6 +136,7 @@ mod tests {
         savfox_core::config::channel_store::ChannelConfig {
             id: "discord-stream".to_string(),
             kind: "discord".to_string(),
+            slug: "discord".to_string(),
             name: "Discord".to_string(),
             enabled: true,
             config,

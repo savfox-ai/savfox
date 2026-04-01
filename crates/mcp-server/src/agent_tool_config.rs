@@ -224,10 +224,7 @@ pub(crate) fn create_tool_for_savfox_tool_call_reply_param() -> Tool {
     .with_raw_output_schema(savfox_tool_output_schema())
 }
 
-fn create_tool_input_schema(
-    schema: schemars::Schema,
-    panic_message: &str,
-) -> Arc<JsonObject> {
+fn create_tool_input_schema(schema: schemars::Schema, panic_message: &str) -> Arc<JsonObject> {
     #[expect(clippy::expect_used)]
     let schema_value = serde_json::to_value(&schema).expect(panic_message);
     let mut schema_object = match schema_value {

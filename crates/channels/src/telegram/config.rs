@@ -74,6 +74,7 @@ mod tests {
         let config = savfox_core::config::channel_store::ChannelConfig {
             id: "telegram-polling".to_string(),
             kind: "telegram".to_string(),
+            slug: "telegram".to_string(),
             name: "Telegram".to_string(),
             enabled: true,
             config: json!({

@@ -96,9 +96,7 @@ impl McpProcess {
     pub async fn initialize(&mut self) -> anyhow::Result<()> {
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
 
-        let capabilities = ClientCapabilities::builder()
-            .enable_elicitation()
-            .build();
+        let capabilities = ClientCapabilities::builder().enable_elicitation().build();
         let client_info =
             Implementation::new("elicitation test", "0.0.0").with_title("Elicitation Test");
         let params = InitializeRequestParams::new(capabilities, client_info)
@@ -167,12 +165,12 @@ impl McpProcess {
         &mut self,
         params: SavfoxToolCallParam,
     ) -> anyhow::Result<i64> {
-        let savfox_tool_call_params =
-            CallToolRequestParams::new("savfox").with_arguments(match serde_json::to_value(params)?
-            {
+        let savfox_tool_call_params = CallToolRequestParams::new("savfox").with_arguments(
+            match serde_json::to_value(params)? {
                 serde_json::Value::Object(map) => map,
                 _ => unreachable!("params serialize to object"),
-            });
+            },
+        );
         self.send_request(
             "tools/call",
             Some(serde_json::to_value(savfox_tool_call_params)?),

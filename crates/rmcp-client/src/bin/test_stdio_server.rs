@@ -262,8 +262,7 @@ impl ServerHandler for TestToolServer {
     ) -> Result<ReadResourceResult, McpError> {
         if uri == MEMO_URI {
             Ok(ReadResourceResult::new(vec![
-                ResourceContents::text(Self::memo_text(), uri)
-                    .with_mime_type("text/plain"),
+                ResourceContents::text(Self::memo_text(), uri).with_mime_type("text/plain"),
             ]))
         } else {
             Err(McpError::resource_not_found(

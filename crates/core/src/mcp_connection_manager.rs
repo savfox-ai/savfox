@@ -17,9 +17,9 @@ use anyhow::{Context, Result, anyhow};
 use async_channel::Sender;
 use futures::future::{BoxFuture, FutureExt, Shared};
 use rmcp::model::{
-    ClientCapabilities, Implementation, InitializeRequestParams,
-    ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams, ProtocolVersion,
-    ReadResourceRequestParams, ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
+    ClientCapabilities, Implementation, InitializeRequestParams, ListResourceTemplatesResult,
+    ListResourcesResult, PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams,
+    ReadResourceResult, RequestId, Resource, ResourceTemplate, Tool,
 };
 use savfox_async_utils::{CancelErr, OrCancelExt};
 use savfox_protocol::approvals::ElicitationRequestEvent;
@@ -853,14 +853,9 @@ async fn start_server_task(
     let params = {
         // https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation#capabilities
         // indicates this should be an empty object.
-        let caps = ClientCapabilities::builder()
-            .enable_elicitation()
-            .build();
-        let client_info = Implementation::new(
-            "savfox-mcp-client",
-            env!("CARGO_PKG_VERSION"),
-        )
-        .with_title("Savfox");
+        let caps = ClientCapabilities::builder().enable_elicitation().build();
+        let client_info = Implementation::new("savfox-mcp-client", env!("CARGO_PKG_VERSION"))
+            .with_title("Savfox");
         InitializeRequestParams::new(caps, client_info)
             .with_protocol_version(ProtocolVersion::V_2025_06_18)
     };
@@ -1052,16 +1047,11 @@ mod tests {
         ToolInfo {
             server_name: server_name.to_string(),
             tool_name: tool_name.to_string(),
-            tool: Tool {
-                name: tool_name.to_string().into(),
-                title: None,
-                description: Some(format!("Test tool: {tool_name}").into()),
-                input_schema: Arc::new(JsonObject::default()),
-                output_schema: None,
-                annotations: None,
-                icons: None,
-                meta: None,
-            },
+            tool: Tool::new_with_raw(
+                tool_name.to_string(),
+                Some(format!("Test tool: {tool_name}").into()),
+                Arc::new(JsonObject::default()),
+            ),
             connector_id: None,
             connector_name: None,
         }
