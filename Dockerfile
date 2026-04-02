@@ -32,7 +32,7 @@ WORKDIR /src
 COPY . .
 
 # Copy pre-built web assets into the location rust-embed expects
-COPY --from=web-builder /src/crates/gateway-dioxus/dist/ \
+COPY --from=web-builder /src/target/dx/savfox-gateway-dioxus/release/web/public/ \
      crates/gateway-server/static/
 
 RUN cargo build --release --bin savfox && \
