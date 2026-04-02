@@ -252,7 +252,9 @@ async fn config_value_write_rejects_version_conflict() -> Result<()> {
     write_config(
         &savfox_home,
         r#"
-model = "gpt-old"
+[model]
+slug = "gpt-old"
+provider = "openai"
 "#,
     )?;
 

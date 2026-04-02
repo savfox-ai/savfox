@@ -55,13 +55,16 @@ stream_max_retries = 0
         config_toml,
         format!(
             r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "read-only"
 compact_prompt = "{compact_prompt}"
 model_auto_compact_token_limit = {auto_compact_limit}
 
 model_provider = "{model_provider_id}"
+
+[model]
+slug = "mock-model"
+provider = "{model_provider_id}"
 
 [features]
 {feature_entries}

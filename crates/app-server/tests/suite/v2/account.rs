@@ -57,13 +57,16 @@ fn create_config_toml(savfox_home: &Path, params: CreateConfigTomlParams) -> std
     };
     let contents = format!(
         r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 {forced_line}
 {forced_workspace_line}
 
 model_provider = "mock_provider"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 
 [model_providers.mock_provider]
 name = "Mock provider for test"

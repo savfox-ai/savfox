@@ -120,11 +120,14 @@ fn create_config_toml(savfox_home: &std::path::Path, server_uri: &str) -> std::i
         config_toml,
         format!(
             r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 model_provider = "mock_provider"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 
 [model_providers.mock_provider]
 name = "Mock provider for test"

@@ -594,13 +594,20 @@ fn extract_conversation_summary(
     fallback_provider: &str,
     updated_at: Option<String>,
 ) -> Option<ConversationSummary> {
-    let preview = head
+    let user_messages: Vec<String> = head
         .iter()
         .filter_map(|value| serde_json::from_value::<ResponseItem>(value.clone()).ok())
-        .find_map(|item| match savfox_core::parse_turn_item(&item) {
+        .filter_map(|item| match savfox_core::parse_turn_item(&item) {
             Some(TurnItem::UserMessage(user)) => Some(user.message()),
             _ => None,
-        })?;
+        })
+        .collect();
+
+    // Prefer the user message that contains the actual user request marker.
+    let preview = user_messages
+        .iter()
+        .find(|msg| msg.contains(USER_MESSAGE_BEGIN))
+        .or(user_messages.first())?;
 
     let preview = match preview.find(USER_MESSAGE_BEGIN) {
         Some(idx) => preview[idx + USER_MESSAGE_BEGIN.len()..].trim(),

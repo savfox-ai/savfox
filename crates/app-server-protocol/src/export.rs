@@ -295,9 +295,48 @@ fn filter_experimental_schema(bundle: &mut Value) -> Result<()> {
     let registered_fields = experimental_fields();
     filter_experimental_fields_in_root(bundle, &registered_fields);
     filter_experimental_fields_in_definitions(bundle, &registered_fields);
+    // Fields may also appear inlined inside composite schemas (e.g. ClientRequest
+    // oneOf arms).  Do a recursive pass over the entire bundle to catch those.
+    strip_experimental_fields_recursive(bundle, &registered_fields);
     prune_experimental_methods(bundle, EXPERIMENTAL_CLIENT_METHODS);
     remove_experimental_method_type_definitions(bundle);
     Ok(())
+}
+
+/// Recursively walks the JSON value and removes experimental properties from any
+/// object that contains `"properties"` with a matching field name.
+fn strip_experimental_fields_recursive(
+    value: &mut Value,
+    experimental_fields: &[&'static crate::experimental_api::ExperimentalField],
+) {
+    match value {
+        Value::Object(map) => {
+            // Strip experimental fields from any sub-schema with "properties".
+            if let Some(Value::Object(props)) = map.get_mut("properties") {
+                for field in experimental_fields.iter() {
+                    props.remove(field.field_name);
+                }
+            }
+            if let Some(Value::Array(required)) = map.get_mut("required") {
+                let field_names: HashSet<&str> =
+                    experimental_fields.iter().map(|f| f.field_name).collect();
+                required.retain(|entry| {
+                    entry
+                        .as_str()
+                        .is_none_or(|name| !field_names.contains(name))
+                });
+            }
+            for v in map.values_mut() {
+                strip_experimental_fields_recursive(v, experimental_fields);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_experimental_fields_recursive(item, experimental_fields);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn filter_experimental_fields_in_root(
@@ -473,7 +512,7 @@ fn remove_generated_type_files(
     extension: &str,
 ) -> Result<()> {
     for type_name in type_names {
-        for subdir in ["", "v2"] {
+        for subdir in ["", "v1", "v2"] {
             let path = if subdir.is_empty() {
                 out_dir.join(format!("{type_name}.{extension}"))
             } else {
@@ -516,14 +555,17 @@ fn remove_experimental_method_type_definitions_map(
     }
 
     for value in definitions.values_mut() {
-        if !is_namespace_map(value) {
-            continue;
+        if is_namespace_map(value) {
+            if let Some(namespace_defs) = value.as_object_mut() {
+                remove_experimental_method_type_definitions_map(
+                    namespace_defs,
+                    experimental_type_names,
+                );
+            }
         }
-        if let Some(namespace_defs) = value.as_object_mut() {
-            remove_experimental_method_type_definitions_map(
-                namespace_defs,
-                experimental_type_names,
-            );
+        // Also check $defs sub-sections (e.g. ClientRequest.$defs).
+        if let Some(Value::Object(defs)) = value.get_mut("$defs") {
+            remove_experimental_method_type_definitions_map(defs, experimental_type_names);
         }
     }
 }
@@ -1418,18 +1460,18 @@ mod tests {
             false
         );
         let session_start_ts =
-            fs::read_to_string(output_dir.join("v2").join("SessionStartParams.ts"))?;
+            fs::read_to_string(output_dir.join("v1").join("SessionStartParams.ts"))?;
         assert_eq!(session_start_ts.contains("mockExperimentalField"), false);
         assert_eq!(
             output_dir
-                .join("v2")
+                .join("v1")
                 .join("MockExperimentalMethodParams.ts")
                 .exists(),
             false
         );
         assert_eq!(
             output_dir
-                .join("v2")
+                .join("v1")
                 .join("MockExperimentalMethodResponse.ts")
                 .exists(),
             false
@@ -1637,21 +1679,21 @@ mod tests {
         assert_eq!(client_request_ts.contains("mock/experimentalMethod"), true);
         assert_eq!(
             output_dir
-                .join("v2")
+                .join("v1")
                 .join("MockExperimentalMethodParams.ts")
                 .exists(),
             true
         );
         assert_eq!(
             output_dir
-                .join("v2")
+                .join("v1")
                 .join("MockExperimentalMethodResponse.ts")
                 .exists(),
             true
         );
 
         let session_start_ts =
-            fs::read_to_string(output_dir.join("v2").join("SessionStartParams.ts"))?;
+            fs::read_to_string(output_dir.join("v1").join("SessionStartParams.ts"))?;
         assert_eq!(session_start_ts.contains("mockExperimentalField"), true);
 
         Ok(())
@@ -1743,7 +1785,7 @@ mod tests {
         generate_json_with_experimental(&output_dir, false)?;
 
         let session_start_json =
-            fs::read_to_string(output_dir.join("v2").join("SessionStartParams.json"))?;
+            fs::read_to_string(output_dir.join("v1").join("SessionStartParams.json"))?;
         assert_eq!(session_start_json.contains("mockExperimentalField"), false);
 
         let client_request_json = fs::read_to_string(output_dir.join("ClientRequest.json"))?;

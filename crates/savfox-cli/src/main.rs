@@ -1083,13 +1083,13 @@ mod tests {
             session_id,
             last,
             all,
-            ..
+            config_overrides,
         }) = subcommand.expect("resume present")
         else {
             unreachable!()
         };
 
-        finalize_resume_interactive(interactive, session_id, last, all, TuiCli::default())
+        finalize_resume_interactive(interactive, session_id, last, all, config_overrides)
     }
 
     fn finalize_fork_from_args(args: &[&str]) -> TuiCli {
@@ -1104,13 +1104,13 @@ mod tests {
             session_id,
             last,
             all,
-            ..
+            config_overrides,
         }) = subcommand.expect("fork present")
         else {
             unreachable!()
         };
 
-        finalize_fork_interactive(interactive, session_id, last, all, TuiCli::default())
+        finalize_fork_interactive(interactive, session_id, last, all, config_overrides)
     }
 
     #[test]
@@ -1304,8 +1304,6 @@ mod tests {
                 "on-request",
                 "-m",
                 "gpt-5.1-test",
-                "-p",
-                "my-profile",
                 "-C",
                 "/tmp",
                 "-i",

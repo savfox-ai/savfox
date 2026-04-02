@@ -22,7 +22,7 @@ use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SAVFOX_5_2_BASE_INSTRUCTIONS_PREFIX: &str =
-    "You are GPT-5.2 running in the Savfox CLI, a terminal-based coding assistant.";
+    "You are an AI assistant running in the Savfox CLI, a terminal-based AI assistant.";
 
 #[tokio::test]
 async fn session_resume_returns_original_session() -> Result<()> {
@@ -466,11 +466,14 @@ fn create_config_toml(savfox_home: &std::path::Path, server_uri: &str) -> std::i
         config_toml,
         format!(
             r#"
-model = "gpt-5.2-savfox"
 approval_policy = "never"
 sandbox_mode = "read-only"
 
 model_provider = "mock_provider"
+
+[model]
+slug = "gpt-5.2-savfox"
+provider = "mock_provider"
 
 [features]
 remote_models = false

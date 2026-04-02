@@ -23,7 +23,6 @@ fn create_config_toml(savfox_home: &Path) -> std::io::Result<()> {
         config_toml,
         format!(
             r#"
-model = "gpt-5.1-savfox-max"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 model_reasoning_summary = "detailed"
@@ -31,6 +30,10 @@ model_reasoning_effort = "high"
 model_verbosity = "medium"
 forced_chatgpt_workspace_id = "12345678-0000-0000-0000-000000000000"
 forced_login_method = "chatgpt"
+
+[model]
+slug = "gpt-5.1-savfox-max"
+provider = "openai"
 
 [sandbox_workspace_write]
 writable_roots = [{}]

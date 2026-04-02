@@ -20,11 +20,14 @@ fn create_config_toml(savfox_home: &Path) -> std::io::Result<()> {
     std::fs::write(
         config_toml,
         r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 
 model_provider = "mock_provider"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 
 [model_providers.mock_provider]
 name = "Mock provider for test"
@@ -86,10 +89,13 @@ fn create_config_toml_forced_login(savfox_home: &Path, forced_method: &str) -> s
     let config_toml = savfox_home.join("config.toml");
     let contents = format!(
         r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 forced_login_method = "{forced_method}"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 "#
     );
     std::fs::write(config_toml, contents)
@@ -102,10 +108,13 @@ fn create_config_toml_forced_workspace(
     let config_toml = savfox_home.join("config.toml");
     let contents = format!(
         r#"
-model = "mock-model"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 forced_chatgpt_workspace_id = "{workspace_id}"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 "#
     );
     std::fs::write(config_toml, contents)

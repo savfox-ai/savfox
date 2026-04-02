@@ -146,8 +146,11 @@ fn create_minimal_config(savfox_home: &std::path::Path) -> std::io::Result<()> {
     std::fs::write(
         config_toml,
         r#"
-model = "mock-model"
 approval_policy = "never"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 "#,
     )
 }

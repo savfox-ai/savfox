@@ -116,11 +116,14 @@ fn create_config_toml(
         config_toml,
         format!(
             r#"
-model = "mock-model"
 approval_policy = "{approval_policy}"
 sandbox_mode = "read-only"
 
 model_provider = "mock_provider"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 
 [model_providers.mock_provider]
 name = "Mock provider for test"

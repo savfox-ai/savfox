@@ -83,8 +83,11 @@ fn create_config_toml(savfox_home: &Path) -> std::io::Result<()> {
 }
 
 fn config_contents() -> &'static str {
-    r#"model = "mock-model"
-approval_policy = "never"
+    r#"approval_policy = "never"
 sandbox_mode = "read-only"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 "#
 }

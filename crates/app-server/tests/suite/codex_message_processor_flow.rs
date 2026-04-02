@@ -526,10 +526,13 @@ fn create_config_toml(savfox_home: &Path, server_uri: &str) -> std::io::Result<(
         config_toml,
         format!(
             r#"
-model = "mock-model"
 approval_policy = "untrusted"
 
 model_provider = "mock_provider"
+
+[model]
+slug = "mock-model"
+provider = "mock_provider"
 
 [model_providers.mock_provider]
 name = "Mock provider for test"
