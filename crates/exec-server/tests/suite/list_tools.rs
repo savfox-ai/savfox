@@ -12,7 +12,7 @@ use serde_json::json;
 use tempfile::TempDir;
 
 /// Verify the list_tools call to the MCP server returns the expected response.
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn list_tools() -> Result<()> {
     let savfox_home = TempDir::new()?;
     let policy_dir = savfox_home.path().join("rules");

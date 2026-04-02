@@ -12,7 +12,7 @@ use maplit::hashset;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, CreateElicitationRequestParam, EmptyResult, ServerResult,
+    CallToolRequestParam, CallToolResult, CreateElicitationRequestParams, EmptyResult, ServerResult,
     object,
 };
 use savfox_exec_server::ExecResult;
@@ -25,7 +25,7 @@ const USE_LOGIN_SHELL: bool = false;
 /// Verify that when using a read-only sandbox and an execpolicy that prompts,
 /// the proper elicitation is sent. Upon auto-approving the elicitation, the
 /// command should be run privileged outside the sandbox.
-#[tokio::test(flavor = "current_session")]
+#[tokio::test(flavor = "current_thread")]
 async fn accept_elicitation_for_prompt_rule() -> Result<()> {
     // Configure a stdio transport that will launch the MCP server using
     // $SAVFOX_HOME with an execpolicy that prompts for `git init` commands.
@@ -57,7 +57,7 @@ prefix_rule(
         git_path,
         project_root_path.display()
     );
-    let elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParam>>> = Default::default();
+    let elicitation_requests: Arc<Mutex<Vec<CreateElicitationRequestParams>>> = Default::default();
     let client = InteractiveClient {
         elicitations_to_accept: hashset! { expected_elicitation_message.clone() },
         elicitation_requests: elicitation_requests.clone(),
@@ -89,16 +89,15 @@ prefix_rule(
     let CallToolResult {
         content, is_error, ..
     } = service
-        .call_tool(CallToolRequestParam {
-            name: Cow::Borrowed("shell"),
-            arguments: Some(object(json!(
+        .call_tool(
+            CallToolRequestParam::new("shell").with_arguments(object(json!(
                 {
                     "login": USE_LOGIN_SHELL,
                     "command": "git init .",
                     "workdir": project_root_path.to_string_lossy(),
                 }
             ))),
-        })
+        )
         .await?;
     let tool_call_content = content
         .first()
@@ -129,7 +128,14 @@ prefix_rule(
         .lock()
         .unwrap()
         .iter()
-        .map(|r| r.message.clone())
+        .map(|r| match r {
+            CreateElicitationRequestParams::FormElicitationParams { message, .. } => {
+                message.clone()
+            }
+            CreateElicitationRequestParams::UrlElicitationParams { message, .. } => {
+                message.clone()
+            }
+        })
         .collect::<Vec<_>>();
     assert_eq!(vec![expected_elicitation_message], elicitation_messages);
 
