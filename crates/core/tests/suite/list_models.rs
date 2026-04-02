@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use core_test_support::load_default_config_for_test;
-use indoc::indoc;
 use pretty_assertions::assert_eq;
 use savfox_core::models_manager::manager::RefreshStrategy;
 use savfox_core::{SavfoxAuth, SessionManager, built_in_model_providers};

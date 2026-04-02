@@ -546,7 +546,7 @@ pub fn print_summary(
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::string::ToString;
+    
 
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;

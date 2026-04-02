@@ -1,19 +1,14 @@
 use std::path::Path;
 
 use anyhow::Result;
-use app_test_support::{ChatGptAuthFixture, McpProcess, to_response, write_chatgpt_auth};
+use app_test_support::{ChatGptAuthFixture, McpProcess, write_chatgpt_auth};
 use pretty_assertions::assert_eq;
 use savfox_app_server_protocol::{
-    GetAccountRateLimitsResponse, JSONRPCError, JSONRPCResponse, RateLimitSnapshot,
-    RateLimitWindow, RequestId,
+    JSONRPCError, RequestId,
 };
 use savfox_core::auth::AuthCredentialsStoreMode;
-use savfox_protocol::account::PlanType as AccountPlanType;
-use serde_json::json;
 use tempfile::TempDir;
 use tokio::time::timeout;
-use wiremock::matchers::{header, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;

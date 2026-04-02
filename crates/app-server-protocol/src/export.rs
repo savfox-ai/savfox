@@ -555,14 +555,13 @@ fn remove_experimental_method_type_definitions_map(
     }
 
     for value in definitions.values_mut() {
-        if is_namespace_map(value) {
-            if let Some(namespace_defs) = value.as_object_mut() {
+        if is_namespace_map(value)
+            && let Some(namespace_defs) = value.as_object_mut() {
                 remove_experimental_method_type_definitions_map(
                     namespace_defs,
                     experimental_type_names,
                 );
             }
-        }
         // Also check $defs sub-sections (e.g. ClientRequest.$defs).
         if let Some(Value::Object(defs)) = value.get_mut("$defs") {
             remove_experimental_method_type_definitions_map(defs, experimental_type_names);
