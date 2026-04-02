@@ -92,9 +92,10 @@ impl GatewayChannel {
                     {
                         let mut guard = active_login.lock().await;
                         if let Some(active) = guard.take()
-                            && active.login_id != login_id {
-                                *guard = Some(active);
-                            }
+                            && active.login_id != login_id
+                        {
+                            *guard = Some(active);
+                        }
                     }
 
                     let notification = AccountLoginCompletedNotification {
@@ -333,7 +334,9 @@ impl GatewayChannel {
         request_id: RequestId,
         params: CancelLoginAccountParams,
     ) {
-        let login_id = if let Ok(id) = Uuid::parse_str(&params.login_id) { id } else {
+        let login_id = if let Ok(id) = Uuid::parse_str(&params.login_id) {
+            id
+        } else {
             let response = CancelLoginAccountResponse {
                 status: CancelLoginAccountStatus::NotFound,
             };

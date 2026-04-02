@@ -53,7 +53,7 @@ pub enum ParseError {
     #[error("invalid hunk at line {line_number}, {message}")]
     InvalidHunkError { message: String, line_number: usize },
 }
-use ParseError::{InvalidPatchError, InvalidHunkError};
+use ParseError::{InvalidHunkError, InvalidPatchError};
 
 #[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -76,7 +76,7 @@ pub enum Hunk {
 }
 
 impl Hunk {
-    #[must_use] 
+    #[must_use]
     pub fn resolve_path(&self, cwd: &Path) -> PathBuf {
         match self {
             Self::AddFile { path, .. } => cwd.join(path),

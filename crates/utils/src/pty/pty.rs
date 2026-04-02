@@ -16,7 +16,7 @@ use super::process::{ChildTerminator, ProcessHandle, PtyHandles, SpawnedProcess}
 
 /// Returns true when ConPTY support is available (Windows only).
 #[cfg(windows)]
-#[must_use] 
+#[must_use]
 pub fn conpty_supported() -> bool {
     super::win::conpty_supported()
 }

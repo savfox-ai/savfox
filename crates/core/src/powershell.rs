@@ -39,7 +39,7 @@ pub(crate) fn prefix_powershell_script_with_utf8(command: &[String]) -> Vec<Stri
 ///
 /// Returns (`shell`, `script`) when the first arg is a PowerShell executable and a
 /// `-Command` (or `-c`) flag is present followed by a script string.
-#[must_use] 
+#[must_use]
 pub fn extract_powershell_command(command: &[String]) -> Option<(&str, &str)> {
     if command.len() < 3 {
         return None;

@@ -61,9 +61,10 @@ impl ToolHandler for WhatsAppActionsHandler {
                 });
 
                 if let Some(remove) = args.remove
-                    && remove {
-                        body["remove"] = serde_json::Value::Bool(true);
-                    }
+                    && remove
+                {
+                    body["remove"] = serde_json::Value::Bool(true);
+                }
 
                 if let Some(emoji) = &args.emoji {
                     body["emoji"] = serde_json::Value::String(emoji.clone());

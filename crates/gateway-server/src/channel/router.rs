@@ -157,7 +157,9 @@ impl GatewayChannel {
                 }
 
                 // Move rollout file from sessions/ to archived_sessions/.
-                let file_name = if let Some(f) = rollout_path.file_name() { f.to_owned() } else {
+                let file_name = if let Some(f) = rollout_path.file_name() {
+                    f.to_owned()
+                } else {
                     self.send_error(
                         request_id,
                         INTERNAL_ERROR_CODE,
@@ -236,7 +238,9 @@ impl GatewayChannel {
                 };
 
                 // Move back to sessions/ directory.
-                let file_name = if let Some(f) = archived_path.file_name() { f.to_owned() } else {
+                let file_name = if let Some(f) = archived_path.file_name() {
+                    f.to_owned()
+                } else {
                     self.send_error(
                         request_id,
                         INTERNAL_ERROR_CODE,
@@ -246,7 +250,9 @@ impl GatewayChannel {
                     return;
                 };
 
-                let (year, month, day) = if let Some(parts) = rollout_date_parts(&file_name) { parts } else {
+                let (year, month, day) = if let Some(parts) = rollout_date_parts(&file_name) {
+                    parts
+                } else {
                     // Fall back to a flat directory.
                     let sessions_folder = self.config.savfox_home.join(SESSIONS_SUBDIR);
                     let restored_path = sessions_folder.join(&file_name);
@@ -268,7 +274,11 @@ impl GatewayChannel {
                         .await;
                         return;
                     }
-                    self.send_response(request_id, serde_json::json!({ "status": "unarchived", "session_id": session_id_str })).await;
+                    self.send_response(
+                        request_id,
+                        serde_json::json!({ "status": "unarchived", "session_id": session_id_str }),
+                    )
+                    .await;
                     return;
                 };
 

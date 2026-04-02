@@ -27,7 +27,7 @@ pub struct EncodedImage {
 }
 
 impl EncodedImage {
-    #[must_use] 
+    #[must_use]
     pub fn into_data_url(self) -> String {
         let encoded = BASE64_STANDARD.encode(&self.bytes);
         format!("data:{};base64,{}", self.mime, encoded)

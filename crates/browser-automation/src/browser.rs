@@ -148,7 +148,8 @@ impl Browser {
             .await?
             .get("targetId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Failed to get target ID"))?.to_owned();
+            .ok_or_else(|| anyhow!("Failed to get target ID"))?
+            .to_owned();
 
         let session_id = self
             .cdp_client
@@ -162,7 +163,8 @@ impl Browser {
             .await?
             .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Failed to attach to target"))?.to_owned();
+            .ok_or_else(|| anyhow!("Failed to attach to target"))?
+            .to_owned();
 
         Ok(Page::new(target_id, session_id, self.cdp_client.clone()))
     }
@@ -180,27 +182,29 @@ impl Browser {
         let mut pages = Vec::new();
         for target in targets {
             if target.get("type").and_then(|v| v.as_str()) == Some("page")
-                && let Some(target_id) = target.get("targetId").and_then(|v| v.as_str()) {
-                    let session_id = self
-                        .cdp_client
-                        .send_request(
-                            "Target.attachToTarget",
-                            serde_json::json!({
-                                "targetId": target_id,
-                                "flatten": true,
-                            }),
-                        )
-                        .await?
-                        .get("sessionId")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default().to_owned();
+                && let Some(target_id) = target.get("targetId").and_then(|v| v.as_str())
+            {
+                let session_id = self
+                    .cdp_client
+                    .send_request(
+                        "Target.attachToTarget",
+                        serde_json::json!({
+                            "targetId": target_id,
+                            "flatten": true,
+                        }),
+                    )
+                    .await?
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_owned();
 
-                    pages.push(Page::new(
-                        target_id.to_owned(),
-                        session_id,
-                        self.cdp_client.clone(),
-                    ));
-                }
+                pages.push(Page::new(
+                    target_id.to_owned(),
+                    session_id,
+                    self.cdp_client.clone(),
+                ));
+            }
         }
 
         Ok(pages)
@@ -214,9 +218,10 @@ impl Browser {
         }
 
         if self.user_data_dir.exists()
-            && let Err(err) = tokio::fs::remove_dir_all(&self.user_data_dir).await {
-                warn!("Failed to remove user data dir: {}", err);
-            }
+            && let Err(err) = tokio::fs::remove_dir_all(&self.user_data_dir).await
+        {
+            warn!("Failed to remove user data dir: {}", err);
+        }
 
         Ok(())
     }
@@ -229,9 +234,10 @@ impl Browser {
 impl Drop for Browser {
     fn drop(&mut self) {
         if let Ok(mut proc) = self.process.try_lock()
-            && let Some(mut p) = proc.take() {
-                let _ = p.start_kill();
-            }
+            && let Some(mut p) = proc.take()
+        {
+            let _ = p.start_kill();
+        }
     }
 }
 

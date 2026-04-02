@@ -62,11 +62,7 @@ impl CommandPopup {
     }
 
     pub(crate) fn set_prompts(&mut self, mut prompts: Vec<CustomPrompt>) {
-        let exclude: HashSet<String> = self
-            .builtins
-            .iter()
-            .map(|(n, _)| (*n).to_owned())
-            .collect();
+        let exclude: HashSet<String> = self.builtins.iter().map(|(n, _)| (*n).to_owned()).collect();
         prompts.retain(|p| !exclude.contains(&p.name));
         prompts.sort_by(|a, b| a.name.cmp(&b.name));
         self.prompts = prompts;

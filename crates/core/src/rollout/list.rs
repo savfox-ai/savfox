@@ -603,7 +603,7 @@ async fn traverse_flat_paths_updated(
 /// Pagination cursor token format: "<ts>|<uuid>" where `ts` uses
 /// YYYY-MM-DDThh-mm-ss (UTC, second precision).
 /// The cursor orders files by the requested sort key (timestamp desc, then UUID desc).
-#[must_use] 
+#[must_use]
 pub fn parse_cursor(token: &str) -> Option<Cursor> {
     let (file_ts, uuid_str) = token.split_once('|')?;
 
@@ -1120,7 +1120,7 @@ pub async fn find_archived_session_path_by_id_str(
 
 /// Extract the `YYYY/MM/DD` directory components from a rollout filename.
 /// This now returns the date from the UUID v7 timestamp.
-#[must_use] 
+#[must_use]
 pub fn rollout_date_parts(file_name: &OsStr) -> Option<(String, String, String)> {
     let name = file_name.to_string_lossy();
     let core = name.strip_suffix(".jsonl")?;

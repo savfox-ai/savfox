@@ -48,7 +48,8 @@ pub(crate) fn create_linux_sandbox_command_args(
     #[expect(clippy::expect_used)]
     let sandbox_policy_cwd = sandbox_policy_cwd
         .to_str()
-        .expect("cwd must be valid UTF-8").to_owned();
+        .expect("cwd must be valid UTF-8")
+        .to_owned();
 
     #[expect(clippy::expect_used)]
     let sandbox_policy_json =

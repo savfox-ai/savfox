@@ -22,7 +22,7 @@ impl HybridSearcher {
     ///
     /// * `bm25_weight` -- Weight for the BM25 text search signal (e.g. 0.3).
     /// * `vector_weight` -- Weight for the vector similarity signal (e.g. 0.7).
-    #[must_use] 
+    #[must_use]
     pub fn new(bm25_weight: f32, vector_weight: f32) -> Self {
         Self {
             bm25_weight,
@@ -43,7 +43,7 @@ impl HybridSearcher {
     /// * `top_k` -- Maximum number of results to return.
     ///
     /// Returns `(doc_id, combined_score)` pairs sorted by descending score.
-    #[must_use] 
+    #[must_use]
     pub fn search(
         &self,
         query_text: &str,
@@ -175,7 +175,8 @@ fn tokenize(text: &str) -> Vec<String> {
         .split_whitespace()
         .map(|s| {
             // Strip common punctuation from the edges of tokens.
-            s.trim_matches(|c: char| c.is_ascii_punctuation()).to_owned()
+            s.trim_matches(|c: char| c.is_ascii_punctuation())
+                .to_owned()
         })
         .filter(|s| !s.is_empty())
         .collect()

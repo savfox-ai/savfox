@@ -96,20 +96,25 @@ impl SavfoxMessageProcessor {
             return;
         };
 
-        let (url, http_headers, env_http_headers) = if let McpServerTransportConfig::StreamableHttp {
+        let (url, http_headers, env_http_headers) =
+            if let McpServerTransportConfig::StreamableHttp {
                 url,
                 http_headers,
                 env_http_headers,
                 ..
-            } = &server.transport { (url.clone(), http_headers.clone(), env_http_headers.clone()) } else {
-            let error = JSONRPCErrorError {
-                code: INVALID_REQUEST_ERROR_CODE,
-                message: "OAuth login is only supported for streamable HTTP servers.".to_owned(),
-                data: None,
+            } = &server.transport
+            {
+                (url.clone(), http_headers.clone(), env_http_headers.clone())
+            } else {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: "OAuth login is only supported for streamable HTTP servers."
+                        .to_owned(),
+                    data: None,
+                };
+                self.outgoing.send_error(request_id, error).await;
+                return;
             };
-            self.outgoing.send_error(request_id, error).await;
-            return;
-        };
 
         let scopes = scopes.or_else(|| server.scopes.clone());
 
@@ -204,15 +209,19 @@ impl SavfoxMessageProcessor {
         let limit = params.limit.unwrap_or(total as u32).max(1) as usize;
         let effective_limit = limit.min(total);
         let start = match params.cursor {
-            Some(cursor) => if let Ok(idx) = cursor.parse::<usize>() { idx } else {
-                let error = JSONRPCErrorError {
-                    code: INVALID_REQUEST_ERROR_CODE,
-                    message: format!("invalid cursor: {cursor}"),
-                    data: None,
-                };
-                outgoing.send_error(request_id, error).await;
-                return;
-            },
+            Some(cursor) => {
+                if let Ok(idx) = cursor.parse::<usize>() {
+                    idx
+                } else {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid cursor: {cursor}"),
+                        data: None,
+                    };
+                    outgoing.send_error(request_id, error).await;
+                    return;
+                }
+            }
             None => 0,
         };
 

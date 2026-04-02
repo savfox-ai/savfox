@@ -4,7 +4,7 @@ use savfox_core::config::Config;
 use crate::sandbox_summary::summarize_sandbox_policy;
 
 /// Build a list of key/value pairs summarizing the effective configuration.
-#[must_use] 
+#[must_use]
 pub fn create_config_summary_entries(config: &Config, model: &str) -> Vec<(&'static str, String)> {
     let mut entries = vec![
         ("workdir", config.cwd.display().to_string()),

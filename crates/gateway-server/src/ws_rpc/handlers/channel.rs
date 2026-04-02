@@ -461,9 +461,10 @@ fn insert_saved_channel_metadata(
 
     info.insert("enabled".to_owned(), json!(saved_state.enabled));
     if let Some(ref cfg) = saved_state.config
-        && !cfg.id.is_empty() {
-            info.insert("id".to_owned(), json!(cfg.id));
-        }
+        && !cfg.id.is_empty()
+    {
+        info.insert("id".to_owned(), json!(cfg.id));
+    }
     if let Some(name) = saved_state.channel_name.as_ref() {
         info.insert("channel_name".to_owned(), json!(name));
     }
@@ -2106,7 +2107,8 @@ pub(crate) async fn handle_directory_groups_members(
         .or_else(|| params.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     if group_id.is_empty() {
         return Err((INVALID_PARAMS, "missing 'group_id' parameter".to_owned()));
     }

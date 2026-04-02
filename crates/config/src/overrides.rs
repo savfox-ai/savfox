@@ -1,11 +1,11 @@
 use toml::Value as TomlValue;
 
-#[must_use] 
+#[must_use]
 pub fn default_empty_table() -> TomlValue {
     TomlValue::Table(Default::default())
 }
 
-#[must_use] 
+#[must_use]
 pub fn build_cli_overrides_layer(cli_overrides: &[(String, TomlValue)]) -> TomlValue {
     let mut root = default_empty_table();
     for (path, value) in cli_overrides {

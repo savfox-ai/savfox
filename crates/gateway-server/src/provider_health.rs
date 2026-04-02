@@ -36,7 +36,7 @@ pub struct ProviderHealthService {
 }
 
 impl ProviderHealthService {
-    #[must_use] 
+    #[must_use]
     pub fn new(check_interval_secs: u64) -> Self {
         Self {
             health: RwLock::new(HashMap::new()),

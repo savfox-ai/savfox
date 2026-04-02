@@ -17,13 +17,13 @@ pub enum ContextPressure {
 
 impl ContextPressure {
     /// Whether compaction should be triggered at this pressure level.
-    #[must_use] 
+    #[must_use]
     pub fn should_compact(self) -> bool {
         matches!(self, Self::Critical | Self::Emergency)
     }
 
     /// Whether a warning should be emitted.
-    #[must_use] 
+    #[must_use]
     pub fn should_warn(self) -> bool {
         matches!(self, Self::High | Self::Critical | Self::Emergency)
     }
@@ -78,7 +78,7 @@ pub struct ContextGuard {
 }
 
 impl ContextGuard {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: ContextGuardConfig) -> Self {
         Self { config }
     }
@@ -113,20 +113,20 @@ impl ContextGuard {
     }
 
     /// Calculate the target token count after compaction.
-    #[must_use] 
+    #[must_use]
     pub fn compact_target_tokens(&self) -> usize {
         (self.config.max_context_tokens as f64 * self.config.compact_target) as usize
     }
 
     /// How many tokens should be freed by compaction.
-    #[must_use] 
+    #[must_use]
     pub fn tokens_to_free(&self, current_tokens: usize) -> usize {
         let target = self.compact_target_tokens();
         current_tokens.saturating_sub(target)
     }
 
     /// Returns a recommendation for the caller.
-    #[must_use] 
+    #[must_use]
     pub fn recommend(&self, current_tokens: usize) -> ContextRecommendation {
         let pressure = self.evaluate(current_tokens);
         match pressure {
@@ -155,7 +155,7 @@ impl ContextGuard {
     }
 
     /// Current configuration.
-    #[must_use] 
+    #[must_use]
     pub fn config(&self) -> &ContextGuardConfig {
         &self.config
     }

@@ -90,7 +90,7 @@ pub async fn run_login_with_api_key(api_key: String) -> ! {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn read_api_key_from_stdin() -> String {
     let mut stdin = std::io::stdin();
 

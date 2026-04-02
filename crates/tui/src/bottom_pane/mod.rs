@@ -707,7 +707,9 @@ impl BottomPane {
     /// Called when the agent requests user approval.
     pub fn push_approval_request(&mut self, request: ApprovalRequest, features: &Features) {
         let request = if let Some(view) = self.view_stack.last_mut() {
-            if let Some(request) = view.try_consume_approval_request(request) { request } else {
+            if let Some(request) = view.try_consume_approval_request(request) {
+                request
+            } else {
                 self.request_redraw();
                 return;
             }
@@ -724,7 +726,9 @@ impl BottomPane {
     /// Called when the agent requests user input.
     pub fn push_user_input_request(&mut self, request: RequestUserInputEvent) {
         let request = if let Some(view) = self.view_stack.last_mut() {
-            if let Some(request) = view.try_consume_user_input_request(request) { request } else {
+            if let Some(request) = view.try_consume_user_input_request(request) {
+                request
+            } else {
                 self.request_redraw();
                 return;
             }

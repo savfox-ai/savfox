@@ -71,7 +71,7 @@ pub struct CronService {
 
 impl CronService {
     /// Create a new cron service rooted at the given directory.
-    #[must_use] 
+    #[must_use]
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             data_dir,
@@ -82,7 +82,7 @@ impl CronService {
     }
 
     /// Create from SAVFOX_HOME.
-    #[must_use] 
+    #[must_use]
     pub fn from_home(home: &Path) -> Self {
         Self::new(home.join("cron"))
     }
@@ -328,9 +328,9 @@ impl CronService {
                 && let Err(err) = channel
                     .send_platform_message(channel_id, &message, None, None, None)
                     .await
-                {
-                    warn!(job_id = %job.id, "failed to deliver cron result: {err}");
-                }
+            {
+                warn!(job_id = %job.id, "failed to deliver cron result: {err}");
+            }
         }
     }
 

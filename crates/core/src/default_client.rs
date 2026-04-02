@@ -109,7 +109,7 @@ pub fn originator() -> Originator {
     get_originator_value(None)
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_first_party_originator(originator_value: &str) -> bool {
     originator_value == DEFAULT_ORIGINATOR
         || originator_value == "savfox_vscode"
@@ -175,7 +175,7 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
 }
 
 /// Create an HTTP client with default `originator` and `User-Agent` headers set.
-#[must_use] 
+#[must_use]
 pub fn create_client() -> HttpClient {
     let inner = build_reqwest_client();
     HttpClient::new(inner)

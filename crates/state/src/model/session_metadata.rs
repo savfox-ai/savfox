@@ -116,7 +116,7 @@ pub struct SessionMetadataBuilder {
 
 impl SessionMetadataBuilder {
     /// Create a new builder with required fields and sensible defaults.
-    #[must_use] 
+    #[must_use]
     pub fn new(
         id: SessionId,
         rollout_path: PathBuf,
@@ -176,7 +176,7 @@ impl SessionMetadataBuilder {
 
 impl SessionMetadata {
     /// Return the list of field names that differ between `self` and `other`.
-    #[must_use] 
+    #[must_use]
     pub fn diff_fields(&self, other: &Self) -> Vec<&'static str> {
         let mut diffs = Vec::new();
         if self.id != other.id {

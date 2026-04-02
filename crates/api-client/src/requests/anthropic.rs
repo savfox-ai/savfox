@@ -20,7 +20,7 @@ pub struct AnthropicRequestBuilder<'a> {
 }
 
 impl<'a> AnthropicRequestBuilder<'a> {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         model: &'a str,
         instructions: &'a str,

@@ -293,14 +293,18 @@ pub async fn apply_rollout_items(
     };
     let mut builder = match builder {
         Some(builder) => builder.clone(),
-        None => if let Some(builder) = metadata::builder_from_items(items, rollout_path) { builder } else {
-            warn!(
-                "state db apply_rollout_items missing builder during {stage}: {}",
-                rollout_path.display()
-            );
-            record_discrepancy(stage, "missing_builder");
-            return;
-        },
+        None => {
+            if let Some(builder) = metadata::builder_from_items(items, rollout_path) {
+                builder
+            } else {
+                warn!(
+                    "state db apply_rollout_items missing builder during {stage}: {}",
+                    rollout_path.display()
+                );
+                record_discrepancy(stage, "missing_builder");
+                return;
+            }
+        }
     };
     builder.rollout_path = rollout_path.to_path_buf();
     if let Err(err) = ctx.apply_rollout_items(&builder, items, None).await {

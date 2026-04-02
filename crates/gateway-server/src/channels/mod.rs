@@ -500,10 +500,12 @@ pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow
             let status = if *enabled { "ENABLED" } else { "DISABLED" };
             info!("  - {} [{}]", id, status);
 
-            if *enabled && kind.eq_ignore_ascii_case("matrix")
-                && let Err(err) = log_matrix_channel_details(savfox_home, id).await {
-                    warn!("Failed to log Matrix channel details for {}: {}", id, err);
-                }
+            if *enabled
+                && kind.eq_ignore_ascii_case("matrix")
+                && let Err(err) = log_matrix_channel_details(savfox_home, id).await
+            {
+                warn!("Failed to log Matrix channel details for {}: {}", id, err);
+            }
         }
     }
 

@@ -13,7 +13,7 @@ const APPLY_PATCH_ARG0: &str = "apply_patch";
 const MISSPELLED_APPLY_PATCH_ARG0: &str = "applypatch";
 const TOKIO_WORKER_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 
-#[must_use] 
+#[must_use]
 pub fn arg0_dispatch() -> Option<TempDir> {
     // Determine if we were invoked via the special alias.
     let mut args = std::env::args_os();

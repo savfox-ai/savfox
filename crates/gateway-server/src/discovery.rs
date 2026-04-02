@@ -29,15 +29,13 @@ pub(crate) struct ServiceInfo {
 }
 
 /// Discovery configuration.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct DiscoveryConfig {
     /// Enable mDNS advertisement.
     pub(crate) enabled: bool,
     /// Custom instance name (default: hostname).
     pub(crate) instance_name: Option<String>,
 }
-
 
 /// Advertise the gateway on the local network using mDNS.
 ///

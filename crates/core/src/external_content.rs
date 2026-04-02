@@ -72,7 +72,7 @@ fn neutralize_instruction_like(content: &str, mode: ExternalContentMode) -> Stri
     out
 }
 
-#[must_use] 
+#[must_use]
 pub fn wrap_external_content(source: &str, content: &str) -> String {
     let mode = current_mode();
     if mode == ExternalContentMode::Off

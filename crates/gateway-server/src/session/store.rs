@@ -36,7 +36,7 @@ pub struct SessionOverrides {
 
 impl SessionOverrides {
     /// Returns `true` if all fields are `None`.
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.model.is_none()
             && self.thinking.is_none()
@@ -226,7 +226,7 @@ pub struct SessionEntry {
 
 impl SessionEntry {
     /// Create a new session entry with defaults.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let now_ms = crate::json_store::now_ms();
         Self {
@@ -272,7 +272,7 @@ impl SessionEntry {
     }
 
     /// Check if this entry is stale (older than the given duration).
-    #[must_use] 
+    #[must_use]
     pub fn is_stale(&self, max_age: Duration) -> bool {
         let now = crate::json_store::now_ms();
         let age_ms = now.saturating_sub(self.updated_at);
@@ -367,7 +367,7 @@ impl DmScope {
 }
 
 /// Build a deterministic routing id from message context components.
-#[must_use] 
+#[must_use]
 pub fn build_routing_id(
     agent_id: &str,
     channel: Option<&str>,
@@ -476,7 +476,7 @@ pub struct SessionStore {
 
 impl SessionStore {
     /// Create a new session store.
-    #[must_use] 
+    #[must_use]
     pub fn new(config: SessionStoreConfig) -> Self {
         Self {
             config,
@@ -485,7 +485,7 @@ impl SessionStore {
     }
 
     /// Create a session store rooted at the given home directory.
-    #[must_use] 
+    #[must_use]
     pub fn from_home(home: &Path) -> Self {
         let sessions_dir = home.join("sessions");
         Self::new(SessionStoreConfig {
@@ -798,15 +798,16 @@ impl SessionStore {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
                 if let Some(existing) = cache.entries.get(&key)
-                    && existing.version > entry.version {
-                        warn!(
-                            session_id = %key,
-                            existing_version = existing.version,
-                            incoming_version = entry.version,
-                            "session store: skipping stale upsert (existing version is newer)"
-                        );
-                        return;
-                    }
+                    && existing.version > entry.version
+                {
+                    warn!(
+                        session_id = %key,
+                        existing_version = existing.version,
+                        incoming_version = entry.version,
+                        "session store: skipping stale upsert (existing version is newer)"
+                    );
+                    return;
+                }
                 cache.entries.insert(key.clone(), entry);
             } else {
                 let mut entries = HashMap::new();
@@ -1047,10 +1048,9 @@ pub enum ResetPolicy {
     Idle { timeout_secs: u64 },
 }
 
-
 impl ResetPolicy {
     /// Check if a session should be reset based on its last update time.
-    #[must_use] 
+    #[must_use]
     pub fn should_reset(&self, last_updated_ms: u64) -> bool {
         let now = crate::json_store::now_ms();
         match self {

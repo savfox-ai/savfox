@@ -120,7 +120,7 @@ pub trait ExternalAuthRefresher: Send + Sync {
 }
 
 impl RefreshTokenError {
-    #[must_use] 
+    #[must_use]
     pub fn failed_reason(&self) -> Option<RefreshTokenFailedReason> {
         match self {
             Self::Permanent(error) => Some(error.reason),
@@ -179,7 +179,7 @@ impl SavfoxAuth {
         load_auth(savfox_home, false, auth_credentials_store_mode)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn internal_auth_mode(&self) -> AuthMode {
         match self {
             Self::ApiKey(_) => AuthMode::ApiKey,
@@ -187,7 +187,7 @@ impl SavfoxAuth {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn api_auth_mode(&self) -> ApiAuthMode {
         match self {
             Self::ApiKey(_) => ApiAuthMode::ApiKey,
@@ -196,18 +196,18 @@ impl SavfoxAuth {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_chatgpt_auth(&self) -> bool {
         self.internal_auth_mode() == AuthMode::Chatgpt
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_external_chatgpt_tokens(&self) -> bool {
         matches!(self, Self::ChatgptAuthTokens(_))
     }
 
     /// Returns `None` is `is_internal_auth_mode() != AuthMode::ApiKey`.
-    #[must_use] 
+    #[must_use]
     pub fn api_key(&self) -> Option<&str> {
         match self {
             Self::ApiKey(auth) => Some(auth.api_key.as_str()),
@@ -240,13 +240,13 @@ impl SavfoxAuth {
     }
 
     /// Returns `None` if `is_chatgpt_auth()` is false.
-    #[must_use] 
+    #[must_use]
     pub fn get_account_id(&self) -> Option<String> {
         self.get_current_token_data().and_then(|t| t.account_id)
     }
 
     /// Returns `None` if `is_chatgpt_auth()` is false.
-    #[must_use] 
+    #[must_use]
     pub fn get_account_email(&self) -> Option<String> {
         self.get_current_token_data().and_then(|t| t.id_token.email)
     }
@@ -255,7 +255,7 @@ impl SavfoxAuth {
     /// Returns a high-level `AccountPlanType` (e.g., Free/Plus/Pro/Team/…)
     /// mapped from the ID token's internal plan value. Prefer this when you
     /// need to make UI or product decisions based on the user's subscription.
-    #[must_use] 
+    #[must_use]
     pub fn account_plan_type(&self) -> Option<AccountPlanType> {
         let map_known = |kp: &InternalKnownPlan| match kp {
             InternalKnownPlan::Free => AccountPlanType::Free,
@@ -293,7 +293,7 @@ impl SavfoxAuth {
     }
 
     /// Consider this private to integration tests.
-    #[must_use] 
+    #[must_use]
     pub fn create_dummy_chatgpt_auth_for_testing() -> Self {
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(ApiAuthMode::Chatgpt),
@@ -322,7 +322,7 @@ impl SavfoxAuth {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_api_key(api_key: &str) -> Self {
         Self::from_api_key_with_client(api_key, crate::default_client::create_client())
     }
@@ -350,7 +350,7 @@ impl ChatgptAuth {
 pub const OPENAI_API_KEY_ENV_VAR: &str = "OPENAI_API_KEY";
 pub const SAVFOX_API_KEY_ENV_VAR: &str = "SAVFOX_API_KEY";
 
-#[must_use] 
+#[must_use]
 pub fn read_openai_api_key_from_env() -> Option<String> {
     env::var(OPENAI_API_KEY_ENV_VAR)
         .ok()
@@ -358,7 +358,7 @@ pub fn read_openai_api_key_from_env() -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-#[must_use] 
+#[must_use]
 pub fn read_savfox_api_key_from_env() -> Option<String> {
     env::var(SAVFOX_API_KEY_ENV_VAR)
         .ok()
@@ -444,10 +444,12 @@ pub fn enforce_login_restrictions(config: &Config) -> std::io::Result<()> {
             (ForcedLoginMethod::Api, AuthMode::ApiKey) => None,
             (ForcedLoginMethod::Chatgpt, AuthMode::Chatgpt) => None,
             (ForcedLoginMethod::Api, AuthMode::Chatgpt) => Some(
-                "API key login is required, but ChatGPT is currently being used. Logging out.".to_owned(),
+                "API key login is required, but ChatGPT is currently being used. Logging out."
+                    .to_owned(),
             ),
             (ForcedLoginMethod::Chatgpt, AuthMode::ApiKey) => Some(
-                "ChatGPT login is required, but an API key is currently being used. Logging out.".to_owned(),
+                "ChatGPT login is required, but an API key is currently being used. Logging out."
+                    .to_owned(),
             ),
         };
 
@@ -936,7 +938,7 @@ impl AuthManager {
     /// preferred auth method. Errors loading auth are swallowed; `auth()` will
     /// simply return `None` in that case so callers can treat it as an
     /// unauthenticated state.
-    #[must_use] 
+    #[must_use]
     pub fn new(
         savfox_home: PathBuf,
         enable_savfox_api_key_env: bool,
@@ -963,7 +965,7 @@ impl AuthManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Create an AuthManager with a specific SavfoxAuth, for testing only.
-    #[must_use] 
+    #[must_use]
     pub fn from_auth_for_testing(auth: SavfoxAuth) -> Arc<Self> {
         let cached = CachedAuth {
             auth: Some(auth),
@@ -981,7 +983,7 @@ impl AuthManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Create an AuthManager with a specific SavfoxAuth and savfox home, for testing only.
-    #[must_use] 
+    #[must_use]
     pub fn from_auth_for_testing_with_home(auth: SavfoxAuth, savfox_home: PathBuf) -> Arc<Self> {
         let cached = CachedAuth {
             auth: Some(auth),
@@ -1021,7 +1023,9 @@ impl AuthManager {
     }
 
     fn reload_if_account_id_matches(&self, expected_account_id: Option<&str>) -> ReloadOutcome {
-        let expected_account_id = if let Some(account_id) = expected_account_id { account_id } else {
+        let expected_account_id = if let Some(account_id) = expected_account_id {
+            account_id
+        } else {
             tracing::info!("Skipping auth reload because no account id is available.");
             return ReloadOutcome::Skipped;
         };
@@ -1106,7 +1110,7 @@ impl AuthManager {
     }
 
     /// Convenience constructor returning an `Arc` wrapper.
-    #[must_use] 
+    #[must_use]
     pub fn shared(
         savfox_home: PathBuf,
         enable_savfox_api_key_env: bool,

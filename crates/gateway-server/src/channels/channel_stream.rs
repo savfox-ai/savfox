@@ -128,10 +128,9 @@ impl ChannelStreamWriter {
         }
 
         // Delete status if never deleted (no deltas received at all).
-        if !status_deleted
-            && let Some(ref sid) = self.status_msg_id {
-                self.sink.delete_message(sid).await;
-            }
+        if !status_deleted && let Some(ref sid) = self.status_msg_id {
+            self.sink.delete_message(sid).await;
+        }
 
         // Final flush with footer.
         if let Some(footer) = &completed_footer {

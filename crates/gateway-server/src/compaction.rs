@@ -25,7 +25,6 @@ pub enum CompactionMode {
     Disabled,
 }
 
-
 /// Knobs that control *how* and *when* compaction happens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactionConfig {

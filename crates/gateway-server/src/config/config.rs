@@ -135,7 +135,8 @@ fn default_response_footer_enabled() -> bool {
 }
 
 fn default_response_footer_template() -> String {
-    "model: {model} | provider: {provider}{profile_segment}{tokens_segment}{cost_segment}".to_owned()
+    "model: {model} | provider: {provider}{profile_segment}{tokens_segment}{cost_segment}"
+        .to_owned()
 }
 
 fn default_response_footer_max_length() -> usize {

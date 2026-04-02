@@ -119,9 +119,10 @@ pub async fn process_anthropic_sse<S>(
                         response_id = id.to_owned();
                     }
                     if let Some(usage) = message.get("usage")
-                        && let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
-                            input_tokens = tokens;
-                        }
+                        && let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64())
+                    {
+                        input_tokens = tokens;
+                    }
                 }
                 let _ = tx_event.send(Ok(ResponseEvent::Created)).await;
             }
@@ -154,11 +155,13 @@ pub async fn process_anthropic_sse<S>(
                         let id = cb
                             .and_then(|c| c.get("id"))
                             .and_then(|v| v.as_str())
-                            .unwrap_or("").to_owned();
+                            .unwrap_or("")
+                            .to_owned();
                         let name = cb
                             .and_then(|c| c.get("name"))
                             .and_then(|v| v.as_str())
-                            .unwrap_or("").to_owned();
+                            .unwrap_or("")
+                            .to_owned();
                         tool_accumulator = Some(ToolAccumulator {
                             id,
                             name,
@@ -217,9 +220,10 @@ pub async fn process_anthropic_sse<S>(
                             .get("delta")
                             .and_then(|d| d.get("partial_json"))
                             .and_then(|t| t.as_str())
-                            && let Some(acc) = &mut tool_accumulator {
-                                acc.arguments.push_str(partial);
-                            }
+                            && let Some(acc) = &mut tool_accumulator
+                        {
+                            acc.arguments.push_str(partial);
+                        }
                     }
                     "thinking_delta" => {
                         if let Some(text) = value
@@ -230,28 +234,28 @@ pub async fn process_anthropic_sse<S>(
                                 content: Some(content),
                                 ..
                             }) = &mut reasoning_item
-                            {
-                                let content_index = if let Some(last) = content.last_mut() {
-                                    match last {
-                                        ReasoningItemContent::ReasoningText { text: existing }
-                                        | ReasoningItemContent::Text { text: existing } => {
-                                            existing.push_str(text);
-                                            (content.len().saturating_sub(1)) as i64
-                                        }
+                        {
+                            let content_index = if let Some(last) = content.last_mut() {
+                                match last {
+                                    ReasoningItemContent::ReasoningText { text: existing }
+                                    | ReasoningItemContent::Text { text: existing } => {
+                                        existing.push_str(text);
+                                        (content.len().saturating_sub(1)) as i64
                                     }
-                                } else {
-                                    content.push(ReasoningItemContent::ReasoningText {
-                                        text: text.to_owned(),
-                                    });
-                                    0
-                                };
-                                let _ = tx_event
-                                    .send(Ok(ResponseEvent::ReasoningContentDelta {
-                                        delta: text.to_owned(),
-                                        content_index,
-                                    }))
-                                    .await;
-                            }
+                                }
+                            } else {
+                                content.push(ReasoningItemContent::ReasoningText {
+                                    text: text.to_owned(),
+                                });
+                                0
+                            };
+                            let _ = tx_event
+                                .send(Ok(ResponseEvent::ReasoningContentDelta {
+                                    delta: text.to_owned(),
+                                    content_index,
+                                }))
+                                .await;
+                        }
                     }
                     _ => {}
                 }
@@ -289,9 +293,10 @@ pub async fn process_anthropic_sse<S>(
             "message_delta" => {
                 // Extract output tokens and stop_reason from message_delta.
                 if let Some(usage) = value.get("usage")
-                    && let Some(tokens) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
-                        output_tokens = tokens;
-                    }
+                    && let Some(tokens) = usage.get("output_tokens").and_then(|v| v.as_i64())
+                {
+                    output_tokens = tokens;
+                }
             }
 
             "message_stop" => {

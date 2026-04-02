@@ -223,16 +223,18 @@ pub(crate) async fn forward_approval_to_chat(
     // Check agent filter.
     if !config.agent_filter.is_empty()
         && let Some(agent_id) = &request.agent_id
-            && !config.agent_filter.iter().any(|f| agent_id.contains(f)) {
-                return;
-            }
+        && !config.agent_filter.iter().any(|f| agent_id.contains(f))
+    {
+        return;
+    }
 
     // Check session filter.
     if !config.session_filter.is_empty()
         && let Some(session_id) = &request.session_id
-            && !config.session_filter.iter().any(|f| session_id.contains(f)) {
-                return;
-            }
+        && !config.session_filter.iter().any(|f| session_id.contains(f))
+    {
+        return;
+    }
 
     let message = format_approval_message(request);
 
@@ -326,12 +328,16 @@ pub(crate) async fn approval_request_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+        b.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() { m.clone() } else {
+    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() {
+        m.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -393,12 +399,16 @@ pub(crate) async fn approval_resolve_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+        b.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() { m.clone() } else {
+    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() {
+        m.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -452,7 +462,9 @@ pub(crate) async fn approval_resolve_handler(
 /// `GET /api/exec/approvals`  - List pending approval requests.
 #[handler]
 pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response) {
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+        b.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };

@@ -118,7 +118,7 @@ pub struct VoiceWakeService {
 }
 
 impl VoiceWakeService {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: PathBuf) -> Self {
         let (event_tx, _) = broadcast::channel(16);
         Self {
@@ -135,7 +135,7 @@ impl VoiceWakeService {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<WakeWordEvent> {
         self.event_tx.subscribe()
     }

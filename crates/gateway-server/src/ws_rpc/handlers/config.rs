@@ -613,10 +613,7 @@ pub(crate) async fn handle_reactions_add(params: &Value, _channel: &GatewayChann
     let channel = params.get("channel").and_then(|v| v.as_str()).unwrap_or("");
 
     if message_id.is_empty() || emoji.is_empty() {
-        return Err((
-            INVALID_PARAMS,
-            "missing 'message_id' or 'emoji'".to_owned(),
-        ));
+        return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
     }
 
     Ok(json!({
@@ -639,10 +636,7 @@ pub(crate) async fn handle_reactions_remove(
     let emoji = params.get("emoji").and_then(|v| v.as_str()).unwrap_or("");
 
     if message_id.is_empty() || emoji.is_empty() {
-        return Err((
-            INVALID_PARAMS,
-            "missing 'message_id' or 'emoji'".to_owned(),
-        ));
+        return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
     }
 
     Ok(json!({

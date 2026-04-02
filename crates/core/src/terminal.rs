@@ -231,7 +231,7 @@ impl Environment for ProcessEnvironment {
 }
 
 /// Returns a sanitized terminal identifier for User-Agent strings.
-#[must_use] 
+#[must_use]
 pub fn user_agent() -> String {
     terminal_info().user_agent_token()
 }

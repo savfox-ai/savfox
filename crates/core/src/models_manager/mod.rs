@@ -11,7 +11,7 @@ pub use collaboration_mode_presets::test_builtin_collaboration_mode_presets;
 ///
 /// We use `0.0.0` (matching codex) so the server does not filter out newer
 /// models based on `minimal_client_version`.
-#[must_use] 
+#[must_use]
 pub fn client_version_to_whole() -> String {
     "0.0.0".to_owned()
 }

@@ -72,7 +72,7 @@ impl MemoryManager {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn subscribe_progress(&self) -> broadcast::Receiver<MemorySyncProgress> {
         self.progress_tx.subscribe()
     }

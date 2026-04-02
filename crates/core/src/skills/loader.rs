@@ -117,7 +117,7 @@ impl fmt::Display for SkillParseError {
 
 impl Error for SkillParseError {}
 
-#[must_use] 
+#[must_use]
 pub fn load_skills(config: &Config) -> SkillLoadOutcome {
     load_skills_from_roots(skill_roots(config))
 }

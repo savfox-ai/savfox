@@ -204,10 +204,7 @@ impl ToolHandler for BrowserHandler {
             "navigate" => {
                 let url = require_field(&args.target_url, "target_url")?;
                 let mut body = serde_json::Map::new();
-                body.insert(
-                    "url".to_owned(),
-                    serde_json::Value::String(url.to_owned()),
-                );
+                body.insert("url".to_owned(), serde_json::Value::String(url.to_owned()));
                 if let Some(target_id) = &args.target_id {
                     body.insert(
                         "targetId".to_owned(),

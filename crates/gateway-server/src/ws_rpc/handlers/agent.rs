@@ -526,9 +526,10 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
             _ => None,
         };
         if let Some(sb) = sandbox
-            && let Err(e) = config.sandbox_policy.set(sb) {
-                tracing::warn!("agent permission policy sandbox rejected by constraints: {e}");
-            }
+            && let Err(e) = config.sandbox_policy.set(sb)
+        {
+            tracing::warn!("agent permission policy sandbox rejected by constraints: {e}");
+        }
     }
 
     // Apply approval policy.
@@ -542,17 +543,18 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
             _ => None,
         };
         if let Some(ap) = approval
-            && let Err(e) = config.approval_policy.set(ap) {
-                tracing::warn!("agent permission policy approval rejected by constraints: {e}");
-            }
+            && let Err(e) = config.approval_policy.set(ap)
+        {
+            tracing::warn!("agent permission policy approval rejected by constraints: {e}");
+        }
     }
 
     // Apply tool access policy.
     if let Some(tool_access_val) = policy_val.get("tool_access")
         && let Ok(tool_access) = serde_json::from_value::<ToolAccessPolicy>(tool_access_val.clone())
-        {
-            config.tool_access_policy = Some(tool_access);
-        }
+    {
+        config.tool_access_policy = Some(tool_access);
+    }
 }
 
 pub(crate) fn default_agent_config_from_source(config: &Value) -> Value {
@@ -1209,7 +1211,8 @@ pub(crate) async fn handle_agents_reset(
         let name = existing
             .as_ref()
             .and_then(|c| c.get("name").and_then(|v| v.as_str()))
-            .unwrap_or(agent_ref).to_owned();
+            .unwrap_or(agent_ref)
+            .to_owned();
         json!({
             "id": resolved_id,
             "name": name,
@@ -1248,13 +1251,14 @@ pub(crate) async fn handle_agents_files_list(
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
             if path.is_file()
-                && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    let size = tokio::fs::metadata(&path)
-                        .await
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    files.push(json!({ "name": name, "size": size }));
-                }
+                && let Some(name) = path.file_name().and_then(|n| n.to_str())
+            {
+                let size = tokio::fs::metadata(&path)
+                    .await
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                files.push(json!({ "name": name, "size": size }));
+            }
         }
     }
 

@@ -37,7 +37,7 @@ pub struct ServerOptions {
 }
 
 impl ServerOptions {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         savfox_home: PathBuf,
         client_id: String,
@@ -77,7 +77,7 @@ impl LoginServer {
         self.shutdown_handle.shutdown();
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn cancel_handle(&self) -> ShutdownHandle {
         self.shutdown_handle.clone()
     }
@@ -385,10 +385,7 @@ fn build_authorize_url(
             "scope".to_owned(),
             "openid profile email offline_access".to_owned(),
         ),
-        (
-            "code_challenge".to_owned(),
-            pkce.code_challenge.clone(),
-        ),
+        ("code_challenge".to_owned(), pkce.code_challenge.clone()),
         ("code_challenge_method".to_owned(), "S256".to_owned()),
         ("id_token_add_organizations".to_owned(), "true".to_owned()),
         ("savfox_cli_simplified_flow".to_owned(), "true".to_owned()),

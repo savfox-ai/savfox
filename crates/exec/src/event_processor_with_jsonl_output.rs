@@ -69,7 +69,7 @@ struct RunningCollabToolCall {
 }
 
 impl EventProcessorWithJsonOutput {
-    #[must_use] 
+    #[must_use]
     pub fn new(last_message_path: Option<PathBuf>) -> Self {
         Self {
             last_message_path,
@@ -334,12 +334,14 @@ impl EventProcessorWithJsonOutput {
         };
 
         let (server, tool, item_id, arguments) =
-            if let Some(running) = self.running_mcp_tool_calls.remove(&ev.call_id) { (
-                running.server,
-                running.tool,
-                running.item_id,
-                running.arguments,
-            ) } else {
+            if let Some(running) = self.running_mcp_tool_calls.remove(&ev.call_id) {
+                (
+                    running.server,
+                    running.tool,
+                    running.item_id,
+                    running.arguments,
+                )
+            } else {
                 warn!(
                     call_id = ev.call_id,
                     "Received McpToolCallEnd without begin; synthesizing new item"
@@ -572,7 +574,10 @@ impl EventProcessorWithJsonOutput {
         agents_states: HashMap<String, CollabAgentState>,
         status: CollabToolCallStatus,
     ) -> Vec<SessionEvent> {
-        let (tool, item_id) = if let Some(running) = self.running_collab_tool_calls.remove(call_id) { (running.tool, running.item_id) } else {
+        let (tool, item_id) = if let Some(running) = self.running_collab_tool_calls.remove(call_id)
+        {
+            (running.tool, running.item_id)
+        } else {
             warn!(
                 call_id,
                 "Received collab tool end without begin; synthesizing new item"

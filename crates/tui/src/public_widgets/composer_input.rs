@@ -31,7 +31,7 @@ pub struct ComposerInput {
 
 impl ComposerInput {
     /// Create a new composer input with a neutral placeholder.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sender = AppEventSender::new(tx.clone());
@@ -112,7 +112,7 @@ impl ComposerInput {
 
     /// Recommended delay to schedule the next micro-flush frame while a
     /// paste-burst is active.
-    #[must_use] 
+    #[must_use]
     pub fn recommended_flush_delay() -> Duration {
         crate::bottom_pane::ChatComposer::recommended_paste_flush_delay()
     }

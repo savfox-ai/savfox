@@ -174,10 +174,12 @@ pub(crate) async fn whois(remote_addr: &str) -> anyhow::Result<TailscaleIdentity
     Ok(TailscaleIdentity {
         login_name: user_profile["LoginName"]
             .as_str()
-            .unwrap_or("unknown").to_owned(),
+            .unwrap_or("unknown")
+            .to_owned(),
         name: user_profile["DisplayName"]
             .as_str()
-            .unwrap_or("Unknown").to_owned(),
+            .unwrap_or("Unknown")
+            .to_owned(),
         node_name: node["Name"].as_str().unwrap_or("unknown").to_owned(),
         node_ip: remote_addr.to_owned(),
     })

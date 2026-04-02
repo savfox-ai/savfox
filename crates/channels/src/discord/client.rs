@@ -181,7 +181,7 @@ pub async fn send_embed(
 /// `public_key_hex` is the hex-encoded application public key.
 /// `timestamp` and `body` form the signed message.
 /// `signature_hex` is the hex-encoded Ed25519 signature from the request header.
-#[must_use] 
+#[must_use]
 pub fn verify_signature(
     public_key_hex: &str,
     timestamp: &str,

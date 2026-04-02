@@ -403,19 +403,20 @@ impl GatewayChannel {
                 // session is busy.  If so, fork a new ephemeral session that
                 // shares the completed history but processes independently.
                 if concurrent_fork
-                    && let Ok(session) = self.session_manager.get_session(active_thread_id).await {
-                        let status = session.agent_status().await;
-                        if matches!(status, AgentStatus::Running | AgentStatus::PendingInit) {
-                            debug!(
-                                session_id = %active_thread_id,
-                                status = ?status,
-                                "Session is busy, forking for concurrent invocation"
-                            );
-                            return self
-                                .fork_concurrent_session(config, session.rollout_path())
-                                .await;
-                        }
+                    && let Ok(session) = self.session_manager.get_session(active_thread_id).await
+                {
+                    let status = session.agent_status().await;
+                    if matches!(status, AgentStatus::Running | AgentStatus::PendingInit) {
+                        debug!(
+                            session_id = %active_thread_id,
+                            status = ?status,
+                            "Session is busy, forking for concurrent invocation"
+                        );
+                        return self
+                            .fork_concurrent_session(config, session.rollout_path())
+                            .await;
                     }
+                }
 
                 return Ok(ResolvedAgentSession {
                     session_id: active_thread_id,
@@ -561,12 +562,12 @@ impl GatewayChannel {
             && let Err(err) = session
                 .submit(savfox_protocol::protocol::Op::Interrupt)
                 .await
-            {
-                tracing::warn!(
-                    session_id = %logical_session_id,
-                    "failed to interrupt session: {err}"
-                );
-            }
+        {
+            tracing::warn!(
+                session_id = %logical_session_id,
+                "failed to interrupt session: {err}"
+            );
+        }
     }
 
     /// Roll back conversation history on the active agent thread.
@@ -576,12 +577,12 @@ impl GatewayChannel {
             && let Err(err) = session
                 .submit(savfox_protocol::protocol::Op::SessionRollback { num_turns })
                 .await
-            {
-                tracing::warn!(
-                    session_id = %logical_session_id,
-                    "failed to rollback session: {err}"
-                );
-            }
+        {
+            tracing::warn!(
+                session_id = %logical_session_id,
+                "failed to rollback session: {err}"
+            );
+        }
     }
 
     /// Resolve the active `SavfoxSession` for a logical session id, if any.
@@ -619,9 +620,10 @@ impl GatewayChannel {
             }
 
             if let Some(thread_id) = entry.thread_id.as_deref()
-                && let Some(path) = self.find_rollout_path_candidate(thread_id).await? {
-                    return Ok(Some(path));
-                }
+                && let Some(path) = self.find_rollout_path_candidate(thread_id).await?
+            {
+                return Ok(Some(path));
+            }
         }
 
         self.find_rollout_path_candidate(session_id).await

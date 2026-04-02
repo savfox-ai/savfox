@@ -248,9 +248,7 @@ fn print_self_table(result: &Value) {
             .get("source")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        println!(
-            "{channel:<10} {account_id:<28} {configured:<11} {enabled:<8} {source}"
-        );
+        println!("{channel:<10} {account_id:<28} {configured:<11} {enabled:<8} {source}");
     }
 }
 
@@ -274,9 +272,7 @@ fn print_peers_table(result: &Value) {
         let name = peer.get("name").and_then(|v| v.as_str()).unwrap_or("-");
         let identity = peer.get("identity").and_then(|v| v.as_str()).unwrap_or("-");
         let last_seen = format_ms(peer.get("last_seen_ms"));
-        println!(
-            "{channel:<10} {peer_id:<22} {name:<24} {identity:<18} {last_seen}"
-        );
+        println!("{channel:<10} {peer_id:<22} {name:<24} {identity:<18} {last_seen}");
     }
 }
 
@@ -306,9 +302,7 @@ fn print_groups_table(result: &Value) {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         let last_seen = format_ms(group.get("last_seen_ms"));
-        println!(
-            "{channel:<10} {group_id:<22} {name:<28} {members:<8} {last_seen}"
-        );
+        println!("{channel:<10} {group_id:<22} {name:<28} {members:<8} {last_seen}");
     }
 }
 
@@ -338,9 +332,7 @@ fn print_group_members_table(result: &Value) {
         let name = member.get("name").and_then(|v| v.as_str()).unwrap_or("-");
         let sessions = member.get("sessions").and_then(|v| v.as_u64()).unwrap_or(0);
         let last_seen = format_ms(member.get("last_seen_ms"));
-        println!(
-            "{channel:<10} {user_id:<22} {name:<24} {sessions:<8} {last_seen}"
-        );
+        println!("{channel:<10} {user_id:<22} {name:<24} {sessions:<8} {last_seen}");
     }
 }
 

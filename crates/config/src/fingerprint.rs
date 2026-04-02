@@ -34,7 +34,7 @@ pub fn record_origins(
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn version_for_toml(value: &TomlValue) -> String {
     let json = serde_json::to_value(value).unwrap_or(JsonValue::Null);
     let canonical = canonical_json(&json);

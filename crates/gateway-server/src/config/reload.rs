@@ -25,7 +25,7 @@ pub struct ConfigReloadService {
 }
 
 impl ConfigReloadService {
-    #[must_use] 
+    #[must_use]
     pub fn new(config_path: PathBuf) -> Self {
         let (change_tx, _) = broadcast::channel(16);
         Self {

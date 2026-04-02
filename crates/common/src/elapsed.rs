@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 /// Returns a string representing the elapsed time since `start_time` like
 /// "1m 15s" or "1.50s".
-#[must_use] 
+#[must_use]
 pub fn format_elapsed(start_time: Instant) -> String {
     format_duration(start_time.elapsed())
 }
@@ -13,7 +13,7 @@ pub fn format_elapsed(start_time: Instant) -> String {
 /// * < 1 s  ->  "{milli}ms"
 /// * < 60 s ->  "{sec:.2}s" (two decimal places)
 /// * >= 60 s ->  "{min}m {sec:02}s"
-#[must_use] 
+#[must_use]
 pub fn format_duration(duration: Duration) -> String {
     let millis = duration.as_millis() as i64;
     format_elapsed_millis(millis)

@@ -83,7 +83,7 @@ impl ConfigServiceError {
         Self::Anyhow { context, source }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn write_error_code(&self) -> Option<ConfigWriteErrorCode> {
         match self {
             Self::Write { code, .. } => Some(code.clone()),
@@ -101,7 +101,7 @@ pub struct ConfigService {
 }
 
 impl ConfigService {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         savfox_home: PathBuf,
         cli_overrides: Vec<(String, TomlValue)>,
@@ -116,7 +116,7 @@ impl ConfigService {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_with_defaults(savfox_home: PathBuf) -> Self {
         Self {
             savfox_home,
@@ -385,21 +385,23 @@ async fn create_empty_user_layer(
         write_path,
     } = resolve_symlink_write_paths(config_toml.as_path())
         .map_err(|err| ConfigServiceError::io("failed to resolve user config path", err))?;
-    let toml_value = if let Some(path) = read_path { match tokio::fs::read_to_string(&path).await {
-        Ok(contents) => toml::from_str(&contents).map_err(|e| {
-            ConfigServiceError::toml("failed to parse existing user config.toml", e)
-        })?,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            write_empty_user_config(write_path.clone()).await?;
-            TomlValue::Table(toml::map::Map::new())
+    let toml_value = if let Some(path) = read_path {
+        match tokio::fs::read_to_string(&path).await {
+            Ok(contents) => toml::from_str(&contents).map_err(|e| {
+                ConfigServiceError::toml("failed to parse existing user config.toml", e)
+            })?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                write_empty_user_config(write_path.clone()).await?;
+                TomlValue::Table(toml::map::Map::new())
+            }
+            Err(err) => {
+                return Err(ConfigServiceError::io(
+                    "failed to read user config.toml",
+                    err,
+                ));
+            }
         }
-        Err(err) => {
-            return Err(ConfigServiceError::io(
-                "failed to read user config.toml",
-                err,
-            ));
-        }
-    } } else {
+    } else {
         write_empty_user_config(write_path).await?;
         TomlValue::Table(toml::map::Map::new())
     };
@@ -477,9 +479,9 @@ fn apply_merge(
         }
     }
 
-    let table = current.as_table_mut().ok_or_else(|| {
-        MergeError::Validation("cannot set value on non-table parent".to_owned())
-    })?;
+    let table = current
+        .as_table_mut()
+        .ok_or_else(|| MergeError::Validation("cannot set value on non-table parent".to_owned()))?;
 
     if matches!(strategy, MergeStrategy::Upsert)
         && let Some(existing) = table.get_mut(last)

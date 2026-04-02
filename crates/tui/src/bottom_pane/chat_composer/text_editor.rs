@@ -359,8 +359,15 @@ impl ChatComposer {
             // empty or when the cursor is at the correct position, to avoid
             // interfering with normal cursor movement.
             // -------------------------------------------------------------
-            KeyEvent { code: KeyCode::Up | KeyCode::Down, .. } | KeyEvent {
-code: KeyCode::Char('p' | 'n'), modifiers: KeyModifiers::CONTROL, .. } => {
+            KeyEvent {
+                code: KeyCode::Up | KeyCode::Down,
+                ..
+            }
+            | KeyEvent {
+                code: KeyCode::Char('p' | 'n'),
+                modifiers: KeyModifiers::CONTROL,
+                ..
+            } => {
                 if self
                     .history
                     .should_handle_navigation(self.textarea.text(), self.textarea.cursor())

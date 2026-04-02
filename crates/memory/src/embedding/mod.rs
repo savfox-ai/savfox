@@ -80,13 +80,13 @@ pub struct EmbeddingBatch {
     pub indices: Vec<usize>,
 }
 
-#[must_use] 
+#[must_use]
 pub fn estimate_tokens(text: &str) -> usize {
     let bytes = text.len();
     bytes / 4 + 1
 }
 
-#[must_use] 
+#[must_use]
 pub fn split_into_batches(texts: &[String], max_tokens_per_batch: usize) -> Vec<EmbeddingBatch> {
     let mut batches = Vec::new();
     let mut current_texts = Vec::new();

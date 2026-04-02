@@ -46,7 +46,7 @@ pub enum TalkModeEvent {
 }
 
 impl TalkModeService {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let config = TalkModeConfig::default();
         let turn_config = TurnDetectionConfig {
@@ -67,7 +67,7 @@ impl TalkModeService {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_config(config: TalkModeConfig) -> Self {
         let turn_config = TurnDetectionConfig {
             silence_threshold_ms: config.silence_threshold_ms,
@@ -88,7 +88,7 @@ impl TalkModeService {
     }
 
     /// Subscribe to talk mode events.
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<TalkModeEvent> {
         self.event_tx.subscribe()
     }
@@ -231,13 +231,12 @@ impl TalkModeService {
         let mut detector = self.turn_detector.lock().await;
         let turn_ended = detector.process_level(level, timestamp_ms);
 
-        if turn_ended
-            && let Some(session_id) = self.session_id().await {
-                let _ = self.event_tx.send(TalkModeEvent::TurnEnded {
-                    session_id,
-                    duration_ms: 0,
-                });
-            }
+        if turn_ended && let Some(session_id) = self.session_id().await {
+            let _ = self.event_tx.send(TalkModeEvent::TurnEnded {
+                session_id,
+                duration_ms: 0,
+            });
+        }
     }
 
     /// Interrupt current turn.

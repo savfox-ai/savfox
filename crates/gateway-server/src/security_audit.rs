@@ -173,14 +173,16 @@ fn parse_gateway_surface(config: &Value) -> GatewaySurfaceConfig {
     };
 
     if let Some(host) = gateway.get("host").and_then(|v| v.as_str())
-        && let Ok(ip) = host.parse::<IpAddr>() {
-            parsed.host = ip;
-        }
+        && let Ok(ip) = host.parse::<IpAddr>()
+    {
+        parsed.host = ip;
+    }
 
     if let Some(port) = gateway.get("port").and_then(|v| v.as_u64())
-        && (1..=u16::MAX as u64).contains(&port) {
-            parsed.port = port as u16;
-        }
+        && (1..=u16::MAX as u64).contains(&port)
+    {
+        parsed.port = port as u16;
+    }
 
     parsed.tls_cert = gateway
         .get("tls_cert")
@@ -238,7 +240,8 @@ async fn check_dm_policy(savfox_home: &Path) -> SecurityAuditCheck {
             status: SecurityCheckStatus::Warn,
             details: format!("Open DM policy without allowlist on channel(s): {channels}"),
             suggestion: Some(
-                "Use `dm.policy.set` to switch to `pairing`/`closed` or configure an allowlist.".to_owned(),
+                "Use `dm.policy.set` to switch to `pairing`/`closed` or configure an allowlist."
+                    .to_owned(),
             ),
         }
     }
@@ -309,7 +312,8 @@ fn check_tls_enforcement(gateway: &GatewaySurfaceConfig) -> SecurityAuditCheck {
         return SecurityAuditCheck {
             name: "tls".to_owned(),
             status: SecurityCheckStatus::Fail,
-            details: "TLS is partially configured (both tls_cert and tls_key are required).".to_owned(),
+            details: "TLS is partially configured (both tls_cert and tls_key are required)."
+                .to_owned(),
             suggestion: Some("Set both `gateway.tls_cert` and `gateway.tls_key`.".to_owned()),
         };
     }

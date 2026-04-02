@@ -13,7 +13,7 @@ pub struct AutoReplyHandler {
 }
 
 impl AutoReplyHandler {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: AutoReplyConfig) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -22,7 +22,7 @@ impl AutoReplyHandler {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_registry(mut self, registry: CommandRegistry) -> Self {
         self.registry = registry;
         self
@@ -50,13 +50,14 @@ impl AutoReplyHandler {
 
         if is_command {
             if let Some(command_name) = self.registry.resolve_command_name(text)
-                && !is_command_allowed(&config, &command_name) {
-                    return AutoReplyResult {
-                        reply: Some(format!("Command '/{command_name}' is not allowed.")),
-                        is_command: true,
-                        action: None,
-                    };
-                }
+                && !is_command_allowed(&config, &command_name)
+            {
+                return AutoReplyResult {
+                    reply: Some(format!("Command '/{command_name}' is not allowed.")),
+                    is_command: true,
+                    action: None,
+                };
+            }
             return self.handle_command_internal(text, &ctx);
         }
 
@@ -137,7 +138,7 @@ impl AutoReplyHandler {
         *current = config;
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn registry(&self) -> &CommandRegistry {
         &self.registry
     }

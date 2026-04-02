@@ -107,7 +107,8 @@ impl CommandRegistry {
                      /reset — Reset current session\n\
                      /stop — Stop current run\n\
                      /think [level] — Set thinking level\n\
-                     /verbose — Toggle verbose mode".to_owned(),
+                     /verbose — Toggle verbose mode"
+                        .to_owned(),
                 ),
                 action: Some(CommandAction::ShowHelp),
                 error: None,
@@ -315,7 +316,8 @@ impl CommandRegistry {
   anthropic/claude-3.5-sonnet
   google/gemini-2.0-flash
   deepseek/deepseek-chat
-  ollama/llama3.2"#.to_owned(),
+  ollama/llama3.2"#
+                        .to_owned(),
                 ),
                 action: None,
                 error: None,
@@ -429,7 +431,8 @@ impl CommandRegistry {
                      /compact [n] — Compact session\n\
                      /think, /t [level] — Thinking level\n\
                      /verbose, /v — Verbose mode\n\
-                     /usage [mode] — Usage info".to_owned(),
+                     /usage [mode] — Usage info"
+                        .to_owned(),
                 ),
                 action: None,
                 error: None,
@@ -524,8 +527,7 @@ impl CommandRegistry {
         }
 
         self.register(command);
-        self.plugin_commands
-            .insert(canonical, plugin_id.to_owned());
+        self.plugin_commands.insert(canonical, plugin_id.to_owned());
         Ok(())
     }
 
@@ -587,7 +589,7 @@ impl CommandRegistry {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn handle_command(&self, text: &str, ctx: &CommandContext) -> Option<CommandResult> {
         match self.parse_command(text)? {
             Ok(invocation) => {

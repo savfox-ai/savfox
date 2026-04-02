@@ -35,7 +35,8 @@ pub(crate) fn create_tools_json_for_chat_completions_api(
                 let name = map
                     .get("name")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default().to_owned();
+                    .unwrap_or_default()
+                    .to_owned();
                 map.remove("type");
                 Some(json!({
                     "type": "function",

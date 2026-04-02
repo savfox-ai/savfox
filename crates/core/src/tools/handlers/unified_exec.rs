@@ -105,7 +105,6 @@ impl ToolHandler for UnifiedExecHandler {
             call_id,
             tool_name,
             payload,
-            
         } = invocation;
 
         let arguments = match payload {

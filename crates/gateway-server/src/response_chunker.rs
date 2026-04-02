@@ -18,7 +18,7 @@ pub enum PlatformLimit {
 }
 
 impl PlatformLimit {
-    #[must_use] 
+    #[must_use]
     pub fn max_chars(self) -> usize {
         match self {
             Self::Discord => 2000,
@@ -29,7 +29,7 @@ impl PlatformLimit {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_channel(channel: &str) -> Self {
         let platform = channel
             .split_once(':')
@@ -60,7 +60,7 @@ enum Segment {
     Code(String),
 }
 
-#[must_use] 
+#[must_use]
 pub fn chunk_message_for_channel(
     text: &str,
     channel: &str,
@@ -76,13 +76,13 @@ pub fn chunk_message_for_channel(
 
 /// Split a long message into chunks respecting platform limits.
 /// Tries to split at paragraph/sentence boundaries.
-#[must_use] 
+#[must_use]
 pub fn chunk_message(text: &str, platform: PlatformLimit) -> Vec<MessageChunk> {
     chunk_message_with_options(text, platform.max_chars(), 0)
 }
 
 /// Split a long message with explicit max length and optional overlap.
-#[must_use] 
+#[must_use]
 pub fn chunk_message_with_options(
     text: &str,
     max_chars: usize,
@@ -287,22 +287,25 @@ fn split_code_segment(code_block: &str, max: usize) -> Vec<String> {
 fn find_break_point(text: &str) -> usize {
     // Try paragraph break (double newline)
     if let Some(pos) = text.rfind("\n\n")
-        && pos > text.len() / 2 {
-            return pos + 2;
-        }
+        && pos > text.len() / 2
+    {
+        return pos + 2;
+    }
 
     // Try single newline
     if let Some(pos) = text.rfind('\n')
-        && pos > text.len() / 2 {
-            return pos + 1;
-        }
+        && pos > text.len() / 2
+    {
+        return pos + 1;
+    }
 
     // Try sentence break (. ! ?)
     for sep in [". ", "! ", "? "] {
         if let Some(pos) = text.rfind(sep)
-            && pos > text.len() / 3 {
-                return pos + sep.len();
-            }
+            && pos > text.len() / 3
+        {
+            return pos + sep.len();
+        }
     }
 
     // Try word break (space)

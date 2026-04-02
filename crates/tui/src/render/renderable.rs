@@ -248,9 +248,10 @@ impl<'a> FlexRenderable<'a> {
     /// Ref https://github.com/flutter/flutter/blob/3fd81edbf1e015221e143c92b2664f4371bdc04a/packages/flutter/lib/src/rendering/flex.dart#L1205-L1209
     fn allocate(&self, area: Rect) -> Vec<Rect> {
         if let Some((cached_area, cached_rects)) = self.cached_allocation.borrow().as_ref()
-            && *cached_area == area {
-                return cached_rects.clone();
-            }
+            && *cached_area == area
+        {
+            return cached_rects.clone();
+        }
         let result = self.allocate_inner(area);
         *self.cached_allocation.borrow_mut() = Some((area, result.clone()));
         result

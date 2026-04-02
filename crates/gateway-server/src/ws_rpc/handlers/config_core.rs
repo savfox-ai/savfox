@@ -1185,7 +1185,8 @@ fn heartbeat_agent_from_params(params: &Value) -> String {
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("default").to_owned()
+        .unwrap_or("default")
+        .to_owned()
 }
 
 async fn load_heartbeat_settings(channel: &GatewayChannel) -> HeartbeatSettingsDocument {

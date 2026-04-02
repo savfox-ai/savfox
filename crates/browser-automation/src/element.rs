@@ -221,12 +221,12 @@ impl Element {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn node_id(&self) -> u64 {
         self.node_id
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn selector(&self) -> &str {
         &self.selector
     }

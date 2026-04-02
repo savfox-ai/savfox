@@ -22,7 +22,7 @@ use crate::util::resolve_path;
 /// `git worktree add` where the checkout lives outside the main repository
 /// directory. If you need Savfox to work from such a checkout simply pass the
 /// `--allow-no-git-exec` CLI flag that disables the repo requirement.
-#[must_use] 
+#[must_use]
 pub fn get_git_repo_root(base_dir: &Path) -> Option<PathBuf> {
     let mut dir = base_dir.to_path_buf();
 
@@ -610,7 +610,8 @@ pub fn resolve_root_git_project_for_trust(cwd: &Path) -> Option<PathBuf> {
     }
     let git_dir_s = String::from_utf8(git_dir_out.stdout)
         .ok()?
-        .trim().to_owned();
+        .trim()
+        .to_owned();
 
     let git_dir_path_raw = resolve_path(base, &PathBuf::from(&git_dir_s));
 

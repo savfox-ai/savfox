@@ -50,21 +50,21 @@ pub struct OtelManager {
 }
 
 impl OtelManager {
-    #[must_use] 
+    #[must_use]
     pub fn with_model(mut self, model: &str, slug: &str) -> Self {
         self.metadata.model = model.to_owned();
         self.metadata.slug = slug.to_owned();
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_metrics(mut self, metrics: MetricsClient) -> Self {
         self.metrics = Some(metrics);
         self.metrics_use_metadata_tags = true;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_metrics_without_metadata_tags(mut self, metrics: MetricsClient) -> Self {
         self.metrics = Some(metrics);
         self.metrics_use_metadata_tags = false;
@@ -76,7 +76,7 @@ impl OtelManager {
         Ok(self.with_metrics(metrics))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_provider_metrics(self, provider: &OtelProvider) -> Self {
         match provider.metrics() {
             Some(metrics) => self.with_metrics(metrics.clone()),
@@ -162,7 +162,7 @@ impl OtelManager {
     }
 
     /// Collect a runtime metrics summary if debug snapshots are available.
-    #[must_use] 
+    #[must_use]
     pub fn runtime_metrics_summary(&self) -> Option<RuntimeMetricsSummary> {
         let snapshot = match self.snapshot_metrics() {
             Ok(snapshot) => snapshot,

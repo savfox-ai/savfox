@@ -102,9 +102,10 @@ impl GatewaySessionManager {
             let session = session_arc.read().await;
             if session.subscribed_to_logs {
                 if let Some(ref filter) = session.log_level_filter
-                    && !Self::log_level_matches(level, filter) {
-                        continue;
-                    }
+                    && !Self::log_level_matches(level, filter)
+                {
+                    continue;
+                }
                 let seq = session.next_seq();
                 let msg = GatewayMessage::Event {
                     event: "log".to_owned(),

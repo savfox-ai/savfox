@@ -191,7 +191,7 @@ fn render_command_for_log(cwd: &Path, git_cfg: &[String], args: &[String]) -> St
 }
 
 /// Collect every path referenced by the diff headers inside `diff --git` sections.
-#[must_use] 
+#[must_use]
 pub fn extract_paths_from_patch(diff_text: &str) -> Vec<String> {
     let mut set = std::collections::BTreeSet::new();
     for raw_line in diff_text.lines() {

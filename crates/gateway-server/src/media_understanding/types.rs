@@ -10,7 +10,7 @@ pub enum MediaCapability {
 }
 
 impl MediaCapability {
-    #[must_use] 
+    #[must_use]
     pub fn default_max_bytes(&self) -> usize {
         const MB: usize = 1024 * 1024;
         match self {
@@ -21,7 +21,7 @@ impl MediaCapability {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_timeout_seconds(&self) -> u64 {
         match self {
             Self::Image => 60,
@@ -31,7 +31,7 @@ impl MediaCapability {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_prompt(&self) -> &'static str {
         match self {
             Self::Image => "Describe the image.",
@@ -56,7 +56,7 @@ pub struct MediaAttachment {
 }
 
 impl MediaAttachment {
-    #[must_use] 
+    #[must_use]
     pub fn from_bytes(data: Vec<u8>, mime: Option<String>, index: usize) -> Self {
         Self {
             path: None,
@@ -67,7 +67,7 @@ impl MediaAttachment {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_url(url: String, mime: Option<String>, index: usize) -> Self {
         Self {
             path: None,
@@ -78,7 +78,7 @@ impl MediaAttachment {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_path(path: String, mime: Option<String>, index: usize) -> Self {
         Self {
             path: Some(path),
@@ -89,7 +89,7 @@ impl MediaAttachment {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn capability(&self) -> Option<MediaCapability> {
         let mime = self.mime.as_ref()?;
         if mime.starts_with("image/") {
@@ -196,7 +196,7 @@ pub struct MediaUnderstandingResult {
 }
 
 impl MediaUnderstandingResult {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             outputs: Vec::new(),
@@ -205,19 +205,19 @@ impl MediaUnderstandingResult {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_output(mut self, output: MediaUnderstandingOutput) -> Self {
         self.outputs.push(output);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_error(mut self, error: String) -> Self {
         self.errors.push(error);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_decision(mut self, decision: ProviderDecision) -> Self {
         self.decisions.push(decision);
         self

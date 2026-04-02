@@ -61,14 +61,14 @@ impl MetricsConfig {
     }
 
     /// Override the interval between periodic metric exports.
-    #[must_use] 
+    #[must_use]
     pub fn with_export_interval(mut self, interval: Duration) -> Self {
         self.export_interval = Some(interval);
         self
     }
 
     /// Enable a manual reader for on-demand runtime snapshots.
-    #[must_use] 
+    #[must_use]
     pub fn with_runtime_reader(mut self) -> Self {
         self.runtime_reader = true;
         self

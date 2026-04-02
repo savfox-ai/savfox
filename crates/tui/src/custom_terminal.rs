@@ -60,7 +60,7 @@ impl Frame<'_> {
     /// If your app listens for a resize event from the backend, it should ignore the values from
     /// the event for any calculations that are used to render the current frame and use this value
     /// instead as this is the area of the buffer that is used to render the current frame.
-    #[must_use] 
+    #[must_use]
     pub const fn area(&self) -> Rect {
         self.viewport_area
     }

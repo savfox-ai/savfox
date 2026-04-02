@@ -21,7 +21,6 @@ pub enum DmPolicyMode {
     Closed,
 }
 
-
 /// Per-channel DM policy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelDmPolicy {
@@ -59,7 +58,7 @@ pub struct DmPolicyStore {
 }
 
 impl DmPolicyStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &Path) -> Self {
         let path = savfox_home.join("gateway").join("dm-policies.json");
         Self {

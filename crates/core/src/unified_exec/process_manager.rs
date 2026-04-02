@@ -236,7 +236,6 @@ impl UnifiedExecProcessManager {
             command: session_command,
             process_id,
             tty,
-            
         } = self.prepare_process_handles(process_id.as_str()).await?;
 
         if !request.input.is_empty() {

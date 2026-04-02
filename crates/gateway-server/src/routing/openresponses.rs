@@ -266,12 +266,16 @@ fn build_tools_system_prompt(
 #[handler]
 pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Auth.
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+        a.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let token = if let Some(t) = extract_bearer_token(req) { t } else {
+    let token = if let Some(t) = extract_bearer_token(req) {
+        t
+    } else {
         res.status_code(StatusCode::UNAUTHORIZED);
         res.render(Text::Json(
             json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
@@ -300,7 +304,9 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
         }
     };
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+        b.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };

@@ -70,7 +70,7 @@ pub struct GitRegistry {
 }
 
 impl GitRegistry {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: PathBuf, config: RegistryConfig) -> Self {
         Self {
             savfox_home,
@@ -81,7 +81,7 @@ impl GitRegistry {
     /// Path to the local clone of this registry, derived from the git URL.
     ///
     /// e.g. `https://github.com/savhub-ai/registry.git` → `registry/github.com/savhub-ai/registry`
-    #[must_use] 
+    #[must_use]
     pub fn registry_path(&self) -> PathBuf {
         let dir_name = Self::dir_from_url(&self.config.git);
         self.savfox_home.join("registry").join(dir_name)
@@ -180,9 +180,10 @@ impl GitRegistry {
             }
             for entry in std::fs::read_dir(&realms_dir)?.flatten() {
                 if entry.path().is_dir()
-                    && let Some(name) = entry.file_name().to_str() {
-                        realms.push(name.to_owned());
-                    }
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    realms.push(name.to_owned());
+                }
             }
             realms.sort();
             Ok(realms)
@@ -206,9 +207,10 @@ impl GitRegistry {
             }
             for entry in std::fs::read_dir(&flocks_dir)?.flatten() {
                 if entry.path().is_dir()
-                    && let Some(name) = entry.file_name().to_str() {
-                        flocks.push(name.to_owned());
-                    }
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    flocks.push(name.to_owned());
+                }
             }
             flocks.sort();
             Ok(flocks)
@@ -303,13 +305,15 @@ fn matches_query(entry: &SkillEntry, query_lower: &str) -> bool {
         return true;
     }
     if let Some(ref summary) = entry.summary
-        && summary.to_lowercase().contains(query_lower) {
-            return true;
-        }
+        && summary.to_lowercase().contains(query_lower)
+    {
+        return true;
+    }
     if let Some(ref desc) = entry.description
-        && desc.to_lowercase().contains(query_lower) {
-            return true;
-        }
+        && desc.to_lowercase().contains(query_lower)
+    {
+        return true;
+    }
     if entry
         .keywords
         .iter()

@@ -67,7 +67,7 @@ pub(crate) enum SandboxTransformError {
 pub struct SandboxManager;
 
 impl SandboxManager {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -175,7 +175,7 @@ impl SandboxManager {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn denied(&self, sandbox: SandboxType, out: &ExecToolCallOutput) -> bool {
         crate::exec::is_likely_sandbox_denied(sandbox, out)
     }

@@ -99,7 +99,7 @@ impl A2UIComponent {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn child(mut self, child: Self) -> Self {
         self.children.push(child);
         self

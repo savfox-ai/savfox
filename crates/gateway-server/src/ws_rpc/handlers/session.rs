@@ -226,7 +226,8 @@ pub(crate) async fn handle_chat_send(
     let prompt = prompt
         .strip_prefix("[user]:")
         .map(|s| s.trim())
-        .unwrap_or(&prompt).to_owned();
+        .unwrap_or(&prompt)
+        .to_owned();
     if prompt.is_empty() {
         return Err((
             INVALID_REQUEST,
@@ -926,10 +927,7 @@ pub(crate) async fn handle_chat_history(
     );
 
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
     Ok(build_history_payload(session_id, limit, source_channel, session_store, channel).await)
@@ -1076,10 +1074,7 @@ pub(crate) async fn handle_sessions_preview(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
     let links = load_identity_links(&channel.config().savfox_home).await;
     match session_store.get(session_id).await {
@@ -1168,9 +1163,10 @@ pub(crate) async fn handle_sessions_patch(
     // Apply overrides from the patch object or from the top-level params.
     let overrides_value = patch.get("overrides").or_else(|| params.get("overrides"));
     if let Some(ov) = overrides_value
-        && let Ok(incoming) = serde_json::from_value::<SessionOverrides>(ov.clone()) {
-            updated.patch_overrides(incoming);
-        }
+        && let Ok(incoming) = serde_json::from_value::<SessionOverrides>(ov.clone())
+    {
+        updated.patch_overrides(incoming);
+    }
     updated.touch();
     session_store.upsert(updated.clone()).await;
 
@@ -1195,17 +1191,10 @@ pub(crate) async fn handle_sessions_reset(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
-    let session_id_obj = SessionId::from_string(session_id).map_err(|_| {
-        (
-            INVALID_REQUEST,
-            "invalid 'session_id' parameter".to_owned(),
-        )
-    })?;
+    let session_id_obj = SessionId::from_string(session_id)
+        .map_err(|_| (INVALID_REQUEST, "invalid 'session_id' parameter".to_owned()))?;
     // Remove from WS session manager.
     session_mgr.remove_session(&session_id_obj).await;
     // Remove from persistent store.
@@ -1231,17 +1220,10 @@ pub(crate) async fn handle_sessions_delete(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
-    let session_id_obj = SessionId::from_string(session_id).map_err(|_| {
-        (
-            INVALID_REQUEST,
-            "invalid 'session_id' parameter".to_owned(),
-        )
-    })?;
+    let session_id_obj = SessionId::from_string(session_id)
+        .map_err(|_| (INVALID_REQUEST, "invalid 'session_id' parameter".to_owned()))?;
     session_mgr.remove_session(&session_id_obj).await;
     session_store.remove(session_id).await;
     let staging_cleaned = MediaStore::from_home(&channel.config().savfox_home)
@@ -1294,10 +1276,7 @@ pub(crate) async fn handle_sessions_overrides_get(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
     let entry = session_store.get(session_id).await;
@@ -1323,10 +1302,7 @@ pub(crate) async fn handle_sessions_overrides_set(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
     let overrides_value = params
@@ -1616,10 +1592,7 @@ pub(crate) async fn handle_sessions_usage(
         .unwrap_or("");
 
     if session_id.is_empty() {
-        return Err((
-            INVALID_REQUEST,
-            "missing 'session_id' parameter".to_owned(),
-        ));
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
     }
 
     match session_store.get(session_id).await {

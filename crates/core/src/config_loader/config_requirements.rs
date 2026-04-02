@@ -171,7 +171,7 @@ pub enum ResidencyRequirement {
 }
 
 impl ConfigRequirementsToml {
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.allowed_approval_policies.is_none()
             && self.allowed_sandbox_modes.is_none()

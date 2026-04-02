@@ -23,7 +23,7 @@ pub struct QQChannelConfig {
 }
 
 impl QQChannelConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -207,7 +207,7 @@ pub fn parse_start_meta(payload: &Value) -> QQStartMeta {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let meta = parse_start_meta(payload);
     let is_group = matches!(meta.chat_type.as_deref(), Some("group" | "channel"))

@@ -110,9 +110,7 @@ async fn run_check(channel: &str, format: &str) -> Result<()> {
 
         if update_available {
             println!();
-            println!(
-                "Update available! Run: savfox update install --channel {channel}"
-            );
+            println!("Update available! Run: savfox update install --channel {channel}");
             println!(
                 "Release notes: https://github.com/anomalyco/savfox/releases/tag/{}",
                 latest.tag_name
@@ -155,9 +153,7 @@ async fn run_install(
     let latest_ver = extract_version(&latest.tag_name)?;
 
     if !force && latest_ver <= current {
-        eprintln!(
-            "Already up to date (v{latest_ver}). Use --force to reinstall."
-        );
+        eprintln!("Already up to date (v{latest_ver}). Use --force to reinstall.");
         return Ok(());
     }
 
@@ -320,7 +316,8 @@ fn find_latest_release<'a>(
             .or_else(|| releases.iter().find(|r| !r.prerelease && !r.draft))
             .context("No releases found")?,
         "dev" | "nightly" => releases
-            .iter().find(|r| !r.draft)
+            .iter()
+            .find(|r| !r.draft)
             .context("No releases found")?,
         _ => anyhow::bail!("Unknown channel: {channel}. Use stable, beta, or dev."),
     };

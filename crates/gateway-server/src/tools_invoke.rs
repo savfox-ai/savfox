@@ -29,10 +29,11 @@ fn build_tool_prompt(tool: &str, action: Option<&str>, arguments: &Value) -> Str
     let mut args = arguments.clone();
     // If an action is specified, merge it into the arguments object.
     if let Some(act) = action
-        && let Value::Object(ref mut map) = args {
-            map.entry("action")
-                .or_insert_with(|| Value::String(act.to_owned()));
-        }
+        && let Value::Object(ref mut map) = args
+    {
+        map.entry("action")
+            .or_insert_with(|| Value::String(act.to_owned()));
+    }
 
     let args_str = serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_owned());
     format!(
@@ -50,7 +51,9 @@ fn build_tool_prompt(tool: &str, action: Option<&str>, arguments: &Value) -> Str
 #[handler]
 pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Authenticate.
-    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() {
+        a.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -88,7 +91,9 @@ pub(crate) async fn tools_invoke_handler(req: &mut Request, depot: &mut Depot, r
         }
     };
 
-    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() {
+        b.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };

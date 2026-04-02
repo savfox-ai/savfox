@@ -74,7 +74,8 @@ pub(super) fn create_wait_tool() -> ToolSpec {
         JsonSchema::Array {
             items: Box::new(JsonSchema::String { description: None }),
             description: Some(
-                "Agent ids to wait on. Pass multiple ids to wait for whichever finishes first.".to_owned(),
+                "Agent ids to wait on. Pass multiple ids to wait for whichever finishes first."
+                    .to_owned(),
             ),
         },
     );
@@ -133,9 +134,7 @@ pub(super) fn create_request_user_input_tool() -> ToolSpec {
     question_props.insert(
         "header".to_owned(),
         JsonSchema::String {
-            description: Some(
-                "Short header label shown in the UI (12 or fewer chars).".to_owned(),
-            ),
+            description: Some("Short header label shown in the UI (12 or fewer chars).".to_owned()),
         },
     );
     question_props.insert(
@@ -209,9 +208,7 @@ pub(super) fn create_test_sync_tool() -> ToolSpec {
         (
             "timeout_ms".to_owned(),
             JsonSchema::Number {
-                description: Some(
-                    "Maximum time in milliseconds to wait at the barrier".to_owned(),
-                ),
+                description: Some("Maximum time in milliseconds to wait at the barrier".to_owned()),
             },
         ),
     ]);

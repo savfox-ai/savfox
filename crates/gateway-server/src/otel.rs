@@ -207,7 +207,9 @@ impl GatewayMetrics {
 /// `GET /api/metrics`  - Return current gateway metrics as JSON.
 #[handler]
 pub(crate) async fn metrics_handler(depot: &mut Depot, res: &mut Response) {
-    let metrics = if let Ok(m) = depot.obtain::<Arc<GatewayMetrics>>() { m.clone() } else {
+    let metrics = if let Ok(m) = depot.obtain::<Arc<GatewayMetrics>>() {
+        m.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "metrics not available"}).to_string(),

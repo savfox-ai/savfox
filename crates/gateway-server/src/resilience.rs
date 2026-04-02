@@ -28,7 +28,7 @@ impl Default for BackoffConfig {
 
 impl BackoffConfig {
     /// Calculate delay for a given attempt number
-    #[must_use] 
+    #[must_use]
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
         let delay = self.initial_delay_ms as f64 * self.multiplier.powi(attempt as i32);
         let capped = delay.min(self.max_delay_ms as f64) as u64;
@@ -62,7 +62,7 @@ pub struct CircuitBreaker {
 }
 
 impl CircuitBreaker {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         name: String,
         failure_threshold: u64,

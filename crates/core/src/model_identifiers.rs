@@ -14,7 +14,7 @@
 /// `/` and both parts are non-empty after trimming.
 ///
 /// Parsing uses the **last** `/` so provider ids may themselves contain `/`.
-#[must_use] 
+#[must_use]
 pub fn parse_provider_prefixed_model(identifier: &str) -> Option<(&str, &str)> {
     let trimmed = identifier.trim();
     let (provider_id, model_slug) = trimmed.rsplit_once('/')?;
@@ -31,7 +31,7 @@ pub fn parse_provider_prefixed_model(identifier: &str) -> Option<(&str, &str)> {
 /// If `model` is in `provider/model_slug` form and `provider` matches
 /// `provider_id` (case-insensitive), returns `model_slug`.
 /// Otherwise returns the original trimmed `model`.
-#[must_use] 
+#[must_use]
 pub fn request_model_for_provider(model: &str, provider_id: &str) -> String {
     let provider_id = provider_id.trim();
     let model = model.trim();

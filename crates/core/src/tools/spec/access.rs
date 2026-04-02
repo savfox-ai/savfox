@@ -72,7 +72,8 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
             "anchor_line".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Anchor line to center the indentation lookup on (defaults to offset).".to_owned(),
+                    "Anchor line to center the indentation lookup on (defaults to offset)."
+                        .to_owned(),
                 ),
             },
         ),
@@ -88,7 +89,8 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
             "include_siblings".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "When true, include additional blocks that share the anchor indentation.".to_owned(),
+                    "When true, include additional blocks that share the anchor indentation."
+                        .to_owned(),
                 ),
             },
         ),
@@ -96,7 +98,8 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
             "include_header".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "Include doc comments or attributes directly above the selected block.".to_owned(),
+                    "Include doc comments or attributes directly above the selected block."
+                        .to_owned(),
                 ),
             },
         ),
@@ -104,7 +107,8 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
             "max_lines".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Hard cap on the number of lines returned when using indentation mode.".to_owned(),
+                    "Hard cap on the number of lines returned when using indentation mode."
+                        .to_owned(),
                 ),
             },
         ),

@@ -59,14 +59,18 @@ impl SavfoxMessageProcessor {
         let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;
         let effective_limit = effective_limit.min(total);
         let start = match cursor {
-            Some(cursor) => if let Ok(idx) = cursor.parse::<usize>() { idx } else {
-                self.send_invalid_request_error(
-                    request_id,
-                    format!("invalid cursor: {cursor}"),
-                )
-                .await;
-                return;
-            },
+            Some(cursor) => {
+                if let Ok(idx) = cursor.parse::<usize>() {
+                    idx
+                } else {
+                    self.send_invalid_request_error(
+                        request_id,
+                        format!("invalid cursor: {cursor}"),
+                    )
+                    .await;
+                    return;
+                }
+            }
             None => 0,
         };
 

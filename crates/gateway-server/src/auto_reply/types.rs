@@ -47,9 +47,7 @@ impl Default for AutoReplyConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            greeting_message: Some(
-                "Hello! I'm ready to help. Type /help for commands.".to_owned(),
-            ),
+            greeting_message: Some("Hello! I'm ready to help. Type /help for commands.".to_owned()),
             status_format: None,
             allow_commands: true,
             command_prefix: "/".to_owned(),

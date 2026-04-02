@@ -146,12 +146,13 @@ impl ToolHandler for WebFetchHandler {
         // Check cache first.
         let cache_key = normalize_cache_key(parsed_url.as_str());
         if args.cache_ttl_secs > 0
-            && let Some(cached) = read_cache(&cache_key) {
-                let output = truncate_output(&cached, args.max_length);
-                let wrapped =
-                    crate::external_content::wrap_external_content(parsed_url.as_str(), &output);
-                return Ok(ToolOutput::ok(format!("[cached]\n{wrapped}")));
-            }
+            && let Some(cached) = read_cache(&cache_key)
+        {
+            let output = truncate_output(&cached, args.max_length);
+            let wrapped =
+                crate::external_content::wrap_external_content(parsed_url.as_str(), &output);
+            return Ok(ToolOutput::ok(format!("[cached]\n{wrapped}")));
+        }
 
         // Build the HTTP client with custom timeout.
         let timeout = Duration::from_secs(args.timeout_secs.max(1).min(300));
@@ -202,11 +203,12 @@ impl ToolHandler for WebFetchHandler {
 
         // Check content-length if available.
         if let Some(content_length) = response.content_length()
-            && content_length as usize > MAX_BODY_BYTES {
-                return model_err(format!(
-                    "response body too large: {content_length} bytes (limit: {MAX_BODY_BYTES} bytes)"
-                ));
-            }
+            && content_length as usize > MAX_BODY_BYTES
+        {
+            return model_err(format!(
+                "response body too large: {content_length} bytes (limit: {MAX_BODY_BYTES} bytes)"
+            ));
+        }
 
         let content_type = response
             .headers()
@@ -273,9 +275,7 @@ fn truncate_output(content: &str, max_length: usize) -> String {
     let char_count = content.chars().count();
     if char_count > max_length {
         let truncated = content.chars().take(max_length).collect::<String>();
-        format!(
-            "{truncated}\n\n[Content truncated at {max_length} characters]"
-        )
+        format!("{truncated}\n\n[Content truncated at {max_length} characters]")
     } else {
         content.to_owned()
     }
@@ -369,32 +369,34 @@ fn markdown_to_text(markdown: &str) -> String {
     // Remove images: ![alt](url) → alt
     while let Some(start) = text.find("![") {
         if let Some(mid) = text[start..].find("](")
-            && let Some(end) = text[start + mid..].find(')') {
-                let alt = &text[start + 2..start + mid].to_owned();
-                text = format!(
-                    "{}{}{}",
-                    &text[..start],
-                    alt,
-                    &text[start + mid + end + 1..]
-                );
-                continue;
-            }
+            && let Some(end) = text[start + mid..].find(')')
+        {
+            let alt = &text[start + 2..start + mid].to_owned();
+            text = format!(
+                "{}{}{}",
+                &text[..start],
+                alt,
+                &text[start + mid + end + 1..]
+            );
+            continue;
+        }
         break;
     }
 
     // Remove links: [label](url) → label
     while let Some(start) = text.find('[') {
         if let Some(mid) = text[start..].find("](")
-            && let Some(end) = text[start + mid..].find(')') {
-                let label = &text[start + 1..start + mid].to_owned();
-                text = format!(
-                    "{}{}{}",
-                    &text[..start],
-                    label,
-                    &text[start + mid + end + 1..]
-                );
-                continue;
-            }
+            && let Some(end) = text[start + mid..].find(')')
+        {
+            let label = &text[start + 1..start + mid].to_owned();
+            text = format!(
+                "{}{}{}",
+                &text[..start],
+                label,
+                &text[start + mid + end + 1..]
+            );
+            continue;
+        }
         break;
     }
 

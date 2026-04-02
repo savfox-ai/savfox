@@ -117,7 +117,7 @@ impl MatrixChannelConfig {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn has_auth(&self) -> bool {
         match self.mode {
             MatrixMode::User => {
@@ -131,7 +131,7 @@ impl MatrixChannelConfig {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         self.validate_auth().is_ok()
     }
@@ -173,7 +173,7 @@ impl MatrixChannelConfig {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn matches_room(&self, room_id: &str) -> bool {
         let room_id = room_id.trim();
         !room_id.is_empty()
@@ -183,7 +183,7 @@ impl MatrixChannelConfig {
                 .any(|room| room.eq_ignore_ascii_case(room_id))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn bot_user_id(&self) -> Option<String> {
         match self.mode {
             MatrixMode::User => self.user_id.clone(),

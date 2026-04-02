@@ -251,7 +251,7 @@ async fn run_command_under_sandbox(
     handle_exit_status(status);
 }
 
-#[must_use] 
+#[must_use]
 pub fn create_sandbox_mode(full_auto: bool) -> SandboxMode {
     if full_auto {
         SandboxMode::WorkspaceWrite

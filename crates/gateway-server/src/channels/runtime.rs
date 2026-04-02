@@ -501,7 +501,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     let provider = effective_model
         .split('/')
         .next()
-        .unwrap_or("unknown").to_owned();
+        .unwrap_or("unknown")
+        .to_owned();
     let tone_suffix = configured_channel_tone_suffix(
         &gateway_channel.config().savfox_home,
         &routed_agent,

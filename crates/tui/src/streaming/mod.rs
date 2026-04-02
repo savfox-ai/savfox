@@ -7,8 +7,7 @@ pub(crate) mod controller;
 
 /// How many lines the streaming animation commits per tick.
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum StreamingSpeed {
     /// Default: one line per tick.
     #[default]
@@ -18,7 +17,6 @@ pub(crate) enum StreamingSpeed {
     /// No animation: drain all queued lines immediately.
     Instant,
 }
-
 
 #[allow(dead_code)]
 impl StreamingSpeed {

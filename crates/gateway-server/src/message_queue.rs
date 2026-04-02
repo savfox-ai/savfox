@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify};
 
 /// Priority levels for messages
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum MessagePriority {
     Low = 0,
     #[default]
@@ -15,7 +14,6 @@ pub enum MessagePriority {
     High = 2,
     Urgent = 3,
 }
-
 
 /// A queued message with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +35,7 @@ pub struct MessageQueue {
 }
 
 impl MessageQueue {
-    #[must_use] 
+    #[must_use]
     pub fn new(max_size: usize) -> Self {
         Self {
             urgent: Mutex::new(VecDeque::new()),

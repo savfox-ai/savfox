@@ -189,7 +189,9 @@ pub async fn models_get_handler(req: &mut Request, res: &mut Response) {
     }
 
     let models = get_builtin_models();
-    if let Some(model) = models.into_iter().find(|m| m.id == model_id) { res.render(Text::Json(json!({ "model": model }).to_string())) } else {
+    if let Some(model) = models.into_iter().find(|m| m.id == model_id) {
+        res.render(Text::Json(json!({ "model": model }).to_string()))
+    } else {
         res.status_code(StatusCode::NOT_FOUND);
         res.render(Text::Json(
             json!({ "error": "model not found" }).to_string(),

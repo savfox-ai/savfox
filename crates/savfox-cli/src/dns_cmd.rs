@@ -67,9 +67,7 @@ pub async fn run(cmd: DnsCommand) -> Result<(), Box<dyn std::error::Error>> {
             print_dns_summary(&out_dir, &domain, &host, current_ip, port);
 
             if watch {
-                println!(
-                    "Watching for IP changes every {interval_secs}s (Ctrl+C to stop)..."
-                );
+                println!("Watching for IP changes every {interval_secs}s (Ctrl+C to stop)...");
                 let poll = Duration::from_secs(interval_secs.max(2));
                 loop {
                     tokio::select! {

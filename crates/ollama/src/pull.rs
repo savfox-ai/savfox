@@ -43,7 +43,7 @@ impl Default for CliProgressReporter {
 }
 
 impl CliProgressReporter {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             printed_header: false,

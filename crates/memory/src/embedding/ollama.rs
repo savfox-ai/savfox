@@ -11,7 +11,7 @@ pub struct OllamaEmbeddingProvider {
 }
 
 impl OllamaEmbeddingProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(base_url: String, model: String) -> Self {
         Self {
             client: Client::new(),

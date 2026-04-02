@@ -836,9 +836,7 @@ impl AuthModeWidget {
         let provider_name = provider.name.clone();
         self.error = None;
         *self.sign_in_state.write().unwrap() =
-            SignInState::ProviderConnecting(ProviderConnectingState {
-                provider_name,
-            });
+            SignInState::ProviderConnecting(ProviderConnectingState { provider_name });
         self.request_frame.schedule_frame();
 
         let sign_in_state = self.sign_in_state.clone();

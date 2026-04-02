@@ -10,7 +10,7 @@ use crate::protocol::v1::{SessionItem, Turn, TurnError, TurnStatus, UserInput};
 /// The purpose of this is to convert the EventMsgs persisted in a rollout file
 /// into a sequence of Turns and SessionItems, which allows the client to render
 /// the historical messages when resuming a session.
-#[must_use] 
+#[must_use]
 pub fn build_turns_from_event_msgs(events: &[EventMsg]) -> Vec<Turn> {
     let mut builder = SessionHistoryBuilder::new();
     for event in events {

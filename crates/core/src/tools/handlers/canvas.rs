@@ -94,10 +94,7 @@ impl ToolHandler for CanvasHandler {
                     body.insert("url".to_owned(), serde_json::Value::String(url.clone()));
                 }
                 if let Some(title) = &args.title {
-                    body.insert(
-                        "title".to_owned(),
-                        serde_json::Value::String(title.clone()),
-                    );
+                    body.insert("title".to_owned(), serde_json::Value::String(title.clone()));
                 }
                 if let Some(width) = args.width {
                     body.insert("width".to_owned(), serde_json::Value::Number(width.into()));
@@ -137,10 +134,7 @@ impl ToolHandler for CanvasHandler {
                     FunctionCallError::RespondToModel("navigate requires 'url' field".to_owned())
                 })?;
                 let mut body = serde_json::Map::new();
-                body.insert(
-                    "url".to_owned(),
-                    serde_json::Value::String(url.to_owned()),
-                );
+                body.insert("url".to_owned(), serde_json::Value::String(url.to_owned()));
                 if let Some(node_id) = &args.node_id {
                     body.insert(
                         "nodeId".to_owned(),

@@ -32,7 +32,7 @@ const WEBSOCKET_UNKNOWN_KIND: &str = "unknown";
 
 impl OtelManager {
     #[allow(clippy::too_many_arguments)]
-    #[must_use] 
+    #[must_use]
     pub fn new(
         conversation_id: SessionId,
         model: &str,
@@ -400,36 +400,40 @@ impl OtelManager {
             duration,
             &[("kind", kind_str), ("success", "false")],
         );
-        if let Some(kind) = kind { tracing::event!(
-            tracing::Level::INFO,
-            event.name = "savfox.sse_event",
-            event.timestamp = %timestamp(),
-            event.kind = %kind,
-            conversation.id = %self.metadata.conversation_id,
-            app.version = %self.metadata.app_version,
-            auth_mode = self.metadata.auth_mode,
-            user.account_id = self.metadata.account_id,
-            user.email = self.metadata.account_email,
-            terminal.type = %self.metadata.terminal_type,
-            model = %self.metadata.model,
-            slug = %self.metadata.slug,
-            duration_ms = %duration.as_millis(),
-            error.message = %error,
-        ) } else { tracing::event!(
-            tracing::Level::INFO,
-            event.name = "savfox.sse_event",
-            event.timestamp = %timestamp(),
-            conversation.id = %self.metadata.conversation_id,
-            app.version = %self.metadata.app_version,
-            auth_mode = self.metadata.auth_mode,
-            user.account_id = self.metadata.account_id,
-            user.email = self.metadata.account_email,
-            terminal.type = %self.metadata.terminal_type,
-            model = %self.metadata.model,
-            slug = %self.metadata.slug,
-            duration_ms = %duration.as_millis(),
-            error.message = %error,
-        ) }
+        if let Some(kind) = kind {
+            tracing::event!(
+                tracing::Level::INFO,
+                event.name = "savfox.sse_event",
+                event.timestamp = %timestamp(),
+                event.kind = %kind,
+                conversation.id = %self.metadata.conversation_id,
+                app.version = %self.metadata.app_version,
+                auth_mode = self.metadata.auth_mode,
+                user.account_id = self.metadata.account_id,
+                user.email = self.metadata.account_email,
+                terminal.type = %self.metadata.terminal_type,
+                model = %self.metadata.model,
+                slug = %self.metadata.slug,
+                duration_ms = %duration.as_millis(),
+                error.message = %error,
+            )
+        } else {
+            tracing::event!(
+                tracing::Level::INFO,
+                event.name = "savfox.sse_event",
+                event.timestamp = %timestamp(),
+                conversation.id = %self.metadata.conversation_id,
+                app.version = %self.metadata.app_version,
+                auth_mode = self.metadata.auth_mode,
+                user.account_id = self.metadata.account_id,
+                user.email = self.metadata.account_email,
+                terminal.type = %self.metadata.terminal_type,
+                model = %self.metadata.model,
+                slug = %self.metadata.slug,
+                duration_ms = %duration.as_millis(),
+                error.message = %error,
+            )
+        }
     }
 
     pub fn see_event_completed_failed<T>(&self, error: &T)

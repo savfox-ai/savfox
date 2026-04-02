@@ -110,7 +110,7 @@ pub enum SsrfError {
     Http(String),
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
@@ -130,7 +130,7 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_metadata_hostname(host: &str) -> bool {
     let host = host.trim().trim_matches('.').to_ascii_lowercase();
     host == "metadata.google.internal" || host == "169.254.169.254"

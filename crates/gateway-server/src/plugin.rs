@@ -132,7 +132,7 @@ pub struct PluginRegistry {
 }
 
 impl PluginRegistry {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             plugins: HashMap::new(),
@@ -174,13 +174,13 @@ impl PluginRegistry {
     }
 
     /// Get a plugin
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<&RegisteredPlugin> {
         self.plugins.get(id)
     }
 
     /// List all plugins
-    #[must_use] 
+    #[must_use]
     pub fn list(&self) -> Vec<&RegisteredPlugin> {
         self.plugins.values().collect()
     }
@@ -227,7 +227,7 @@ impl std::fmt::Debug for PluginLoader {
 
 impl PluginLoader {
     /// Create a new loader rooted at `{savfox_home}/plugins/`.
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &std::path::Path) -> Self {
         Self {
             plugins_dir: savfox_home.join("plugins"),
@@ -263,7 +263,8 @@ impl PluginLoader {
                     let id = path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or("unknown").to_owned();
+                        .unwrap_or("unknown")
+                        .to_owned();
 
                     let info = PluginInfo {
                         id: id.clone(),
@@ -347,7 +348,7 @@ impl PluginLoader {
     }
 
     /// Return the plugins directory path.
-    #[must_use] 
+    #[must_use]
     pub fn plugins_dir(&self) -> &std::path::Path {
         &self.plugins_dir
     }
@@ -443,7 +444,7 @@ pub async fn discover_snapshot(
 }
 
 /// Build REST route descriptors for plugin HTTP endpoints.
-#[must_use] 
+#[must_use]
 pub fn describe_http_routes(
     plugins: &[RegisteredPlugin],
     rate_limit_per_minute: u32,

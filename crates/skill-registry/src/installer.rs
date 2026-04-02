@@ -44,7 +44,7 @@ pub struct SkillInstaller {
 }
 
 impl SkillInstaller {
-    #[must_use] 
+    #[must_use]
     pub fn new(skills_dir: PathBuf) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
@@ -188,15 +188,16 @@ impl SkillInstaller {
             let total_files = archive.len();
 
             if install_path.exists()
-                && let Err(err) = std::fs::remove_dir_all(&install_path) {
-                    return InstallResult {
-                        success: false,
-                        name: package_name,
-                        version: package_version,
-                        install_path: install_path.clone(),
-                        error: Some(format!("failed to remove existing dir: {err}")),
-                    };
-                }
+                && let Err(err) = std::fs::remove_dir_all(&install_path)
+            {
+                return InstallResult {
+                    success: false,
+                    name: package_name,
+                    version: package_version,
+                    install_path: install_path.clone(),
+                    error: Some(format!("failed to remove existing dir: {err}")),
+                };
+            }
             if let Err(err) = std::fs::create_dir_all(&install_path) {
                 return InstallResult {
                     success: false,
@@ -238,15 +239,16 @@ impl SkillInstaller {
                 } else {
                     if let Some(p) = outpath.parent()
                         && !p.exists()
-                            && let Err(err) = std::fs::create_dir_all(p) {
-                                return InstallResult {
-                                    success: false,
-                                    name: package_name,
-                                    version: package_version,
-                                    install_path: install_path.clone(),
-                                    error: Some(format!("failed to create parent dir: {err}")),
-                                };
-                            }
+                        && let Err(err) = std::fs::create_dir_all(p)
+                    {
+                        return InstallResult {
+                            success: false,
+                            name: package_name,
+                            version: package_version,
+                            install_path: install_path.clone(),
+                            error: Some(format!("failed to create parent dir: {err}")),
+                        };
+                    }
                     let mut buffer = Vec::new();
                     if let Err(err) = file.read_to_end(&mut buffer) {
                         return InstallResult {
@@ -349,15 +351,16 @@ impl SkillInstaller {
 
         let result = tokio::task::spawn_blocking(move || {
             if install_path.exists()
-                && let Err(err) = std::fs::remove_dir_all(&install_path) {
-                    return InstallResult {
-                        success: false,
-                        name: package_name,
-                        version: package_version,
-                        install_path: install_path,
-                        error: Some(format!("failed to remove existing dir: {err}")),
-                    };
-                }
+                && let Err(err) = std::fs::remove_dir_all(&install_path)
+            {
+                return InstallResult {
+                    success: false,
+                    name: package_name,
+                    version: package_version,
+                    install_path,
+                    error: Some(format!("failed to remove existing dir: {err}")),
+                };
+            }
 
             let clone_result = if let Some(ref subdir) = subdir_owned {
                 // Sparse checkout: only materialise the target sub-directory.
@@ -385,7 +388,7 @@ impl SkillInstaller {
                     success: false,
                     name: package_name,
                     version: package_version,
-                    install_path: install_path,
+                    install_path,
                     error: Some(err),
                 },
             }
@@ -413,15 +416,16 @@ impl SkillInstaller {
 
         let result = tokio::task::spawn_blocking(move || {
             if install_path.exists()
-                && let Err(err) = std::fs::remove_dir_all(&install_path) {
-                    return InstallResult {
-                        success: false,
-                        name: package_name,
-                        version: package_version,
-                        install_path: install_path,
-                        error: Some(format!("failed to remove existing dir: {err}")),
-                    };
-                }
+                && let Err(err) = std::fs::remove_dir_all(&install_path)
+            {
+                return InstallResult {
+                    success: false,
+                    name: package_name,
+                    version: package_version,
+                    install_path,
+                    error: Some(format!("failed to remove existing dir: {err}")),
+                };
+            }
 
             if let Err(err) = fs_extra::dir::copy(
                 &source_path,
@@ -432,7 +436,7 @@ impl SkillInstaller {
                     success: false,
                     name: package_name,
                     version: package_version,
-                    install_path: install_path,
+                    install_path,
                     error: Some(format!("failed to copy directory: {err}")),
                 };
             }
@@ -468,21 +472,22 @@ impl SkillInstaller {
 
         let result = tokio::task::spawn_blocking(move || {
             if install_path.exists()
-                && let Err(err) = std::fs::remove_dir_all(&install_path) {
-                    return InstallResult {
-                        success: false,
-                        name: package_name,
-                        version: package_version,
-                        install_path: install_path,
-                        error: Some(format!("failed to remove existing dir: {err}")),
-                    };
-                }
+                && let Err(err) = std::fs::remove_dir_all(&install_path)
+            {
+                return InstallResult {
+                    success: false,
+                    name: package_name,
+                    version: package_version,
+                    install_path,
+                    error: Some(format!("failed to remove existing dir: {err}")),
+                };
+            }
             if let Err(err) = std::fs::create_dir_all(&install_path) {
                 return InstallResult {
                     success: false,
                     name: package_name,
                     version: package_version,
-                    install_path: install_path,
+                    install_path,
                     error: Some(format!("failed to create dir: {err}")),
                 };
             }
@@ -493,7 +498,7 @@ impl SkillInstaller {
                     success: false,
                     name: package_name,
                     version: package_version,
-                    install_path: install_path,
+                    install_path,
                     error: Some(format!("failed to write SKILL.md: {err}")),
                 };
             }
@@ -560,14 +565,16 @@ impl SkillInstaller {
                     let manifest_path = path.join(".savfox-manifest.json");
                     if manifest_path.exists()
                         && let Ok(content) = std::fs::read_to_string(&manifest_path)
-                            && let Ok(manifest) = serde_json::from_str::<SkillManifest>(&content) {
-                                installed.push((manifest.name, manifest.version.to_string()));
-                                continue;
-                            }
+                        && let Ok(manifest) = serde_json::from_str::<SkillManifest>(&content)
+                    {
+                        installed.push((manifest.name, manifest.version.to_string()));
+                        continue;
+                    }
                     let name = path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or("unknown").to_owned();
+                        .unwrap_or("unknown")
+                        .to_owned();
                     installed.push((name, "unknown".to_owned()));
                 }
             }

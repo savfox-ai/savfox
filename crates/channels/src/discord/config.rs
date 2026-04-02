@@ -31,7 +31,7 @@ pub struct DiscordChannelConfig {
 }
 
 impl DiscordChannelConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -62,7 +62,7 @@ impl DiscordChannelConfig {
             .is_some_and(|v| !v.trim().is_empty())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn stream_enabled(&self) -> bool {
         self.inbound_mode == DiscordInboundMode::Stream
     }

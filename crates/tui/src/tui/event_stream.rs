@@ -183,7 +183,9 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
                     .state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let events = if let Some(events) = state.active_event_source_mut() { events } else {
+                let events = if let Some(events) = state.active_event_source_mut() {
+                    events
+                } else {
                     drop(state);
                     // Poll resume_stream so resume_events wakes a stream paused here
                     match Pin::new(&mut self.resume_stream).poll_next(cx) {

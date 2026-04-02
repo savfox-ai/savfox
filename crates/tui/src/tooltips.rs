@@ -47,8 +47,13 @@ pub(crate) fn get_tooltip(plan: Option<PlanType>) -> Option<String> {
     // Leave small chance for a random tooltip to be shown.
     if rng.random_ratio(8, 10) {
         match plan {
-            Some(PlanType::Plus | PlanType::Business | PlanType::Team |
-PlanType::Enterprise | PlanType::Pro) => {
+            Some(
+                PlanType::Plus
+                | PlanType::Business
+                | PlanType::Team
+                | PlanType::Enterprise
+                | PlanType::Pro,
+            ) => {
                 if !PAID_TOOLTIP.is_empty() {
                     return Some(PAID_TOOLTIP.to_owned());
                 }

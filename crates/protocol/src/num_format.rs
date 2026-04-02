@@ -24,7 +24,7 @@ fn formatter() -> &'static DecimalFormatter {
 
 /// Format an i64 with locale-aware digit separators (e.g. "12345" -> "12,345"
 /// for en-US).
-#[must_use] 
+#[must_use]
 pub fn format_with_separators(n: i64) -> String {
     formatter().format(&Decimal::from(n)).to_string()
 }
@@ -73,7 +73,7 @@ fn format_si_suffix_with_formatter(n: i64, formatter: &DecimalFormatter) -> Stri
 ///   - 999 -> "999"
 ///   - 1200 -> "1.20K"
 ///   - 123456789 -> "123M"
-#[must_use] 
+#[must_use]
 pub fn format_si_suffix(n: i64) -> String {
     format_si_suffix_with_formatter(n, formatter())
 }

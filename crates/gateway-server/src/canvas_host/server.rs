@@ -14,7 +14,7 @@ pub struct CanvasHostService {
 }
 
 impl CanvasHostService {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         let (action_tx, _) = broadcast::channel(64);
         let (update_tx, _) = broadcast::channel(64);
@@ -64,12 +64,12 @@ impl CanvasHostService {
         states.get(surface_id).cloned()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn subscribe_updates(&self) -> broadcast::Receiver<CanvasMessage> {
         self.update_tx.subscribe()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn subscribe_actions(&self) -> broadcast::Receiver<A2UIAction> {
         self.action_tx.subscribe()
     }
@@ -82,7 +82,7 @@ impl CanvasHostService {
         let _ = self.action_tx.send(action);
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn render_index_html() -> String {
         r#"<!DOCTYPE html>
 <html>

@@ -22,7 +22,7 @@ fn format_value(value: &serde_json::Value) -> String {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn apply_template(template: &str, ctx: &TemplateContext) -> String {
     let mut result = template.to_owned();
     let mut start = 0;

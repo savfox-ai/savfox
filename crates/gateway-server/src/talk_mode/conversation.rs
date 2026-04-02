@@ -34,7 +34,7 @@ pub struct ConversationState {
 }
 
 impl ConversationState {
-    #[must_use] 
+    #[must_use]
     pub fn new(session_id: &str) -> Self {
         let now = Utc::now();
         Self {
@@ -52,17 +52,17 @@ impl ConversationState {
         self.last_activity = Utc::now();
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn last_turn(&self) -> Option<&ConversationTurn> {
         self.turns.last()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn last_user_turn(&self) -> Option<&ConversationTurn> {
         self.turns.iter().rev().find(|t| t.role == TurnRole::User)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn last_assistant_turn(&self) -> Option<&ConversationTurn> {
         self.turns
             .iter()
@@ -77,7 +77,7 @@ impl ConversationState {
     }
 
     /// Get conversation as a list of messages for API requests.
-    #[must_use] 
+    #[must_use]
     pub fn to_messages(&self) -> Vec<serde_json::Value> {
         self.turns
             .iter()
@@ -102,7 +102,7 @@ pub struct ConversationManager {
 }
 
 impl ConversationManager {
-    #[must_use] 
+    #[must_use]
     pub fn new(max_conversations: usize) -> Self {
         Self {
             conversations: RwLock::new(Vec::new()),
@@ -184,7 +184,7 @@ pub struct ConversationTurnBuilder {
 }
 
 impl ConversationTurnBuilder {
-    #[must_use] 
+    #[must_use]
     pub fn new(role: TurnRole, content: &str) -> Self {
         Self {
             role,
@@ -194,34 +194,34 @@ impl ConversationTurnBuilder {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn user(content: &str) -> Self {
         Self::new(TurnRole::User, content)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn assistant(content: &str) -> Self {
         Self::new(TurnRole::Assistant, content)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn system(content: &str) -> Self {
         Self::new(TurnRole::System, content)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn audio_url(mut self, url: &str) -> Self {
         self.audio_url = Some(url.to_owned());
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn duration_ms(mut self, ms: u64) -> Self {
         self.duration_ms = Some(ms);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn build(self) -> ConversationTurn {
         ConversationTurn {
             id: uuid::Uuid::now_v7().to_string(),

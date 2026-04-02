@@ -138,7 +138,8 @@ pub(super) fn create_write_stdin_tool() -> ToolSpec {
             "max_output_tokens".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum number of tokens to return. Excess output will be truncated.".to_owned(),
+                    "Maximum number of tokens to return. Excess output will be truncated."
+                        .to_owned(),
                 ),
             },
         ),
@@ -221,7 +222,8 @@ pub(super) fn create_shell_command_tool(include_prefix_rule: bool) -> ToolSpec {
             "login".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "Whether to run the shell with login shell semantics. Defaults to true.".to_owned(),
+                    "Whether to run the shell with login shell semantics. Defaults to true."
+                        .to_owned(),
                 ),
             },
         ),

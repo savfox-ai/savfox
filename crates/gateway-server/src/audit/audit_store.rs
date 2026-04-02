@@ -18,7 +18,7 @@ const CHANNEL_SIZE: usize = 1024;
 const MAX_FILE_SIZE_MB: u64 = 100;
 
 impl AuditStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &std::path::Path) -> Self {
         let log_path = savfox_home.join("logs").join("audit.log");
         let (tx, rx) = mpsc::channel::<AuditEvent>(CHANNEL_SIZE);
@@ -39,7 +39,7 @@ impl AuditStore {
         store
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_home(savfox_home: &std::path::Path) -> Self {
         Self::new(savfox_home)
     }
@@ -159,13 +159,14 @@ impl AuditStore {
             let path = entry.path();
             if path.extension().map(|e| e == "log").unwrap_or(false)
                 && let Ok(metadata) = entry.metadata().await
-                    && let Ok(modified) = metadata.modified() {
-                        let modified: chrono::DateTime<chrono::Utc> = modified.into();
-                        if modified < cutoff && path != self.log_path {
-                            tokio::fs::remove_file(&path).await?;
-                            pruned += 1;
-                        }
-                    }
+                && let Ok(modified) = metadata.modified()
+            {
+                let modified: chrono::DateTime<chrono::Utc> = modified.into();
+                if modified < cutoff && path != self.log_path {
+                    tokio::fs::remove_file(&path).await?;
+                    pruned += 1;
+                }
+            }
         }
 
         if pruned > 0 {
@@ -182,7 +183,7 @@ pub struct AuditLogger {
 }
 
 impl AuditLogger {
-    #[must_use] 
+    #[must_use]
     pub fn new(store: Arc<AuditStore>) -> Self {
         Self { store }
     }

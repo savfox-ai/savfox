@@ -12,8 +12,7 @@ use tracing::info;
 
 use crate::home_paths::talk_mode_config_path;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum TalkModeState {
     #[default]
     Inactive,
@@ -22,7 +21,6 @@ pub enum TalkModeState {
     Speaking,
     Paused,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TalkModeConfig {

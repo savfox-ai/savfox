@@ -32,7 +32,7 @@ pub enum SandboxPermissions {
 }
 
 impl SandboxPermissions {
-    #[must_use] 
+    #[must_use]
     pub fn requires_escalated_permissions(self) -> bool {
         matches!(self, Self::RequireEscalated)
     }
@@ -228,7 +228,7 @@ impl DeveloperInstructions {
         Self { text: text.into() }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from(
         approval_policy: AskForApproval,
         exec_policy: &Policy,
@@ -259,7 +259,7 @@ impl DeveloperInstructions {
         Self::new(text)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_text(self) -> String {
         self.text
     }
@@ -273,7 +273,7 @@ impl DeveloperInstructions {
         Self { text }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn personality_spec_message(spec: String) -> Self {
         let message = format!(
             "<personality_spec> The user has requested a new communication style. Future messages should adhere to the following personality: \n{spec} </personality_spec>"
@@ -281,7 +281,7 @@ impl DeveloperInstructions {
         Self::new(message)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_policy(
         sandbox_policy: &SandboxPolicy,
         approval_policy: AskForApproval,
@@ -316,7 +316,7 @@ impl DeveloperInstructions {
     }
 
     /// Returns developer instructions from a collaboration mode if they exist and are non-empty.
-    #[must_use] 
+    #[must_use]
     pub fn from_collaboration_mode(collaboration_mode: &CollaborationMode) -> Option<Self> {
         collaboration_mode
             .settings
@@ -341,10 +341,7 @@ impl DeveloperInstructions {
         let start_tag = Self::new("<permissions instructions>");
         let end_tag = Self::new("</permissions instructions>");
         start_tag
-            .concat(Self::sandbox_text(
-                sandbox_mode,
-                network_access,
-            ))
+            .concat(Self::sandbox_text(sandbox_mode, network_access))
             .concat(Self::from(
                 approval_policy,
                 exec_policy,
@@ -391,7 +388,7 @@ const MAX_RENDERED_PREFIXES: usize = 100;
 const MAX_ALLOW_PREFIX_TEXT_BYTES: usize = 5000;
 const TRUNCATED_MARKER: &str = "...\n[Some commands were truncated]";
 
-#[must_use] 
+#[must_use]
 pub fn format_allow_prefixes(prefixes: Vec<Vec<String>>) -> Option<String> {
     let mut truncated = false;
     if prefixes.len() > MAX_RENDERED_PREFIXES {
@@ -499,44 +496,44 @@ const LOCAL_IMAGE_OPEN_TAG_PREFIX: &str = "<image name=";
 const LOCAL_IMAGE_OPEN_TAG_SUFFIX: &str = ">";
 const LOCAL_IMAGE_CLOSE_TAG: &str = IMAGE_CLOSE_TAG;
 
-#[must_use] 
+#[must_use]
 pub fn image_open_tag_text() -> String {
     IMAGE_OPEN_TAG.to_owned()
 }
 
-#[must_use] 
+#[must_use]
 pub fn image_close_tag_text() -> String {
     IMAGE_CLOSE_TAG.to_owned()
 }
 
-#[must_use] 
+#[must_use]
 pub fn local_image_label_text(label_number: usize) -> String {
     format!("[Image #{label_number}]")
 }
 
-#[must_use] 
+#[must_use]
 pub fn local_image_open_tag_text(label_number: usize) -> String {
     let label = local_image_label_text(label_number);
     format!("{LOCAL_IMAGE_OPEN_TAG_PREFIX}{label}{LOCAL_IMAGE_OPEN_TAG_SUFFIX}")
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_local_image_open_tag_text(text: &str) -> bool {
     text.strip_prefix(LOCAL_IMAGE_OPEN_TAG_PREFIX)
         .is_some_and(|rest| rest.ends_with(LOCAL_IMAGE_OPEN_TAG_SUFFIX))
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_local_image_close_tag_text(text: &str) -> bool {
     is_image_close_tag_text(text)
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_image_open_tag_text(text: &str) -> bool {
     text == IMAGE_OPEN_TAG
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_image_close_tag_text(text: &str) -> bool {
     text == IMAGE_CLOSE_TAG
 }
@@ -564,7 +561,7 @@ fn unsupported_image_error_placeholder(path: &std::path::Path, mime: &str) -> Co
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn local_image_content_items_with_label_number(
     path: &std::path::Path,
     label_number: Option<usize>,

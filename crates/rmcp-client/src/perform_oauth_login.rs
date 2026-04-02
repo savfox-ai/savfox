@@ -192,12 +192,12 @@ impl OauthLoginHandle {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn authorization_url(&self) -> &str {
         &self.authorization_url
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_parts(self) -> (String, oneshot::Receiver<Result<()>>) {
         (self.authorization_url, self.completion)
     }

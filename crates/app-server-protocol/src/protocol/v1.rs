@@ -160,7 +160,7 @@ pub enum AskForApproval {
 }
 
 impl AskForApproval {
-    #[must_use] 
+    #[must_use]
     pub fn to_core(self) -> CoreAskForApproval {
         match self {
             Self::UnlessTrusted => CoreAskForApproval::UnlessTrusted,
@@ -192,7 +192,7 @@ pub enum SandboxMode {
 }
 
 impl SandboxMode {
-    #[must_use] 
+    #[must_use]
     pub fn to_core(self) -> CoreSandboxMode {
         match self {
             Self::ReadOnly => CoreSandboxMode::ReadOnly,
@@ -271,7 +271,7 @@ pub enum ConfigLayerSource {
 impl ConfigLayerSource {
     /// A settings from a layer with a higher precedence will override a setting
     /// from a layer with a lower precedence.
-    #[must_use] 
+    #[must_use]
     pub fn precedence(&self) -> i16 {
         match self {
             Self::Mdm { .. } => 0,
@@ -574,12 +574,10 @@ pub enum SandboxPolicy {
 }
 
 impl SandboxPolicy {
-    #[must_use] 
+    #[must_use]
     pub fn to_core(&self) -> savfox_protocol::protocol::SandboxPolicy {
         match self {
-            Self::DangerFullAccess => {
-                savfox_protocol::protocol::SandboxPolicy::DangerFullAccess
-            }
+            Self::DangerFullAccess => savfox_protocol::protocol::SandboxPolicy::DangerFullAccess,
             Self::ReadOnly => savfox_protocol::protocol::SandboxPolicy::ReadOnly,
             Self::ExternalSandbox { network_access } => {
                 savfox_protocol::protocol::SandboxPolicy::ExternalSandbox {
@@ -607,9 +605,7 @@ impl SandboxPolicy {
 impl From<savfox_protocol::protocol::SandboxPolicy> for SandboxPolicy {
     fn from(value: savfox_protocol::protocol::SandboxPolicy) -> Self {
         match value {
-            savfox_protocol::protocol::SandboxPolicy::DangerFullAccess => {
-                Self::DangerFullAccess
-            }
+            savfox_protocol::protocol::SandboxPolicy::DangerFullAccess => Self::DangerFullAccess,
             savfox_protocol::protocol::SandboxPolicy::ReadOnly => Self::ReadOnly,
             savfox_protocol::protocol::SandboxPolicy::ExternalSandbox { network_access } => {
                 Self::ExternalSandbox {
@@ -642,7 +638,7 @@ pub struct ExecPolicyAmendment {
 }
 
 impl ExecPolicyAmendment {
-    #[must_use] 
+    #[must_use]
     pub fn into_core(self) -> CoreExecPolicyAmendment {
         CoreExecPolicyAmendment::new(self.command)
     }
@@ -733,7 +729,7 @@ pub struct GitInfo {
 }
 
 impl CommandAction {
-    #[must_use] 
+    #[must_use]
     pub fn into_core(self) -> CoreParsedCommand {
         match self {
             Self::Read {
@@ -741,9 +737,7 @@ impl CommandAction {
                 name,
                 path,
             } => CoreParsedCommand::Read { cmd, name, path },
-            Self::ListFiles { command: cmd, path } => {
-                CoreParsedCommand::ListFiles { cmd, path }
-            }
+            Self::ListFiles { command: cmd, path } => CoreParsedCommand::ListFiles { cmd, path },
             Self::Search {
                 command: cmd,
                 query,
@@ -762,9 +756,7 @@ impl From<CoreParsedCommand> for CommandAction {
                 name,
                 path,
             },
-            CoreParsedCommand::ListFiles { cmd, path } => {
-                Self::ListFiles { command: cmd, path }
-            }
+            CoreParsedCommand::ListFiles { cmd, path } => Self::ListFiles { command: cmd, path },
             CoreParsedCommand::Search { cmd, query, path } => Self::Search {
                 command: cmd,
                 query,
@@ -1934,7 +1926,7 @@ pub struct TextElement {
 }
 
 impl TextElement {
-    #[must_use] 
+    #[must_use]
     pub fn new(byte_range: ByteRange, placeholder: Option<String>) -> Self {
         Self {
             byte_range,
@@ -1946,7 +1938,7 @@ impl TextElement {
         self.placeholder = placeholder;
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn placeholder(&self) -> Option<&str> {
         self.placeholder.as_deref()
     }
@@ -2165,9 +2157,7 @@ impl From<savfox_protocol::models::WebSearchAction> for WebSearchAction {
             savfox_protocol::models::WebSearchAction::Search { query, queries } => {
                 Self::Search { query, queries }
             }
-            savfox_protocol::models::WebSearchAction::OpenPage { url } => {
-                Self::OpenPage { url }
-            }
+            savfox_protocol::models::WebSearchAction::OpenPage { url } => Self::OpenPage { url },
             savfox_protocol::models::WebSearchAction::FindInPage { url, pattern } => {
                 Self::FindInPage { url, pattern }
             }

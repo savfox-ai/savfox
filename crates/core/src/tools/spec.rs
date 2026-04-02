@@ -179,7 +179,8 @@ fn create_cron_tool() -> ToolSpec {
             JsonSchema::String {
                 description: Some(
                     "Action to perform: \"list\" (show all jobs), \"add\" (create a job), \
-                     \"remove\" (delete a job), \"next\" (show next run times).".to_owned(),
+                     \"remove\" (delete a job), \"next\" (show next run times)."
+                        .to_owned(),
                 ),
             },
         ),
@@ -196,7 +197,8 @@ fn create_cron_tool() -> ToolSpec {
             JsonSchema::String {
                 description: Some(
                     "Cron schedule expression, e.g. \"0 0 * * * *\" (required for add). \
-                     Uses 6-field format: sec min hour day month weekday.".to_owned(),
+                     Uses 6-field format: sec min hour day month weekday."
+                        .to_owned(),
                 ),
             },
         ),
@@ -346,7 +348,8 @@ fn create_gateway_status_tool() -> ToolSpec {
                     "Gateway action: \"status\" (connected clients), \"config\" (configuration), \
                      \"health\" (health check), \"config.get\" (full config with schema), \
                      \"config.patch\" (merge update config), \"config.apply\" (replace config), \
-                     \"restart\" (restart gateway).".to_owned(),
+                     \"restart\" (restart gateway)."
+                        .to_owned(),
                 ),
             },
         ),
@@ -354,7 +357,8 @@ fn create_gateway_status_tool() -> ToolSpec {
             "raw".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Config content (YAML/JSON) for config.patch and config.apply actions.".to_owned(),
+                    "Config content (YAML/JSON) for config.patch and config.apply actions."
+                        .to_owned(),
                 ),
             },
         ),
@@ -530,7 +534,8 @@ fn create_image_generate_tool() -> ToolSpec {
             "size".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Image dimensions: \"1024x1024\" (default), \"1792x1024\", \"1024x1792\".".to_owned(),
+                    "Image dimensions: \"1024x1024\" (default), \"1792x1024\", \"1024x1792\"."
+                        .to_owned(),
                 ),
             },
         ),
@@ -608,7 +613,8 @@ fn create_browser_tool() -> ToolSpec {
                 description: Some(
                     "Browser action: \"status\", \"start\", \"stop\", \"profiles\", \"tabs\", \
                      \"open\", \"focus\", \"close\", \"snapshot\", \"screenshot\", \"navigate\", \
-                     \"console\", \"pdf\", \"upload\", \"dialog\", \"act\".".to_owned(),
+                     \"console\", \"pdf\", \"upload\", \"dialog\", \"act\"."
+                        .to_owned(),
                 ),
             },
         ),
@@ -699,7 +705,8 @@ fn create_browser_tool() -> ToolSpec {
             "level".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Console log level filter: \"error\", \"warning\", \"log\", \"info\".".to_owned(),
+                    "Console log level filter: \"error\", \"warning\", \"log\", \"info\"."
+                        .to_owned(),
                 ),
             },
         ),
@@ -721,7 +728,8 @@ fn create_canvas_tool() -> ToolSpec {
                 description: Some(
                     "Canvas action: \"present\" (show canvas), \"hide\", \"navigate\" (load URL), \
                      \"eval\" (run JavaScript), \"snapshot\" (capture screenshot), \
-                     \"a2ui_push\" (push A2UI component), \"a2ui_reset\".".to_owned(),
+                     \"a2ui_push\" (push A2UI component), \"a2ui_reset\"."
+                        .to_owned(),
                 ),
             },
         ),
@@ -808,7 +816,8 @@ fn create_gateway_tool() -> ToolSpec {
             JsonSchema::String {
                 description: Some(
                     "Gateway JSON-RPC method to call (e.g., \"agents.list\", \"chat.send\", \
-                     \"sessions.list\", \"cron.add\", \"config.get\", \"tools.invoke\").".to_owned(),
+                     \"sessions.list\", \"cron.add\", \"config.get\", \"tools.invoke\")."
+                        .to_owned(),
                 ),
             },
         ),

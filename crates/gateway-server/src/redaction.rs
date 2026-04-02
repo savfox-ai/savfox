@@ -233,7 +233,7 @@ pub fn redact_text(input: &str) -> String {
     output
 }
 
-#[must_use] 
+#[must_use]
 pub fn redact_json(value: Value) -> Value {
     let mut out = value;
     redact_json_in_place(&mut out);

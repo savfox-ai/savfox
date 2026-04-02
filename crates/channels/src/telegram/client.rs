@@ -12,7 +12,7 @@ use super::config::resolve_telegram_outbound_token;
 /// Escape text for Telegram HTML parse mode.
 ///
 /// Replaces `&`, `<`, and `>` with their HTML entity equivalents.
-#[must_use] 
+#[must_use]
 pub fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -24,7 +24,7 @@ pub fn escape_html(text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Truncate a string for log preview purposes.
-#[must_use] 
+#[must_use]
 pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
     let mut preview: String = text.chars().take(max_chars).collect();
     if text.chars().count() > max_chars {
@@ -38,7 +38,7 @@ pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
 // ---------------------------------------------------------------------------
 
 /// Verify Telegram webhook secret token equality.
-#[must_use] 
+#[must_use]
 pub fn verify_webhook_secret(expected_secret: &str, received_secret: &str) -> bool {
     expected_secret == received_secret
 }

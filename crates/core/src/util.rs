@@ -65,7 +65,7 @@ pub(crate) fn try_parse_error_message(text: &str) -> String {
     text.to_owned()
 }
 
-#[must_use] 
+#[must_use]
 pub fn resolve_path(base: &Path, path: &PathBuf) -> PathBuf {
     if path.is_absolute() {
         path.clone()
@@ -75,7 +75,7 @@ pub fn resolve_path(base: &Path, path: &PathBuf) -> PathBuf {
 }
 
 /// Trim a session name and return `None` if it is empty after trimming.
-#[must_use] 
+#[must_use]
 pub fn normalize_session_name(name: &str) -> Option<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {

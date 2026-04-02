@@ -198,7 +198,8 @@ pub(super) fn create_sessions_spawn_tool() -> ToolSpec {
             "cleanup".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "Whether to clean up the agent session on completion (default true).".to_owned(),
+                    "Whether to clean up the agent session on completion (default true)."
+                        .to_owned(),
                 ),
             },
         ),

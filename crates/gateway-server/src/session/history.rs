@@ -156,7 +156,8 @@ pub(crate) fn session_file_to_store_value(savfox_home: &Path, path: &Path) -> St
         let relative_str = relative.to_string_lossy().replace('\\', "/");
         relative_str
             .strip_suffix(".jsonl")
-            .unwrap_or(&relative_str).to_owned()
+            .unwrap_or(&relative_str)
+            .to_owned()
     } else {
         // If the path is absolute and doesn't match the sessions root,
         // try to extract just the UUID filename

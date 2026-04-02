@@ -62,7 +62,7 @@ pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
 
 /// Normalize a skill config path so UI state and persisted config entries
 /// compare the same canonical location.
-#[must_use] 
+#[must_use]
 pub fn normalize_skill_config_path(path: &Path) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
@@ -517,37 +517,37 @@ pub struct ConfigBuilder {
 }
 
 impl ConfigBuilder {
-    #[must_use] 
+    #[must_use]
     pub fn savfox_home(mut self, savfox_home: PathBuf) -> Self {
         self.savfox_home = Some(savfox_home);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn cli_overrides(mut self, cli_overrides: Vec<(String, TomlValue)>) -> Self {
         self.cli_overrides = Some(cli_overrides);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn harness_overrides(mut self, harness_overrides: ConfigOverrides) -> Self {
         self.harness_overrides = Some(harness_overrides);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn loader_overrides(mut self, loader_overrides: LoaderOverrides) -> Self {
         self.loader_overrides = Some(loader_overrides);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn cloud_requirements(mut self, cloud_requirements: CloudRequirementsLoader) -> Self {
         self.cloud_requirements = cloud_requirements;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn fallback_cwd(mut self, fallback_cwd: Option<PathBuf>) -> Self {
         self.fallback_cwd = fallback_cwd;
         self
@@ -916,12 +916,12 @@ pub struct SelectedModel {
 }
 
 impl SelectedModel {
-    #[must_use] 
+    #[must_use]
     pub fn normalized_slug(&self) -> Option<String> {
         trim_nonempty(self.slug.as_str())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn normalized_provider(&self) -> Option<String> {
         trim_nonempty(self.provider.as_str())
     }
@@ -929,7 +929,7 @@ impl SelectedModel {
     /// Returns the full model identifier in "provider/slug" format.
     /// If the slug already contains a provider prefix, returns it as-is.
     /// Otherwise, formats as "provider/slug".
-    #[must_use] 
+    #[must_use]
     pub fn to_model_id(&self) -> Option<String> {
         let slug = self.normalized_slug()?;
         // If slug already has a provider prefix (e.g., "provider/model"), use it as-is
@@ -1181,12 +1181,12 @@ pub struct ProjectConfig {
 }
 
 impl ProjectConfig {
-    #[must_use] 
+    #[must_use]
     pub fn is_trusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Trusted))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_untrusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Untrusted))
     }
@@ -1300,7 +1300,7 @@ impl ConfigToml {
 
     /// Resolves the cwd to an existing project, or returns None if ConfigToml
     /// does not contain a project corresponding to cwd or a git repo for cwd
-    #[must_use] 
+    #[must_use]
     pub fn get_active_project(&self, resolved_cwd: &Path) -> Option<ProjectConfig> {
         let projects = self.projects.clone().unwrap_or_default();
 
@@ -1346,7 +1346,7 @@ pub struct ConfigOverrides {
 
 /// Resolves the OSS provider from CLI override or global config.
 /// Returns `None` if no provider is configured.
-#[must_use] 
+#[must_use]
 pub fn resolve_oss_provider(
     explicit_provider: Option<&str>,
     config_toml: &ConfigToml,
@@ -1779,9 +1779,7 @@ impl Config {
             otel: {
                 let t: OtelConfigToml = cfg.otel.unwrap_or_default();
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);
-                let environment = t
-                    .environment
-                    .unwrap_or(DEFAULT_OTEL_ENVIRONMENT.to_owned());
+                let environment = t.environment.unwrap_or(DEFAULT_OTEL_ENVIRONMENT.to_owned());
                 let exporter = t.exporter.unwrap_or(OtelExporterKind::None);
                 let trace_exporter = t.trace_exporter.unwrap_or_else(|| exporter.clone());
                 OtelConfig {

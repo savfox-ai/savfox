@@ -622,12 +622,12 @@ pub async fn merge_channel_config(
     Ok(config)
 }
 
-#[must_use] 
+#[must_use]
 pub fn channel_config_to_json(config: &ChannelConfig) -> Value {
     serde_json::to_value(config).unwrap_or(Value::Null)
 }
 
-#[must_use] 
+#[must_use]
 pub fn channel_configs_to_json(configs: &[ChannelConfig]) -> Value {
     serde_json::to_value(configs).unwrap_or(Value::Null)
 }

@@ -361,9 +361,7 @@ fn print_tools_table(result: &serde_json::Value) {
             let allowed_str = if allowed { "Yes" } else { "No" };
             let approval_str = if approval { "Required" } else { "Auto" };
 
-            println!(
-                "{name:<25} {category:<12} {allowed_str:<10} {approval_str:<10}"
-            );
+            println!("{name:<25} {category:<12} {allowed_str:<10} {approval_str:<10}");
         }
     }
 }

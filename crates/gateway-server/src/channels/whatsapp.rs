@@ -72,13 +72,14 @@ pub(crate) async fn webhook_verification_handler(
     }
 
     if let Some(expected) = verify_token
-        && token != expected {
-            res.status_code(StatusCode::FORBIDDEN);
-            res.render(Text::Json(
-                json!({"error": "verification failed"}).to_string(),
-            ));
-            return;
-        }
+        && token != expected
+    {
+        res.status_code(StatusCode::FORBIDDEN);
+        res.render(Text::Json(
+            json!({"error": "verification failed"}).to_string(),
+        ));
+        return;
+    }
 
     res.status_code(StatusCode::OK);
     res.render(Text::Plain(challenge));

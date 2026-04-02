@@ -8,7 +8,7 @@ pub struct HybridSearch {
 }
 
 impl HybridSearch {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             vector_weight: 0.7,
@@ -16,7 +16,7 @@ impl HybridSearch {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_weights(vector_weight: f32, keyword_weight: f32) -> Self {
         Self {
             vector_weight,
@@ -189,7 +189,7 @@ pub enum SearchError {
     StorageError(String),
 }
 
-#[must_use] 
+#[must_use]
 pub fn build_fts_query(query: &str) -> String {
     let terms: Vec<&str> = query.split_whitespace().filter(|t| t.len() > 2).collect();
 

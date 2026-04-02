@@ -629,7 +629,9 @@ impl TextArea {
 
         // Fallback to logical line navigation if we don't have wrapping info yet.
         if let Some(prev_nl) = self.text[..self.cursor_pos].rfind('\n') {
-            let target_col = if let Some(c) = self.preferred_col { c } else {
+            let target_col = if let Some(c) = self.preferred_col {
+                c
+            } else {
                 let c = self.current_display_col();
                 self.preferred_col = Some(c);
                 c
@@ -684,7 +686,9 @@ impl TextArea {
         }
 
         // Fallback to logical line navigation if we don't have wrapping info yet.
-        let target_col = if let Some(c) = self.preferred_col { c } else {
+        let target_col = if let Some(c) = self.preferred_col {
+            c
+        } else {
             let c = self.current_display_col();
             self.preferred_col = Some(c);
             c

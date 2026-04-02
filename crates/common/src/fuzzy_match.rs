@@ -9,7 +9,7 @@
 /// This ensures the returned indices can be safely used with
 /// `str::chars().enumerate()` consumers for highlighting, even when
 /// lowercasing expands certain characters (e.g., ß → ss, İ → i̇).
-#[must_use] 
+#[must_use]
 pub fn fuzzy_match(haystack: &str, needle: &str) -> Option<(Vec<usize>, i32)> {
     if needle.is_empty() {
         return Some((Vec::new(), i32::MAX));
@@ -70,7 +70,7 @@ pub fn fuzzy_match(haystack: &str, needle: &str) -> Option<(Vec<usize>, i32)> {
 }
 
 /// Convenience wrapper to get only the indices for a fuzzy match.
-#[must_use] 
+#[must_use]
 pub fn fuzzy_indices(haystack: &str, needle: &str) -> Option<Vec<usize>> {
     fuzzy_match(haystack, needle).map(|(mut idx, _)| {
         idx.sort_unstable();

@@ -267,7 +267,9 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     if oss {
         // We're in the oss section, so provider_id should be Some
         // Let's handle None case gracefully though just in case
-        let provider_id = if let Some(id) = model_provider.as_ref() { id } else {
+        let provider_id = if let Some(id) = model_provider.as_ref() {
+            id
+        } else {
             error!("OSS provider unexpectedly not set when oss flag is used");
             return Err(anyhow::anyhow!(
                 "OSS provider not set but oss flag was used"

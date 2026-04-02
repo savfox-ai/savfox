@@ -17,12 +17,12 @@ pub struct SkillRegistry {
 }
 
 impl SkillRegistry {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &Path) -> Self {
         Self::with_config(savfox_home, RegistryConfig::default())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_config(savfox_home: &Path, config: RegistryConfig) -> Self {
         let skills_dir = savfox_home.join("skills");
         Self {

@@ -35,18 +35,18 @@ impl WindowsSandboxLevelExt for WindowsSandboxLevel {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn windows_sandbox_level_from_config(config: &Config) -> WindowsSandboxLevel {
     WindowsSandboxLevel::from_config(config)
 }
 
-#[must_use] 
+#[must_use]
 pub fn windows_sandbox_level_from_features(features: &Features) -> WindowsSandboxLevel {
     WindowsSandboxLevel::from_features(features)
 }
 
 #[cfg(target_os = "windows")]
-#[must_use] 
+#[must_use]
 pub fn sandbox_setup_is_complete(savfox_home: &Path) -> bool {
     savfox_windows_sandbox::sandbox_setup_is_complete(savfox_home)
 }
@@ -57,7 +57,7 @@ pub fn sandbox_setup_is_complete(_savfox_home: &Path) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-#[must_use] 
+#[must_use]
 pub fn elevated_setup_failure_details(err: &anyhow::Error) -> Option<(String, String)> {
     let failure = savfox_windows_sandbox::extract_setup_failure(err)?;
     let code = failure.code.as_str().to_owned();
@@ -71,7 +71,7 @@ pub fn elevated_setup_failure_details(_err: &anyhow::Error) -> Option<(String, S
 }
 
 #[cfg(target_os = "windows")]
-#[must_use] 
+#[must_use]
 pub fn elevated_setup_failure_metric_name(err: &anyhow::Error) -> &'static str {
     if savfox_windows_sandbox::extract_setup_failure(err).is_some_and(|failure| {
         matches!(

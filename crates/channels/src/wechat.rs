@@ -23,7 +23,7 @@ pub struct WeChatChannelConfig {
 }
 
 impl WeChatChannelConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -139,7 +139,7 @@ fn normalize_prompt(text: &str, is_group: bool) -> Option<String> {
     None
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
     let room_id = value_to_string(
         payload
@@ -195,7 +195,7 @@ pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let meta = parse_start_meta(payload);
     let is_group = meta.room_id.is_some();

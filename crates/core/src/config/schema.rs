@@ -41,7 +41,7 @@ pub(crate) fn mcp_servers_schema(schema_gen: &mut SchemaGenerator) -> Schema {
 }
 
 /// Build the config schema for `config.toml`.
-#[must_use] 
+#[must_use]
 pub fn config_schema() -> Schema {
     SchemaSettings::draft07()
         .into_generator()

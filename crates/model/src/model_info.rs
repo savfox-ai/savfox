@@ -55,7 +55,7 @@ macro_rules! model_info {
     }};
 }
 
-#[must_use] 
+#[must_use]
 pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     if slug.starts_with("exp-savfox") || slug.starts_with("savfox-1p") {
         model_info!(

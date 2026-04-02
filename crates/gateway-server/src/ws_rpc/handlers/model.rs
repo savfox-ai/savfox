@@ -258,23 +258,25 @@ async fn save_provider_file(
 fn inject_provider_auth(file: &ProviderFile) {
     if let Some(auth) = &file.auth
         && let Some(api_key) = &auth.api_key
-            && !api_key.is_empty() {
-                // Set env-variable override (for providers that use env_key).
-                if let Some(env_key) = &auth.env_key
-                    && !env_key.is_empty() {
-                        savfox_core::set_env_override(env_key, api_key);
-                    }
-                // Set bearer-token override keyed by account id.
-                let account_id = file.account_id();
-                if !account_id.is_empty() {
-                    savfox_core::set_bearer_token_override(account_id, api_key);
-                }
-                // Also set for bare provider_id for backward compat.
-                let provider_id = file.provider_id.trim();
-                if !provider_id.is_empty() && provider_id != account_id {
-                    savfox_core::set_bearer_token_override(provider_id, api_key);
-                }
-            }
+        && !api_key.is_empty()
+    {
+        // Set env-variable override (for providers that use env_key).
+        if let Some(env_key) = &auth.env_key
+            && !env_key.is_empty()
+        {
+            savfox_core::set_env_override(env_key, api_key);
+        }
+        // Set bearer-token override keyed by account id.
+        let account_id = file.account_id();
+        if !account_id.is_empty() {
+            savfox_core::set_bearer_token_override(account_id, api_key);
+        }
+        // Also set for bare provider_id for backward compat.
+        let provider_id = file.provider_id.trim();
+        if !provider_id.is_empty() && provider_id != account_id {
+            savfox_core::set_bearer_token_override(provider_id, api_key);
+        }
+    }
 }
 
 /// Read all `models/*.json` files and inject their auth into the runtime
@@ -292,7 +294,8 @@ pub(crate) async fn inject_all_provider_auth(channel: &GatewayChannel) {
         let account_id = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
         if account_id.is_empty() {
             continue;
         }
@@ -857,7 +860,8 @@ async fn load_all_provider_models(channel: &GatewayChannel) -> HashMap<String, V
         let account_id = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
         if account_id.is_empty() {
             continue;
         }
@@ -924,7 +928,8 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
             let account_id = path
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .unwrap_or("").to_owned();
+                .unwrap_or("")
+                .to_owned();
             if account_id.is_empty() {
                 continue;
             }
@@ -948,9 +953,10 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                         .and_then(Value::as_str)
                         .map(String::from);
                     if let Some(slug) = slug
-                        && let Value::Object(ref mut map) = model {
-                            map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
-                        }
+                        && let Value::Object(ref mut map) = model
+                    {
+                        map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
+                    }
                 }
 
                 // Normalise the id prefix and provider to the account_id
@@ -960,12 +966,10 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                     if let Some(current_id) =
                         map.get("id").and_then(|v| v.as_str()).map(String::from)
                         && let Some((_, model_slug)) = current_id.split_once('/')
-                            && !current_id.starts_with(&format!("{account_id}/")) {
-                                map.insert(
-                                    "id".to_owned(),
-                                    json!(format!("{account_id}/{model_slug}")),
-                                );
-                            }
+                        && !current_id.starts_with(&format!("{account_id}/"))
+                    {
+                        map.insert("id".to_owned(), json!(format!("{account_id}/{model_slug}")));
+                    }
                     map.insert("provider".to_owned(), json!(account_id.as_str()));
                 }
 
@@ -984,7 +988,8 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                             account_id
                                 .strip_prefix(&file_provider_id)
                                 .and_then(|rest| rest.strip_prefix('-'))
-                                .unwrap_or(&account_id).to_owned()
+                                .unwrap_or(&account_id)
+                                .to_owned()
                         } else {
                             file_slug.clone()
                         };
@@ -1202,9 +1207,10 @@ pub(crate) async fn handle_models_import(
             // Re-prefix model id with account_id if it currently uses provider_id.
             if let Some(id_val) = map.get("id").and_then(Value::as_str)
                 && let Some((prefix, slug)) = savfox_core::parse_provider_prefixed_model(id_val)
-                    && prefix != account_id {
-                        map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
-                    }
+                && prefix != account_id
+            {
+                map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
+            }
             map.entry("provider".to_owned())
                 .or_insert_with(|| json!(account_id));
             map.entry("builtin".to_owned()).or_insert(json!(false));
@@ -1320,10 +1326,11 @@ pub(crate) async fn handle_tools_invoke(
     // Build a prompt that forces the agent to invoke the requested tool.
     let mut args = arguments.clone();
     if let Some(act) = action
-        && let Value::Object(ref mut map) = args {
-            map.entry("action")
-                .or_insert_with(|| Value::String(act.to_owned()));
-        }
+        && let Value::Object(ref mut map) = args
+    {
+        map.entry("action")
+            .or_insert_with(|| Value::String(act.to_owned()));
+    }
     let args_str = serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_owned());
     let prompt = format!(
         "Use the `{tool}` tool with exactly these arguments:\n\

@@ -128,9 +128,7 @@ mod spawn {
             child_depth,
         )?;
         let isolated_workspace = config.cwd.display().to_string();
-        agent_role
-            .apply_to_config(&mut config)
-            .or_else(model_err)?;
+        agent_role.apply_to_config(&mut config).or_else(model_err)?;
 
         let result = session
             .services

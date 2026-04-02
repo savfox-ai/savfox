@@ -511,10 +511,7 @@ fn token_needs_refresh(expires_at: Option<u64>) -> bool {
 
 fn compute_store_key(server_name: &str, server_url: &str) -> Result<String> {
     let mut payload = JsonMap::new();
-    payload.insert(
-        "type".to_owned(),
-        Value::String(MCP_SERVER_TYPE.to_owned()),
-    );
+    payload.insert("type".to_owned(), Value::String(MCP_SERVER_TYPE.to_owned()));
     payload.insert("url".to_owned(), Value::String(server_url.to_owned()));
     payload.insert("headers".to_owned(), Value::Object(JsonMap::new()));
 

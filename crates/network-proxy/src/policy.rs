@@ -229,22 +229,14 @@ impl DomainPattern {
             Self::SubdomainsOnly(domain) => match candidate {
                 Self::Any => false,
                 Self::Exact(candidate) => is_strict_subdomain(candidate, domain),
-                Self::SubdomainsOnly(candidate) => {
-                    is_subdomain_or_equal(candidate, domain)
-                }
-                Self::ApexAndSubdomains(candidate) => {
-                    is_strict_subdomain(candidate, domain)
-                }
+                Self::SubdomainsOnly(candidate) => is_subdomain_or_equal(candidate, domain),
+                Self::ApexAndSubdomains(candidate) => is_strict_subdomain(candidate, domain),
             },
             Self::ApexAndSubdomains(domain) => match candidate {
                 Self::Any => false,
                 Self::Exact(candidate) => is_subdomain_or_equal(candidate, domain),
-                Self::SubdomainsOnly(candidate) => {
-                    is_subdomain_or_equal(candidate, domain)
-                }
-                Self::ApexAndSubdomains(candidate) => {
-                    is_subdomain_or_equal(candidate, domain)
-                }
+                Self::SubdomainsOnly(candidate) => is_subdomain_or_equal(candidate, domain),
+                Self::ApexAndSubdomains(candidate) => is_subdomain_or_equal(candidate, domain),
             },
         }
     }

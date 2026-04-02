@@ -23,7 +23,7 @@ pub struct WakeWordDetector {
 }
 
 impl WakeWordDetector {
-    #[must_use] 
+    #[must_use]
     pub fn new(keyword: &str, sensitivity: f32) -> Self {
         Self {
             keyword: keyword.to_owned(),
@@ -123,13 +123,13 @@ impl WakeWordDetector {
     }
 
     /// Get the current keyword.
-    #[must_use] 
+    #[must_use]
     pub fn keyword(&self) -> &str {
         &self.keyword
     }
 
     /// Get the sensitivity level.
-    #[must_use] 
+    #[must_use]
     pub fn sensitivity(&self) -> f32 {
         self.sensitivity
     }

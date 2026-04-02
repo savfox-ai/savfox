@@ -313,15 +313,16 @@ impl AuthProfileManager {
         {
             let mut profiles = self.profiles.write().await;
             if let Some(entries) = profiles.get_mut(provider)
-                && entries.len() > 1 {
-                    let first = entries.remove(0);
-                    entries.push(first);
-                    info!(
-                        provider,
-                        now_active = entries.first().map(|p| p.id.as_str()).unwrap_or("?"),
-                        "auth profile rotated"
-                    );
-                }
+                && entries.len() > 1
+            {
+                let first = entries.remove(0);
+                entries.push(first);
+                info!(
+                    provider,
+                    now_active = entries.first().map(|p| p.id.as_str()).unwrap_or("?"),
+                    "auth profile rotated"
+                );
+            }
         }
 
         self.save_to_disk().await

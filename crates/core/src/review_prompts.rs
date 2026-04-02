@@ -67,7 +67,7 @@ pub fn review_prompt(target: &ReviewTarget, cwd: &Path) -> anyhow::Result<String
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn user_facing_hint(target: &ReviewTarget) -> String {
     match target {
         ReviewTarget::UncommittedChanges => "current changes".to_owned(),

@@ -11,19 +11,19 @@ pub enum CredentialStoreError {
 }
 
 impl CredentialStoreError {
-    #[must_use] 
+    #[must_use]
     pub fn new(error: KeyringError) -> Self {
         Self::Other(error)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn message(&self) -> String {
         match self {
             Self::Other(error) => error.to_string(),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_error(self) -> KeyringError {
         match self {
             Self::Other(error) => error,

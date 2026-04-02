@@ -216,7 +216,7 @@ pub struct LocalEmbedding {
 
 impl LocalEmbedding {
     /// Create a stub local embedding provider.
-    #[must_use] 
+    #[must_use]
     pub fn new(dimensions: usize) -> Self {
         Self { dimensions }
     }

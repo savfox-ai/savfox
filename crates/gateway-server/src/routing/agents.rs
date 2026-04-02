@@ -68,7 +68,9 @@ pub async fn agents_get_handler(req: &mut Request, res: &mut Response) {
     }
 
     let store = agents_store().lock().await;
-    if let Some(agent) = store.get(&agent_id) { res.render(Text::Json(json!({ "agent": agent }).to_string())) } else {
+    if let Some(agent) = store.get(&agent_id) {
+        res.render(Text::Json(json!({ "agent": agent }).to_string()))
+    } else {
         res.status_code(StatusCode::NOT_FOUND);
         res.render(Text::Json(
             json!({ "error": "agent not found" }).to_string(),
@@ -99,7 +101,8 @@ pub async fn agents_create_handler(req: &mut Request, res: &mut Response) {
         name: body
             .get("name")
             .and_then(|v| v.as_str())
-            .unwrap_or("New Agent").to_owned(),
+            .unwrap_or("New Agent")
+            .to_owned(),
         description: body
             .get("description")
             .and_then(|v| v.as_str())
@@ -196,9 +199,11 @@ pub async fn agents_delete_handler(req: &mut Request, res: &mut Response) {
     }
 
     let mut store = agents_store().lock().await;
-    if let Some(agent) = store.remove(&agent_id) { res.render(Text::Json(
-        json!({ "agent": agent, "status": "deleted" }).to_string(),
-    )) } else {
+    if let Some(agent) = store.remove(&agent_id) {
+        res.render(Text::Json(
+            json!({ "agent": agent, "status": "deleted" }).to_string(),
+        ))
+    } else {
         res.status_code(StatusCode::NOT_FOUND);
         res.render(Text::Json(
             json!({ "error": "agent not found" }).to_string(),

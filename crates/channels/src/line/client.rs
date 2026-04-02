@@ -76,7 +76,7 @@ pub async fn push_message(
 }
 
 /// Verify a LINE webhook signature using HMAC-SHA256 + base64.
-#[must_use] 
+#[must_use]
 pub fn verify_signature(channel_secret: &str, body: &[u8], signature: &str) -> bool {
     let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(channel_secret.as_bytes()) else {
         return false;

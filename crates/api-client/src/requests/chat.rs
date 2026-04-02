@@ -27,7 +27,7 @@ pub struct ChatRequestBuilder<'a> {
 }
 
 impl<'a> ChatRequestBuilder<'a> {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         model: &'a str,
         instructions: &'a str,
@@ -44,13 +44,13 @@ impl<'a> ChatRequestBuilder<'a> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn conversation_id(mut self, id: Option<String>) -> Self {
         self.conversation_id = id;
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn session_source(mut self, source: Option<SessionSource>) -> Self {
         self.session_source = source;
         self
@@ -208,10 +208,11 @@ impl<'a> ChatRequestBuilder<'a> {
                         && prev.get("role").and_then(Value::as_str) == Some(role)
                     {
                         if let Some(Value::String(prev_content)) = prev.get_mut("content")
-                            && let Some(new_text) = content_value.as_str() {
-                                prev_content.push_str("\n\n");
-                                prev_content.push_str(new_text);
-                            }
+                            && let Some(new_text) = content_value.as_str()
+                        {
+                            prev_content.push_str("\n\n");
+                            prev_content.push_str(new_text);
+                        }
                         continue;
                     }
 
@@ -352,10 +353,7 @@ fn push_tool_call_message(messages: &mut Vec<Value>, tool_call: Value, reasoning
                 }
                 existing.push_str(reasoning);
             } else {
-                obj.insert(
-                    "reasoning".to_owned(),
-                    Value::String(reasoning.to_owned()),
-                );
+                obj.insert("reasoning".to_owned(), Value::String(reasoning.to_owned()));
             }
         }
         return;

@@ -30,7 +30,7 @@ impl Default for PolicyParser {
 }
 
 impl PolicyParser {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             builder: RefCell::new(PolicyBuilder::new()),
@@ -42,12 +42,8 @@ impl PolicyParser {
     pub fn parse(&mut self, policy_identifier: &str, policy_file_contents: &str) -> Result<()> {
         let mut dialect = Dialect::Extended.clone();
         dialect.enable_f_strings = true;
-        let ast = AstModule::parse(
-            policy_identifier,
-            policy_file_contents.to_owned(),
-            &dialect,
-        )
-        .map_err(Error::Starlark)?;
+        let ast = AstModule::parse(policy_identifier, policy_file_contents.to_owned(), &dialect)
+            .map_err(Error::Starlark)?;
         let globals = GlobalsBuilder::standard().with(policy_builtins).build();
         let module = Module::new();
         {

@@ -69,7 +69,7 @@ pub struct OpenAIMediaProvider {
 }
 
 impl OpenAIMediaProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -78,7 +78,7 @@ impl OpenAIMediaProvider {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
@@ -131,7 +131,8 @@ impl MediaProvider for OpenAIMediaProvider {
 
         let text = json["choices"][0]["message"]["content"]
             .as_str()
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
 
         Ok(ImageDescriptionResult {
             text,
@@ -182,7 +183,7 @@ pub struct AnthropicMediaProvider {
 }
 
 impl AnthropicMediaProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -247,9 +248,7 @@ impl MediaProvider for AnthropicMediaProvider {
         )
         .await?;
 
-        let text = json["content"][0]["text"]
-            .as_str()
-            .unwrap_or("").to_owned();
+        let text = json["content"][0]["text"].as_str().unwrap_or("").to_owned();
 
         Ok(ImageDescriptionResult {
             text,
@@ -264,7 +263,7 @@ pub struct GoogleMediaProvider {
 }
 
 impl GoogleMediaProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -319,7 +318,8 @@ impl MediaProvider for GoogleMediaProvider {
 
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
 
         Ok(ImageDescriptionResult {
             text,
@@ -363,7 +363,8 @@ impl MediaProvider for GoogleMediaProvider {
 
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
 
         Ok(VideoDescriptionResult {
             text,
@@ -378,7 +379,7 @@ pub struct DeepgramMediaProvider {
 }
 
 impl DeepgramMediaProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -405,9 +406,7 @@ impl MediaProvider for DeepgramMediaProvider {
         language: Option<&str>,
     ) -> MediaResult<AudioTranscriptionResult> {
         let model = model.unwrap_or("nova-3");
-        let mut url = format!(
-            "https://api.deepgram.com/v1/listen?model={model}&smart_format=true"
-        );
+        let mut url = format!("https://api.deepgram.com/v1/listen?model={model}&smart_format=true");
         if let Some(lang) = language {
             url.push_str(&format!("&language={lang}"));
         }
@@ -423,7 +422,8 @@ impl MediaProvider for DeepgramMediaProvider {
 
         let text = json["results"]["channels"][0]["alternatives"][0]["transcript"]
             .as_str()
-            .unwrap_or("").to_owned();
+            .unwrap_or("")
+            .to_owned();
 
         Ok(AudioTranscriptionResult {
             text,
@@ -438,7 +438,7 @@ pub struct GroqMediaProvider {
 }
 
 impl GroqMediaProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -499,7 +499,7 @@ pub struct MediaProviders {
 }
 
 impl MediaProviders {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
@@ -510,12 +510,12 @@ impl MediaProviders {
         self.providers.insert(provider.id().to_owned(), provider);
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<&dyn MediaProvider> {
         self.providers.get(id).map(|p| p.as_ref())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_for_capability(&self, capability: MediaCapability) -> Option<&dyn MediaProvider> {
         self.providers
             .values()
@@ -523,7 +523,7 @@ impl MediaProviders {
             .map(|p| p.as_ref())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn list(&self) -> Vec<&dyn MediaProvider> {
         self.providers.values().map(|p| p.as_ref()).collect()
     }

@@ -31,7 +31,7 @@ pub struct FeishuChannelConfig {
 }
 
 impl FeishuChannelConfig {
-    #[must_use] 
+    #[must_use]
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -126,7 +126,7 @@ impl FeishuChannelConfig {
                     .is_some_and(|value| !value.trim().is_empty()))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn stream_enabled(&self) -> bool {
         self.inbound_mode == FeishuInboundMode::Stream
     }
@@ -290,7 +290,8 @@ pub async fn load_feishu_channel_config(
         .await
         .context("failed to load channel configs")?;
     Ok(all_configs
-        .iter().find_map(FeishuChannelConfig::from_channel_config))
+        .iter()
+        .find_map(FeishuChannelConfig::from_channel_config))
 }
 
 pub async fn fetch_feishu_tenant_access_token(

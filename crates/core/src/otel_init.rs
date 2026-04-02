@@ -94,7 +94,7 @@ pub fn build_provider(
 
 /// Filter predicate for exporting only Savfox-owned events via OTEL.
 /// Keeps events that originated from savfox_otel module
-#[must_use] 
+#[must_use]
 pub fn savfox_export_filter(meta: &tracing::Metadata<'_>) -> bool {
     meta.target().starts_with("savfox_otel")
 }

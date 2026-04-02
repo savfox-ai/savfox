@@ -12,7 +12,7 @@ pub fn shlex_join(tokens: &[String]) -> String {
 }
 
 /// Extracts the shell and script from a command, regardless of platform
-#[must_use] 
+#[must_use]
 pub fn extract_shell_command(command: &[String]) -> Option<(&str, &str)> {
     extract_bash_command(command).or_else(|| extract_powershell_command(command))
 }
@@ -28,7 +28,7 @@ pub fn extract_shell_command(command: &[String]) -> Option<(&str, &str)> {
 /// The parsing is slightly lossy due to the ~infinite expressiveness of an arbitrary command.
 /// The goal of the parsed metadata is to be able to provide the user with a human readable gis
 /// of what it is doing.
-#[must_use] 
+#[must_use]
 pub fn parse_command(command: &[String]) -> Vec<ParsedCommand> {
     // Parse and then collapse consecutive duplicate commands to avoid redundant summaries.
     let parsed = parse_command_impl(command);
@@ -1335,7 +1335,7 @@ mod tests {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_command_impl(command: &[String]) -> Vec<ParsedCommand> {
     if let Some(commands) = parse_shell_lc_commands(command) {
         return commands;

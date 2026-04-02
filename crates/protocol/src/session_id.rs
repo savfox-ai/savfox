@@ -24,7 +24,7 @@ impl SessionId {
     /// use savfox_protocol::SessionId;
     /// let id = SessionId::new();
     /// ```
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             uuid: Uuid::now_v7(),
@@ -48,7 +48,7 @@ impl SessionId {
     }
 
     /// Check if this SessionId is nil (all zeros).
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.uuid == Uuid::nil()
     }

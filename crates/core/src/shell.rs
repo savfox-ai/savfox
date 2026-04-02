@@ -28,7 +28,7 @@ pub struct Shell {
 }
 
 impl Shell {
-    #[must_use] 
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self.shell_type {
             ShellType::Zsh => "zsh",
@@ -41,7 +41,7 @@ impl Shell {
 
     /// Takes a string of shell and returns the full list of command args to
     /// use with `exec()` to run the shell command.
-    #[must_use] 
+    #[must_use]
     pub fn derive_exec_args(&self, command: &str, use_login_shell: bool) -> Vec<String> {
         match self.shell_type {
             ShellType::Zsh | ShellType::Bash | ShellType::Sh => {
@@ -72,7 +72,7 @@ impl Shell {
     }
 
     /// Return the shell snapshot if existing.
-    #[must_use] 
+    #[must_use]
     pub fn shell_snapshot(&self) -> Option<Arc<ShellSnapshot>> {
         self.shell_snapshot.borrow().clone()
     }
@@ -222,14 +222,14 @@ fn ultimate_fallback_shell() -> Shell {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn get_shell_by_model_provided_path(shell_path: &PathBuf) -> Shell {
     detect_shell_type(shell_path)
         .and_then(|shell_type| get_shell(shell_type, Some(shell_path)))
         .unwrap_or(ultimate_fallback_shell())
 }
 
-#[must_use] 
+#[must_use]
 pub fn get_shell(shell_type: ShellType, path: Option<&PathBuf>) -> Option<Shell> {
     match shell_type {
         ShellType::Zsh => get_zsh_shell(path),
@@ -240,7 +240,7 @@ pub fn get_shell(shell_type: ShellType, path: Option<&PathBuf>) -> Option<Shell>
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn detect_shell_type(shell_path: &PathBuf) -> Option<ShellType> {
     match shell_path.as_os_str().to_str() {
         Some("zsh") => Some(ShellType::Zsh),
@@ -262,7 +262,7 @@ pub fn detect_shell_type(shell_path: &PathBuf) -> Option<ShellType> {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn default_user_shell() -> Shell {
     default_user_shell_from_path(get_user_shell_path())
 }

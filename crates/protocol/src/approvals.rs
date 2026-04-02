@@ -22,12 +22,12 @@ pub struct ExecPolicyAmendment {
 }
 
 impl ExecPolicyAmendment {
-    #[must_use] 
+    #[must_use]
     pub fn new(command: Vec<String>) -> Self {
         Self { command }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn command(&self) -> &[String] {
         &self.command
     }

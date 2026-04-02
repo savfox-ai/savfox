@@ -138,7 +138,8 @@ fn project_config_warning(config: &Config) -> Option<ConfigWarningNotification> 
     let mut message = concat!(
         "Project config.toml files are disabled in the following folders. ",
         "Settings in those files are ignored, but skills and exec policies still load.\n",
-    ).to_owned();
+    )
+    .to_owned();
     for (index, (folder, reason)) in disabled_folders.iter().enumerate() {
         let display_index = index + 1;
         message.push_str(&format!("    {display_index}. {folder}\n"));
@@ -285,7 +286,11 @@ pub async fn run_main(
         .with(otel_tracing_layer)
         .try_init();
     for warning in &config_warnings {
-        if let Some(details) = &warning.details { error!("{} {}", warning.summary, details) } else { error!("{}", warning.summary) }
+        if let Some(details) = &warning.details {
+            error!("{} {}", warning.summary, details)
+        } else {
+            error!("{}", warning.summary)
+        }
     }
 
     // Task: process incoming messages.

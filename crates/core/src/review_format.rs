@@ -18,7 +18,7 @@ const REVIEW_FALLBACK_MESSAGE: &str = "Reviewer failed to output a response.";
 ///   items and "[ ]" for unselected. Missing indices default to selected.
 /// - When `selection` is `None`, the marker is omitted and a simple bullet is rendered ("- Title —
 ///   path:start-end").
-#[must_use] 
+#[must_use]
 pub fn format_review_findings_block(
     findings: &[ReviewFinding],
     selection: Option<&[bool]>,
@@ -60,7 +60,7 @@ pub fn format_review_findings_block(
 ///
 /// Returns either the explanation, the formatted findings block, or both
 /// separated by a blank line. If neither is present, emits a fallback message.
-#[must_use] 
+#[must_use]
 pub fn render_review_output_text(output: &ReviewOutputEvent) -> String {
     let mut sections = Vec::new();
     let explanation = output.overall_explanation.trim();

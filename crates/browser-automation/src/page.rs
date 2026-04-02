@@ -278,7 +278,8 @@ impl Page {
                 let state = params
                     .get("state")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default().to_owned();
+                    .unwrap_or_default()
+                    .to_owned();
                 if state != "completed" && state != "canceled" {
                     return;
                 }
@@ -430,12 +431,12 @@ impl Page {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn target_id(&self) -> &str {
         &self.target_id
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn session_id(&self) -> &str {
         &self.session_id
     }

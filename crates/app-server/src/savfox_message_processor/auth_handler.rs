@@ -537,11 +537,13 @@ impl SavfoxMessageProcessor {
                     let email = auth.get_account_email();
                     let plan_type = auth.account_plan_type();
 
-                    if let (Some(email), Some(plan_type)) = (email, plan_type) { Account::Chatgpt { email, plan_type } } else {
+                    if let (Some(email), Some(plan_type)) = (email, plan_type) {
+                        Account::Chatgpt { email, plan_type }
+                    } else {
                         let error = JSONRPCErrorError {
                             code: INVALID_REQUEST_ERROR_CODE,
-                            message:
-                                "email and plan type are required for chatgpt authentication".to_owned(),
+                            message: "email and plan type are required for chatgpt authentication"
+                                .to_owned(),
                             data: None,
                         };
                         self.outgoing.send_error(request_id, error).await;

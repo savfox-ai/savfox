@@ -507,7 +507,8 @@ pub(crate) fn feedback_upload_consent_params(
             super::SelectionItem {
                 name: "Yes".to_owned(),
                 description: Some(
-                    "Share the current Savfox session logs with the team for troubleshooting.".to_owned(),
+                    "Share the current Savfox session logs with the team for troubleshooting."
+                        .to_owned(),
                 ),
                 actions: vec![yes_action],
                 dismiss_on_select: true,

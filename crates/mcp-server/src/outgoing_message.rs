@@ -136,28 +136,24 @@ pub(crate) enum OutgoingMessage {
 
 impl From<OutgoingMessage> for OutgoingJsonRpcMessage {
     fn from(val: OutgoingMessage) -> Self {
-        use OutgoingMessage::{Request, Notification, Response, Error};
+        use OutgoingMessage::{Error, Notification, Request, Response};
         match val {
-            Request(OutgoingRequest { id, method, params }) => {
-                Self::Request(JsonRpcRequest {
-                    jsonrpc: JsonRpcVersion2_0,
-                    id,
-                    request: CustomRequest::new(method, params),
-                })
-            }
+            Request(OutgoingRequest { id, method, params }) => Self::Request(JsonRpcRequest {
+                jsonrpc: JsonRpcVersion2_0,
+                id,
+                request: CustomRequest::new(method, params),
+            }),
             Notification(OutgoingNotification { method, params }) => {
                 Self::Notification(JsonRpcNotification {
                     jsonrpc: JsonRpcVersion2_0,
                     notification: CustomNotification::new(method, params),
                 })
             }
-            Response(OutgoingResponse { id, result }) => {
-                Self::Response(JsonRpcResponse {
-                    jsonrpc: JsonRpcVersion2_0,
-                    id,
-                    result,
-                })
-            }
+            Response(OutgoingResponse { id, result }) => Self::Response(JsonRpcResponse {
+                jsonrpc: JsonRpcVersion2_0,
+                id,
+                result,
+            }),
             Error(OutgoingError { id, error }) => Self::Error(JsonRpcError {
                 jsonrpc: JsonRpcVersion2_0,
                 id,

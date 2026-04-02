@@ -156,9 +156,7 @@ impl ToolHandler for MemoryHandler {
             }
             "get" => {
                 let key = args.key.as_deref().ok_or_else(|| {
-                    FunctionCallError::RespondToModel(
-                        "'key' is required for get action".to_owned(),
-                    )
+                    FunctionCallError::RespondToModel("'key' is required for get action".to_owned())
                 })?;
                 let store = MemoryStore::load();
                 let entry = store.entries.iter().find(|e| e.key == key);
@@ -167,9 +165,7 @@ impl ToolHandler for MemoryHandler {
             }
             "add" => {
                 let key = args.key.as_deref().ok_or_else(|| {
-                    FunctionCallError::RespondToModel(
-                        "'key' is required for add action".to_owned(),
-                    )
+                    FunctionCallError::RespondToModel("'key' is required for add action".to_owned())
                 })?;
                 let content = args.content.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(

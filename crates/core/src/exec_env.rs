@@ -11,7 +11,7 @@ use crate::config::types::{
 ///
 /// The derivation follows the algorithm documented in the struct-level comment
 /// for [`ShellEnvironmentPolicy`].
-#[must_use] 
+#[must_use]
 pub fn create_env(policy: &ShellEnvironmentPolicy) -> HashMap<String, String> {
     populate_env(std::env::vars(), policy)
 }

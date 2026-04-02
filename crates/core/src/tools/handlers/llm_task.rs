@@ -128,9 +128,9 @@ impl ToolHandler for LlmTaskHandler {
                 .and_then(|c| c.get("message"))
                 .and_then(|m| m.get("content"))
                 .and_then(|c| c.as_str())
-            {
-                result_text = content.to_owned();
-            }
+        {
+            result_text = content.to_owned();
+        }
 
         // If an output_schema was provided, validate the result is valid JSON.
         if args.output_schema.is_some() {

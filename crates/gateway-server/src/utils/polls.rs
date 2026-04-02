@@ -55,7 +55,7 @@ pub struct Polls {
 }
 
 impl Polls {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             polls: HashMap::new(),
@@ -142,9 +142,10 @@ impl Polls {
             .ok_or_else(|| format!("Poll not found: {poll_id}"))?;
 
         if let Some(ends_at) = poll.ends_at
-            && chrono::Utc::now() > ends_at {
-                return Err("Poll has ended".to_owned());
-            }
+            && chrono::Utc::now() > ends_at
+        {
+            return Err("Poll has ended".to_owned());
+        }
 
         if poll.votes.contains_key(voter_id) {
             return Err("Already voted".to_owned());
@@ -170,7 +171,7 @@ impl Polls {
         Ok(())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_result(&self, poll_id: &str) -> Option<PollResult> {
         let poll = self.polls.get(poll_id)?;
 
@@ -185,9 +186,10 @@ impl Polls {
         for votes in poll.votes.values() {
             for vote in votes {
                 if let Ok(idx) = vote.parse::<usize>()
-                    && idx < option_counts.len() {
-                        option_counts[idx] += 1;
-                    }
+                    && idx < option_counts.len()
+                {
+                    option_counts[idx] += 1;
+                }
             }
         }
 
@@ -232,7 +234,7 @@ impl Polls {
         self.polls.remove(poll_id).is_some()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn list_active(&self) -> Vec<&ActivePoll> {
         self.polls
             .values()

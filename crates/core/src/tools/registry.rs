@@ -73,9 +73,10 @@ impl ToolRegistry {
         let payload_for_response = invocation.payload.clone();
         let log_payload = payload_for_response.log_payload();
 
-        let handler = if let Some(handler) = self.handler(tool_name.as_ref()) { handler } else {
-            let message =
-                unsupported_tool_call_message(&invocation.payload, tool_name.as_ref());
+        let handler = if let Some(handler) = self.handler(tool_name.as_ref()) {
+            handler
+        } else {
+            let message = unsupported_tool_call_message(&invocation.payload, tool_name.as_ref());
             otel.tool_result(
                 tool_name.as_ref(),
                 &call_id_owned,

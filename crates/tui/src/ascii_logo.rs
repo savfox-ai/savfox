@@ -47,7 +47,6 @@ const LETTER_RANGES: [(usize, usize); 6] = [
 pub fn logo_lines(_fg_color: Color, _shadow_color: Color, bold: bool) -> Vec<Line<'static>> {
     SAVFOX_LOGO
         .iter()
-        
         .map(|row_str| {
             let chars: Vec<char> = row_str.chars().collect();
             let mut spans: Vec<Span<'static>> = Vec::with_capacity(14);

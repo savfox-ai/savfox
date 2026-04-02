@@ -138,7 +138,8 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                     .or_else(|| params.get("message"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
-                    .trim().to_owned();
+                    .trim()
+                    .to_owned();
                 if prompt.is_empty() {
                     let _ = write_json_line(
                         &stdout,
@@ -162,7 +163,8 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                 let agent = params
                     .get("agent")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("default").to_owned();
+                    .unwrap_or("default")
+                    .to_owned();
 
                 let sink_task = Arc::clone(&sink);
                 let pending_task = Arc::clone(&pending);
@@ -286,7 +288,8 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|v| !v.is_empty())
-                    .unwrap_or("").to_owned();
+                    .unwrap_or("")
+                    .to_owned();
 
                 let mapped_session_id = acp_to_gateway
                     .read()
@@ -442,7 +445,8 @@ async fn forward_gateway_event(
     let event_name = frame
         .get("event")
         .and_then(|v| v.as_str())
-        .unwrap_or("event").to_owned();
+        .unwrap_or("event")
+        .to_owned();
     let payload = frame.get("payload").cloned().unwrap_or(Value::Null);
 
     let request_id = payload
@@ -460,9 +464,10 @@ async fn forward_gateway_event(
         session_id = request_to_acp.read().await.get(req_id).cloned();
     }
     if session_id.is_none()
-        && let Some(sid) = gateway_session_id.as_deref() {
-            session_id = gateway_to_acp.read().await.get(sid).cloned();
-        }
+        && let Some(sid) = gateway_session_id.as_deref()
+    {
+        session_id = gateway_to_acp.read().await.get(sid).cloned();
+    }
     if let (Some(sid), Some(gateway_sid)) = (&session_id, &gateway_session_id) {
         acp_to_gateway
             .write()

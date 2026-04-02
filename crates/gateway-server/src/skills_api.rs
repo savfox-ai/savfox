@@ -11,14 +11,14 @@ pub struct SkillsApiState {
 }
 
 impl SkillsApiState {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &std::path::Path) -> Self {
         Self {
             registry: Arc::new(SkillRegistry::new(savfox_home)),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn registry(&self) -> &SkillRegistry {
         &self.registry
     }
@@ -50,7 +50,9 @@ pub struct SkillInstallResponse {
 
 #[handler]
 pub async fn skills_list_handler(depot: &mut Depot, res: &mut Response) {
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),
@@ -98,7 +100,9 @@ pub async fn skills_search_handler(req: &mut Request, depot: &mut Depot, res: &m
         return;
     }
 
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),
@@ -132,7 +136,9 @@ pub async fn skills_search_handler(req: &mut Request, depot: &mut Depot, res: &m
 
 #[handler]
 pub async fn skills_installed_handler(depot: &mut Depot, res: &mut Response) {
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),
@@ -164,7 +170,9 @@ pub async fn skills_installed_handler(depot: &mut Depot, res: &mut Response) {
 
 #[handler]
 pub async fn skills_refresh_handler(depot: &mut Depot, res: &mut Response) {
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),
@@ -209,7 +217,9 @@ pub async fn skills_install_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),
@@ -290,7 +300,9 @@ pub async fn skills_uninstall_handler(req: &mut Request, depot: &mut Depot, res:
         return;
     }
 
-    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() {
+        s.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         res.render(Text::Json(
             json!({"error": "skills api not initialized"}).to_string(),

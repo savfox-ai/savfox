@@ -1,6 +1,6 @@
 use crate::skills::model::SkillMetadata;
 
-#[must_use] 
+#[must_use]
 pub fn render_skills_section(skills: &[SkillMetadata]) -> Option<String> {
     if skills.is_empty() {
         return None;

@@ -17,7 +17,7 @@ pub mod canonical {
     pub const IMAGE_GENERATE: &str = "image_generate";
 
     /// Returns all canonical tool names.
-    #[must_use] 
+    #[must_use]
     pub fn all() -> &'static [&'static str] {
         &[
             SHELL,
@@ -34,20 +34,20 @@ pub mod canonical {
     }
 
     /// Read-only tools that are safe with a `ReadOnly` sandbox.
-    #[must_use] 
+    #[must_use]
     pub fn read_only_tools() -> &'static [&'static str] {
         &[READ_FILE, LIST_DIR, GREP_FILES, MD_MEMORY]
     }
 
     /// Tools that require write or exec permissions.
-    #[must_use] 
+    #[must_use]
     pub fn write_tools() -> &'static [&'static str] {
         &[SHELL, WRITE_FILE]
     }
 }
 
 /// Map dotted tool names to canonical short names.
-#[must_use] 
+#[must_use]
 pub fn normalize_tool_name(name: &str) -> &str {
     match name {
         "shell.execute" | "shell.run" | "local_shell" | "shell_command" => "shell",

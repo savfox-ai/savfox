@@ -19,13 +19,13 @@ pub struct ExperimentalField {
 inventory::collect!(ExperimentalField);
 
 /// Returns all experimental fields registered across the protocol types.
-#[must_use] 
+#[must_use]
 pub fn experimental_fields() -> Vec<&'static ExperimentalField> {
     inventory::iter::<ExperimentalField>.into_iter().collect()
 }
 
 /// Constructs a consistent error message for experimental gating.
-#[must_use] 
+#[must_use]
 pub fn experimental_required_message(reason: &str) -> String {
     format!("{reason} requires experimentalApi capability")
 }

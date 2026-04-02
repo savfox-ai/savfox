@@ -65,12 +65,8 @@ impl std::ops::Mul<f64> for TruncationPolicy {
 
     fn mul(self, multiplier: f64) -> Self::Output {
         match self {
-            Self::Bytes(bytes) => {
-                Self::Bytes((bytes as f64 * multiplier).ceil() as usize)
-            }
-            Self::Tokens(tokens) => {
-                Self::Tokens((tokens as f64 * multiplier).ceil() as usize)
-            }
+            Self::Bytes(bytes) => Self::Bytes((bytes as f64 * multiplier).ceil() as usize),
+            Self::Tokens(tokens) => Self::Tokens((tokens as f64 * multiplier).ceil() as usize),
         }
     }
 }

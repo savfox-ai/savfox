@@ -25,7 +25,6 @@ pub enum SttProvider {
     LocalWhisper,
 }
 
-
 /// STT configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SttConfig {
@@ -111,7 +110,7 @@ pub struct TranscriptionSegment {
 }
 
 /// Build OpenAI Whisper API URL
-#[must_use] 
+#[must_use]
 pub fn whisper_api_url(config: &SttConfig) -> String {
     let base = config
         .base_url
@@ -121,7 +120,7 @@ pub fn whisper_api_url(config: &SttConfig) -> String {
 }
 
 /// STT provider info
-#[must_use] 
+#[must_use]
 pub fn provider_info() -> Value {
     serde_json::json!({
         "providers": [

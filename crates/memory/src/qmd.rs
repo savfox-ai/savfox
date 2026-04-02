@@ -37,7 +37,7 @@ pub struct QmdManager {
 }
 
 impl QmdManager {
-    #[must_use] 
+    #[must_use]
     pub fn new(qmd_dir: PathBuf) -> Self {
         Self { qmd_dir }
     }
@@ -55,9 +55,10 @@ impl QmdManager {
             let path = entry.path();
 
             if path.extension().map(|e| e == "qmd").unwrap_or(false)
-                && let Ok(qmd) = self.load_qmd_file(&path) {
-                    files.push(qmd);
-                }
+                && let Ok(qmd) = self.load_qmd_file(&path)
+            {
+                files.push(qmd);
+            }
         }
 
         files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -219,7 +220,7 @@ fn parse_frontmatter(content: &str) -> Result<(QmdFrontmatter, String), QmdError
     Ok((frontmatter, body.to_owned()))
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_qmd_for_embedding(qmd: &QmdFile) -> String {
     let mut parts = Vec::new();
 

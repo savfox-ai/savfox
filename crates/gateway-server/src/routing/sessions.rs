@@ -28,15 +28,15 @@ pub async fn sessions_patch_handler(req: &mut Request, depot: &mut Depot, res: &
         }
     };
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+        store.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
     if let Some(label) = body.get("label").and_then(|v| v.as_str()) {
-        session_store
-            .set_label(&session_id, label.to_owned())
-            .await;
+        session_store.set_label(&session_id, label.to_owned()).await;
     }
     if let Some(pinned) = body.get("pinned").and_then(|v| v.as_bool()) {
         session_store.set_pinned(&session_id, pinned).await;
@@ -66,7 +66,9 @@ pub async fn sessions_reset_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() { mgr.clone() } else {
+    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+        mgr.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -94,12 +96,16 @@ pub async fn sessions_delete_handler(req: &mut Request, depot: &mut Depot, res: 
         return;
     }
 
-    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() { mgr.clone() } else {
+    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() {
+        mgr.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+        store.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -147,7 +153,9 @@ pub async fn sessions_compact_handler(req: &mut Request, _depot: &mut Depot, res
 pub async fn sessions_preview_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let limit = req.query::<usize>("limit").unwrap_or(10);
 
-    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() {
+        store.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };

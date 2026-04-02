@@ -1,7 +1,7 @@
 use http::{HeaderMap, HeaderValue};
 use savfox_protocol::protocol::SessionSource;
 
-#[must_use] 
+#[must_use]
 pub fn build_conversation_headers(conversation_id: Option<String>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     if let Some(id) = conversation_id {

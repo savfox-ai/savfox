@@ -52,7 +52,7 @@ pub struct MediaUnderstandingService {
 }
 
 impl MediaUnderstandingService {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: MediaUnderstandingConfig) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -60,7 +60,7 @@ impl MediaUnderstandingService {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_providers(mut self, providers: MediaProviders) -> Self {
         self.providers = Arc::new(RwLock::new(providers));
         self
@@ -413,8 +413,7 @@ impl MediaUnderstandingService {
             return Err("Encrypted PDF is not supported; skipping document".to_owned());
         }
 
-        let doc =
-            LopdfDocument::load_mem(data).map_err(|e| format!("Failed to parse PDF: {e}"))?;
+        let doc = LopdfDocument::load_mem(data).map_err(|e| format!("Failed to parse PDF: {e}"))?;
 
         if doc.is_encrypted() {
             return Err("Encrypted PDF is not supported; skipping document".to_owned());

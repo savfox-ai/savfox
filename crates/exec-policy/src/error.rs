@@ -46,7 +46,7 @@ pub enum Error {
 }
 
 impl Error {
-    #[must_use] 
+    #[must_use]
     pub fn location(&self) -> Option<ErrorLocation> {
         match self {
             Self::Starlark(err) => err.span().map(|span| {

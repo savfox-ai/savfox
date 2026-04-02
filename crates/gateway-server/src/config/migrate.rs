@@ -7,7 +7,7 @@ use tracing::info;
 pub const CURRENT_VERSION: u32 = 2;
 
 /// Detect config version
-#[must_use] 
+#[must_use]
 pub fn detect_version(config: &Value) -> u32 {
     config
         .get("config_version")
@@ -44,60 +44,61 @@ pub fn migrate(mut config: Value) -> Result<(Value, Vec<String>), String> {
 /// - Rename `fallback_models` to `models.fallbacks`
 fn migrate_v1_to_v2(mut config: Value, log: &mut Vec<String>) -> Result<Value, String> {
     if let Value::Object(ref mut root) = config
-        && let Some(Value::Object(agents)) = root.get_mut("agents") {
-            for (name, agent) in agents.iter_mut() {
-                if let Value::Object(agent_map) = agent {
-                    let mut needs_migration = false;
+        && let Some(Value::Object(agents)) = root.get_mut("agents")
+    {
+        for (name, agent) in agents.iter_mut() {
+            if let Value::Object(agent_map) = agent {
+                let mut needs_migration = false;
 
-                    // Check for flat model field
-                    let model = agent_map
-                        .get("model")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_owned());
-                    let provider = agent_map
-                        .get("provider")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_owned());
-                    let fallbacks = agent_map.get("fallback_models").cloned();
+                // Check for flat model field
+                let model = agent_map
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_owned());
+                let provider = agent_map
+                    .get("provider")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_owned());
+                let fallbacks = agent_map.get("fallback_models").cloned();
 
-                    if model.is_some() || fallbacks.is_some() {
-                        needs_migration = true;
-                    }
+                if model.is_some() || fallbacks.is_some() {
+                    needs_migration = true;
+                }
 
-                    if needs_migration {
-                        let mut models_obj = serde_json::Map::new();
+                if needs_migration {
+                    let mut models_obj = serde_json::Map::new();
 
-                        if let Some(m) = &model {
-                            let primary = if let Some(p) = &provider {
-                                if m.contains('/') {
-                                    m.clone()
-                                } else {
-                                    format!("{p}/{m}")
-                                }
-                            } else {
+                    if let Some(m) = &model {
+                        let primary = if let Some(p) = &provider {
+                            if m.contains('/') {
                                 m.clone()
-                            };
-                            models_obj.insert("primary".to_owned(), Value::String(primary));
-                        }
-
-                        if let Some(Value::Array(fb)) = &fallbacks {
-                            models_obj.insert("fallbacks".to_owned(), Value::Array(fb.clone()));
-                        }
-
-                        agent_map.insert("models".to_owned(), Value::Object(models_obj));
-
-                        // Remove old fields
-                        agent_map.remove("model");
-                        agent_map.remove("provider");
-                        agent_map.remove("fallback_models");
-
-                        log.push(format!(
-                            "agent '{name}': migrated model/provider to models.primary format"
-                        ));
+                            } else {
+                                format!("{p}/{m}")
+                            }
+                        } else {
+                            m.clone()
+                        };
+                        models_obj.insert("primary".to_owned(), Value::String(primary));
                     }
+
+                    if let Some(Value::Array(fb)) = &fallbacks {
+                        models_obj.insert("fallbacks".to_owned(), Value::Array(fb.clone()));
+                    }
+
+                    agent_map.insert("models".to_owned(), Value::Object(models_obj));
+
+                    // Remove old fields
+                    agent_map.remove("model");
+                    agent_map.remove("provider");
+                    agent_map.remove("fallback_models");
+
+                    log.push(format!(
+                        "agent '{name}': migrated model/provider to models.primary format"
+                    ));
                 }
             }
         }
+    }
 
     Ok(config)
 }

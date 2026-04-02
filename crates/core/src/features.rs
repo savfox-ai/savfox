@@ -38,7 +38,7 @@ pub enum Stage {
 }
 
 impl Stage {
-    #[must_use] 
+    #[must_use]
     pub fn experimental_menu_name(self) -> Option<&'static str> {
         match self {
             Self::Experimental { name, .. } => Some(name),
@@ -46,7 +46,7 @@ impl Stage {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn experimental_menu_description(self) -> Option<&'static str> {
         match self {
             Self::Experimental {
@@ -56,7 +56,7 @@ impl Stage {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn experimental_announcement(self) -> Option<&'static str> {
         match self {
             Self::Experimental { announcement, .. } => Some(announcement),
@@ -127,17 +127,17 @@ pub enum Feature {
 }
 
 impl Feature {
-    #[must_use] 
+    #[must_use]
     pub fn key(self) -> &'static str {
         self.info().key
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn stage(self) -> Stage {
         self.info().stage
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn default_enabled(self) -> bool {
         self.info().default_enabled
     }
@@ -184,7 +184,7 @@ impl FeatureOverrides {
 
 impl Features {
     /// Starts with built-in defaults.
-    #[must_use] 
+    #[must_use]
     pub fn with_defaults() -> Self {
         let mut set = BTreeSet::new();
         for spec in FEATURES {
@@ -198,7 +198,7 @@ impl Features {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn enabled(&self, f: Feature) -> bool {
         self.enabled.contains(&f)
     }
@@ -285,7 +285,7 @@ impl Features {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_config(cfg: &ConfigToml, overrides: FeatureOverrides) -> Self {
         let mut features = Self::with_defaults();
 
@@ -306,7 +306,7 @@ impl Features {
         features
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn enabled_features(&self) -> Vec<Feature> {
         self.enabled.iter().copied().collect()
     }
@@ -359,7 +359,7 @@ fn feature_for_key(key: &str) -> Option<Feature> {
 }
 
 /// Returns `true` if the provided string matches a known feature toggle key.
-#[must_use] 
+#[must_use]
 pub fn is_known_feature_key(key: &str) -> bool {
     feature_for_key(key).is_some()
 }

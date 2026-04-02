@@ -49,10 +49,7 @@ impl ApplyPatchRuntime {
         let program = exe.to_string_lossy().to_string();
         Ok(CommandSpec {
             program,
-            args: vec![
-                SAVFOX_APPLY_PATCH_ARG1.to_owned(),
-                req.action.patch.clone(),
-            ],
+            args: vec![SAVFOX_APPLY_PATCH_ARG1.to_owned(), req.action.patch.clone()],
             cwd: req.action.cwd.clone(),
             expiration: req.timeout_ms.into(),
             // Run apply_patch with a minimal environment for determinism and to avoid leaks.

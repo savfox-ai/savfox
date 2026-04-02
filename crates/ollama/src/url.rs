@@ -10,7 +10,8 @@ pub(crate) fn base_url_to_host_root(base_url: &str) -> String {
     if trimmed.ends_with("/v1") {
         trimmed
             .trim_end_matches("/v1")
-            .trim_end_matches('/').to_owned()
+            .trim_end_matches('/')
+            .to_owned()
     } else {
         trimmed.to_owned()
     }

@@ -231,7 +231,8 @@ pub(crate) async fn run_turn(
                     continue;
                 }
                 let event = EventMsg::Error(ErrorEvent {
-                    message: "Invalid image in your last message. Please remove it and try again.".to_owned(),
+                    message: "Invalid image in your last message. Please remove it and try again."
+                        .to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::BadRequest),
                 });
                 sess.send_event(&turn_context, event).await;
@@ -645,9 +646,7 @@ async fn maybe_emit_pending_agent_message_start(
     }
     if let Some(item) = state.pending_agent_message_items.remove(item_id) {
         sess.emit_turn_item_started(turn_context, &item).await;
-        state
-            .started_agent_message_items
-            .insert(item_id.to_owned());
+        state.started_agent_message_items.insert(item_id.to_owned());
     }
 }
 

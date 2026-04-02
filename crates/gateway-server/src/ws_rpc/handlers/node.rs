@@ -215,10 +215,11 @@ pub(crate) async fn handle_node_invoke(params: &Value, channel: &Arc<GatewayChan
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
     if let Some(mode) = default_mode
-        && let Value::Object(ref mut map) = invoke_params {
-            map.entry("mode".to_owned())
-                .or_insert_with(|| Value::String(mode.to_owned()));
-        }
+        && let Value::Object(ref mut map) = invoke_params
+    {
+        map.entry("mode".to_owned())
+            .or_insert_with(|| Value::String(mode.to_owned()));
+    }
 
     let requires_pairing = matches!(
         method,

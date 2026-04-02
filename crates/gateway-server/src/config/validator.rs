@@ -29,7 +29,7 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
-    #[must_use] 
+    #[must_use]
     pub fn ok() -> Self {
         Self {
             valid: true,
@@ -37,7 +37,7 @@ impl ValidationResult {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn with_errors(errors: Vec<ValidationError>) -> Self {
         let valid = !errors.iter().any(|e| e.severity == Severity::Error);
         Self { valid, errors }
@@ -45,7 +45,7 @@ impl ValidationResult {
 }
 
 /// Validate a configuration value
-#[must_use] 
+#[must_use]
 pub fn validate_config(config: &Value) -> ValidationResult {
     let mut errors = Vec::new();
 
@@ -93,24 +93,26 @@ fn validate_gateway_section(gateway: &Value, errors: &mut Vec<ValidationError>) 
         // Host validation
         if let Some(host) = map.get("host")
             && let Some(h) = host.as_str()
-                && h.is_empty() {
-                    errors.push(ValidationError {
-                        field: "gateway.host".to_owned(),
-                        message: "Host cannot be empty".to_owned(),
-                        severity: Severity::Error,
-                    });
-                }
+            && h.is_empty()
+        {
+            errors.push(ValidationError {
+                field: "gateway.host".to_owned(),
+                message: "Host cannot be empty".to_owned(),
+                severity: Severity::Error,
+            });
+        }
 
         // Token validation
         if let Some(token) = map.get("token")
             && let Some(t) = token.as_str()
-                && t.len() < 8 {
-                    errors.push(ValidationError {
-                        field: "gateway.token".to_owned(),
-                        message: "Token should be at least 8 characters for security".to_owned(),
-                        severity: Severity::Warning,
-                    });
-                }
+            && t.len() < 8
+        {
+            errors.push(ValidationError {
+                field: "gateway.token".to_owned(),
+                message: "Token should be at least 8 characters for security".to_owned(),
+                severity: Severity::Warning,
+            });
+        }
     }
 }
 
@@ -121,30 +123,30 @@ fn validate_agents_section(agents: &Value, errors: &mut Vec<ValidationError>) {
                 // Validate model reference
                 if let Some(models) = agent_map.get("models")
                     && let Value::Object(m) = models
-                        && let Some(primary) = m.get("primary")
-                            && let Some(p) = primary.as_str()
-                                && !p.contains('/') {
-                                    errors.push(ValidationError {
-                                        field: format!("agents.{name}.models.primary"),
-                                        message: format!(
-                                            "Model ID should be in 'provider/model' format, got '{p}'"
-                                        ),
-                                        severity: Severity::Warning,
-                                    });
-                                }
+                    && let Some(primary) = m.get("primary")
+                    && let Some(p) = primary.as_str()
+                    && !p.contains('/')
+                {
+                    errors.push(ValidationError {
+                        field: format!("agents.{name}.models.primary"),
+                        message: format!(
+                            "Model ID should be in 'provider/model' format, got '{p}'"
+                        ),
+                        severity: Severity::Warning,
+                    });
+                }
 
                 // Validate temperature
                 if let Some(temp) = agent_map.get("temperature")
                     && let Some(t) = temp.as_f64()
-                        && !(0.0..=2.0).contains(&t) {
-                            errors.push(ValidationError {
-                                field: format!("agents.{name}.temperature"),
-                                message: format!(
-                                    "Temperature must be between 0.0 and 2.0, got {t}"
-                                ),
-                                severity: Severity::Error,
-                            });
-                        }
+                    && !(0.0..=2.0).contains(&t)
+                {
+                    errors.push(ValidationError {
+                        field: format!("agents.{name}.temperature"),
+                        message: format!("Temperature must be between 0.0 and 2.0, got {t}"),
+                        severity: Severity::Error,
+                    });
+                }
 
                 validate_agent_workspace(name, agent_map, errors);
             }
@@ -320,15 +322,14 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
                 // Temperature range
                 if let Some(temp) = model_map.get("temperature")
                     && let Some(t) = temp.as_f64()
-                        && !(0.0..=2.0).contains(&t) {
-                            errors.push(ValidationError {
-                                field: format!("models.{id}.temperature"),
-                                message: format!(
-                                    "Temperature must be between 0.0 and 2.0, got {t}"
-                                ),
-                                severity: Severity::Error,
-                            });
-                        }
+                    && !(0.0..=2.0).contains(&t)
+                {
+                    errors.push(ValidationError {
+                        field: format!("models.{id}.temperature"),
+                        message: format!("Temperature must be between 0.0 and 2.0, got {t}"),
+                        severity: Severity::Error,
+                    });
+                }
             }
         }
     }

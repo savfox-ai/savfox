@@ -99,10 +99,7 @@ fn extract_user_message_text(item: &ResponseItem) -> Option<String> {
         return None;
     }
     let joined = texts.join("\n");
-    Some(
-        strip_user_message_prefix(joined.as_str())
-            .trim().to_owned(),
-    )
+    Some(strip_user_message_prefix(joined.as_str()).trim().to_owned())
 }
 
 fn strip_user_message_prefix(text: &str) -> &str {

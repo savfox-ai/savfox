@@ -166,7 +166,7 @@ pub enum ResponsesEventError {
 }
 
 impl ResponsesEventError {
-    #[must_use] 
+    #[must_use]
     pub fn into_api_error(self) -> ApiError {
         match self {
             Self::Api(error) => error,

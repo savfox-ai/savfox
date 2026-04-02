@@ -73,7 +73,7 @@ pub fn parse_start_meta(payload: &Value) -> LineStartMeta {
 }
 
 /// Parse the webhook payload and return a `ChannelAction`.
-#[must_use] 
+#[must_use]
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let events = payload
         .get("events")

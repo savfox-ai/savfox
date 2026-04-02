@@ -127,7 +127,7 @@ pub async fn batch_embed(
 
 /// Prepare text for embedding by combining frontmatter metadata with body content.
 /// Truncates to a reasonable length for the embedding model.
-#[must_use] 
+#[must_use]
 pub fn prepare_text_for_embedding(
     slug: &str,
     tags: &[String],

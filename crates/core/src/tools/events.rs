@@ -279,8 +279,9 @@ impl ToolEmitter {
                 };
                 (event, result)
             }
-            Err(ToolError::Savfox(SavfoxError::Sandbox(SandboxErr::Timeout { output } |
-SandboxErr::Denied { output }))) => {
+            Err(ToolError::Savfox(SavfoxError::Sandbox(
+                SandboxErr::Timeout { output } | SandboxErr::Denied { output },
+            ))) => {
                 let response = self.format_exec_output_for_model(&output, ctx);
                 let event = ToolEventStage::Failure(ToolEventFailure::Output(*output));
                 let result = Err(FunctionCallError::RespondToModel(response));

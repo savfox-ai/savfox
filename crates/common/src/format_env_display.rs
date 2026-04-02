@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[must_use] 
+#[must_use]
 pub fn format_env_display(env: Option<&HashMap<String, String>>, env_vars: &[String]) -> String {
     let mut parts: Vec<String> = Vec::new();
 

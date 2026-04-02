@@ -386,9 +386,7 @@ async fn run_start(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std::i
         }
         Err(err) => {
             eprintln!("Failed to start gateway daemon: {err}");
-            return Err(std::io::Error::other(
-                err.to_string(),
-            ));
+            return Err(std::io::Error::other(err.to_string()));
         }
     }
 
@@ -398,7 +396,9 @@ async fn run_start(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std::i
 async fn run_stop(pid_file: Option<PathBuf>) -> std::io::Result<()> {
     let pid_path = resolve_pid_file(pid_file)?;
 
-    let pid = if let Some(pid) = daemon::read_pid_file(&pid_path) { pid } else {
+    let pid = if let Some(pid) = daemon::read_pid_file(&pid_path) {
+        pid
+    } else {
         eprintln!(
             "No PID file found at {}. Is the gateway running?",
             pid_path.display()
@@ -428,9 +428,7 @@ async fn run_stop(pid_file: Option<PathBuf>) -> std::io::Result<()> {
         }
         Err(err) => {
             eprintln!("Failed to stop gateway daemon: {err}");
-            return Err(std::io::Error::other(
-                err.to_string(),
-            ));
+            return Err(std::io::Error::other(err.to_string()));
         }
     }
 

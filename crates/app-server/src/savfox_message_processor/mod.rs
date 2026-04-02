@@ -201,17 +201,13 @@ impl SavfoxMessageProcessor {
                 if sha.is_empty() {
                     return Err(invalid_request("sha must not be empty".to_owned()));
                 }
-                let title = title
-                    .map(|t| t.trim().to_owned())
-                    .filter(|t| !t.is_empty());
+                let title = title.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
                 ApiReviewTarget::Commit { sha, title }
             }
             ApiReviewTarget::Custom { instructions } => {
                 let trimmed = instructions.trim().to_owned();
                 if trimmed.is_empty() {
-                    return Err(invalid_request(
-                        "instructions must not be empty".to_owned(),
-                    ));
+                    return Err(invalid_request("instructions must not be empty".to_owned()));
                 }
                 ApiReviewTarget::Custom {
                     instructions: trimmed,

@@ -137,13 +137,15 @@ pub(crate) async fn handle_usage_export(
         .iter()
         .filter(|s| {
             if let Some(from) = date_from
-                && s.created_at < from {
-                    return false;
-                }
+                && s.created_at < from
+            {
+                return false;
+            }
             if let Some(to) = date_to
-                && s.created_at > to {
-                    return false;
-                }
+                && s.created_at > to
+            {
+                return false;
+            }
             true
         })
         .collect();
@@ -306,13 +308,15 @@ pub(crate) async fn handle_logs_export(params: &Value) -> RpcResult {
         .into_iter()
         .filter(|e| {
             if let Some(level) = level_filter
-                && e.level != level {
-                    return false;
-                }
+                && e.level != level
+            {
+                return false;
+            }
             if let Some(source) = source_filter
-                && !e.source.contains(source) {
-                    return false;
-                }
+                && !e.source.contains(source)
+            {
+                return false;
+            }
             true
         })
         .collect();
@@ -556,10 +560,9 @@ pub(crate) async fn handle_security_rotate(
         }
 
         let new_token = crate::auth::GatewayAuth::generate_token();
-        let gateway_obj = gateway.as_object_mut().ok_or((
-            INTERNAL_ERROR,
-            "gateway config is not an object".to_owned(),
-        ))?;
+        let gateway_obj = gateway
+            .as_object_mut()
+            .ok_or((INTERNAL_ERROR, "gateway config is not an object".to_owned()))?;
         gateway_obj.insert("token".to_owned(), Value::String(new_token.clone()));
 
         let content = crate::security_audit::serialize_config_value(&doc.value, &doc.format)
@@ -605,8 +608,7 @@ pub(crate) async fn handle_security_rotate(
         }
     }
 
-    let mut suggestions =
-        vec!["Run `savfox security audit` to verify current posture.".to_owned()];
+    let mut suggestions = vec!["Run `savfox security audit` to verify current posture.".to_owned()];
     if rotate_gateway_token {
         suggestions.push("Restart gateway to apply the rotated bearer token.".to_owned());
     }

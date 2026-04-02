@@ -15,17 +15,17 @@ pub struct Policy {
 }
 
 impl Policy {
-    #[must_use] 
+    #[must_use]
     pub fn new(rules_by_program: MultiMap<String, RuleRef>) -> Self {
         Self { rules_by_program }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn empty() -> Self {
         Self::new(MultiMap::new())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn rules(&self) -> &MultiMap<String, RuleRef> {
         &self.rules_by_program
     }
@@ -112,7 +112,7 @@ impl Policy {
     ///
     /// If `heuristics_fallback.is_some()`, then the returned vector is
     /// guaranteed to be non-empty.
-    #[must_use] 
+    #[must_use]
     pub fn matches_for_command(
         &self,
         cmd: &[String],
@@ -156,7 +156,7 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
-    #[must_use] 
+    #[must_use]
     pub fn is_match(&self) -> bool {
         self.matched_rules
             .iter()

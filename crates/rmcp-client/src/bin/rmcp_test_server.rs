@@ -16,7 +16,7 @@ use tokio::task;
 struct TestToolServer {
     tools: Arc<Vec<Tool>>,
 }
-#[must_use] 
+#[must_use]
 pub fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
     (tokio::io::stdin(), tokio::io::stdout())
 }

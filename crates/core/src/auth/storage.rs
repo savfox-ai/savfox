@@ -141,9 +141,10 @@ impl FileAuthStorage {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
         if let Ok(provider_file) = serde_json::from_str::<ProviderStoreFile>(&contents)
-            && let Some(auth) = provider_file.into_auth_dot_json() {
-                return Ok(auth);
-            }
+            && let Some(auth) = provider_file.into_auth_dot_json()
+        {
+            return Ok(auth);
+        }
         serde_json::from_str(&contents).map_err(Into::into)
     }
 
@@ -219,7 +220,8 @@ impl FileAuthStorage {
             provider_file.id = auth_file
                 .file_stem()
                 .and_then(|stem| stem.to_str())
-                .unwrap_or(AUTH_PROVIDER_ID).to_owned();
+                .unwrap_or(AUTH_PROVIDER_ID)
+                .to_owned();
         }
         if provider_file.provider_id.trim().is_empty() {
             provider_file.provider_id = AUTH_PROVIDER_ID.to_owned();

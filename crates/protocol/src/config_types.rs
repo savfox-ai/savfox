@@ -191,12 +191,12 @@ impl CollaborationMode {
         &self.settings
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn model(&self) -> &str {
         self.settings_ref().model.as_str()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn reasoning_effort(&self) -> Option<ReasoningEffort> {
         self.settings_ref().reasoning_effort
     }
@@ -210,7 +210,7 @@ impl CollaborationMode {
     ///   `None` to keep current
     ///
     /// Returns a new `CollaborationMode` with updated values, preserving the mode.
-    #[must_use] 
+    #[must_use]
     pub fn with_updates(
         &self,
         model: Option<String>,
@@ -236,7 +236,7 @@ impl CollaborationMode {
     /// the corresponding fields, while `None` values will preserve the original values.
     ///
     /// The `name` field in the mask is ignored as it's metadata for the mask itself.
-    #[must_use] 
+    #[must_use]
     pub fn apply_mask(&self, mask: &CollaborationModeMask) -> Self {
         let settings = self.settings_ref();
         Self {

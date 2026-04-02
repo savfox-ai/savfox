@@ -86,10 +86,7 @@ impl SlashCommand {
 
     /// Whether this command supports inline args (for example `/review ...`).
     pub fn supports_inline_args(self) -> bool {
-        matches!(
-            self,
-            Self::Review | Self::Rename | Self::Plan
-        )
+        matches!(self, Self::Review | Self::Rename | Self::Plan)
     }
 
     /// Whether this command can be run while a task is in progress.

@@ -378,9 +378,10 @@ fn check_web_ui_assets(savfox_home: &Path, summary: &mut DoctorSummary) {
         PathBuf::from("crates/gateway-dioxus/index.html"),
     ];
     if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent() {
-            candidates.push(parent.join("web").join("index.html"));
-        }
+        && let Some(parent) = exe.parent()
+    {
+        candidates.push(parent.join("web").join("index.html"));
+    }
 
     if let Some(path) = candidates.into_iter().find(|p| p.exists()) {
         summary.ok("Web assets", &format!("found {}", path.display()));

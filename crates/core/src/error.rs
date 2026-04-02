@@ -218,7 +218,7 @@ impl From<CancelErr> for SavfoxError {
 }
 
 impl SavfoxError {
-    #[must_use] 
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::TurnAborted
@@ -558,19 +558,19 @@ impl SavfoxError {
     /// Minimal shim so that existing `e.downcast_ref::<SavfoxError>()` checks continue to compile
     /// after replacing `anyhow::Error` in the return signature. This mirrors the behavior of
     /// `anyhow::Error::downcast_ref` but works directly on our concrete enum.
-    #[must_use] 
+    #[must_use]
     pub fn downcast_ref<T: std::any::Any>(&self) -> Option<&T> {
         (self as &dyn std::any::Any).downcast_ref::<T>()
     }
 
     /// Translate core error to client-facing protocol error.
-    #[must_use] 
+    #[must_use]
     pub fn to_savfox_protocol_error(&self) -> SavfoxErrorInfo {
         match self {
             Self::ContextWindowExceeded => SavfoxErrorInfo::ContextWindowExceeded,
-            Self::UsageLimitReached(_)
-            | Self::QuotaExceeded
-            | Self::UsageNotIncluded => SavfoxErrorInfo::UsageLimitExceeded,
+            Self::UsageLimitReached(_) | Self::QuotaExceeded | Self::UsageNotIncluded => {
+                SavfoxErrorInfo::UsageLimitExceeded
+            }
             Self::ModelCap(err) => SavfoxErrorInfo::ModelCap {
                 model: err.model.clone(),
                 reset_after_seconds: err.reset_after_seconds,
@@ -581,11 +581,9 @@ impl SavfoxError {
             Self::ConnectionFailed(_) => SavfoxErrorInfo::HttpConnectionFailed {
                 http_status_code: self.http_status_code_value(),
             },
-            Self::ResponseStreamFailed(_) => {
-                SavfoxErrorInfo::ResponseStreamConnectionFailed {
-                    http_status_code: self.http_status_code_value(),
-                }
-            }
+            Self::ResponseStreamFailed(_) => SavfoxErrorInfo::ResponseStreamConnectionFailed {
+                http_status_code: self.http_status_code_value(),
+            },
             Self::RefreshTokenFailed(_) => SavfoxErrorInfo::Unauthorized,
             Self::SessionConfiguredNotFirstEvent
             | Self::InternalServerError
@@ -598,7 +596,7 @@ impl SavfoxError {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_error_event(&self, message_prefix: Option<String>) -> ErrorEvent {
         let error_message = self.to_string();
         let message: String = match message_prefix {
@@ -623,7 +621,7 @@ impl SavfoxError {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn get_error_message_ui(e: &SavfoxError) -> String {
     let message = match e {
         SavfoxError::Sandbox(SandboxErr::Denied { output }) => {

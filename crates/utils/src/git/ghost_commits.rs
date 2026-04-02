@@ -92,7 +92,7 @@ pub struct IgnoredUntrackedFile {
 
 impl<'a> CreateGhostCommitOptions<'a> {
     /// Creates options scoped to the provided repository path.
-    #[must_use] 
+    #[must_use]
     pub fn new(repo_path: &'a Path) -> Self {
         Self {
             repo_path,
@@ -103,13 +103,13 @@ impl<'a> CreateGhostCommitOptions<'a> {
     }
 
     /// Sets a custom commit message for the ghost commit.
-    #[must_use] 
+    #[must_use]
     pub fn message(mut self, message: &'a str) -> Self {
         self.message = Some(message);
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn ghost_snapshot(mut self, ghost_snapshot: GhostSnapshotConfig) -> Self {
         self.ghost_snapshot = ghost_snapshot;
         self
@@ -119,7 +119,7 @@ impl<'a> CreateGhostCommitOptions<'a> {
     ///
     /// These files are still treated as untracked for preservation purposes (i.e. they will not be
     /// deleted by undo), but they will not be captured in the snapshot tree.
-    #[must_use] 
+    #[must_use]
     pub fn ignore_large_untracked_files(mut self, bytes: i64) -> Self {
         if bytes > 0 {
             self.ghost_snapshot.ignore_large_untracked_files = Some(bytes);
@@ -150,7 +150,7 @@ impl<'a> CreateGhostCommitOptions<'a> {
 
 impl<'a> RestoreGhostCommitOptions<'a> {
     /// Creates restore options scoped to the provided repository path.
-    #[must_use] 
+    #[must_use]
     pub fn new(repo_path: &'a Path) -> Self {
         Self {
             repo_path,
@@ -158,7 +158,7 @@ impl<'a> RestoreGhostCommitOptions<'a> {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn ghost_snapshot(mut self, ghost_snapshot: GhostSnapshotConfig) -> Self {
         self.ghost_snapshot = ghost_snapshot;
         self
@@ -167,7 +167,7 @@ impl<'a> RestoreGhostCommitOptions<'a> {
     /// Exclude untracked files larger than `bytes` from undo cleanup.
     ///
     /// These files are treated as "always preserve" to avoid deleting large local artifacts.
-    #[must_use] 
+    #[must_use]
     pub fn ignore_large_untracked_files(mut self, bytes: i64) -> Self {
         if bytes > 0 {
             self.ghost_snapshot.ignore_large_untracked_files = Some(bytes);
@@ -178,7 +178,7 @@ impl<'a> RestoreGhostCommitOptions<'a> {
     }
 
     /// Ignore untracked directories that contain at least `file_count` untracked files.
-    #[must_use] 
+    #[must_use]
     pub fn ignore_large_untracked_dirs(mut self, file_count: i64) -> Self {
         if file_count > 0 {
             self.ghost_snapshot.ignore_large_untracked_dirs = Some(file_count);

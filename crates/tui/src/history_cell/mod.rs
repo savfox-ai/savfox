@@ -690,7 +690,9 @@ pub fn new_approval_decision_cell(
     command: Vec<String>,
     decision: savfox_core::protocol::ReviewDecision,
 ) -> Box<dyn HistoryCell> {
-    use savfox_core::protocol::ReviewDecision::{Approved, ApprovedExecpolicyAmendment, ApprovedForSession, Denied, Abort};
+    use savfox_core::protocol::ReviewDecision::{
+        Abort, Approved, ApprovedExecpolicyAmendment, ApprovedForSession, Denied,
+    };
 
     let (symbol, summary): (Span<'static>, Vec<Span<'static>>) = match decision {
         Approved => {

@@ -3,7 +3,7 @@ use savfox_core::channel::ChannelAction;
 use serde_json::Value;
 use tracing::debug;
 
-#[must_use] 
+#[must_use]
 pub fn parse_text_command(text: &str) -> Option<String> {
     let trimmed = text.trim();
     for prefix in ["/savfox", "!savfox"] {

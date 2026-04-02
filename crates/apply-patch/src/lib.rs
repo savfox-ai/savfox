@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 pub use invocation::maybe_parse_apply_patch_verified;
-use parser::ParseError::{InvalidPatchError, InvalidHunkError};
+use parser::ParseError::{InvalidHunkError, InvalidPatchError};
 use parser::UpdateFileChunk;
 pub use parser::{Hunk, ParseError, parse_patch};
 use similar::TextDiff;
@@ -127,20 +127,20 @@ pub struct ApplyPatchAction {
 }
 
 impl ApplyPatchAction {
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.changes.is_empty()
     }
 
     /// Returns the changes that would be made by applying the patch.
-    #[must_use] 
+    #[must_use]
     pub fn changes(&self) -> &HashMap<PathBuf, ApplyPatchFileChange> {
         &self.changes
     }
 
     /// Should be used exclusively for testing. (Not worth the overhead of
     /// creating a feature flag for this.)
-    #[must_use] 
+    #[must_use]
     pub fn new_add_for_test(path: &Path, content: String) -> Self {
         if !path.is_absolute() {
             panic!("path must be absolute");

@@ -551,7 +551,7 @@ struct RawExecToolCallOutput {
 }
 
 impl StreamOutput<String> {
-    #[must_use] 
+    #[must_use]
     pub fn new(text: String) -> Self {
         Self {
             text,
@@ -561,7 +561,7 @@ impl StreamOutput<String> {
 }
 
 impl StreamOutput<Vec<u8>> {
-    #[must_use] 
+    #[must_use]
     pub fn from_utf8_lossy(&self) -> StreamOutput<String> {
         StreamOutput {
             text: bytes_to_string_smart(&self.text),

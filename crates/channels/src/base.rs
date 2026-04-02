@@ -103,7 +103,7 @@ pub trait WebhookChannel: Send + Sync {
 ///
 /// This helper is duplicated across every channel config module today; this
 /// single copy can be re-used by all of them.
-#[must_use] 
+#[must_use]
 pub fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| {
         map.get(*key)

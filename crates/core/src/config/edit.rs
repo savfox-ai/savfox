@@ -281,11 +281,8 @@ impl ConfigFile {
                             );
                         };
 
-                        mutated |= self.write_value(
-                            Scope::Global,
-                            &["model", "slug"],
-                            value(slug_value),
-                        );
+                        mutated |=
+                            self.write_value(Scope::Global, &["model", "slug"], value(slug_value));
 
                         mutated |= self.write_value(
                             Scope::Global,
@@ -452,7 +449,9 @@ impl ConfigFile {
 
         {
             let root = self.doc.as_table_mut();
-            let skills_item = if let Some(item) = root.get_mut("skills") { item } else {
+            let skills_item = if let Some(item) = root.get_mut("skills") {
+                item
+            } else {
                 if enabled {
                     return false;
                 }
@@ -476,7 +475,9 @@ impl ConfigFile {
                 return false;
             };
 
-            let config_item = if let Some(item) = skills_table.get_mut("config") { item } else {
+            let config_item = if let Some(item) = skills_table.get_mut("config") {
+                item
+            } else {
                 if enabled {
                     return false;
                 }
@@ -705,7 +706,7 @@ pub struct ConfigEditsBuilder {
 }
 
 impl ConfigEditsBuilder {
-    #[must_use] 
+    #[must_use]
     pub fn new(savfox_home: &Path) -> Self {
         Self {
             savfox_home: savfox_home.to_path_buf(),
@@ -713,7 +714,7 @@ impl ConfigEditsBuilder {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_model(mut self, model: Option<&str>, effort: Option<ReasoningEffort>) -> Self {
         let (slug, provider) = if let Some(model_value) = model {
             if let Some((provider_id, model_slug)) = parse_provider_prefixed_model(model_value) {
@@ -733,35 +734,35 @@ impl ConfigEditsBuilder {
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_personality(mut self, personality: Option<Personality>) -> Self {
         self.edits
             .push(ConfigEdit::SetModelPersonality { personality });
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_hide_full_access_warning(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideFullAccessWarning(acknowledged));
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_hide_world_writable_warning(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideWorldWritableWarning(acknowledged));
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_hide_rate_limit_model_nudge(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideRateLimitModelNudge(acknowledged));
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_hide_model_migration_prompt(mut self, model: &str, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideModelMigrationPrompt(
@@ -771,7 +772,7 @@ impl ConfigEditsBuilder {
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn record_model_migration_seen(mut self, from: &str, to: &str) -> Self {
         self.edits.push(ConfigEdit::RecordModelMigrationSeen {
             from: from.to_owned(),
@@ -780,14 +781,14 @@ impl ConfigEditsBuilder {
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn set_windows_wsl_setup_acknowledged(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetWindowsWslSetupAcknowledged(acknowledged));
         self
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn replace_mcp_servers(mut self, servers: &BTreeMap<String, McpServerConfig>) -> Self {
         self.edits
             .push(ConfigEdit::ReplaceMcpServers(servers.clone()));
@@ -807,7 +808,7 @@ impl ConfigEditsBuilder {
     }
 
     /// Enable or disable a feature flag by key under the `[features]` table.
-    #[must_use] 
+    #[must_use]
     pub fn set_feature_enabled(mut self, key: &str, enabled: bool) -> Self {
         self.edits.push(ConfigEdit::SetPath {
             segments: vec!["features".to_owned(), key.to_owned()],

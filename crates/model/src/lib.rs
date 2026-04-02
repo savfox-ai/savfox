@@ -19,14 +19,14 @@ const EMPTY_PROVIDER_MODELS: &[ModelInfo] = &[];
 
 /// Build a `ModelInfo` using model-registry defaults, while requiring only the
 /// fields needed for provider model lists.
-#[must_use] 
+#[must_use]
 pub fn model_info_with_defaults(slug: &str, name: &str) -> ModelInfo {
     let mut model = find_model_info_for_slug(slug);
     model.slug = slug.to_owned();
     model.name = name.to_owned();
     model
 }
-#[must_use] 
+#[must_use]
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
         "chatgpt" | "chat-gpt" => "openai".to_owned(),
@@ -43,7 +43,7 @@ pub fn canonical_provider_id(provider_id: &str) -> String {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'static str>> {
     let canonical = canonical_provider_id(provider_id);
     match canonical.as_str() {
@@ -146,22 +146,22 @@ pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'sta
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
     provider_default_base_url_entry(provider_id).flatten()
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_default_models(_provider_id: &str) -> &'static [ModelInfo] {
     EMPTY_PROVIDER_MODELS
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_default_model_slug(_provider_id: &str) -> Option<&'static str> {
     None
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_registry(provider_id: &str) -> Option<Provider> {
     let base_url = provider_default_base_url_entry(provider_id)?;
     Some(Provider {
@@ -175,7 +175,7 @@ pub fn provider_registry(provider_id: &str) -> Option<Provider> {
 /// Returns `None` when the provider is unknown. For known providers that do not
 /// expose an explicit default model list yet, this falls back to generic model
 /// metadata derived from `model_slug`.
-#[must_use] 
+#[must_use]
 pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelInfo> {
     let slug = model_slug.trim();
     if slug.is_empty() {
@@ -199,7 +199,7 @@ pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelI
 ///
 /// Unknown providers are ignored. Duplicate slugs are removed while preserving
 /// the first occurrence order.
-#[must_use] 
+#[must_use]
 pub fn provider_models_from_slugs(provider_id: &str, model_slugs: &[String]) -> Vec<ModelInfo> {
     let mut seen = HashSet::new();
     model_slugs

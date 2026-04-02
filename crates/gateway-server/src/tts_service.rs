@@ -170,7 +170,8 @@ pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, S
             let id = p
                 .get("id")
                 .and_then(|v| v.as_str())
-                .unwrap_or("").to_owned();
+                .unwrap_or("")
+                .to_owned();
             let is_active = id == active_id && cfg.enabled;
             let is_configured = provider_key_from_env(&id).is_some();
             let voices = voices_for_provider(&id);
@@ -356,15 +357,18 @@ pub(crate) async fn convert(
                 rate: params
                     .get("rate")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0%").to_owned(),
+                    .unwrap_or("+0%")
+                    .to_owned(),
                 volume: params
                     .get("volume")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0%").to_owned(),
+                    .unwrap_or("+0%")
+                    .to_owned(),
                 pitch: params
                     .get("pitch")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0Hz").to_owned(),
+                    .unwrap_or("+0Hz")
+                    .to_owned(),
             };
             tts_edge::synthesize(text, &edge_config).await?
         }
@@ -383,7 +387,8 @@ pub(crate) async fn convert(
                 encoding: params
                     .get("encoding")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("mp3").to_owned(),
+                    .unwrap_or("mp3")
+                    .to_owned(),
                 sample_rate: params
                     .get("sample_rate")
                     .and_then(|v| v.as_u64())

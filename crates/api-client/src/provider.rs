@@ -29,7 +29,7 @@ pub struct RetryConfig {
 }
 
 impl RetryConfig {
-    #[must_use] 
+    #[must_use]
     pub fn to_policy(&self) -> RetryPolicy {
         RetryPolicy {
             max_attempts: self.max_attempts,
@@ -60,7 +60,7 @@ pub struct Provider {
 }
 
 impl Provider {
-    #[must_use] 
+    #[must_use]
     pub fn url_for_path(&self, path: &str) -> String {
         let base = self.base_url.trim_end_matches('/');
         let path = path.trim_start_matches('/');
@@ -85,7 +85,7 @@ impl Provider {
         url
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn build_request(&self, method: Method, path: &str) -> Request {
         Request {
             method,
@@ -97,7 +97,7 @@ impl Provider {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_azure_responses_endpoint(&self) -> bool {
         is_azure_responses_wire_base_url(self.wire.clone(), &self.id, Some(&self.base_url))
     }
@@ -116,7 +116,7 @@ impl Provider {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn is_azure_responses_wire_base_url(wire: WireApi, name: &str, base_url: Option<&str>) -> bool {
     if wire != WireApi::Responses {
         return false;

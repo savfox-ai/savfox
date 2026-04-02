@@ -367,19 +367,20 @@ async fn select_browser_page(
         .next()
         .ok_or_else(|| (INTERNAL_ERROR, "failed to select browser tab".to_owned()))?;
     if let Some(target_id) = preferred
-        && selected.target_id() != target_id {
-            let mut found = false;
-            for page in iter {
-                if page.target_id() == target_id {
-                    selected = page;
-                    found = true;
-                    break;
-                }
-            }
-            if !found && requested_target.is_some() {
-                return Err((INVALID_PARAMS, format!("tab '{target_id}' not found")));
+        && selected.target_id() != target_id
+    {
+        let mut found = false;
+        for page in iter {
+            if page.target_id() == target_id {
+                selected = page;
+                found = true;
+                break;
             }
         }
+        if !found && requested_target.is_some() {
+            return Err((INVALID_PARAMS, format!("tab '{target_id}' not found")));
+        }
+    }
 
     set_active_browser_target(profile, Some(selected.target_id().to_owned())).await;
     Ok(selected)
@@ -477,7 +478,8 @@ pub(crate) async fn handle_browser_request(
             let body = browser_result
                 .get("body")
                 .and_then(|v| v.as_str())
-                .unwrap_or_default().to_owned();
+                .unwrap_or_default()
+                .to_owned();
             let truncated = body.chars().count() > 100_000;
             let body = if truncated {
                 body.chars().take(100_000).collect::<String>()
@@ -1830,11 +1832,11 @@ pub(crate) async fn handle_browser_start(
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     if let Some(url) = params.get("url").and_then(|v| v.as_str())
-        && !url.trim().is_empty() {
-            let page =
-                select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
-            with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
-        }
+        && !url.trim().is_empty()
+    {
+        let page = select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
+        with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
+    }
     let browser = browser_session_browser(&profile).await?;
     let tabs = browser_tab_summaries(&profile, timeout_ms).await?;
     Ok(json!({
@@ -1889,13 +1891,14 @@ pub(crate) async fn handle_browser_tabs_open(
     let page = with_browser_timeout(timeout_ms, "open tab", browser.new_page()).await?;
     let target_id = page.target_id().to_owned();
     if let Some(url) = params.get("url").and_then(|v| v.as_str())
-        && !url.trim().is_empty() {
-            let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
-            crate::ssrf::validate_outbound_url(url, &ssrf_cfg)
-                .await
-                .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
-            with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
-        }
+        && !url.trim().is_empty()
+    {
+        let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
+        crate::ssrf::validate_outbound_url(url, &ssrf_cfg)
+            .await
+            .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
+        with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
+    }
     set_active_browser_target(&profile, Some(target_id.clone())).await;
     let title = with_browser_timeout(timeout_ms, "read tab title", page.title())
         .await
@@ -1920,7 +1923,8 @@ pub(crate) async fn handle_browser_tabs_switch(
     let target_id = params
         .get("target_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'target_id' parameter".to_owned()))?.to_owned();
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'target_id' parameter".to_owned()))?
+        .to_owned();
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, Some(target_id)).await?;
@@ -1989,7 +1993,8 @@ pub(crate) async fn handle_browser_snapshot(
         )
         .await?
         .as_str()
-        .unwrap_or_default().to_owned(),
+        .unwrap_or_default()
+        .to_owned(),
         _ => with_browser_timeout(timeout_ms, "snapshot dom", page.content()).await?,
     };
     let max_chars = opt_u64(params, "max_chars", 120_000) as usize;
@@ -2028,7 +2033,8 @@ pub(crate) async fn handle_browser_storage_get(
             )
             .await?
             .as_str()
-            .unwrap_or_default().to_owned();
+            .unwrap_or_default()
+            .to_owned();
             if let Some(key) = key {
                 let needle = format!("{key}=");
                 json!(
@@ -2769,10 +2775,7 @@ pub(crate) async fn handle_browser_extension_relay_start(
         with_browser_timeout(timeout_ms, "start extension relay", page.evaluate(&expr)).await?;
     let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
     if !ok {
-        return Err((
-            INTERNAL_ERROR,
-            "failed to start extension relay".to_owned(),
-        ));
+        return Err((INTERNAL_ERROR, "failed to start extension relay".to_owned()));
     }
 
     Ok(json!({
@@ -2893,7 +2896,8 @@ pub(crate) async fn handle_browser_extension_relay_send(
         .get("event_type")
         .or_else(|| params.get("type"))
         .and_then(|v| v.as_str())
-        .unwrap_or("message").to_owned();
+        .unwrap_or("message")
+        .to_owned();
     let payload = params.get("payload").cloned().unwrap_or(Value::Null);
 
     let channel_json = serde_json::to_string(&channel)
@@ -2929,7 +2933,8 @@ pub(crate) async fn handle_browser_extension_relay_send(
             result
                 .get("reason")
                 .and_then(|v| v.as_str())
-                .unwrap_or("relay_not_started").to_owned(),
+                .unwrap_or("relay_not_started")
+                .to_owned(),
         ));
     }
 
@@ -2977,7 +2982,8 @@ pub(crate) async fn handle_browser_content_script_inject(
             result
                 .get("error")
                 .and_then(|v| v.as_str())
-                .unwrap_or("script injection failed").to_owned(),
+                .unwrap_or("script injection failed")
+                .to_owned(),
         ));
     }
 

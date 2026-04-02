@@ -1,6 +1,6 @@
 use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
 
-#[must_use] 
+#[must_use]
 pub fn summarize_sandbox_policy(sandbox_policy: &SandboxPolicy) -> String {
     match sandbox_policy {
         SandboxPolicy::DangerFullAccess => "danger-full-access".to_owned(),

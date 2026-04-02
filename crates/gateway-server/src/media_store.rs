@@ -103,7 +103,7 @@ pub struct MediaStore {
 }
 
 impl MediaStore {
-    #[must_use] 
+    #[must_use]
     pub fn new(base_dir: PathBuf, cfg: MediaStoreConfig, ssrf: SsrfConfig) -> Self {
         let _ = std::fs::create_dir_all(&base_dir);
         let staging_dir = base_dir.join("staging");
@@ -126,7 +126,7 @@ impl MediaStore {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_home(savfox_home: &Path) -> Self {
         Self::new(
             savfox_home.join("media"),
@@ -135,7 +135,7 @@ impl MediaStore {
         )
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn from_env_or_default() -> Self {
         let savfox_home = savfox_core::config::find_savfox_home().unwrap_or_else(|_| {
             std::env::var("SAVFOX_HOME")
@@ -527,7 +527,7 @@ fn with_mime_extension(filename: &str, mime: &str) -> String {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn sanitize_filename(name: &str) -> String {
     let leaf = Path::new(name)
         .file_name()
@@ -608,9 +608,10 @@ pub fn detect_mime(
         return hint;
     }
     if let Some(name) = filename_hint
-        && let Some(mime) = mime_guess::from_path(name).first_raw() {
-            return mime.to_owned();
-        }
+        && let Some(mime) = mime_guess::from_path(name).first_raw()
+    {
+        return mime.to_owned();
+    }
     "application/octet-stream".to_owned()
 }
 

@@ -14,7 +14,7 @@ pub struct MemoryFileSync {
 }
 
 impl MemoryFileSync {
-    #[must_use] 
+    #[must_use]
     pub fn new(memory_dir: PathBuf, chunk_tokens: usize, chunk_overlap: usize) -> Self {
         Self {
             memory_dir,
@@ -38,24 +38,26 @@ impl MemoryFileSync {
             let path = entry.path();
 
             if path.is_file()
-                && let Some(ext) = path.extension() {
-                    if (ext == "md" || ext == "qmd" || ext == "txt")
-                        && let Ok(content) = std::fs::read_to_string(path) {
-                            let hash = Self::hash_content(&content);
-                            entries.push(MemoryFileEntry {
-                                path: path.to_path_buf(),
-                                content,
-                                hash,
-                            });
-                        }
+                && let Some(ext) = path.extension()
+            {
+                if (ext == "md" || ext == "qmd" || ext == "txt")
+                    && let Ok(content) = std::fs::read_to_string(path)
+                {
+                    let hash = Self::hash_content(&content);
+                    entries.push(MemoryFileEntry {
+                        path: path.to_path_buf(),
+                        content,
+                        hash,
+                    });
                 }
+            }
         }
 
         info!("Scanned {} memory files", entries.len());
         Ok(entries)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn chunk_file(&self, entry: &MemoryFileEntry) -> Vec<MemoryChunk> {
         let chunks = chunk_markdown(&entry.content, self.chunk_tokens, self.chunk_overlap);
 
@@ -110,7 +112,7 @@ pub struct ChunkResult {
     pub token_count: usize,
 }
 
-#[must_use] 
+#[must_use]
 pub fn chunk_markdown(content: &str, max_tokens: usize, overlap: usize) -> Vec<ChunkResult> {
     let lines: Vec<&str> = content.lines().collect();
     let mut chunks = Vec::new();
@@ -162,7 +164,7 @@ pub fn chunk_markdown(content: &str, max_tokens: usize, overlap: usize) -> Vec<C
     chunks
 }
 
-#[must_use] 
+#[must_use]
 pub fn estimate_tokens(text: &str) -> usize {
     let char_count = text.chars().count();
     let word_count = text.split_whitespace().count();
@@ -175,7 +177,7 @@ pub struct SessionFileSync {
 }
 
 impl SessionFileSync {
-    #[must_use] 
+    #[must_use]
     pub fn new(sessions_dir: PathBuf) -> Self {
         Self { sessions_dir }
     }
@@ -195,24 +197,26 @@ impl SessionFileSync {
             let path = entry.path();
 
             if path.is_file()
-                && let Some(ext) = path.extension() {
-                    if (ext == "json" || ext == "md")
-                        && let Ok(content) = std::fs::read_to_string(path) {
-                            let hash = MemoryFileSync::hash_content(&content);
-                            entries.push(SessionFileEntry {
-                                path: path.to_path_buf(),
-                                content,
-                                hash,
-                                session_id: extract_session_id(path),
-                            });
-                        }
+                && let Some(ext) = path.extension()
+            {
+                if (ext == "json" || ext == "md")
+                    && let Ok(content) = std::fs::read_to_string(path)
+                {
+                    let hash = MemoryFileSync::hash_content(&content);
+                    entries.push(SessionFileEntry {
+                        path: path.to_path_buf(),
+                        content,
+                        hash,
+                        session_id: extract_session_id(path),
+                    });
                 }
+            }
         }
 
         Ok(entries)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn build_session_chunks(
         &self,
         entry: &SessionFileEntry,

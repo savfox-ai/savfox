@@ -181,7 +181,7 @@ pub async fn collect_mcp_snapshot(config: &Config) -> McpListToolsResponseEvent 
     snapshot
 }
 
-#[must_use] 
+#[must_use]
 pub fn split_qualified_tool_name(qualified_name: &str) -> Option<(String, String)> {
     let mut parts = qualified_name.split(MCP_TOOL_NAME_DELIMITER);
     let prefix = parts.next()?;

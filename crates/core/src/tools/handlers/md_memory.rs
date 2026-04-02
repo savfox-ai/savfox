@@ -82,9 +82,10 @@ fn find_entry_path(
 
     for (layer, dir) in dirs {
         if let Some(filter) = layer_filter
-            && layer != filter {
-                continue;
-            }
+            && layer != filter
+        {
+            continue;
+        }
         let path = dir.join(format!("{slug}.md"));
         if path.exists() {
             return Some((layer, path));

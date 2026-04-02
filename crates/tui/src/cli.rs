@@ -124,7 +124,6 @@ pub struct Cli {
     pub alt_screen: Option<AltScreenMode>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use clap::Parser;

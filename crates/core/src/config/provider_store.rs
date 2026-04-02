@@ -64,7 +64,7 @@ impl ProviderStoreFile {
 
     /// Return the effective account id: the explicit `id` field if non-empty,
     /// otherwise fall back to `provider_id`.
-    #[must_use] 
+    #[must_use]
     pub fn account_id(&self) -> &str {
         let id = self.id.trim();
         if id.is_empty() {
@@ -156,12 +156,12 @@ fn env_var_looks_like_secret(env_var: &str) -> bool {
     env_var.contains("API_KEY") || env_var.contains("TOKEN") || env_var.ends_with("_KEY")
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
     savfox_home.join(PROVIDER_MODELS_DIR_NAME)
 }
 
-#[must_use] 
+#[must_use]
 pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
     provider_models_store_dir(savfox_home).join(format!("{account_id}.json"))
 }
@@ -176,7 +176,7 @@ pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
 /// The name is lowercased, non-alphanumeric characters are replaced with
 /// hyphens, and consecutive hyphens are collapsed. When a normalized slug is
 /// available, the returned id is always `{provider_id}-{slug}`.
-#[must_use] 
+#[must_use]
 pub fn slugify_account_id(provider_id: &str, name: &str) -> String {
     let provider_id = provider_id.trim();
     let slug = normalize_slug(name).unwrap_or_default();
@@ -189,7 +189,7 @@ pub fn slugify_account_id(provider_id: &str, name: &str) -> String {
 }
 
 /// Check whether an account id already has a corresponding store file on disk.
-#[must_use] 
+#[must_use]
 pub fn account_id_exists(savfox_home: &Path, account_id: &str) -> bool {
     provider_store_path(savfox_home, account_id).exists()
 }
@@ -224,7 +224,7 @@ pub fn list_provider_store_files(savfox_home: &Path) -> Vec<ProviderStoreFile> {
 /// Load a provider store file. The `account_id` is the filename stem (which
 /// may be a bare `provider_id` for legacy single-account files, or a full
 /// account id like `"openai-work"` for multi-account setups).
-#[must_use] 
+#[must_use]
 pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> ProviderStoreFile {
     let path = provider_store_path(savfox_home, account_id);
     let data = std::fs::read_to_string(&path);
@@ -274,7 +274,7 @@ pub fn save_provider_store_file(
     std::fs::write(path, data)
 }
 
-#[must_use] 
+#[must_use]
 pub fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str) -> Option<String> {
     load_provider_store_file(savfox_home, provider_id)
         .auth
@@ -282,7 +282,7 @@ pub fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str) -> Opt
         .and_then(|api_key| trim_nonempty(&api_key))
 }
 
-#[must_use] 
+#[must_use]
 pub fn has_provider_store_configuration(savfox_home: &Path) -> bool {
     let dir = provider_models_store_dir(savfox_home);
     let Ok(entries) = std::fs::read_dir(dir) else {

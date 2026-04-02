@@ -41,7 +41,7 @@ pub struct TurnDiffTracker {
 }
 
 impl TurnDiffTracker {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -108,7 +108,9 @@ impl TurnDiffTracker {
                 ..
             } = change
             {
-                let uuid_filename = if let Some(i) = self.external_to_temp_name.get(path) { i.clone() } else {
+                let uuid_filename = if let Some(i) = self.external_to_temp_name.get(path) {
+                    i.clone()
+                } else {
                     // This should be rare, but if we haven't mapped the source, create it with
                     // no baseline.
                     let i = Uuid::new_v4().to_string();

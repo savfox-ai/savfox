@@ -116,7 +116,7 @@ impl SkillManifest {
         serde_yaml::from_str(content)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn to_skill_md(&self) -> String {
         let mut md = String::new();
         md.push_str("---\n");
@@ -134,7 +134,7 @@ impl SkillManifest {
 }
 
 impl SkillPackage {
-    #[must_use] 
+    #[must_use]
     pub fn is_update_available(&self) -> bool {
         if !self.installed {
             return false;
@@ -146,7 +146,7 @@ impl SkillPackage {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn status_label(&self) -> &'static str {
         if !self.installed {
             "Not installed"

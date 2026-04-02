@@ -69,7 +69,7 @@ impl StateRuntime {
     }
 
     /// Return the configured Savfox home directory for this runtime.
-    #[must_use] 
+    #[must_use]
     pub fn savfox_home(&self) -> &Path {
         self.savfox_home.as_path()
     }

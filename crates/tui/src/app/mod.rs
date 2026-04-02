@@ -229,7 +229,8 @@ fn emit_project_config_warnings(app_event_tx: &AppEventSender, config: &Config) 
     let mut message = concat!(
         "Project config.toml files are disabled in the following folders. ",
         "Settings in those files are ignored, but skills and exec policies still load.\n",
-    ).to_owned();
+    )
+    .to_owned();
     for (index, (folder, reason)) in disabled_folders.iter().enumerate() {
         let display_index = index + 1;
         message.push_str(&format!("    {display_index}. {folder}\n"));
@@ -2667,7 +2668,8 @@ impl App {
             .trim_end_matches(".git")
             .rsplit('/')
             .next()
-            .unwrap_or("skill").to_owned();
+            .unwrap_or("skill")
+            .to_owned();
 
         if name.is_empty() || name == "." || name == ".." {
             self.chat_screen
@@ -2720,7 +2722,8 @@ impl App {
             Err(external_editor::EditorError::MissingEditor) => {
                 self.chat_screen
                     .add_to_history(history_cell::new_error_event(
-                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Savfox.".to_owned(),
+                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Savfox."
+                        .to_owned(),
                 ));
                 self.reset_external_editor_state(tui);
                 return;
@@ -2762,10 +2765,8 @@ impl App {
     fn request_external_editor_launch(&mut self, tui: &mut tui::Tui) {
         self.chat_screen
             .set_external_editor_state(ExternalEditorState::Requested);
-        self.chat_screen.set_footer_hint_override(Some(vec![(
-            EXTERNAL_EDITOR_HINT.to_owned(),
-            String::new(),
-        )]));
+        self.chat_screen
+            .set_footer_hint_override(Some(vec![(EXTERNAL_EDITOR_HINT.to_owned(), String::new())]));
         tui.frame_requester().schedule_frame();
     }
 

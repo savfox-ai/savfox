@@ -127,7 +127,6 @@ pub enum ClientRole {
     WebChat,
 }
 
-
 /// Server-side connection policy sent with the Connected message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

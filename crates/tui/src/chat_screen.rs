@@ -1121,7 +1121,9 @@ impl ChatScreen {
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
-        if let Some(info) = info { self.apply_token_info(info) } else {
+        if let Some(info) = info {
+            self.apply_token_info(info)
+        } else {
             self.bottom_pane.set_context_window(None, None);
             self.token_info = None;
         }
@@ -1151,7 +1153,9 @@ impl ChatScreen {
 
     fn restore_pre_review_token_info(&mut self) {
         if let Some(saved) = self.pre_review_token_info.take() {
-            if let Some(info) = saved { self.apply_token_info(info) } else {
+            if let Some(info) = saved {
+                self.apply_token_info(info)
+            } else {
                 self.bottom_pane.set_context_window(None, None);
                 self.token_info = None;
             }
@@ -4132,7 +4136,8 @@ impl ChatScreen {
         let provider_name = result.provider_name.clone();
         let title = format!("Name this {provider_name} account");
         let context = error_hint.unwrap_or_else(|| {
-            "Leave empty to use the default name, or type a name (e.g. 'Work', 'Personal')".to_owned()
+            "Leave empty to use the default name, or type a name (e.g. 'Work', 'Personal')"
+                .to_owned()
         });
         let view = CustomPromptView::new(
             title,
@@ -4181,7 +4186,9 @@ impl ChatScreen {
     /// Open a popup to choose a quick auto model. Selecting "All models"
     /// opens the full picker with every available preset.
     pub(crate) fn open_model_popup(&mut self) {
-        let presets: Vec<ModelPreset> = if let Ok(models) = self.model_presets_for_popup() { models } else {
+        let presets: Vec<ModelPreset> = if let Ok(models) = self.model_presets_for_popup() {
+            models
+        } else {
             self.add_info_message(
                 "Models are being updated; please try /model again in a moment.".to_owned(),
                 None,
@@ -4193,9 +4200,10 @@ impl ChatScreen {
 
     fn model_presets_for_popup(&self) -> Result<Vec<ModelPreset>, ()> {
         if let Some(presets) = load_provider_store_model_presets(self.config.savfox_home.as_path())
-            && !presets.is_empty() {
-                return Ok(presets);
-            }
+            && !presets.is_empty()
+        {
+            return Ok(presets);
+        }
         self.models_manager
             .try_list_models(&self.config)
             .map_err(|_| ())
@@ -4319,11 +4327,14 @@ impl ChatScreen {
             .config
             .model_providers
             .iter()
-            .filter(|&(provider_id, provider)| Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)).map(|(provider_id, provider)| ModelProviderBucket {
-                        id: provider_id.clone(),
-                        name: provider.name.clone(),
-                        aliases: Self::provider_aliases(provider_id, &provider.name),
-                    })
+            .filter(|&(provider_id, provider)| {
+                Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)
+            })
+            .map(|(provider_id, provider)| ModelProviderBucket {
+                id: provider_id.clone(),
+                name: provider.name.clone(),
+                aliases: Self::provider_aliases(provider_id, &provider.name),
+            })
             .collect();
 
         if !buckets
@@ -6927,10 +6938,8 @@ enum Notification {
 impl Notification {
     fn display(&self) -> String {
         match self {
-            Self::AgentTurnComplete { response } => {
-                Self::agent_turn_preview(response)
-                    .unwrap_or_else(|| "Agent turn complete".to_owned())
-            }
+            Self::AgentTurnComplete { response } => Self::agent_turn_preview(response)
+                .unwrap_or_else(|| "Agent turn complete".to_owned()),
             Self::ExecApprovalRequested { command } => {
                 format!("Approval requested: {}", truncate_text(command, 30))
             }
@@ -7216,7 +7225,8 @@ fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningE
         let description = obj
             .get("description")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_default().to_owned();
+            .unwrap_or_default()
+            .to_owned();
         presets.push(ReasoningEffortPreset {
             effort,
             description,

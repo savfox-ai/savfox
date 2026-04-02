@@ -65,9 +65,11 @@ impl ExternalAuthRefresher for ExternalAuthRefreshBridge {
             .send_request_with_id(ServerRequestPayload::ChatgptAuthTokensRefresh(params))
             .await;
 
-        let result = if let Ok(result) = timeout(EXTERNAL_AUTH_REFRESH_TIMEOUT, rx).await { result.map_err(|err| {
-            std::io::Error::other(format!("auth refresh request canceled: {err}"))
-        })? } else {
+        let result = if let Ok(result) = timeout(EXTERNAL_AUTH_REFRESH_TIMEOUT, rx).await {
+            result.map_err(|err| {
+                std::io::Error::other(format!("auth refresh request canceled: {err}"))
+            })?
+        } else {
             let _canceled = self.outgoing.cancel_request(&request_id).await;
             return Err(std::io::Error::other(format!(
                 "auth refresh request timed out after {}s",
@@ -332,7 +334,7 @@ impl MessageProcessor {
     /// Handle a standalone JSON-RPC response originating from the peer.
     pub(crate) async fn process_response(&mut self, response: JSONRPCResponse) {
         tracing::info!("<- response: {:?}", response);
-        let JSONRPCResponse { id, result,  } = response;
+        let JSONRPCResponse { id, result } = response;
         self.outgoing.notify_client_response(id, result).await
     }
 

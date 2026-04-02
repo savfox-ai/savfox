@@ -50,12 +50,12 @@ pub struct ConfigLoadError {
 }
 
 impl ConfigLoadError {
-    #[must_use] 
+    #[must_use]
     pub fn new(error: ConfigError, source: Option<toml::de::Error>) -> Self {
         Self { error, source }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn config_error(&self) -> &ConfigError {
         &self.error
     }
@@ -198,7 +198,7 @@ fn text_range_from_span(contents: &str, span: std::ops::Range<usize>) -> TextRan
     TextRange { start, end }
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_config_error(error: &ConfigError, contents: &str) -> String {
     let mut output = String::new();
     let start = error.range.start;
@@ -235,7 +235,7 @@ pub fn format_config_error(error: &ConfigError, contents: &str) -> String {
     output.trim_end().to_owned()
 }
 
-#[must_use] 
+#[must_use]
 pub fn format_config_error_with_source(error: &ConfigError) -> String {
     match std::fs::read_to_string(&error.path) {
         Ok(contents) => format_config_error(error, &contents),

@@ -67,7 +67,7 @@ pub struct TurnDetector {
 }
 
 impl TurnDetector {
-    #[must_use] 
+    #[must_use]
     pub fn new(config: TurnDetectionConfig) -> Self {
         let (event_tx, _) = broadcast::channel(32);
         Self {
@@ -82,7 +82,7 @@ impl TurnDetector {
     }
 
     /// Subscribe to turn events.
-    #[must_use] 
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<TurnEvent> {
         self.event_tx.subscribe()
     }
@@ -92,8 +92,6 @@ impl TurnDetector {
     pub fn process_level(&mut self, level: f32, timestamp_ms: u64) -> bool {
         self.frame_count += 1;
         let is_speech = level >= self.config.speech_threshold;
-
-        
 
         match self.state {
             DetectionState::Idle => {
@@ -117,9 +115,10 @@ impl TurnDetector {
 
                     // Check for max duration
                     if let Some(start_ms) = self.turn_start_ms
-                        && timestamp_ms - start_ms >= self.config.max_turn_duration_ms {
-                            return self.end_turn(timestamp_ms, 0);
-                        }
+                        && timestamp_ms - start_ms >= self.config.max_turn_duration_ms
+                    {
+                        return self.end_turn(timestamp_ms, 0);
+                    }
 
                     // Check for silence threshold
                     if self.consecutive_silence_frames >= self.config.silence_end_frames {
@@ -192,7 +191,7 @@ impl TurnDetector {
     }
 
     /// Check if currently in a turn.
-    #[must_use] 
+    #[must_use]
     pub fn is_in_turn(&self) -> bool {
         matches!(
             self.state,
@@ -201,7 +200,7 @@ impl TurnDetector {
     }
 
     /// Get current state.
-    #[must_use] 
+    #[must_use]
     pub fn state(&self) -> &DetectionState {
         &self.state
     }
@@ -213,7 +212,7 @@ impl TurnDetector {
 }
 
 /// Calculate audio level (RMS) from samples.
-#[must_use] 
+#[must_use]
 pub fn calculate_audio_level(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return 0.0;

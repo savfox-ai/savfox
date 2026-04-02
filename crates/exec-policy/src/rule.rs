@@ -23,7 +23,7 @@ impl PatternToken {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn alternatives(&self) -> &[String] {
         match self {
             Self::Single(expected) => std::slice::from_ref(expected),
@@ -41,7 +41,7 @@ pub struct PrefixPattern {
 }
 
 impl PrefixPattern {
-    #[must_use] 
+    #[must_use]
     pub fn matches_prefix(&self, cmd: &[String]) -> Option<Vec<String>> {
         let pattern_length = self.rest.len() + 1;
         if cmd.len() < pattern_length || cmd[0] != self.first.as_ref() {
@@ -79,7 +79,7 @@ pub enum RuleMatch {
 }
 
 impl RuleMatch {
-    #[must_use] 
+    #[must_use]
     pub fn decision(&self) -> Decision {
         match self {
             Self::PrefixRuleMatch { decision, .. } => *decision,

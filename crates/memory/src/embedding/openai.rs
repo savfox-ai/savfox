@@ -11,7 +11,7 @@ pub struct OpenAIEmbeddingProvider {
 }
 
 impl OpenAIEmbeddingProvider {
-    #[must_use] 
+    #[must_use]
     pub fn new(api_key: String, model: String) -> Self {
         Self {
             client: Client::new(),

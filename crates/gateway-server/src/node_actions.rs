@@ -80,7 +80,7 @@ pub struct NodeActionResult {
 
 impl NodeAction {
     /// Convert to JSON-RPC params for node.invoke
-    #[must_use] 
+    #[must_use]
     pub fn to_invoke_params(&self, node_id: &str) -> Value {
         json!({
             "node_id": node_id,
@@ -90,7 +90,7 @@ impl NodeAction {
     }
 
     /// Get the RPC method name for this action
-    #[must_use] 
+    #[must_use]
     pub fn method_name(&self) -> &str {
         match self {
             Self::SystemRun { .. } => "system.run",
@@ -108,7 +108,7 @@ impl NodeAction {
     }
 
     /// Check if this action requires approval
-    #[must_use] 
+    #[must_use]
     pub fn requires_approval(&self) -> bool {
         matches!(
             self,

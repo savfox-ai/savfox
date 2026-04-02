@@ -15,7 +15,7 @@ fn search_action_detail(query: &Option<String>, queries: &Option<Vec<String>>) -
     })
 }
 
-#[must_use] 
+#[must_use]
 pub fn web_search_action_detail(action: &WebSearchAction) -> String {
     match action {
         WebSearchAction::Search { query, queries } => search_action_detail(query, queries),

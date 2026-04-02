@@ -79,7 +79,7 @@ pub fn assess_patch_safety(
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn get_platform_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
     if cfg!(target_os = "macos") {
         Some(SandboxType::MacosSeatbelt)

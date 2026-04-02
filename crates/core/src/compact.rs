@@ -194,7 +194,7 @@ async fn run_compact_task_inner(
     sess.send_event(&turn_context, warning).await;
 }
 
-#[must_use] 
+#[must_use]
 pub fn content_items_to_text(content: &[ContentItem]) -> Option<String> {
     let mut pieces = Vec::new();
     for item in content {

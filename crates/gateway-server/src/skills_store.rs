@@ -134,9 +134,11 @@ fn collect_skill_manifests(
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|v| v.to_str())
-                    && skip_system_subtree && name == ".system" {
-                        continue;
-                    }
+                    && skip_system_subtree
+                    && name == ".system"
+                {
+                    continue;
+                }
                 if skip_roots.contains(&path) {
                     continue;
                 }
@@ -702,9 +704,10 @@ fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
             collect_skill_manifests(root, CATEGORY_INSTALLED, 6, skip_system, &empty_skip)
         {
             if let Some(parsed_name) = quick_read_skill_name(&manifest_path)
-                && parsed_name.eq_ignore_ascii_case(name) {
-                    return manifest_path.parent().map(Path::to_path_buf);
-                }
+                && parsed_name.eq_ignore_ascii_case(name)
+            {
+                return manifest_path.parent().map(Path::to_path_buf);
+            }
         }
     }
 
@@ -714,9 +717,10 @@ fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
             collect_skill_manifests(&ws_dir, CATEGORY_WORKSPACE, 4, false, &empty_skip)
         {
             if let Some(parsed_name) = quick_read_skill_name(&manifest_path)
-                && parsed_name.eq_ignore_ascii_case(name) {
-                    return manifest_path.parent().map(Path::to_path_buf);
-                }
+                && parsed_name.eq_ignore_ascii_case(name)
+            {
+                return manifest_path.parent().map(Path::to_path_buf);
+            }
         }
     }
 

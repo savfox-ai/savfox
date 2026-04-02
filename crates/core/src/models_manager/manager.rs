@@ -446,7 +446,7 @@ impl ModelsManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Get model identifier without consulting remote state or cache.
-    #[must_use] 
+    #[must_use]
     pub fn get_model_offline(model: Option<&str>) -> String {
         if let Some(model) = model {
             return model.to_owned();
@@ -462,7 +462,7 @@ impl ModelsManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Build `ModelInfo` without consulting remote state or cache.
-    #[must_use] 
+    #[must_use]
     pub fn construct_model_info_offline(model: &str, config: &Config) -> ModelInfo {
         model_info::with_config_overrides(model_info::find_model_info_for_slug(model), config)
     }

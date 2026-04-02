@@ -6,7 +6,7 @@ use tokio::fs;
 
 /// Return the default prompts directory: `$SAVFOX_HOME/prompts`.
 /// If `SAVFOX_HOME` cannot be resolved, returns `None`.
-#[must_use] 
+#[must_use]
 pub fn default_prompts_dir() -> Option<PathBuf> {
     crate::config::find_savfox_home()
         .ok()

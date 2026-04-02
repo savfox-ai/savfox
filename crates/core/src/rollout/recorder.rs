@@ -79,7 +79,7 @@ enum RolloutCmd {
 }
 
 impl RolloutRecorderParams {
-    #[must_use] 
+    #[must_use]
     pub fn new(
         conversation_id: SessionId,
         forked_from_id: Option<SessionId>,
@@ -96,7 +96,7 @@ impl RolloutRecorderParams {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn resume(path: PathBuf) -> Self {
         Self::Resume { path }
     }
@@ -337,12 +337,12 @@ impl RolloutRecorder {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn rollout_path(&self) -> &Path {
         self.rollout_path.as_path()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn state_db(&self) -> Option<StateDbHandle> {
         self.state_db.clone()
     }

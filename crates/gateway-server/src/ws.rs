@@ -125,7 +125,9 @@ async fn handle_ws_connection(
     // 2. By sending a `Connect` message as the first frame
 
     let (token_info, _client_info) = if let Some(ref token) = query_token {
-        if let Some(info) = auth.validate(token).await { (info, None::<crate::protocol::ClientInfo>) } else {
+        if let Some(info) = auth.validate(token).await {
+            (info, None::<crate::protocol::ClientInfo>)
+        } else {
             let err = GatewayMessage::Error {
                 id: None,
                 code: 401,
@@ -164,15 +166,18 @@ async fn handle_ws_connection(
                     }
                 };
                 if let Ok(GatewayMessage::Connect {
-                        token, client_info, ..
-                    }) = serde_json::from_str::<GatewayMessage>(&text) {
+                    token, client_info, ..
+                }) = serde_json::from_str::<GatewayMessage>(&text)
+                {
                     // Try direct token validation first (backwards-compatible)
                     if let Some(info) = auth.validate(&token).await {
                         (info, client_info)
                     } else {
                         // Try as HMAC signature: client sent HMAC-SHA256(nonce, real_token)
                         // We need to check all known tokens to see if any matches
-                        if let Some(info) = auth.validate_challenge_response(&token, &nonce).await { (info, client_info) } else {
+                        if let Some(info) = auth.validate_challenge_response(&token, &nonce).await {
+                            (info, client_info)
+                        } else {
                             let err = GatewayMessage::Error {
                                 id: None,
                                 code: 401,

@@ -33,7 +33,7 @@ const LAYER_BUDGETS: &[LayerBudget] = &[
 /// 1. Pinned entries are always included first.
 /// 2. Remaining budget is split across layers by share.
 /// 3. Within each layer, entries are sorted by priority (desc), then updated_at (desc).
-#[must_use] 
+#[must_use]
 pub fn assemble_memory_prompt(entries: &[MdMemoryEntry], max_bytes: usize) -> String {
     if entries.is_empty() {
         return String::new();

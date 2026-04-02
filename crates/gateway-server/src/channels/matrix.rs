@@ -413,37 +413,43 @@ impl MatrixAppserviceChannel {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires serverName")?.to_owned();
+            .context("Matrix appservice mode requires serverName")?
+            .to_owned();
         let public_url = config
             .public_url
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires publicUrl")?.to_owned();
+            .context("Matrix appservice mode requires publicUrl")?
+            .to_owned();
         let appservice_id = config
             .appservice_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires appserviceId")?.to_owned();
+            .context("Matrix appservice mode requires appserviceId")?
+            .to_owned();
         let appservice_token = config
             .appservice_token
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires appserviceToken")?.to_owned();
+            .context("Matrix appservice mode requires appserviceToken")?
+            .to_owned();
         let homeserver_token = config
             .homeserver_token
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires homeserverToken")?.to_owned();
+            .context("Matrix appservice mode requires homeserverToken")?
+            .to_owned();
         let sender_localpart = config
             .sender_localpart
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires senderLocalpart")?.to_owned();
+            .context("Matrix appservice mode requires senderLocalpart")?
+            .to_owned();
         let homeserver_url = url::Url::parse(&config.homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {}", config.homeserver))?;
         let bot_user_id = format!("@{sender_localpart}:{server_name}");
@@ -1691,7 +1697,9 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     );
                 }
             }
-        } else { warn!("Matrix invite received but gateway channel state is unavailable") }
+        } else {
+            warn!("Matrix invite received but gateway channel state is unavailable")
+        }
     }
 
     if runtime::should_drop_duplicate(dedupe_key).await {

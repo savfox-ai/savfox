@@ -26,7 +26,7 @@ pub enum ImageProcessingError {
 }
 
 impl ImageProcessingError {
-    #[must_use] 
+    #[must_use]
     pub fn is_invalid_image(&self) -> bool {
         matches!(
             self,

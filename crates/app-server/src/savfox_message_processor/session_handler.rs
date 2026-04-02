@@ -129,7 +129,6 @@ impl SavfoxMessageProcessor {
                     session_id,
                     session,
                     session_configured,
-                    
                 } = new_conv;
                 let config_snapshot = session.config_snapshot().await;
                 let fallback_provider = self.config.model_provider_id.as_str();
@@ -582,7 +581,9 @@ impl SavfoxMessageProcessor {
         let total = data.len();
         let start = match cursor {
             Some(cursor) => {
-                let cursor = if let Ok(id) = SessionId::from_string(&cursor) { id.to_string() } else {
+                let cursor = if let Ok(id) = SessionId::from_string(&cursor) {
+                    id.to_string()
+                } else {
                     let error = JSONRPCErrorError {
                         code: INVALID_REQUEST_ERROR_CODE,
                         message: format!("invalid cursor: {cursor}"),
@@ -746,11 +747,8 @@ impl SavfoxMessageProcessor {
 
         let session_history = if let Some(history) = history {
             if history.is_empty() {
-                self.send_invalid_request_error(
-                    request_id,
-                    "history must not be empty".to_owned(),
-                )
-                .await;
+                self.send_invalid_request_error(request_id, "history must not be empty".to_owned())
+                    .await;
                 return;
             }
             InitialHistory::Forked(

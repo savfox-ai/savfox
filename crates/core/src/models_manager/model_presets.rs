@@ -354,7 +354,7 @@ pub(super) fn builtin_model_presets(_auth_mode: Option<AuthMode>) -> Vec<ModelPr
 }
 
 #[cfg(any(test, feature = "test-support"))]
-#[must_use] 
+#[must_use]
 pub fn all_model_presets() -> &'static Vec<ModelPreset> {
     &PRESETS
 }

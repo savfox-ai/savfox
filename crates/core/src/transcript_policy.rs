@@ -168,7 +168,7 @@ impl Default for ExportPolicy {
 }
 
 /// Apply redaction policy to a text string.
-#[must_use] 
+#[must_use]
 pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
     let mut result = text.to_owned();
 

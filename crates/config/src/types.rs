@@ -278,7 +278,7 @@ pub enum UriBasedFileOpener {
 }
 
 impl UriBasedFileOpener {
-    #[must_use] 
+    #[must_use]
     pub fn get_scheme(&self) -> Option<&str> {
         match self {
             Self::VsCode => Some("vscode"),

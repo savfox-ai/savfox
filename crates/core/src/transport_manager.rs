@@ -7,17 +7,17 @@ pub struct TransportManager {
 }
 
 impl TransportManager {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn disable_websockets(&self) -> bool {
         self.disable_websockets.load(Ordering::Relaxed)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn activate_http_fallback(&self, websocket_enabled: bool) -> bool {
         websocket_enabled && !self.disable_websockets.swap(true, Ordering::Relaxed)
     }

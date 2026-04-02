@@ -199,13 +199,14 @@ fn print_rotate_result(result: &serde_json::Value) {
     }
 
     if let Some(failures) = result.get("failures").and_then(|v| v.as_array())
-        && !failures.is_empty() {
-            println!();
-            println!("Rotation failures:");
-            for failure in failures {
-                if let Some(line) = failure.as_str() {
-                    println!("- {line}");
-                }
+        && !failures.is_empty()
+    {
+        println!();
+        println!("Rotation failures:");
+        for failure in failures {
+            if let Some(line) = failure.as_str() {
+                println!("- {line}");
             }
         }
+    }
 }

@@ -617,7 +617,9 @@ pub async fn run_main(
     if cli.oss && model_provider_override.is_some() {
         // We're in the oss section, so provider_id should be Some
         // Let's handle None case gracefully though just in case
-        let provider_id = if let Some(id) = model_provider_override.as_ref() { id } else {
+        let provider_id = if let Some(id) = model_provider_override.as_ref() {
+            id
+        } else {
             error!("OSS provider unexpectedly not set when oss flag is used");
             return Err(std::io::Error::other(
                 "OSS provider not set but oss flag was used",

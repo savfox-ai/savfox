@@ -1,6 +1,6 @@
 // Truncate a &str to a byte budget at a char boundary (prefix)
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn take_bytes_at_char_boundary(s: &str, maxb: usize) -> &str {
     if s.len() <= maxb {
         return s;
@@ -18,7 +18,7 @@ pub fn take_bytes_at_char_boundary(s: &str, maxb: usize) -> &str {
 
 // Take a suffix of a &str within a byte budget at a char boundary
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn take_last_bytes_at_char_boundary(s: &str, maxb: usize) -> &str {
     if s.len() <= maxb {
         return s;
@@ -44,7 +44,7 @@ pub fn take_last_bytes_at_char_boundary(s: &str, maxb: usize) -> &str {
 /// Keeps only ASCII letters and digits; treats whitespace and `- _ : / \ .`
 /// as separators; trims leading and trailing separators.
 #[inline]
-#[must_use] 
+#[must_use]
 pub fn normalize_slug(raw: &str) -> Option<String> {
     let mut out = String::new();
     let mut prev_dash = false;
@@ -56,10 +56,12 @@ pub fn normalize_slug(raw: &str) -> Option<String> {
         }
 
         if (ch.is_ascii_whitespace() || matches!(ch, '-' | '_' | ':' | '/' | '\\' | '.'))
-            && !out.is_empty() && !prev_dash {
-                out.push('-');
-                prev_dash = true;
-            }
+            && !out.is_empty()
+            && !prev_dash
+        {
+            out.push('-');
+            prev_dash = true;
+        }
     }
 
     let normalized = out.trim_matches('-');

@@ -394,7 +394,7 @@ impl ModelProviderInfo {
     }
 
     /// Effective maximum number of request retries for this provider.
-    #[must_use] 
+    #[must_use]
     pub fn request_max_retries(&self) -> u64 {
         self.request_max_retries
             .unwrap_or(DEFAULT_REQUEST_MAX_RETRIES)
@@ -402,7 +402,7 @@ impl ModelProviderInfo {
     }
 
     /// Effective maximum number of stream reconnection attempts for this provider.
-    #[must_use] 
+    #[must_use]
     pub fn stream_max_retries(&self) -> u64 {
         self.stream_max_retries
             .unwrap_or(DEFAULT_STREAM_MAX_RETRIES)
@@ -415,7 +415,7 @@ impl ModelProviderInfo {
             .map(Duration::from_millis)
             .unwrap_or(Duration::from_millis(DEFAULT_STREAM_IDLE_TIMEOUT_MS))
     }
-    #[must_use] 
+    #[must_use]
     pub fn create_openai_provider() -> Self {
         Self {
             id: "openai".into(),
@@ -458,7 +458,7 @@ impl ModelProviderInfo {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_openai(&self) -> bool {
         self.id == "openai" || self.name == "OpenAI"
     }
@@ -494,9 +494,9 @@ pub fn provider_default_base_url(provider_id: &str) -> Option<String> {
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-            {
-                return Some(base_url.to_owned());
-            }
+        {
+            return Some(base_url.to_owned());
+        }
     }
 
     mapped_default.map(str::to_string)
@@ -539,7 +539,7 @@ pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
 pub const OLLAMA_CHAT_PROVIDER_ID: &str = "ollama-chat";
 
 /// Built-in default provider list.
-#[must_use] 
+#[must_use]
 pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     use ModelProviderInfo as P;
 
@@ -751,7 +751,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
     ModelProviderInfo {
         id: "gpt-oss".into(),

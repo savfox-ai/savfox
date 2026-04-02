@@ -35,7 +35,7 @@ pub struct IdTokenInfo {
 }
 
 impl IdTokenInfo {
-    #[must_use] 
+    #[must_use]
     pub fn get_chatgpt_plan_type(&self) -> Option<String> {
         self.chatgpt_plan_type.as_ref().map(|t| match t {
             PlanType::Known(plan) => format!("{plan:?}"),
@@ -43,7 +43,7 @@ impl IdTokenInfo {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_workspace_account(&self) -> bool {
         matches!(
             self.chatgpt_plan_type,

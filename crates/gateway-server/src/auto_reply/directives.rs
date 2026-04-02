@@ -74,7 +74,8 @@ pub fn parse_directives(text: &str) -> DirectiveParseResult {
             .map(str::trim_end)
             .collect::<Vec<_>>()
             .join("\n")
-            .trim().to_owned(),
+            .trim()
+            .to_owned(),
     }
 }
 
@@ -130,9 +131,10 @@ pub fn fuzzy_match_model_name(hint: &str, candidates: &[String]) -> Option<Strin
 
     for candidate in candidates {
         if let Some((_, tail)) = candidate.split_once('/')
-            && (tail.eq_ignore_ascii_case(hint) || normalize_token(tail) == hint_norm) {
-                return Some(candidate.clone());
-            }
+            && (tail.eq_ignore_ascii_case(hint) || normalize_token(tail) == hint_norm)
+        {
+            return Some(candidate.clone());
+        }
     }
 
     let mut contains_matches: Vec<&String> = candidates
@@ -270,7 +272,8 @@ fn normalize_thinking_level(value: &str) -> String {
         "xhigh" | "max" | "5" => "xhigh",
         "" => "medium", // default when no value given
         other => return other.to_owned(),
-    }.to_owned()
+    }
+    .to_owned()
 }
 
 #[cfg(test)]

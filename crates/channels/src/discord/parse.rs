@@ -122,7 +122,7 @@ fn replied_to_bot(payload: &Value, bot_user_id: &str) -> bool {
         .is_some_and(|value| value == bot_user_id)
 }
 
-#[must_use] 
+#[must_use]
 pub fn quote_discord_arg(value: &str) -> String {
     if value.is_empty() {
         return "\"\"".to_owned();
@@ -172,7 +172,8 @@ pub fn parse_savfox_prompt(data: &Value) -> Option<String> {
         .and_then(|opt| opt.get("value"))
         .and_then(Value::as_str)
         .map(str::trim)
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     if prompt.is_empty() {
         None
     } else {

@@ -234,9 +234,7 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
                 .map(|entry| entry.pinned)
                 .unwrap_or(false);
             if pinned && !force {
-                println!(
-                    "Plugin '{plugin}' is pinned; use --force to update pinned versions"
-                );
+                println!("Plugin '{plugin}' is pinned; use --force to update pinned versions");
                 return Ok(());
             }
 
@@ -686,9 +684,7 @@ fn resolve_registry_install_order(
         for dep in &entry.dependencies {
             let dep_id = dep.id();
             let dep_entry = find_registry_entry(registry, dep_id).ok_or_else(|| {
-                format!(
-                    "dependency '{dep_id}' (required by '{plugin_id}') not found in registry"
-                )
+                format!("dependency '{dep_id}' (required by '{plugin_id}') not found in registry")
             })?;
 
             if let Some(req_raw) = dep.version_req() {
@@ -752,9 +748,7 @@ async fn install_registry_plugins(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for plugin_id in install_order {
         let entry = find_registry_entry(registry_doc, plugin_id).ok_or_else(|| {
-            format!(
-                "plugin '{plugin_id}' resolved in dependency graph but missing from registry"
-            )
+            format!("plugin '{plugin_id}' resolved in dependency graph but missing from registry")
         })?;
         let installed = install_registry_entry(entry, plugins_dir, force).await?;
         let pin = if plugin_id == root_plugin_id {
@@ -857,9 +851,7 @@ async fn load_registry_doc(
             }
         })
         .ok_or_else(|| {
-            format!(
-                "no plugin registry configured; provide --registry or set {REGISTRY_URL_ENV}"
-            )
+            format!("no plugin registry configured; provide --registry or set {REGISTRY_URL_ENV}")
         })?;
 
     let content = if source.starts_with("http://") || source.starts_with("https://") {

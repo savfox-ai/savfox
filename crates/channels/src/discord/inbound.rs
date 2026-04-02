@@ -91,7 +91,7 @@ fn update_runtime_state(channel_id: &str, apply: impl FnOnce(&mut DiscordStreamR
     }
 }
 
-#[must_use] 
+#[must_use]
 pub fn discord_stream_state_snapshot() -> HashMap<String, DiscordStreamRuntimeState> {
     runtime_state_store()
         .lock()
@@ -99,7 +99,7 @@ pub fn discord_stream_state_snapshot() -> HashMap<String, DiscordStreamRuntimeSt
         .unwrap_or_default()
 }
 
-#[must_use] 
+#[must_use]
 pub fn discord_stream_state_for(channel_id: &str) -> Option<DiscordStreamRuntimeState> {
     runtime_state_store()
         .lock()
@@ -304,8 +304,7 @@ pub async fn start_discord_stream(
             handle.abort();
             update_runtime_state(channel_id, |state| {
                 state.connected = false;
-                state.last_error =
-                    Some("discord gateway exited before the Ready event".to_owned());
+                state.last_error = Some("discord gateway exited before the Ready event".to_owned());
             });
             return Err(anyhow!("discord gateway exited before the Ready event"));
         }
@@ -334,9 +333,10 @@ pub async fn start_discord_stream(
         && let Some(previous) = handles.insert(
             channel_id.to_owned(),
             DiscordStreamTaskEntry { generation, handle },
-        ) {
-            previous.handle.abort();
-        }
+        )
+    {
+        previous.handle.abort();
+    }
 
     info!(channel_id = %channel_id, "Discord gateway stream started");
     Ok(())

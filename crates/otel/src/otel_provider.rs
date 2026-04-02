@@ -114,7 +114,7 @@ impl OtelProvider {
         }))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn logger_layer<S>(&self) -> Option<impl Layer<S> + Send + Sync>
     where
         S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
@@ -126,7 +126,7 @@ impl OtelProvider {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn tracing_layer<S>(&self) -> Option<impl Layer<S> + Send + Sync>
     where
         S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
@@ -138,12 +138,12 @@ impl OtelProvider {
         })
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn savfox_export_filter(meta: &tracing::Metadata<'_>) -> bool {
         meta.target().starts_with("savfox_otel")
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn metrics(&self) -> Option<&MetricsClient> {
         self.metrics.as_ref()
     }

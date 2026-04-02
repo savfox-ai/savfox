@@ -386,7 +386,7 @@ pub enum NetworkAccess {
 }
 
 impl NetworkAccess {
-    #[must_use] 
+    #[must_use]
     pub fn is_enabled(self) -> bool {
         matches!(self, Self::Enabled)
     }
@@ -455,7 +455,7 @@ pub struct WritableRoot {
 }
 
 impl WritableRoot {
-    #[must_use] 
+    #[must_use]
     pub fn is_path_writable(&self, path: &Path) -> bool {
         // Check if the path is under the root.
         if !path.starts_with(&self.root) {
@@ -483,7 +483,7 @@ impl FromStr for SandboxPolicy {
 
 impl SandboxPolicy {
     /// Returns a policy with read-only disk access and no network.
-    #[must_use] 
+    #[must_use]
     pub fn new_read_only_policy() -> Self {
         Self::ReadOnly
     }
@@ -491,7 +491,7 @@ impl SandboxPolicy {
     /// Returns a policy that can read the entire disk, but can only write to
     /// the current working directory and the per-user tmp dir on macOS. It does
     /// not allow network access.
-    #[must_use] 
+    #[must_use]
     pub fn new_workspace_write_policy() -> Self {
         Self::WorkspaceWrite {
             writable_roots: vec![],
@@ -502,12 +502,12 @@ impl SandboxPolicy {
     }
 
     /// Always returns `true`; restricting read access is not supported.
-    #[must_use] 
+    #[must_use]
     pub fn has_full_disk_read_access(&self) -> bool {
         true
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn has_full_disk_write_access(&self) -> bool {
         match self {
             Self::DangerFullAccess => true,
@@ -517,7 +517,7 @@ impl SandboxPolicy {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn has_full_network_access(&self) -> bool {
         match self {
             Self::DangerFullAccess => true,
@@ -687,7 +687,7 @@ pub struct ToolAccessPolicy {
 
 impl ToolAccessPolicy {
     /// Returns `true` if the given tool is permitted by this policy.
-    #[must_use] 
+    #[must_use]
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
         // Denied list takes precedence.
         if self.denied.iter().any(|d| d == tool_name) {
@@ -726,9 +726,7 @@ impl PermissionPolicy {
             // Cannot have a tool in both allowed and denied.
             for tool in &tool_access.denied {
                 if tool_access.allowed.iter().any(|a| a == tool) {
-                    errors.push(format!(
-                        "tool '{tool}' is in both allowed and denied lists"
-                    ));
+                    errors.push(format!("tool '{tool}' is in both allowed and denied lists"));
                 }
             }
         }
@@ -758,7 +756,9 @@ fn resolve_gitdir_from_file(dot_git: &AbsolutePathBuf) -> Option<AbsolutePathBuf
     };
 
     let trimmed = contents.trim();
-    let (_, gitdir_raw) = if let Some(parts) = trimmed.split_once(':') { parts } else {
+    let (_, gitdir_raw) = if let Some(parts) = trimmed.split_once(':') {
+        parts
+    } else {
         error!(
             "Expected {path} to contain a gitdir pointer, but it did not match `gitdir: <path>`.",
             path = dot_git.as_path().display()
@@ -773,7 +773,9 @@ fn resolve_gitdir_from_file(dot_git: &AbsolutePathBuf) -> Option<AbsolutePathBuf
         );
         return None;
     }
-    let base = if let Some(base) = dot_git.as_path().parent() { base } else {
+    let base = if let Some(base) = dot_git.as_path().parent() {
+        base
+    } else {
         error!(
             "Unable to resolve parent directory for {path}.",
             path = dot_git.as_path().display()
@@ -1224,9 +1226,7 @@ impl HasLegacyEvent for EventMsg {
             Self::AgentMessageContentDelta(event) => {
                 event.as_legacy_events(show_raw_agent_reasoning)
             }
-            Self::ReasoningContentDelta(event) => {
-                event.as_legacy_events(show_raw_agent_reasoning)
-            }
+            Self::ReasoningContentDelta(event) => event.as_legacy_events(show_raw_agent_reasoning),
             Self::ReasoningRawContentDelta(event) => {
                 event.as_legacy_events(show_raw_agent_reasoning)
             }
@@ -1291,7 +1291,7 @@ pub struct TokenUsageInfo {
 }
 
 impl TokenUsageInfo {
-    #[must_use] 
+    #[must_use]
     pub fn new_or_append(
         info: &Option<Self>,
         last: &Option<TokenUsage>,
@@ -1335,7 +1335,7 @@ impl TokenUsageInfo {
         };
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn full_context_window(context_window: i64) -> Self {
         let mut info = Self {
             total_token_usage: TokenUsage::default(),
@@ -1384,28 +1384,28 @@ pub struct CreditsSnapshot {
 const BASELINE_TOKENS: i64 = 12000;
 
 impl TokenUsage {
-    #[must_use] 
+    #[must_use]
     pub fn is_zero(&self) -> bool {
         self.total_tokens == 0
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn cached_input(&self) -> i64 {
         self.cached_input_tokens.max(0)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn non_cached_input(&self) -> i64 {
         (self.input_tokens - self.cached_input()).max(0)
     }
 
     /// Primary count for display as a single absolute value: non-cached input + output.
-    #[must_use] 
+    #[must_use]
     pub fn blended_total(&self) -> i64 {
         (self.non_cached_input() + self.output_tokens.max(0)).max(0)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn tokens_in_context_window(&self) -> i64 {
         self.total_tokens
     }
@@ -1420,7 +1420,7 @@ impl TokenUsage {
     /// This normalizes both the numerator and denominator by subtracting the
     /// baseline, so immediately after the first prompt the UI shows 100% left
     /// and trends toward 0% as the user fills the effective window.
-    #[must_use] 
+    #[must_use]
     pub fn percent_of_context_window_remaining(&self, context_window: i64) -> i64 {
         if context_window <= BASELINE_TOKENS {
             return 0;
@@ -1571,7 +1571,7 @@ pub struct McpToolCallEndEvent {
 }
 
 impl McpToolCallEndEvent {
-    #[must_use] 
+    #[must_use]
     pub fn is_success(&self) -> bool {
         match &self.result {
             Ok(result) => !result.is_error.unwrap_or(false),
@@ -1616,16 +1616,14 @@ pub enum InitialHistory {
 }
 
 impl InitialHistory {
-    #[must_use] 
+    #[must_use]
     pub fn forked_from_id(&self) -> Option<SessionId> {
         match self {
             Self::New => None,
-            Self::Resumed(resumed) => {
-                resumed.history.iter().find_map(|item| match item {
-                    RolloutItem::SessionMeta(meta_line) => meta_line.meta.forked_from_id,
-                    _ => None,
-                })
-            }
+            Self::Resumed(resumed) => resumed.history.iter().find_map(|item| match item {
+                RolloutItem::SessionMeta(meta_line) => meta_line.meta.forked_from_id,
+                _ => None,
+            }),
             Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => Some(meta_line.meta.id),
                 _ => None,
@@ -1633,7 +1631,7 @@ impl InitialHistory {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn session_cwd(&self) -> Option<PathBuf> {
         match self {
             Self::New => None,
@@ -1642,7 +1640,7 @@ impl InitialHistory {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_rollout_items(&self) -> Vec<RolloutItem> {
         match self {
             Self::New => Vec::new(),
@@ -1651,7 +1649,7 @@ impl InitialHistory {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_event_msgs(&self) -> Option<Vec<EventMsg>> {
         match self {
             Self::New => None,
@@ -1662,18 +1660,16 @@ impl InitialHistory {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_base_instructions(&self) -> Option<BaseInstructions> {
         // TODO: SessionMeta should (in theory) always be first in the history, so we can probably
         // only check the first item?
         match self {
             Self::New => None,
-            Self::Resumed(resumed) => {
-                resumed.history.iter().find_map(|item| match item {
-                    RolloutItem::SessionMeta(meta_line) => meta_line.meta.base_instructions.clone(),
-                    _ => None,
-                })
-            }
+            Self::Resumed(resumed) => resumed.history.iter().find_map(|item| match item {
+                RolloutItem::SessionMeta(meta_line) => meta_line.meta.base_instructions.clone(),
+                _ => None,
+            }),
             Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => meta_line.meta.base_instructions.clone(),
                 _ => None,
@@ -1681,16 +1677,14 @@ impl InitialHistory {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn get_dynamic_tools(&self) -> Option<Vec<DynamicToolSpec>> {
         match self {
             Self::New => None,
-            Self::Resumed(resumed) => {
-                resumed.history.iter().find_map(|item| match item {
-                    RolloutItem::SessionMeta(meta_line) => meta_line.meta.dynamic_tools.clone(),
-                    _ => None,
-                })
-            }
+            Self::Resumed(resumed) => resumed.history.iter().find_map(|item| match item {
+                RolloutItem::SessionMeta(meta_line) => meta_line.meta.dynamic_tools.clone(),
+                _ => None,
+            }),
             Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => meta_line.meta.dynamic_tools.clone(),
                 _ => None,
@@ -1896,7 +1890,7 @@ impl Default for SessionMeta {
 impl SessionMeta {
     /// Provider resolved from the new `model` object, with fallback to legacy
     /// `model_provider` for older session files.
-    #[must_use] 
+    #[must_use]
     pub fn model_provider_id(&self) -> Option<&str> {
         self.model
             .as_ref()
@@ -1905,7 +1899,7 @@ impl SessionMeta {
     }
 
     /// Model code from the new `model` object when present.
-    #[must_use] 
+    #[must_use]
     pub fn model_slug(&self) -> Option<&str> {
         self.model.as_ref().and_then(|model| {
             if model.model_slug.is_empty() {
@@ -2550,7 +2544,7 @@ pub enum ReviewDecision {
 impl ReviewDecision {
     /// Returns an opaque version of the decision without PII. We can't use an ignored flag
     /// on `serde` because the serialization is required by some surfaces.
-    #[must_use] 
+    #[must_use]
     pub fn to_opaque_string(&self) -> &'static str {
         match self {
             Self::Approved => "approved",

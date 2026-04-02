@@ -95,7 +95,7 @@ impl<T: Send + Sync> Constrained<T> {
     }
 
     /// Allow any value of T, using T's Default as the initial value.
-    #[must_use] 
+    #[must_use]
     pub fn allow_any_from_default() -> Self
     where
         T: Default,

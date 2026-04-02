@@ -9,7 +9,7 @@ pub struct VectorIndex {
 
 impl VectorIndex {
     /// Create a new, empty vector index.
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             vectors: Vec::new(),
@@ -39,7 +39,7 @@ impl VectorIndex {
 
     /// Search for the `top_k` most similar vectors to `query`, returning
     /// `(id, cosine_similarity)` pairs sorted by descending similarity.
-    #[must_use] 
+    #[must_use]
     pub fn search(&self, query: &[f32], top_k: usize) -> Vec<(String, f32)> {
         let mut scored: Vec<(String, f32)> = self
             .vectors
@@ -58,13 +58,13 @@ impl VectorIndex {
     }
 
     /// Return the number of stored vectors.
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.vectors.len()
     }
 
     /// Returns `true` if the index contains no vectors.
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.vectors.is_empty()
     }
@@ -79,7 +79,7 @@ impl Default for VectorIndex {
 /// Compute the cosine similarity between two vectors.
 ///
 /// Returns 0.0 if either vector has zero magnitude.
-#[must_use] 
+#[must_use]
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let mut dot = 0.0_f32;
     let mut norm_a = 0.0_f32;

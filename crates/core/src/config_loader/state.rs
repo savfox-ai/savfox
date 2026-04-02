@@ -29,7 +29,7 @@ pub struct ConfigLayerEntry {
 }
 
 impl ConfigLayerEntry {
-    #[must_use] 
+    #[must_use]
     pub fn new(name: ConfigLayerSource, config: TomlValue) -> Self {
         let version = version_for_toml(&config);
         Self {
@@ -54,12 +54,12 @@ impl ConfigLayerEntry {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_disabled(&self) -> bool {
         self.disabled_reason.is_some()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn metadata(&self) -> ConfigLayerMetadata {
         ConfigLayerMetadata {
             name: self.name.clone(),
@@ -67,7 +67,7 @@ impl ConfigLayerEntry {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_layer(&self) -> ConfigLayer {
         ConfigLayer {
             name: self.name.clone(),
@@ -78,7 +78,7 @@ impl ConfigLayerEntry {
     }
 
     // Get the `.savfox/` folder associated with this config layer, if any.
-    #[must_use] 
+    #[must_use]
     pub fn config_folder(&self) -> Option<AbsolutePathBuf> {
         match &self.name {
             ConfigLayerSource::Mdm { .. } => None,
@@ -131,18 +131,18 @@ impl ConfigLayerStack {
     }
 
     /// Returns the user config layer, if any.
-    #[must_use] 
+    #[must_use]
     pub fn get_user_layer(&self) -> Option<&ConfigLayerEntry> {
         self.user_layer_index
             .and_then(|index| self.layers.get(index))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn requirements(&self) -> &ConfigRequirements {
         &self.requirements
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn requirements_toml(&self) -> &ConfigRequirementsToml {
         &self.requirements_toml
     }
@@ -151,7 +151,7 @@ impl ConfigLayerStack {
     /// "user layer" into the stack. If such a layer already exists, it is
     /// replaced; otherwise, it is inserted into the stack at the appropriate
     /// position based on precedence rules.
-    #[must_use] 
+    #[must_use]
     pub fn with_user_config(&self, config_toml: &AbsolutePathBuf, user_config: TomlValue) -> Self {
         let user_layer = ConfigLayerEntry::new(
             ConfigLayerSource::User {
@@ -172,7 +172,8 @@ impl ConfigLayerStack {
         } else {
             let user_layer_index = if let Some(index) = layers
                 .iter()
-                .position(|layer| layer.name.precedence() > user_layer.name.precedence()) {
+                .position(|layer| layer.name.precedence() > user_layer.name.precedence())
+            {
                 layers.insert(index, user_layer);
                 index
             } else {
@@ -188,7 +189,7 @@ impl ConfigLayerStack {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn effective_config(&self) -> TomlValue {
         let mut merged = TomlValue::Table(toml::map::Map::new());
         for layer in self.get_layers(ConfigLayerStackOrdering::LowestPrecedenceFirst, false) {
@@ -197,7 +198,7 @@ impl ConfigLayerStack {
         merged
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn origins(&self) -> HashMap<String, ConfigLayerMetadata> {
         let mut origins = HashMap::new();
         let mut path = Vec::new();
@@ -211,14 +212,14 @@ impl ConfigLayerStack {
 
     /// Returns the highest-precedence to lowest-precedence layers, so
     /// `ConfigLayerSource::SessionFlags` would be first, if present.
-    #[must_use] 
+    #[must_use]
     pub fn layers_high_to_low(&self) -> Vec<&ConfigLayerEntry> {
         self.get_layers(ConfigLayerStackOrdering::HighestPrecedenceFirst, false)
     }
 
     /// Returns the highest-precedence to lowest-precedence layers, so
     /// `ConfigLayerSource::SessionFlags` would be first, if present.
-    #[must_use] 
+    #[must_use]
     pub fn get_layers(
         &self,
         ordering: ConfigLayerStackOrdering,

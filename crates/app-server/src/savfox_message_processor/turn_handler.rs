@@ -208,7 +208,6 @@ impl SavfoxMessageProcessor {
             session_id,
             session: review_session,
             session_configured,
-            
         } = self
             .session_manager
             .fork_session(usize::MAX, config, rollout_path)

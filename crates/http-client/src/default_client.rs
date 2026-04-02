@@ -16,7 +16,7 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
-    #[must_use] 
+    #[must_use]
     pub fn new(inner: reqwest::Client) -> Self {
         Self { inner }
     }

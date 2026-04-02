@@ -21,7 +21,6 @@ pub enum DeliveryMode {
     Broadcast,
 }
 
-
 /// Streaming behavior for responses
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -35,7 +34,6 @@ pub enum StreamingMode {
     /// Stream but edit the same message (for platforms that support it)
     EditInPlace,
 }
-
 
 /// Full send policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,7 +73,7 @@ impl Default for SendPolicy {
 
 impl SendPolicy {
     /// Create a policy for DM replies
-    #[must_use] 
+    #[must_use]
     pub fn dm() -> Self {
         Self {
             delivery: DeliveryMode::DirectMessage,
@@ -84,7 +82,7 @@ impl SendPolicy {
     }
 
     /// Create a policy for streaming replies
-    #[must_use] 
+    #[must_use]
     pub fn streaming() -> Self {
         Self {
             streaming: StreamingMode::Streaming,
@@ -93,7 +91,7 @@ impl SendPolicy {
     }
 
     /// Create a broadcast policy
-    #[must_use] 
+    #[must_use]
     pub fn broadcast() -> Self {
         Self {
             delivery: DeliveryMode::Broadcast,
@@ -189,9 +187,10 @@ impl SendPolicyConfig {
             return exact.clone();
         }
         if let Some((platform, _)) = channel.split_once(':')
-            && let Some(platform_override) = self.channels.get(platform) {
-                return platform_override.clone();
-            }
+            && let Some(platform_override) = self.channels.get(platform)
+        {
+            return platform_override.clone();
+        }
         if let Some(wildcard) = self.channels.get("*") {
             return wildcard.clone();
         }

@@ -203,13 +203,16 @@ async fn http_connect_proxy(upgraded: Upgraded) -> Result<(), Infallible> {
     let allow_upstream_proxy = if let Some(state) = upgraded
         .extensions()
         .get::<Arc<NetworkProxyState>>()
-        .cloned() { match state.allow_upstream_proxy().await {
-        Ok(allowed) => allowed,
-        Err(err) => {
-            error!("failed to read upstream proxy setting: {err}");
-            false
+        .cloned()
+    {
+        match state.allow_upstream_proxy().await {
+            Ok(allowed) => allowed,
+            Err(err) => {
+                error!("failed to read upstream proxy setting: {err}");
+                false
+            }
         }
-    } } else {
+    } else {
         error!("missing app state");
         false
     };
@@ -273,7 +276,9 @@ async fn http_plain_proxy(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     req: Request,
 ) -> Result<Response, Infallible> {
-    let app_state = if let Some(state) = req.extensions().get::<Arc<NetworkProxyState>>().cloned() { state } else {
+    let app_state = if let Some(state) = req.extensions().get::<Arc<NetworkProxyState>>().cloned() {
+        state
+    } else {
         error!("missing app state");
         return Ok(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
     };
@@ -292,7 +297,9 @@ async fn http_plain_proxy(
     // macOS-only + explicit allowlist, to avoid turning the proxy into a general local capability
     // escalation mechanism.
     if let Some(unix_socket_header) = req.headers().get("x-unix-socket") {
-        let socket_path = if let Ok(value) = unix_socket_header.to_str() { value.to_owned() } else {
+        let socket_path = if let Ok(value) = unix_socket_header.to_str() {
+            value.to_owned()
+        } else {
             warn!("invalid x-unix-socket header value (non-UTF8)");
             return Ok(text_response(
                 StatusCode::BAD_REQUEST,

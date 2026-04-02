@@ -512,19 +512,20 @@ fn step_api_key(state: &mut WizardState, non_interactive: bool) -> anyhow::Resul
     let env_var = provider_env_var(&state.provider)
         .unwrap_or_else(|| fallback_env_var_for_provider(&state.provider));
     if let Ok(existing) = std::env::var(env_var.as_str())
-        && api_key_looks_valid(&state.provider, &existing) {
-            let masked = if existing.len() > 8 {
-                format!("{}...{}", &existing[..4], &existing[existing.len() - 4..])
-            } else {
-                "****".to_owned()
-            };
-            println!("Found existing key in {env_var}: {masked}");
-            if non_interactive || prompt_yes_no("Use this key?", true)? {
-                state.api_key = Some(existing);
-                println!();
-                return Ok(());
-            }
+        && api_key_looks_valid(&state.provider, &existing)
+    {
+        let masked = if existing.len() > 8 {
+            format!("{}...{}", &existing[..4], &existing[existing.len() - 4..])
+        } else {
+            "****".to_owned()
+        };
+        println!("Found existing key in {env_var}: {masked}");
+        if non_interactive || prompt_yes_no("Use this key?", true)? {
+            state.api_key = Some(existing);
+            println!();
+            return Ok(());
         }
+    }
 
     if non_interactive {
         anyhow::bail!(

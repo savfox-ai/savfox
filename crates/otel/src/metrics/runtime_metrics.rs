@@ -14,7 +14,7 @@ pub struct RuntimeMetricTotals {
 }
 
 impl RuntimeMetricTotals {
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self.count == 0 && self.duration_ms == 0
     }
@@ -30,7 +30,7 @@ pub struct RuntimeMetricsSummary {
 }
 
 impl RuntimeMetricsSummary {
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self.tool_calls.is_empty()
             && self.api_calls.is_empty()

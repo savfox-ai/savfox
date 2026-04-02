@@ -17,7 +17,7 @@ pub struct DingtalkParseResult {
     pub meta: DingtalkMessageMeta,
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_text_command(text: &str) -> Option<String> {
     let trimmed = text.trim();
     let stripped = trimmed
@@ -173,11 +173,13 @@ fn extract_chat_type(body: &Value) -> Option<String> {
                 _ => normalized,
             })
         }
-    } else { raw.as_i64().map(|number| match number {
+    } else {
+        raw.as_i64().map(|number| match number {
             1 => "dm".to_owned(),
             2 => "group".to_owned(),
             _ => number.to_string(),
-        }) }
+        })
+    }
 }
 
 fn extract_thread_id(body: &Value) -> Option<String> {
@@ -215,7 +217,7 @@ fn extract_message_id(body: &Value) -> Option<String> {
         })
 }
 
-#[must_use] 
+#[must_use]
 pub fn parse_inbound_payload(body: &Value) -> DingtalkParseResult {
     let meta = DingtalkMessageMeta {
         sender_id: extract_sender_id(body),

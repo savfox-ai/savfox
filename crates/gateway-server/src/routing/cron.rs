@@ -40,7 +40,9 @@ fn parse_optional_trimmed_string_field(
 
 #[handler]
 pub async fn cron_list_handler(depot: &mut Depot, res: &mut Response) {
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -65,12 +67,16 @@ pub async fn cron_get_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
 
-    if let Some(job) = cron_service.get_job(&job_id).await { res.render(Text::Json(json!({ "job": job }).to_string())) } else {
+    if let Some(job) = cron_service.get_job(&job_id).await {
+        res.render(Text::Json(json!({ "job": job }).to_string()))
+    } else {
         res.status_code(StatusCode::NOT_FOUND);
         res.render(Text::Json(json!({ "error": "job not found" }).to_string()));
     }
@@ -78,7 +84,9 @@ pub async fn cron_get_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 
 #[handler]
 pub async fn cron_status_handler(depot: &mut Depot, res: &mut Response) {
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -195,7 +203,9 @@ pub async fn cron_add_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         }
     };
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -236,7 +246,9 @@ pub async fn cron_update_handler(req: &mut Request, depot: &mut Depot, res: &mut
         .await
         .unwrap_or(json!({}));
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -339,7 +351,9 @@ pub async fn cron_delete_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     }
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -365,11 +379,15 @@ pub async fn cron_run_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
-    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() { channel.clone() } else {
+    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+        channel.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };
@@ -400,7 +418,9 @@ pub async fn cron_runs_handler(req: &mut Request, depot: &mut Depot, res: &mut R
     let job_id = req.param::<String>("job_id").unwrap_or_default();
     let limit = req.query::<usize>("limit").unwrap_or(20);
 
-    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() { service.clone() } else {
+    let cron_service = if let Ok(service) = depot.obtain::<Arc<CronService>>() {
+        service.clone()
+    } else {
         res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
         return;
     };

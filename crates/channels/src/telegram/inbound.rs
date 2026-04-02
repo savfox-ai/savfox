@@ -116,9 +116,7 @@ pub async fn start_telegram_polling(
         "[telegram] Polling listener built for channel '{channel_id}', spawning polling task..."
     );
     let handle = tokio::spawn(async move {
-        println!(
-            "[telegram] Polling task started for channel '{task_channel_id}'"
-        );
+        println!("[telegram] Polling task started for channel '{task_channel_id}'");
         info!(channel_id = %task_channel_id, "Telegram polling channel starting");
 
         let stream = listener.as_stream();
@@ -171,9 +169,7 @@ pub async fn start_telegram_polling(
             }
         }
 
-        println!(
-            "[telegram] Polling stream ended for channel '{task_channel_id}'"
-        );
+        println!("[telegram] Polling stream ended for channel '{task_channel_id}'");
         info!(channel_id = %task_channel_id, "Telegram polling channel stopped");
         let mut handles = polling_handles().lock().await;
         if handles
@@ -189,9 +185,7 @@ pub async fn start_telegram_polling(
         channel_id.to_owned(),
         PollingTaskEntry { generation, handle },
     ) {
-        println!(
-            "[telegram] Replacing existing polling task for channel '{channel_id}'"
-        );
+        println!("[telegram] Replacing existing polling task for channel '{channel_id}'");
         previous.handle.abort();
     }
     Ok(())
@@ -200,9 +194,7 @@ pub async fn start_telegram_polling(
 pub async fn stop_telegram_polling(channel_id: &str) -> bool {
     let mut handles = polling_handles().lock().await;
     if let Some(entry) = handles.remove(channel_id) {
-        println!(
-            "[telegram] Stopping polling task for channel '{channel_id}'"
-        );
+        println!("[telegram] Stopping polling task for channel '{channel_id}'");
         entry.handle.abort();
         true
     } else {

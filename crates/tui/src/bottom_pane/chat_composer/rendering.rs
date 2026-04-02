@@ -470,7 +470,8 @@ impl ChatComposer {
             } else {
                 self.input_disabled_placeholder
                     .as_deref()
-                    .unwrap_or("Input disabled.").to_owned()
+                    .unwrap_or("Input disabled.")
+                    .to_owned()
             };
             if !textarea_rect.is_empty() {
                 let placeholder = Span::from(text).dim();

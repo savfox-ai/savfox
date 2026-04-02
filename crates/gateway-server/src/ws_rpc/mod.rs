@@ -536,7 +536,8 @@ async fn handle_account_login_start(params: &Value, channel: &Arc<GatewayChannel
                 .get("apiKey")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
-                .trim().to_owned();
+                .trim()
+                .to_owned();
             if api_key.is_empty() {
                 return Err((INVALID_REQUEST, "missing 'apiKey' parameter".to_owned()));
             }
@@ -631,7 +632,8 @@ async fn handle_account_login_start(params: &Value, channel: &Arc<GatewayChannel
         }
         _ => Err((
             INVALID_REQUEST,
-            "unsupported account login type; expected one of: chatgpt, deviceCode, apiKey".to_owned(),
+            "unsupported account login type; expected one of: chatgpt, deviceCode, apiKey"
+                .to_owned(),
         )),
     }
 }
@@ -641,7 +643,8 @@ async fn handle_account_login_cancel(params: &Value) -> RpcResult {
         .get("loginId")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     if login_id.is_empty() {
         return Err((INVALID_REQUEST, "missing 'loginId' parameter".to_owned()));
     }
