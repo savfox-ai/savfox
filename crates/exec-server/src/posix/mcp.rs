@@ -160,18 +160,16 @@ impl ServerHandler for ExecTool {
             MCP_SANDBOX_STATE_CAPABILITY.to_string(),
             sandbox_state_capability,
         );
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2025_06_18,
-            capabilities: ServerCapabilities::builder()
+        ServerInfo::new(
+            ServerCapabilities::builder()
                 .enable_tools()
                 .enable_experimental_with(experimental_capabilities)
                 .build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some(
-                "This server provides a tool to execute shell commands and return their output."
-                    .to_string(),
-            ),
-        }
+        )
+        .with_protocol_version(ProtocolVersion::V_2025_06_18)
+        .with_instructions(
+            "This server provides a tool to execute shell commands and return their output.",
+        )
     }
 
     async fn initialize(

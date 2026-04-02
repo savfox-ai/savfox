@@ -71,12 +71,15 @@ use tracing_subscriber::{
 
 use crate::posix::mcp_escalation_policy::ExecPolicyOutcome;
 
+#[allow(unsafe_code)]
 mod escalate_client;
 mod escalate_protocol;
+#[allow(unsafe_code)]
 mod escalate_server;
 mod escalation_policy;
 mod mcp;
 mod mcp_escalation_policy;
+#[allow(unsafe_code)]
 mod socket;
 mod stopwatch;
 

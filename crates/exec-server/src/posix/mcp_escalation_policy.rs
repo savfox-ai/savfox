@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CreateElicitationRequestParam, CreateElicitationResult, ElicitationAction, ElicitationSchema,
+    CreateElicitationRequestParams, CreateElicitationResult, ElicitationAction, ElicitationSchema,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer};
@@ -67,7 +67,8 @@ impl McpEscalationPolicy {
             .pause_for(async {
                 context
                     .peer
-                    .create_elicitation(CreateElicitationRequestParam {
+                    .create_elicitation(CreateElicitationRequestParams::FormElicitationParams {
+                        meta: None,
                         message: format!(
                             "Allow agent to run `{command}` in `{}`?",
                             workdir.display()
