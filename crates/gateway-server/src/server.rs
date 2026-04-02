@@ -330,13 +330,12 @@ pub(crate) async fn start_server(
 /// `GET /health`  - Simple health check.
 #[handler]
 async fn health_handler(res: &mut Response) {
-    res.headers_mut()
-        .insert(
-            CONTENT_TYPE,
-            "application/json"
-                .parse()
-                .expect("json content-type header should parse"),
-        );
+    res.headers_mut().insert(
+        CONTENT_TYPE,
+        "application/json"
+            .parse()
+            .expect("json content-type header should parse"),
+    );
 
     let body = json!({
         "status": "ok",

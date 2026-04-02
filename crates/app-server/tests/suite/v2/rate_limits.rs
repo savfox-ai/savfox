@@ -3,9 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use app_test_support::{ChatGptAuthFixture, McpProcess, write_chatgpt_auth};
 use pretty_assertions::assert_eq;
-use savfox_app_server_protocol::{
-    JSONRPCError, RequestId,
-};
+use savfox_app_server_protocol::{JSONRPCError, RequestId};
 use savfox_core::auth::AuthCredentialsStoreMode;
 use tempfile::TempDir;
 use tokio::time::timeout;

@@ -553,35 +553,34 @@ async fn handle_streaming(
     let (tx, rx) = mpsc::unbounded_channel::<Result<SseEvent, salvo::Error>>();
 
     // Disable all forms of buffering to ensure immediate SSE delivery
-    res.headers_mut()
-        .insert(
-            "X-Accel-Buffering",
-            "no".parse().expect("buffering header should parse"),
-        );
+    res.headers_mut().insert(
+        "X-Accel-Buffering",
+        "no".parse().expect("buffering header should parse"),
+    );
     res.headers_mut().insert(
         "Cache-Control",
         "no-cache, no-store, must-revalidate, no-transform"
             .parse()
             .expect("cache-control header should parse"),
     );
-    res.headers_mut()
-        .insert("Pragma", "no-cache".parse().expect("pragma header should parse"));
+    res.headers_mut().insert(
+        "Pragma",
+        "no-cache".parse().expect("pragma header should parse"),
+    );
     res.headers_mut()
         .insert("Expires", "0".parse().expect("expires header should parse"));
-    res.headers_mut()
-        .insert(
-            "Connection",
-            "keep-alive"
-                .parse()
-                .expect("connection header should parse"),
-        );
-    res.headers_mut()
-        .insert(
-            "Content-Encoding",
-            "identity"
-                .parse()
-                .expect("content-encoding header should parse"),
-        );
+    res.headers_mut().insert(
+        "Connection",
+        "keep-alive"
+            .parse()
+            .expect("connection header should parse"),
+    );
+    res.headers_mut().insert(
+        "Content-Encoding",
+        "identity"
+            .parse()
+            .expect("content-encoding header should parse"),
+    );
     res.headers_mut().insert(
         "Content-Type",
         "text/event-stream; charset=utf-8"

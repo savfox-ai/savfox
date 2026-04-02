@@ -185,9 +185,8 @@ pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
 
     // Email addresses
     if policy.emails {
-        let email_re =
-            regex::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-                .expect("built-in email regex should compile");
+        let email_re = regex::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+            .expect("built-in email regex should compile");
         result = email_re
             .replace_all(&result, &policy.replacement)
             .to_string();

@@ -26,41 +26,37 @@ pub(crate) async fn spa_handler(req: &mut Request, res: &mut Response) {
                     .expect("static cache-control header should parse"),
             );
         } else {
-            res.headers_mut()
-                .insert(
-                    "cache-control",
-                    "no-cache"
-                        .parse()
-                        .expect("static cache-control header should parse"),
-                );
+            res.headers_mut().insert(
+                "cache-control",
+                "no-cache"
+                    .parse()
+                    .expect("static cache-control header should parse"),
+            );
         }
 
-        res.headers_mut()
-            .insert(
-                "content-type",
-                mime.as_ref()
-                    .parse()
-                    .expect("guessed content-type header should parse"),
-            );
+        res.headers_mut().insert(
+            "content-type",
+            mime.as_ref()
+                .parse()
+                .expect("guessed content-type header should parse"),
+        );
 
         res.write_body(file.data.to_vec()).ok();
     } else {
         // SPA fallback  - serve index.html for all non-file routes.
         if let Some(index) = StaticAssets::get("index.html") {
-            res.headers_mut()
-                .insert(
-                    "content-type",
-                    "text/html; charset=utf-8"
-                        .parse()
-                        .expect("html content-type header should parse"),
-                );
-            res.headers_mut()
-                .insert(
-                    "cache-control",
-                    "no-cache"
-                        .parse()
-                        .expect("static cache-control header should parse"),
-                );
+            res.headers_mut().insert(
+                "content-type",
+                "text/html; charset=utf-8"
+                    .parse()
+                    .expect("html content-type header should parse"),
+            );
+            res.headers_mut().insert(
+                "cache-control",
+                "no-cache"
+                    .parse()
+                    .expect("static cache-control header should parse"),
+            );
             res.write_body(index.data.to_vec()).ok();
         } else {
             res.status_code(StatusCode::NOT_FOUND);

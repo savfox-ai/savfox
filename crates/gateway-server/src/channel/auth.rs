@@ -289,8 +289,7 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/updated",
-                    serde_json::to_value(account_updated)
-                        .expect("account update should serialize"),
+                    serde_json::to_value(account_updated).expect("account update should serialize"),
                 )
                 .await;
             }
@@ -341,8 +340,7 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/updated",
-                    serde_json::to_value(account_updated)
-                        .expect("account update should serialize"),
+                    serde_json::to_value(account_updated).expect("account update should serialize"),
                 )
                 .await;
             }

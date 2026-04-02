@@ -671,13 +671,12 @@ pub(crate) async fn widget_js_handler(req: &mut Request, res: &mut Response) {
             .parse()
             .expect("javascript content-type header should parse"),
     );
-    res.headers_mut()
-        .insert(
-            "cache-control",
-            "public, max-age=300"
-                .parse()
-                .expect("webchat cache-control header should parse"),
-        );
+    res.headers_mut().insert(
+        "cache-control",
+        "public, max-age=300"
+            .parse()
+            .expect("webchat cache-control header should parse"),
+    );
 
     res.render(Text::Plain(js));
 }
