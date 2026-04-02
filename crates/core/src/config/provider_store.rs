@@ -17,7 +17,7 @@ fn default_provider_file_version() -> u32 {
 }
 
 fn default_auth_type() -> String {
-    "api_key".to_string()
+    "api_key".to_owned()
 }
 
 /// Persisted provider store file under `SAVFOX_HOME/models/<id>.json`.
@@ -64,6 +64,7 @@ impl ProviderStoreFile {
 
     /// Return the effective account id: the explicit `id` field if non-empty,
     /// otherwise fall back to `provider_id`.
+    #[must_use] 
     pub fn account_id(&self) -> &str {
         let id = self.id.trim();
         if id.is_empty() {
@@ -121,13 +122,13 @@ impl Default for ProviderStoreAuth {
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 fn normalize_model_slug(raw: &str) -> Option<String> {
     let raw = trim_nonempty(raw)?;
     if let Some((_provider_id, model_slug)) = crate::parse_provider_prefixed_model(&raw) {
-        return Some(model_slug.to_string());
+        return Some(model_slug.to_owned());
     }
     Some(raw)
 }
@@ -155,10 +156,12 @@ fn env_var_looks_like_secret(env_var: &str) -> bool {
     env_var.contains("API_KEY") || env_var.contains("TOKEN") || env_var.ends_with("_KEY")
 }
 
+#[must_use] 
 pub fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
     savfox_home.join(PROVIDER_MODELS_DIR_NAME)
 }
 
+#[must_use] 
 pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
     provider_models_store_dir(savfox_home).join(format!("{account_id}.json"))
 }
@@ -173,18 +176,20 @@ pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
 /// The name is lowercased, non-alphanumeric characters are replaced with
 /// hyphens, and consecutive hyphens are collapsed. When a normalized slug is
 /// available, the returned id is always `{provider_id}-{slug}`.
+#[must_use] 
 pub fn slugify_account_id(provider_id: &str, name: &str) -> String {
     let provider_id = provider_id.trim();
     let slug = normalize_slug(name).unwrap_or_default();
 
     if slug.is_empty() {
-        return provider_id.to_string();
+        return provider_id.to_owned();
     }
 
     format!("{provider_id}-{slug}")
 }
 
 /// Check whether an account id already has a corresponding store file on disk.
+#[must_use] 
 pub fn account_id_exists(savfox_home: &Path, account_id: &str) -> bool {
     provider_store_path(savfox_home, account_id).exists()
 }
@@ -219,6 +224,7 @@ pub fn list_provider_store_files(savfox_home: &Path) -> Vec<ProviderStoreFile> {
 /// Load a provider store file. The `account_id` is the filename stem (which
 /// may be a bare `provider_id` for legacy single-account files, or a full
 /// account id like `"openai-work"` for multi-account setups).
+#[must_use] 
 pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> ProviderStoreFile {
     let path = provider_store_path(savfox_home, account_id);
     let data = std::fs::read_to_string(&path);
@@ -229,10 +235,10 @@ pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> Provide
     if let Ok(mut file) = serde_json::from_str::<ProviderStoreFile>(&data) {
         // Populate id from filename when missing in JSON (backward compat).
         if file.id.trim().is_empty() {
-            file.id = account_id.to_string();
+            file.id = account_id.to_owned();
         }
         if file.provider_id.trim().is_empty() {
-            file.provider_id = account_id.to_string();
+            file.provider_id = account_id.to_owned();
         }
         // Derive slug from name when missing (backward compat with pre-slug files).
         if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
@@ -268,6 +274,7 @@ pub fn save_provider_store_file(
     std::fs::write(path, data)
 }
 
+#[must_use] 
 pub fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str) -> Option<String> {
     load_provider_store_file(savfox_home, provider_id)
         .auth
@@ -275,6 +282,7 @@ pub fn read_provider_store_api_key(savfox_home: &Path, provider_id: &str) -> Opt
         .and_then(|api_key| trim_nonempty(&api_key))
 }
 
+#[must_use] 
 pub fn has_provider_store_configuration(savfox_home: &Path) -> bool {
     let dir = provider_models_store_dir(savfox_home);
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -343,8 +351,8 @@ pub fn provider_env_key_for_store(
     }
 
     match provider_id.trim().to_ascii_lowercase().as_str() {
-        "openai" => Some("OPENAI_API_KEY".to_string()),
-        "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
+        "openai" => Some("OPENAI_API_KEY".to_owned()),
+        "anthropic" => Some("ANTHROPIC_API_KEY".to_owned()),
         _ => None,
     }
 }
@@ -385,12 +393,12 @@ pub fn persist_provider_connection(
     let mut file = load_provider_store_file(savfox_home, account_id);
     let mut migrated_auth_from_provider_file = false;
     file.version = PROVIDER_STORE_FILE_VERSION;
-    file.id = account_id.to_string();
-    file.provider_id = provider_id.to_string();
+    file.id = account_id.to_owned();
+    file.provider_id = provider_id.to_owned();
     file.name = if account_name.trim().is_empty() {
-        provider_id.to_string()
+        provider_id.to_owned()
     } else {
-        account_name.trim().to_string()
+        account_name.trim().to_owned()
     };
     // slug = normalized(name), always derived from the effective name
     file.slug = normalize_slug(&file.name).unwrap_or_default();
@@ -398,7 +406,7 @@ pub fn persist_provider_connection(
 
     if let Some(api_key) = api_key.and_then(trim_nonempty) {
         file.auth = Some(ProviderStoreAuth {
-            auth_type: "api_key".to_string(),
+            auth_type: "api_key".to_owned(),
             env_key: env_key.and_then(trim_nonempty),
             api_key: Some(api_key),
             ..ProviderStoreAuth::default()
@@ -492,10 +500,10 @@ pub fn fallback_default_provider_if_removed(savfox_home: &Path, removed_account_
     // available at that point.
     let edits = vec![
         crate::config::edit::ConfigEdit::ClearPath {
-            segments: vec!["model_provider".to_string()],
+            segments: vec!["model_provider".to_owned()],
         },
         crate::config::edit::ConfigEdit::ClearPath {
-            segments: vec!["model".to_string()],
+            segments: vec!["model".to_owned()],
         },
     ];
     let _ = crate::config::edit::ConfigEditsBuilder::new(savfox_home)
@@ -509,13 +517,13 @@ fn apply_provider_fallback(savfox_home: &Path, new_provider_id: &str) {
 
     let edits = vec![
         crate::config::edit::ConfigEdit::SetPath {
-            segments: vec!["model_provider".to_string()],
+            segments: vec!["model_provider".to_owned()],
             value: value(new_provider_id),
         },
         // Clear the model selection so the system can pick the default
         // model for the new provider on next load.
         crate::config::edit::ConfigEdit::ClearPath {
-            segments: vec!["model".to_string()],
+            segments: vec!["model".to_owned()],
         },
     ];
     let _ = crate::config::edit::ConfigEditsBuilder::new(savfox_home)

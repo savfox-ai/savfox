@@ -367,7 +367,7 @@ impl SessionsSendA2AHandler {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 fn gateway_url() -> String {
-    std::env::var("SAVFOX_GATEWAY_URL").unwrap_or_else(|_| "http://127.0.0.1:18881".to_string())
+    std::env::var("SAVFOX_GATEWAY_URL").unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned())
 }
 
 fn build_client(timeout_secs: u64) -> Result<reqwest::Client, FunctionCallError> {

@@ -167,14 +167,14 @@ impl TerminalInfo {
                 }
                 TerminalName::VsCode => format_terminal_version("vscode", &self.version),
                 TerminalName::WezTerm => format_terminal_version("WezTerm", &self.version),
-                TerminalName::Kitty => "kitty".to_string(),
-                TerminalName::Alacritty => "Alacritty".to_string(),
+                TerminalName::Kitty => "kitty".to_owned(),
+                TerminalName::Alacritty => "Alacritty".to_owned(),
                 TerminalName::Konsole => format_terminal_version("Konsole", &self.version),
-                TerminalName::GnomeTerminal => "gnome-terminal".to_string(),
+                TerminalName::GnomeTerminal => "gnome-terminal".to_owned(),
                 TerminalName::Vte => format_terminal_version("VTE", &self.version),
-                TerminalName::WindowsTerminal => "WindowsTerminal".to_string(),
-                TerminalName::Dumb => "dumb".to_string(),
-                TerminalName::Unknown => "unknown".to_string(),
+                TerminalName::WindowsTerminal => "WindowsTerminal".to_owned(),
+                TerminalName::Dumb => "dumb".to_owned(),
+                TerminalName::Unknown => "unknown".to_owned(),
             }
         };
 
@@ -231,6 +231,7 @@ impl Environment for ProcessEnvironment {
 }
 
 /// Returns a sanitized terminal identifier for User-Agent strings.
+#[must_use] 
 pub fn user_agent() -> String {
     terminal_info().user_agent_token()
 }
@@ -370,7 +371,7 @@ fn terminal_from_tmux_client_info(
 
     termname
         .as_ref()
-        .map(|termname| TerminalInfo::from_term(termname.to_string(), multiplexer))
+        .map(|termname| TerminalInfo::from_term(termname.clone(), multiplexer))
 }
 
 fn tmux_version_from_env(env: &dyn Environment) -> Option<String> {
@@ -384,7 +385,7 @@ fn tmux_version_from_env(env: &dyn Environment) -> Option<String> {
 
 fn split_term_program_and_version(value: &str) -> (String, Option<String>) {
     let mut parts = value.split_whitespace();
-    let program = parts.next().unwrap_or_default().to_string();
+    let program = parts.next().unwrap_or_default().to_owned();
     let version = parts.next().map(ToString::to_string);
     (program, version)
 }
@@ -407,7 +408,7 @@ fn tmux_display_message(format: &str) -> Option<String> {
     }
 
     let value = String::from_utf8(output.stdout).ok()?;
-    none_if_whitespace(value.trim().to_string())
+    none_if_whitespace(value.trim().to_owned())
 }
 
 /// Sanitizes a terminal token for use in User-Agent headers.
@@ -451,7 +452,7 @@ fn terminal_name_from_term_program(value: &str) -> Option<TerminalName> {
 fn format_terminal_version(name: &str, version: &Option<String>) -> String {
     match version.as_ref().filter(|value| !value.is_empty()) {
         Some(version) => format!("{name}/{version}"),
-        None => name.to_string(),
+        None => name.to_owned(),
     }
 }
 

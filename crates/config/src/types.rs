@@ -28,8 +28,8 @@ pub enum McpServerDisabledReason {
 impl fmt::Display for McpServerDisabledReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            McpServerDisabledReason::Unknown => write!(f, "unknown"),
-            McpServerDisabledReason::Requirements { source } => {
+            Self::Unknown => write!(f, "unknown"),
+            Self::Requirements { source } => {
                 write!(f, "requirements ({source})")
             }
         }
@@ -278,13 +278,14 @@ pub enum UriBasedFileOpener {
 }
 
 impl UriBasedFileOpener {
+    #[must_use] 
     pub fn get_scheme(&self) -> Option<&str> {
         match self {
-            UriBasedFileOpener::VsCode => Some("vscode"),
-            UriBasedFileOpener::VsCodeInsiders => Some("vscode-insiders"),
-            UriBasedFileOpener::Windsurf => Some("windsurf"),
-            UriBasedFileOpener::Cursor => Some("cursor"),
-            UriBasedFileOpener::None => None,
+            Self::VsCode => Some("vscode"),
+            Self::VsCodeInsiders => Some("vscode-insiders"),
+            Self::Windsurf => Some("windsurf"),
+            Self::Cursor => Some("cursor"),
+            Self::None => None,
         }
     }
 }
@@ -401,7 +402,7 @@ pub struct OtelConfig {
 
 impl Default for OtelConfig {
     fn default() -> Self {
-        OtelConfig {
+        Self {
             log_user_prompt: false,
             environment: DEFAULT_OTEL_ENVIRONMENT.to_owned(),
             exporter: OtelExporterKind::None,
@@ -436,9 +437,9 @@ pub enum NotificationMethod {
 impl fmt::Display for NotificationMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NotificationMethod::Auto => write!(f, "auto"),
-            NotificationMethod::Osc9 => write!(f, "osc9"),
-            NotificationMethod::Bel => write!(f, "bel"),
+            Self::Auto => write!(f, "auto"),
+            Self::Osc9 => write!(f, "osc9"),
+            Self::Bel => write!(f, "bel"),
         }
     }
 }
@@ -545,7 +546,7 @@ impl Default for RegistryConfig {
 }
 
 fn default_registry_git() -> String {
-    "https://github.com/savhub-ai/registry.git".to_string()
+    "https://github.com/savhub-ai/registry.git".to_owned()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]

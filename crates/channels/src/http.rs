@@ -24,6 +24,7 @@ pub async fn warn_on_error(response: reqwest::Response, context: &str) {
 ///
 /// Compares the computed hex digest against `expected_hex`. The expected value
 /// may optionally carry a `sha256=` prefix which is stripped before comparison.
+#[must_use] 
 pub fn verify_webhook_hmac(secret: &str, body: &[u8], expected_hex: &str) -> bool {
     use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;

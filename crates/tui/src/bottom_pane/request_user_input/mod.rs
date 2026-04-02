@@ -141,7 +141,7 @@ impl RequestUserInputOverlay {
             has_input_focus,
             app_event_tx.clone(),
             enhanced_keys_supported,
-            ANSWER_PLACEHOLDER.to_string(),
+            ANSWER_PLACEHOLDER.to_owned(),
             disable_paste_burst,
             ChatComposerConfig::plain_text(),
         );
@@ -287,7 +287,7 @@ impl RequestUserInputOverlay {
                     let number = idx + 1;
                     rows.push(GenericDisplayRow {
                         name: format!("{prefix} {number}. {OTHER_OPTION_LABEL}"),
-                        description: Some(OTHER_OPTION_DESCRIPTION.to_string()),
+                        description: Some(OTHER_OPTION_DESCRIPTION.to_owned()),
                         ..Default::default()
                     });
                 }
@@ -369,7 +369,7 @@ impl RequestUserInputOverlay {
 
     fn restore_current_draft(&mut self) {
         self.composer
-            .set_placeholder_text(self.notes_placeholder().to_string());
+            .set_placeholder_text(self.notes_placeholder().to_owned());
         self.composer.set_footer_hint_override(Some(Vec::new()));
         let Some(answer) = self.current_answer() else {
             self.composer
@@ -396,7 +396,7 @@ impl RequestUserInputOverlay {
 
     fn sync_composer_placeholder(&mut self) {
         self.composer
-            .set_placeholder_text(self.notes_placeholder().to_string());
+            .set_placeholder_text(self.notes_placeholder().to_owned());
     }
 
     fn clear_notes_draft(&mut self) {
@@ -591,7 +591,7 @@ impl RequestUserInputOverlay {
             return options.get(idx).map(|opt| opt.label.clone());
         }
         if idx == options.len() && Self::other_option_enabled_for_question(question) {
-            return Some(OTHER_OPTION_LABEL.to_string());
+            return Some(OTHER_OPTION_LABEL.to_owned());
         }
         None
     }
@@ -695,7 +695,7 @@ impl RequestUserInputOverlay {
             // Notes are appended as extra answers. For freeform questions, only submit when
             // the user explicitly committed the draft.
             let notes = if answer_state.answer_committed {
-                answer_state.draft.text_with_pending().trim().to_string()
+                answer_state.draft.text_with_pending().trim().to_owned()
             } else {
                 String::new()
             };
@@ -783,7 +783,7 @@ impl RequestUserInputOverlay {
             ),
             (
                 UNANSWERED_CONFIRM_GO_BACK,
-                UNANSWERED_CONFIRM_GO_BACK_DESC.to_string(),
+                UNANSWERED_CONFIRM_GO_BACK_DESC.to_owned(),
             ),
         ];
         entries
@@ -939,7 +939,7 @@ impl RequestUserInputOverlay {
                     self.jump_to_question(idx);
                 }
             }
-            KeyCode::Char('1') | KeyCode::Char('2') => {
+            KeyCode::Char('1' | '2') => {
                 let idx = if matches!(key_event.code, KeyCode::Char('1')) {
                     0
                 } else {

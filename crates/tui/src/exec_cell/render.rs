@@ -55,7 +55,7 @@ pub(crate) fn new_active_exec_command(
 
 fn format_unified_exec_interaction(command: &[String], input: Option<&str>) -> String {
     let command_display = if let Some((_, script)) = extract_bash_command(command) {
-        script.to_string()
+        script.to_owned()
     } else {
         command.join(" ")
     };
@@ -232,7 +232,7 @@ impl HistoryCell for ExecCell {
                 let duration = call
                     .duration
                     .map(format_duration)
-                    .unwrap_or_else(|| "unknown".to_string());
+                    .unwrap_or_else(|| "unknown".to_owned());
                 let mut result: Line = if output.exit_code == 0 {
                     Line::from("✓".green().bold())
                 } else {

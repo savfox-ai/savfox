@@ -145,7 +145,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_profile_import(
     if private_key.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'private_key' parameter".to_string(),
+            "missing 'private_key' parameter".to_owned(),
         ));
     }
     let mut profile = load_nostr_profile(channel).await;
@@ -186,7 +186,7 @@ pub(in crate::ws_rpc) async fn handle_channels_nostr_relays_set(
 ) -> RpcResult {
     let relays = params.get("relays").cloned().unwrap_or_else(|| json!([]));
     if !relays.is_array() {
-        return Err((INVALID_REQUEST, "'relays' must be an array".to_string()));
+        return Err((INVALID_REQUEST, "'relays' must be an array".to_owned()));
     }
     let mut profile = load_nostr_profile(channel).await;
     profile["relays"] = relays;
@@ -236,7 +236,7 @@ pub(in crate::ws_rpc) async fn handle_channels_config_save(
     use savfox_core::config::channel_store;
 
     let channel_kind = require_str(params, "channel")?;
-    let fallback_name = channel_kind.to_string();
+    let fallback_name = channel_kind.to_owned();
     let channel_name = params
         .get("name")
         .and_then(|v| v.as_str())

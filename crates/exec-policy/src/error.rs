@@ -46,12 +46,13 @@ pub enum Error {
 }
 
 impl Error {
+    #[must_use] 
     pub fn location(&self) -> Option<ErrorLocation> {
         match self {
-            Error::Starlark(err) => err.span().map(|span| {
+            Self::Starlark(err) => err.span().map(|span| {
                 let resolved = span.resolve_span();
                 ErrorLocation {
-                    path: span.filename().to_string(),
+                    path: span.filename().to_owned(),
                     range: TextRange {
                         start: TextPosition {
                             line: resolved.begin.line + 1,

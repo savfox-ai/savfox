@@ -111,7 +111,7 @@ impl Visit for MessageVisitor {
 
     fn record_str(&mut self, field: &Field, value: &str) {
         if field.name() == "message" {
-            self.message = value.to_string();
+            self.message = value.to_owned();
         } else {
             self.fields.push(format!("{}={}", field.name(), value));
         }
@@ -128,7 +128,7 @@ impl<S: Subscriber> Layer<S> for LogCaptureLayer {
             tracing::Level::TRACE => "trace",
         };
 
-        let source = event.metadata().target().to_string();
+        let source = event.metadata().target().to_owned();
 
         let mut visitor = MessageVisitor::new();
         event.record(&mut visitor);

@@ -78,26 +78,26 @@ impl Browser {
 
         let mut cmd = Command::new(&browser_path);
         let mut args = vec![
-            "--remote-debugging-port".to_string(),
+            "--remote-debugging-port".to_owned(),
             debug_port.to_string(),
-            "--user-data-dir".to_string(),
+            "--user-data-dir".to_owned(),
             temp_dir.to_string_lossy().to_string(),
-            "--no-first-run".to_string(),
-            "--no-default-browser-check".to_string(),
-            "--disable-background-networking".to_string(),
-            "--disable-client-side-phishing-detection".to_string(),
-            "--disable-default-apps".to_string(),
-            "--disable-sync".to_string(),
-            "--disable-translate".to_string(),
-            "--metrics-recording-only".to_string(),
+            "--no-first-run".to_owned(),
+            "--no-default-browser-check".to_owned(),
+            "--disable-background-networking".to_owned(),
+            "--disable-client-side-phishing-detection".to_owned(),
+            "--disable-default-apps".to_owned(),
+            "--disable-sync".to_owned(),
+            "--disable-translate".to_owned(),
+            "--metrics-recording-only".to_owned(),
         ];
         if options.headless {
-            args.push("--headless=new".to_string());
-            args.push("--hide-scrollbars".to_string());
-            args.push("--mute-audio".to_string());
+            args.push("--headless=new".to_owned());
+            args.push("--hide-scrollbars".to_owned());
+            args.push("--mute-audio".to_owned());
         }
         args.extend(options.extra_args);
-        args.push("about:blank".to_string());
+        args.push("about:blank".to_owned());
         cmd.args(args);
 
         cmd.stdin(Stdio::null())
@@ -148,8 +148,7 @@ impl Browser {
             .await?
             .get("targetId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Failed to get target ID"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("Failed to get target ID"))?.to_owned();
 
         let session_id = self
             .cdp_client
@@ -163,8 +162,7 @@ impl Browser {
             .await?
             .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Failed to attach to target"))?
-            .to_string();
+            .ok_or_else(|| anyhow!("Failed to attach to target"))?.to_owned();
 
         Ok(Page::new(target_id, session_id, self.cdp_client.clone()))
     }
@@ -181,8 +179,8 @@ impl Browser {
 
         let mut pages = Vec::new();
         for target in targets {
-            if target.get("type").and_then(|v| v.as_str()) == Some("page") {
-                if let Some(target_id) = target.get("targetId").and_then(|v| v.as_str()) {
+            if target.get("type").and_then(|v| v.as_str()) == Some("page")
+                && let Some(target_id) = target.get("targetId").and_then(|v| v.as_str()) {
                     let session_id = self
                         .cdp_client
                         .send_request(
@@ -195,16 +193,14 @@ impl Browser {
                         .await?
                         .get("sessionId")
                         .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
+                        .unwrap_or_default().to_owned();
 
                     pages.push(Page::new(
-                        target_id.to_string(),
+                        target_id.to_owned(),
                         session_id,
                         self.cdp_client.clone(),
                     ));
                 }
-            }
         }
 
         Ok(pages)
@@ -217,11 +213,10 @@ impl Browser {
             info!("Browser process terminated");
         }
 
-        if self.user_data_dir.exists() {
-            if let Err(err) = tokio::fs::remove_dir_all(&self.user_data_dir).await {
+        if self.user_data_dir.exists()
+            && let Err(err) = tokio::fs::remove_dir_all(&self.user_data_dir).await {
                 warn!("Failed to remove user data dir: {}", err);
             }
-        }
 
         Ok(())
     }
@@ -233,11 +228,10 @@ impl Browser {
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        if let Ok(mut proc) = self.process.try_lock() {
-            if let Some(mut p) = proc.take() {
+        if let Ok(mut proc) = self.process.try_lock()
+            && let Some(mut p) = proc.take() {
                 let _ = p.start_kill();
             }
-        }
     }
 }
 

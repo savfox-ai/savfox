@@ -105,7 +105,7 @@ pub(crate) async fn handle_output_item_done(
             let response = ResponseInputItem::FunctionCallOutput {
                 call_id: String::new(),
                 output: FunctionCallOutputPayload {
-                    content: msg.to_string(),
+                    content: msg.to_owned(),
                     ..Default::default()
                 },
             };

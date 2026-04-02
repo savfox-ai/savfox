@@ -53,10 +53,12 @@ pub struct SkillLoadOutcome {
 }
 
 impl SkillLoadOutcome {
+    #[must_use] 
     pub fn is_skill_enabled(&self, skill: &SkillMetadata) -> bool {
         !self.disabled_paths.contains(&skill.path)
     }
 
+    #[must_use] 
     pub fn enabled_skills(&self) -> Vec<SkillMetadata> {
         self.skills
             .iter()

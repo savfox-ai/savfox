@@ -1,11 +1,12 @@
 use savfox_core::protocol::{NetworkAccess, SandboxPolicy};
 
+#[must_use] 
 pub fn summarize_sandbox_policy(sandbox_policy: &SandboxPolicy) -> String {
     match sandbox_policy {
-        SandboxPolicy::DangerFullAccess => "danger-full-access".to_string(),
-        SandboxPolicy::ReadOnly => "read-only".to_string(),
+        SandboxPolicy::DangerFullAccess => "danger-full-access".to_owned(),
+        SandboxPolicy::ReadOnly => "read-only".to_owned(),
         SandboxPolicy::ExternalSandbox { network_access } => {
-            let mut summary = "external-sandbox".to_string();
+            let mut summary = "external-sandbox".to_owned();
             if matches!(network_access, NetworkAccess::Enabled) {
                 summary.push_str(" (network access enabled)");
             }
@@ -17,15 +18,15 @@ pub fn summarize_sandbox_policy(sandbox_policy: &SandboxPolicy) -> String {
             exclude_tmpdir_env_var,
             exclude_slash_tmp,
         } => {
-            let mut summary = "workspace-write".to_string();
+            let mut summary = "workspace-write".to_owned();
 
             let mut writable_entries = Vec::<String>::new();
-            writable_entries.push("workdir".to_string());
+            writable_entries.push("workdir".to_owned());
             if !*exclude_slash_tmp {
-                writable_entries.push("/tmp".to_string());
+                writable_entries.push("/tmp".to_owned());
             }
             if !*exclude_tmpdir_env_var {
-                writable_entries.push("$TMPDIR".to_string());
+                writable_entries.push("$TMPDIR".to_owned());
             }
             writable_entries.extend(
                 writable_roots

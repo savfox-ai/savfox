@@ -22,6 +22,7 @@ pub struct RetryOn {
 }
 
 impl RetryOn {
+    #[must_use] 
     pub fn should_retry(&self, err: &TransportError, attempt: u64, max_attempts: u64) -> bool {
         if attempt >= max_attempts {
             return false;
@@ -37,6 +38,7 @@ impl RetryOn {
     }
 }
 
+#[must_use] 
 pub fn backoff(base: Duration, attempt: u64) -> Duration {
     if attempt == 0 {
         return base;

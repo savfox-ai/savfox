@@ -37,6 +37,7 @@ pub struct QmdManager {
 }
 
 impl QmdManager {
+    #[must_use] 
     pub fn new(qmd_dir: PathBuf) -> Self {
         Self { qmd_dir }
     }
@@ -53,11 +54,10 @@ impl QmdManager {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map(|e| e == "qmd").unwrap_or(false) {
-                if let Ok(qmd) = self.load_qmd_file(&path) {
+            if path.extension().map(|e| e == "qmd").unwrap_or(false)
+                && let Ok(qmd) = self.load_qmd_file(&path) {
                     files.push(qmd);
                 }
-            }
         }
 
         files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -104,12 +104,12 @@ impl QmdManager {
     ) -> Result<QmdFile, QmdError> {
         std::fs::create_dir_all(&self.qmd_dir)?;
 
-        let path = self.qmd_dir.join(format!("{}.qmd", filename));
+        let path = self.qmd_dir.join(format!("{filename}.qmd"));
 
         let yaml =
             serde_yaml::to_string(&frontmatter).map_err(|e| QmdError::ParseError(e.to_string()))?;
 
-        let full_content = format!("---\n{}---\n{}", yaml, content);
+        let full_content = format!("---\n{yaml}---\n{content}");
 
         std::fs::write(&path, &full_content)?;
 
@@ -129,7 +129,7 @@ impl QmdManager {
         }
 
         if let Some(c) = content {
-            qmd.content = c.to_string();
+            qmd.content = c.to_owned();
         }
 
         let yaml = serde_yaml::to_string(&qmd.frontmatter)
@@ -203,12 +203,12 @@ fn parse_frontmatter(content: &str) -> Result<(QmdFrontmatter, String), QmdError
     let content = content.trim_start();
 
     if !content.starts_with("---") {
-        return Ok((QmdFrontmatter::default(), content.to_string()));
+        return Ok((QmdFrontmatter::default(), content.to_owned()));
     }
 
     let end_marker = content[3..]
         .find("\n---")
-        .ok_or_else(|| QmdError::MissingFrontmatter)?;
+        .ok_or(QmdError::MissingFrontmatter)?;
 
     let frontmatter_str = &content[4..end_marker + 3];
     let body = &content[end_marker + 7..];
@@ -216,14 +216,15 @@ fn parse_frontmatter(content: &str) -> Result<(QmdFrontmatter, String), QmdError
     let frontmatter: QmdFrontmatter =
         serde_yaml::from_str(frontmatter_str).map_err(|e| QmdError::ParseError(e.to_string()))?;
 
-    Ok((frontmatter, body.to_string()))
+    Ok((frontmatter, body.to_owned()))
 }
 
+#[must_use] 
 pub fn format_qmd_for_embedding(qmd: &QmdFile) -> String {
     let mut parts = Vec::new();
 
     if let Some(ref title) = qmd.frontmatter.title {
-        parts.push(format!("# {}", title));
+        parts.push(format!("# {title}"));
     }
 
     if !qmd.frontmatter.tags.is_empty() {
@@ -231,7 +232,7 @@ pub fn format_qmd_for_embedding(qmd: &QmdFile) -> String {
     }
 
     if let Some(ref category) = qmd.frontmatter.category {
-        parts.push(format!("Category: {}", category));
+        parts.push(format!("Category: {category}"));
     }
 
     parts.push(String::new());

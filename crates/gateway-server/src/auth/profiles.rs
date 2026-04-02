@@ -253,7 +253,7 @@ impl AuthProfileManager {
             let mut profiles = self.profiles.write().await;
             if let Some(entry) = find_profile_mut(&mut profiles, provider, id) {
                 let error_msg = format!("HTTP {status_code}");
-                entry.last_error = Some(error_msg.clone());
+                entry.last_error = Some(error_msg);
 
                 match status_code {
                     429 => {
@@ -312,8 +312,8 @@ impl AuthProfileManager {
     pub async fn rotate(&self, provider: &str) -> std::io::Result<()> {
         {
             let mut profiles = self.profiles.write().await;
-            if let Some(entries) = profiles.get_mut(provider) {
-                if entries.len() > 1 {
+            if let Some(entries) = profiles.get_mut(provider)
+                && entries.len() > 1 {
                     let first = entries.remove(0);
                     entries.push(first);
                     info!(
@@ -322,7 +322,6 @@ impl AuthProfileManager {
                         "auth profile rotated"
                     );
                 }
-            }
         }
 
         self.save_to_disk().await

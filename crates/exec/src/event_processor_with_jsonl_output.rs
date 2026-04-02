@@ -69,6 +69,7 @@ struct RunningCollabToolCall {
 }
 
 impl EventProcessorWithJsonOutput {
+    #[must_use] 
     pub fn new(last_message_path: Option<PathBuf>) -> Self {
         Self {
             last_message_path,
@@ -333,25 +334,22 @@ impl EventProcessorWithJsonOutput {
         };
 
         let (server, tool, item_id, arguments) =
-            match self.running_mcp_tool_calls.remove(&ev.call_id) {
-                Some(running) => (
-                    running.server,
-                    running.tool,
-                    running.item_id,
-                    running.arguments,
-                ),
-                None => {
-                    warn!(
-                        call_id = ev.call_id,
-                        "Received McpToolCallEnd without begin; synthesizing new item"
-                    );
-                    (
-                        ev.invocation.server.clone(),
-                        ev.invocation.tool.clone(),
-                        self.get_next_item_id(),
-                        ev.invocation.arguments.clone().unwrap_or(JsonValue::Null),
-                    )
-                }
+            if let Some(running) = self.running_mcp_tool_calls.remove(&ev.call_id) { (
+                running.server,
+                running.tool,
+                running.item_id,
+                running.arguments,
+            ) } else {
+                warn!(
+                    call_id = ev.call_id,
+                    "Received McpToolCallEnd without begin; synthesizing new item"
+                );
+                (
+                    ev.invocation.server.clone(),
+                    ev.invocation.tool.clone(),
+                    self.get_next_item_id(),
+                    ev.invocation.arguments.clone().unwrap_or(JsonValue::Null),
+                )
             };
 
         let (result, error) = match &ev.result {
@@ -543,7 +541,7 @@ impl EventProcessorWithJsonOutput {
     ) -> Vec<SessionEvent> {
         let item_id = self.get_next_item_id();
         self.running_collab_tool_calls.insert(
-            call_id.to_string(),
+            call_id.to_owned(),
             RunningCollabToolCall {
                 tool: tool.clone(),
                 item_id: item_id.clone(),
@@ -574,15 +572,12 @@ impl EventProcessorWithJsonOutput {
         agents_states: HashMap<String, CollabAgentState>,
         status: CollabToolCallStatus,
     ) -> Vec<SessionEvent> {
-        let (tool, item_id) = match self.running_collab_tool_calls.remove(call_id) {
-            Some(running) => (running.tool, running.item_id),
-            None => {
-                warn!(
-                    call_id,
-                    "Received collab tool end without begin; synthesizing new item"
-                );
-                (tool, self.get_next_item_id())
-            }
+        let (tool, item_id) = if let Some(running) = self.running_collab_tool_calls.remove(call_id) { (running.tool, running.item_id) } else {
+            warn!(
+                call_id,
+                "Received collab tool end without begin; synthesizing new item"
+            );
+            (tool, self.get_next_item_id())
         };
         let item = SessionItem {
             id: item_id,
@@ -631,7 +626,7 @@ impl EventProcessorWithJsonOutput {
                         .changes
                         .iter()
                         .map(|(path, change)| FileUpdateChange {
-                            path: path.to_str().unwrap_or("").to_string(),
+                            path: path.to_str().unwrap_or("").to_owned(),
                             kind: self.map_change_kind(change),
                         })
                         .collect(),
@@ -810,7 +805,7 @@ impl From<CoreAgentStatus> for CollabAgentState {
 impl EventProcessor for EventProcessorWithJsonOutput {
     fn print_config_summary(&mut self, _: &Config, _: &str, ev: &protocol::SessionConfiguredEvent) {
         self.process_event(protocol::Event {
-            id: "".to_string(),
+            id: "".to_owned(),
             msg: protocol::EventMsg::SessionConfigured(ev.clone()),
         });
     }

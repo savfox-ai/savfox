@@ -42,7 +42,7 @@ impl SkillPopup {
     }
 
     pub(crate) fn set_query(&mut self, query: &str) {
-        self.query = query.to_string();
+        self.query = query.to_owned();
         self.clamp_selection();
     }
 

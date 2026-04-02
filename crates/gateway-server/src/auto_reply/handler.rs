@@ -13,6 +13,7 @@ pub struct AutoReplyHandler {
 }
 
 impl AutoReplyHandler {
+    #[must_use] 
     pub fn new(config: AutoReplyConfig) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -21,6 +22,7 @@ impl AutoReplyHandler {
         }
     }
 
+    #[must_use] 
     pub fn with_registry(mut self, registry: CommandRegistry) -> Self {
         self.registry = registry;
         self
@@ -47,21 +49,20 @@ impl AutoReplyHandler {
         }
 
         if is_command {
-            if let Some(command_name) = self.registry.resolve_command_name(text) {
-                if !is_command_allowed(&config, &command_name) {
+            if let Some(command_name) = self.registry.resolve_command_name(text)
+                && !is_command_allowed(&config, &command_name) {
                     return AutoReplyResult {
                         reply: Some(format!("Command '/{command_name}' is not allowed.")),
                         is_command: true,
                         action: None,
                     };
                 }
-            }
             return self.handle_command_internal(text, &ctx);
         }
 
         if ctx.is_mentioned && !ctx.is_authorized {
             return AutoReplyResult {
-                reply: Some("You are not authorized to interact with me.".to_string()),
+                reply: Some("You are not authorized to interact with me.".to_owned()),
                 is_command: false,
                 action: None,
             };
@@ -95,7 +96,7 @@ impl AutoReplyHandler {
                 }
             }
             None => AutoReplyResult {
-                reply: Some("Unknown command. Type /help for available commands.".to_string()),
+                reply: Some("Unknown command. Type /help for available commands.".to_owned()),
                 is_command: true,
                 action: None,
             },
@@ -110,11 +111,11 @@ impl AutoReplyHandler {
         }
 
         let mut greeted = self.greeted_senders.write().await;
-        if greeted.contains(&sender_id.to_string()) {
+        if greeted.contains(&sender_id.to_owned()) {
             return None;
         }
 
-        greeted.push(sender_id.to_string());
+        greeted.push(sender_id.to_owned());
 
         if let Some(ref greeting) = config.greeting_message {
             let mut result = greeting.clone();
@@ -136,6 +137,7 @@ impl AutoReplyHandler {
         *current = config;
     }
 
+    #[must_use] 
     pub fn registry(&self) -> &CommandRegistry {
         &self.registry
     }
@@ -212,7 +214,7 @@ fn should_activate_group(
 }
 
 fn render_status(template: &str, ctx: &CommandContext) -> String {
-    let session = ctx.session_id.clone().unwrap_or_else(|| "none".to_string());
+    let session = ctx.session_id.clone().unwrap_or_else(|| "none".to_owned());
     template
         .replace("{sender}", &ctx.sender_id)
         .replace("{channel}", &ctx.channel_id)

@@ -18,8 +18,7 @@ fn debug_matrix_invite_detected(room_id: &str, invited_user_id: Option<&str>) {
 #[allow(clippy::print_stdout)]
 fn debug_matrix_message_ignored(room_id: &str, sender: &str, reason: &str) {
     println!(
-        "[matrix][inbound] ignored room={} sender={} reason={}",
-        room_id, sender, reason
+        "[matrix][inbound] ignored room={room_id} sender={sender} reason={reason}"
     );
 }
 
@@ -75,7 +74,7 @@ fn parse_message_event_internal(
                 debug_matrix_message_ignored(room_id, sender, "empty_body");
                 return None;
             }
-            prompt.to_string()
+            prompt.to_owned()
         }
         None => {
             debug_matrix_message_ignored(room_id, sender, "no_prefix_or_bot_mention");
@@ -104,7 +103,7 @@ fn extract_prefixed_prompt(text: &str) -> Option<String> {
         .strip_prefix("!savfox ")
         .map(str::trim)
         .filter(|prompt| !prompt.is_empty())?;
-    Some(prompt.to_string())
+    Some(prompt.to_owned())
 }
 
 fn matrix_localpart(user_id: &str) -> Option<&str> {
@@ -122,11 +121,11 @@ fn mention_candidates(user_id: &str) -> Vec<String> {
     let mut candidates = Vec::new();
     let trimmed = user_id.trim();
     if !trimmed.is_empty() {
-        candidates.push(trimmed.to_string());
-        candidates.push(trimmed.trim_start_matches('@').to_string());
+        candidates.push(trimmed.to_owned());
+        candidates.push(trimmed.trim_start_matches('@').to_owned());
     }
     if let Some(localpart) = matrix_localpart(trimmed) {
-        candidates.push(localpart.to_string());
+        candidates.push(localpart.to_owned());
         candidates.push(format!("@{localpart}"));
     }
     candidates.sort_unstable();
@@ -161,7 +160,7 @@ fn cleanup_stripped_prompt(text: &str) -> Option<String> {
     if prompt.is_empty() {
         None
     } else {
-        Some(prompt.to_string())
+        Some(prompt.to_owned())
     }
 }
 
@@ -341,6 +340,7 @@ pub fn parse_invite_event(
     Some((room_id.to_owned(), invited_user_id))
 }
 
+#[must_use] 
 pub fn parse_command_event(
     event: &Value,
     room_id_hint: Option<&str>,
@@ -348,6 +348,7 @@ pub fn parse_command_event(
     parse_command_event_for_user(event, room_id_hint, None)
 }
 
+#[must_use] 
 pub fn parse_command_event_for_user(
     event: &Value,
     room_id_hint: Option<&str>,
@@ -356,6 +357,7 @@ pub fn parse_command_event_for_user(
     parse_message_event_internal(event, room_id_hint, self_user_id, false)
 }
 
+#[must_use] 
 pub fn parse_appservice_message_event_for_user(
     event: &Value,
     self_user_id: Option<&str>,
@@ -363,10 +365,12 @@ pub fn parse_appservice_message_event_for_user(
     parse_message_event_internal(event, None, self_user_id, true)
 }
 
+#[must_use] 
 pub fn parse_inbound_payload(payload: &Value) -> MatrixInboundParseResult {
     parse_inbound_payload_for_user(payload, None)
 }
 
+#[must_use] 
 pub fn parse_inbound_payload_for_user(
     payload: &Value,
     self_user_id: Option<&str>,
@@ -392,10 +396,12 @@ pub fn parse_inbound_payload_for_user(
     parsed
 }
 
+#[must_use] 
 pub fn parse_webhook_payload(payload: &Value) -> MatrixWebhookParseResult {
     parse_webhook_payload_for_user(payload, None)
 }
 
+#[must_use] 
 pub fn parse_webhook_payload_for_user(
     payload: &Value,
     self_user_id: Option<&str>,

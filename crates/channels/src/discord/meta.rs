@@ -66,6 +66,6 @@ pub fn parse_start_meta(payload: &Value) -> DiscordStartMeta {
         parent_thread_id,
         reply_target,
         parent_sender_id,
-        chat_type: Some(if is_group_chat { "group" } else { "dm" }.to_string()),
+        chat_type: Some(if is_group_chat { "group" } else { "dm" }.to_owned()),
     }
 }

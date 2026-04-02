@@ -10,7 +10,7 @@ pub(crate) fn escape_command(command: &[String]) -> String {
 
 pub(crate) fn strip_bash_lc_and_escape(command: &[String]) -> String {
     if let Some((_, script)) = extract_shell_command(command) {
-        return script.to_string();
+        return script.to_owned();
     }
     escape_command(command)
 }

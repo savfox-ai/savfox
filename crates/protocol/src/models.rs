@@ -32,8 +32,9 @@ pub enum SandboxPermissions {
 }
 
 impl SandboxPermissions {
+    #[must_use] 
     pub fn requires_escalated_permissions(self) -> bool {
-        matches!(self, SandboxPermissions::RequireEscalated)
+        matches!(self, Self::RequireEscalated)
     }
 }
 
@@ -193,7 +194,7 @@ pub struct BaseInstructions {
 impl Default for BaseInstructions {
     fn default() -> Self {
         Self {
-            text: BASE_INSTRUCTIONS_DEFAULT.to_string(),
+            text: BASE_INSTRUCTIONS_DEFAULT.to_owned(),
         }
     }
 }
@@ -227,18 +228,19 @@ impl DeveloperInstructions {
         Self { text: text.into() }
     }
 
+    #[must_use] 
     pub fn from(
         approval_policy: AskForApproval,
         exec_policy: &Policy,
         request_rule_enabled: bool,
-    ) -> DeveloperInstructions {
+    ) -> Self {
         let text = match approval_policy {
-            AskForApproval::Never => APPROVAL_POLICY_NEVER.to_string(),
-            AskForApproval::UnlessTrusted => APPROVAL_POLICY_UNLESS_TRUSTED.to_string(),
-            AskForApproval::OnFailure => APPROVAL_POLICY_ON_FAILURE.to_string(),
+            AskForApproval::Never => APPROVAL_POLICY_NEVER.to_owned(),
+            AskForApproval::UnlessTrusted => APPROVAL_POLICY_UNLESS_TRUSTED.to_owned(),
+            AskForApproval::OnFailure => APPROVAL_POLICY_ON_FAILURE.to_owned(),
             AskForApproval::OnRequest => {
                 if !request_rule_enabled {
-                    APPROVAL_POLICY_ON_REQUEST.to_string()
+                    APPROVAL_POLICY_ON_REQUEST.to_owned()
                 } else {
                     let command_prefixes =
                         format_allow_prefixes(exec_policy.get_allowed_prefixes());
@@ -248,20 +250,21 @@ impl DeveloperInstructions {
                                 "{APPROVAL_POLICY_ON_REQUEST_RULE}\nApproved command prefixes:\n{prefixes}"
                             )
                         }
-                        None => APPROVAL_POLICY_ON_REQUEST_RULE.to_string(),
+                        None => APPROVAL_POLICY_ON_REQUEST_RULE.to_owned(),
                     }
                 }
             }
         };
 
-        DeveloperInstructions::new(text)
+        Self::new(text)
     }
 
+    #[must_use] 
     pub fn into_text(self) -> String {
         self.text
     }
 
-    pub fn concat(self, other: impl Into<DeveloperInstructions>) -> Self {
+    pub fn concat(self, other: impl Into<Self>) -> Self {
         let mut text = self.text;
         if !text.ends_with('\n') {
             text.push('\n');
@@ -270,13 +273,15 @@ impl DeveloperInstructions {
         Self { text }
     }
 
+    #[must_use] 
     pub fn personality_spec_message(spec: String) -> Self {
         let message = format!(
             "<personality_spec> The user has requested a new communication style. Future messages should adhere to the following personality: \n{spec} </personality_spec>"
         );
-        DeveloperInstructions::new(message)
+        Self::new(message)
     }
 
+    #[must_use] 
     pub fn from_policy(
         sandbox_policy: &SandboxPolicy,
         approval_policy: AskForApproval,
@@ -300,7 +305,7 @@ impl DeveloperInstructions {
             }
         };
 
-        DeveloperInstructions::from_permissions_with_network(
+        Self::from_permissions_with_network(
             sandbox_mode,
             network_access,
             approval_policy,
@@ -311,6 +316,7 @@ impl DeveloperInstructions {
     }
 
     /// Returns developer instructions from a collaboration mode if they exist and are non-empty.
+    #[must_use] 
     pub fn from_collaboration_mode(collaboration_mode: &CollaborationMode) -> Option<Self> {
         collaboration_mode
             .settings
@@ -318,7 +324,7 @@ impl DeveloperInstructions {
             .as_ref()
             .filter(|instructions| !instructions.is_empty())
             .map(|instructions| {
-                DeveloperInstructions::new(format!(
+                Self::new(format!(
                     "{COLLABORATION_MODE_OPEN_TAG}{instructions}{COLLABORATION_MODE_CLOSE_TAG}"
                 ))
             })
@@ -332,29 +338,29 @@ impl DeveloperInstructions {
         request_rule_enabled: bool,
         writable_roots: Option<Vec<WritableRoot>>,
     ) -> Self {
-        let start_tag = DeveloperInstructions::new("<permissions instructions>");
-        let end_tag = DeveloperInstructions::new("</permissions instructions>");
+        let start_tag = Self::new("<permissions instructions>");
+        let end_tag = Self::new("</permissions instructions>");
         start_tag
-            .concat(DeveloperInstructions::sandbox_text(
+            .concat(Self::sandbox_text(
                 sandbox_mode,
                 network_access,
             ))
-            .concat(DeveloperInstructions::from(
+            .concat(Self::from(
                 approval_policy,
                 exec_policy,
                 request_rule_enabled,
             ))
-            .concat(DeveloperInstructions::from_writable_roots(writable_roots))
+            .concat(Self::from_writable_roots(writable_roots))
             .concat(end_tag)
     }
 
     fn from_writable_roots(writable_roots: Option<Vec<WritableRoot>>) -> Self {
         let Some(roots) = writable_roots else {
-            return DeveloperInstructions::new("");
+            return Self::new("");
         };
 
         if roots.is_empty() {
-            return DeveloperInstructions::new("");
+            return Self::new("");
         }
 
         let roots_list: Vec<String> = roots
@@ -366,10 +372,10 @@ impl DeveloperInstructions {
         } else {
             format!(" The writable roots are {}.", roots_list.join(", "))
         };
-        DeveloperInstructions::new(text)
+        Self::new(text)
     }
 
-    fn sandbox_text(mode: SandboxMode, network_access: NetworkAccess) -> DeveloperInstructions {
+    fn sandbox_text(mode: SandboxMode, network_access: NetworkAccess) -> Self {
         let template = match mode {
             SandboxMode::DangerFullAccess => SANDBOX_MODE_DANGER_FULL_ACCESS.trim_end(),
             SandboxMode::WorkspaceWrite => SANDBOX_MODE_WORKSPACE_WRITE.trim_end(),
@@ -377,7 +383,7 @@ impl DeveloperInstructions {
         };
         let text = template.replace("{network_access}", &network_access.to_string());
 
-        DeveloperInstructions::new(text)
+        Self::new(text)
     }
 }
 
@@ -385,6 +391,7 @@ const MAX_RENDERED_PREFIXES: usize = 100;
 const MAX_ALLOW_PREFIX_TEXT_BYTES: usize = 5000;
 const TRUNCATED_MARKER: &str = "...\n[Some commands were truncated]";
 
+#[must_use] 
 pub fn format_allow_prefixes(prefixes: Vec<Vec<String>>) -> Option<String> {
     let mut truncated = false;
     if prefixes.len() > MAX_RENDERED_PREFIXES {
@@ -439,9 +446,9 @@ fn render_command_prefix(prefix: &[String]) -> String {
 
 impl From<DeveloperInstructions> for ResponseItem {
     fn from(di: DeveloperInstructions) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "developer".to_string(),
+            role: "developer".to_owned(),
             content: vec![ContentItem::InputText {
                 text: di.into_text(),
             }],
@@ -458,7 +465,7 @@ impl From<SandboxMode> for DeveloperInstructions {
             SandboxMode::WorkspaceWrite | SandboxMode::ReadOnly => NetworkAccess::Restricted,
         };
 
-        DeveloperInstructions::sandbox_text(mode, network_access)
+        Self::sandbox_text(mode, network_access)
     }
 }
 
@@ -492,36 +499,44 @@ const LOCAL_IMAGE_OPEN_TAG_PREFIX: &str = "<image name=";
 const LOCAL_IMAGE_OPEN_TAG_SUFFIX: &str = ">";
 const LOCAL_IMAGE_CLOSE_TAG: &str = IMAGE_CLOSE_TAG;
 
+#[must_use] 
 pub fn image_open_tag_text() -> String {
-    IMAGE_OPEN_TAG.to_string()
+    IMAGE_OPEN_TAG.to_owned()
 }
 
+#[must_use] 
 pub fn image_close_tag_text() -> String {
-    IMAGE_CLOSE_TAG.to_string()
+    IMAGE_CLOSE_TAG.to_owned()
 }
 
+#[must_use] 
 pub fn local_image_label_text(label_number: usize) -> String {
     format!("[Image #{label_number}]")
 }
 
+#[must_use] 
 pub fn local_image_open_tag_text(label_number: usize) -> String {
     let label = local_image_label_text(label_number);
     format!("{LOCAL_IMAGE_OPEN_TAG_PREFIX}{label}{LOCAL_IMAGE_OPEN_TAG_SUFFIX}")
 }
 
+#[must_use] 
 pub fn is_local_image_open_tag_text(text: &str) -> bool {
     text.strip_prefix(LOCAL_IMAGE_OPEN_TAG_PREFIX)
         .is_some_and(|rest| rest.ends_with(LOCAL_IMAGE_OPEN_TAG_SUFFIX))
 }
 
+#[must_use] 
 pub fn is_local_image_close_tag_text(text: &str) -> bool {
     is_image_close_tag_text(text)
 }
 
+#[must_use] 
 pub fn is_image_open_tag_text(text: &str) -> bool {
     text == IMAGE_OPEN_TAG
 }
 
+#[must_use] 
 pub fn is_image_close_tag_text(text: &str) -> bool {
     text == IMAGE_CLOSE_TAG
 }
@@ -549,6 +564,7 @@ fn unsupported_image_error_placeholder(path: &std::path::Path, mime: &str) -> Co
     }
 }
 
+#[must_use] 
 pub fn local_image_content_items_with_label_number(
     path: &std::path::Path,
     label_number: Option<usize>,
@@ -566,7 +582,7 @@ pub fn local_image_content_items_with_label_number(
             });
             if label_number.is_some() {
                 items.push(ContentItem::InputText {
-                    text: LOCAL_IMAGE_CLOSE_TAG.to_string(),
+                    text: LOCAL_IMAGE_CLOSE_TAG.to_owned(),
                 });
             }
             items
@@ -696,7 +712,7 @@ impl From<Vec<UserInput>> for ResponseInputItem {
     fn from(items: Vec<UserInput>) -> Self {
         let mut image_index = 0;
         Self::Message {
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: items
                 .into_iter()
                 .flat_map(|c| match c {
@@ -820,13 +836,13 @@ impl<'de> Deserialize<'de> for FunctionCallOutputPayload {
         D: Deserializer<'de>,
     {
         match FunctionCallOutputPayloadSerde::deserialize(deserializer)? {
-            FunctionCallOutputPayloadSerde::Text(content) => Ok(FunctionCallOutputPayload {
+            FunctionCallOutputPayloadSerde::Text(content) => Ok(Self {
                 content,
                 ..Default::default()
             }),
             FunctionCallOutputPayloadSerde::Items(items) => {
                 let content = serde_json::to_string(&items).map_err(serde::de::Error::custom)?;
-                Ok(FunctionCallOutputPayload {
+                Ok(Self {
                     content,
                     content_items: Some(items),
                     success: None,
@@ -852,14 +868,14 @@ impl From<&CallToolResult> for FunctionCallOutputPayload {
         {
             match serde_json::to_string(structured_content) {
                 Ok(serialized_structured_content) => {
-                    return FunctionCallOutputPayload {
+                    return Self {
                         content: serialized_structured_content,
                         success: Some(is_success),
                         ..Default::default()
                     };
                 }
                 Err(err) => {
-                    return FunctionCallOutputPayload {
+                    return Self {
                         content: err.to_string(),
                         success: Some(false),
                         ..Default::default()
@@ -871,7 +887,7 @@ impl From<&CallToolResult> for FunctionCallOutputPayload {
         let serialized_content = match serde_json::to_string(content) {
             Ok(serialized_content) => serialized_content,
             Err(err) => {
-                return FunctionCallOutputPayload {
+                return Self {
                     content: err.to_string(),
                     success: Some(false),
                     ..Default::default()
@@ -881,7 +897,7 @@ impl From<&CallToolResult> for FunctionCallOutputPayload {
 
         let content_items = convert_mcp_content_to_items(content);
 
-        FunctionCallOutputPayload {
+        Self {
             content: serialized_content,
             content_items,
             success: Some(is_success),
@@ -924,7 +940,7 @@ fn convert_mcp_content_to_items(
                 FunctionCallOutputContentItem::InputImage { image_url }
             }
             Ok(McpContent::Unknown) | Err(_) => FunctionCallOutputContentItem::InputText {
-                text: serde_json::to_string(content).unwrap_or_else(|_| "<content>".to_string()),
+                text: serde_json::to_string(content).unwrap_or_else(|_| "<content>".to_owned()),
             },
         };
         items.push(item);

@@ -13,6 +13,7 @@ pub struct MemoryService {
 }
 
 impl MemoryService {
+    #[must_use] 
     pub fn new(savfox_home: PathBuf) -> Self {
         Self {
             manager: Arc::new(RwLock::new(None)),
@@ -130,6 +131,7 @@ impl MemoryService {
             .map_err(|e| MemoryServiceError::StorageError(e.to_string()))
     }
 
+    #[must_use] 
     pub fn subscribe_progress(
         &self,
     ) -> Option<tokio::sync::broadcast::Receiver<MemorySyncProgress>> {

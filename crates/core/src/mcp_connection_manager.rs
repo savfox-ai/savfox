@@ -71,7 +71,7 @@ fn sanitize_responses_api_tool_name(name: &str) -> String {
     }
 
     if sanitized.is_empty() {
-        "_".to_string()
+        "_".to_owned()
     } else {
         sanitized
     }
@@ -172,7 +172,7 @@ impl ElicitationRequestManager {
                 }
                 let _ = tx_event
                     .send(Event {
-                        id: "mcp_elicitation_request".to_string(),
+                        id: "mcp_elicitation_request".to_owned(),
                         msg: EventMsg::ElicitationRequest(ElicitationRequestEvent {
                             server_name,
                             id: match id.clone() {
@@ -610,7 +610,7 @@ impl McpConnectionManager {
 
         let result: rmcp::model::CallToolResult = client
             .client
-            .call_tool(tool.to_string(), arguments, client.tool_timeout)
+            .call_tool(tool.to_owned(), arguments, client.tool_timeout)
             .await
             .with_context(|| format!("tool call failed for `{server}/{tool}`"))?;
 
@@ -619,7 +619,7 @@ impl McpConnectionManager {
             .into_iter()
             .map(|content| {
                 serde_json::to_value(content)
-                    .unwrap_or_else(|_| serde_json::Value::String("<content>".to_string()))
+                    .unwrap_or_else(|_| serde_json::Value::String("<content>".to_owned()))
             })
             .collect();
 
@@ -776,24 +776,24 @@ fn normalize_savfox_apps_tool_title(
     value: &str,
 ) -> String {
     if server_name != SAVFOX_APPS_MCP_SERVER_NAME {
-        return value.to_string();
+        return value.to_owned();
     }
 
     let Some(connector_name) = connector_name
         .map(str::trim)
         .filter(|name| !name.is_empty())
     else {
-        return value.to_string();
+        return value.to_owned();
     };
 
     let prefix = format!("{connector_name}_");
     if let Some(stripped) = value.strip_prefix(&prefix)
         && !stripped.is_empty()
     {
-        return stripped.to_string();
+        return stripped.to_owned();
     }
 
-    value.to_string()
+    value.to_owned()
 }
 
 fn resolve_bearer_token(

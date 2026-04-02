@@ -43,6 +43,7 @@ pub async fn send_message(
 ///
 /// The `signature` value typically has a `sha256=` prefix which is stripped
 /// automatically before comparison.
+#[must_use] 
 pub fn verify_webhook_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
     use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;

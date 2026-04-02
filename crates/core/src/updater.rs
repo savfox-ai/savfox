@@ -29,9 +29,9 @@ pub enum UpdateChannel {
 impl std::fmt::Display for UpdateChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UpdateChannel::Stable => write!(f, "stable"),
-            UpdateChannel::Beta => write!(f, "beta"),
-            UpdateChannel::Dev => write!(f, "dev"),
+            Self::Stable => write!(f, "stable"),
+            Self::Beta => write!(f, "beta"),
+            Self::Dev => write!(f, "dev"),
         }
     }
 }

@@ -386,8 +386,9 @@ pub enum NetworkAccess {
 }
 
 impl NetworkAccess {
+    #[must_use] 
     pub fn is_enabled(self) -> bool {
-        matches!(self, NetworkAccess::Enabled)
+        matches!(self, Self::Enabled)
     }
 }
 
@@ -454,6 +455,7 @@ pub struct WritableRoot {
 }
 
 impl WritableRoot {
+    #[must_use] 
     pub fn is_path_writable(&self, path: &Path) -> bool {
         // Check if the path is under the root.
         if !path.starts_with(&self.root) {
@@ -481,15 +483,17 @@ impl FromStr for SandboxPolicy {
 
 impl SandboxPolicy {
     /// Returns a policy with read-only disk access and no network.
+    #[must_use] 
     pub fn new_read_only_policy() -> Self {
-        SandboxPolicy::ReadOnly
+        Self::ReadOnly
     }
 
     /// Returns a policy that can read the entire disk, but can only write to
     /// the current working directory and the per-user tmp dir on macOS. It does
     /// not allow network access.
+    #[must_use] 
     pub fn new_workspace_write_policy() -> Self {
-        SandboxPolicy::WorkspaceWrite {
+        Self::WorkspaceWrite {
             writable_roots: vec![],
             network_access: false,
             exclude_tmpdir_env_var: false,
@@ -498,25 +502,28 @@ impl SandboxPolicy {
     }
 
     /// Always returns `true`; restricting read access is not supported.
+    #[must_use] 
     pub fn has_full_disk_read_access(&self) -> bool {
         true
     }
 
+    #[must_use] 
     pub fn has_full_disk_write_access(&self) -> bool {
         match self {
-            SandboxPolicy::DangerFullAccess => true,
-            SandboxPolicy::ExternalSandbox { .. } => true,
-            SandboxPolicy::ReadOnly => false,
-            SandboxPolicy::WorkspaceWrite { .. } => false,
+            Self::DangerFullAccess => true,
+            Self::ExternalSandbox { .. } => true,
+            Self::ReadOnly => false,
+            Self::WorkspaceWrite { .. } => false,
         }
     }
 
+    #[must_use] 
     pub fn has_full_network_access(&self) -> bool {
         match self {
-            SandboxPolicy::DangerFullAccess => true,
-            SandboxPolicy::ExternalSandbox { network_access } => network_access.is_enabled(),
-            SandboxPolicy::ReadOnly => false,
-            SandboxPolicy::WorkspaceWrite { network_access, .. } => *network_access,
+            Self::DangerFullAccess => true,
+            Self::ExternalSandbox { network_access } => network_access.is_enabled(),
+            Self::ReadOnly => false,
+            Self::WorkspaceWrite { network_access, .. } => *network_access,
         }
     }
 
@@ -525,10 +532,10 @@ impl SandboxPolicy {
     /// each writable root.
     pub fn get_writable_roots_with_cwd(&self, cwd: &Path) -> Vec<WritableRoot> {
         match self {
-            SandboxPolicy::DangerFullAccess => Vec::new(),
-            SandboxPolicy::ExternalSandbox { .. } => Vec::new(),
-            SandboxPolicy::ReadOnly => Vec::new(),
-            SandboxPolicy::WorkspaceWrite {
+            Self::DangerFullAccess => Vec::new(),
+            Self::ExternalSandbox { .. } => Vec::new(),
+            Self::ReadOnly => Vec::new(),
+            Self::WorkspaceWrite {
                 writable_roots,
                 exclude_tmpdir_env_var,
                 exclude_slash_tmp,
@@ -680,6 +687,7 @@ pub struct ToolAccessPolicy {
 
 impl ToolAccessPolicy {
     /// Returns `true` if the given tool is permitted by this policy.
+    #[must_use] 
     pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
         // Denied list takes precedence.
         if self.denied.iter().any(|d| d == tool_name) {
@@ -707,8 +715,7 @@ impl PermissionPolicy {
                     match tool.as_str() {
                         "shell" | "write_file" => {
                             errors.push(format!(
-                                "tool '{}' cannot be allowed with ReadOnly sandbox",
-                                tool
+                                "tool '{tool}' cannot be allowed with ReadOnly sandbox"
                             ));
                         }
                         _ => {}
@@ -720,8 +727,7 @@ impl PermissionPolicy {
             for tool in &tool_access.denied {
                 if tool_access.allowed.iter().any(|a| a == tool) {
                     errors.push(format!(
-                        "tool '{}' is in both allowed and denied lists",
-                        tool
+                        "tool '{tool}' is in both allowed and denied lists"
                     ));
                 }
             }
@@ -752,15 +758,12 @@ fn resolve_gitdir_from_file(dot_git: &AbsolutePathBuf) -> Option<AbsolutePathBuf
     };
 
     let trimmed = contents.trim();
-    let (_, gitdir_raw) = match trimmed.split_once(':') {
-        Some(parts) => parts,
-        None => {
-            error!(
-                "Expected {path} to contain a gitdir pointer, but it did not match `gitdir: <path>`.",
-                path = dot_git.as_path().display()
-            );
-            return None;
-        }
+    let (_, gitdir_raw) = if let Some(parts) = trimmed.split_once(':') { parts } else {
+        error!(
+            "Expected {path} to contain a gitdir pointer, but it did not match `gitdir: <path>`.",
+            path = dot_git.as_path().display()
+        );
+        return None;
     };
     let gitdir_raw = gitdir_raw.trim();
     if gitdir_raw.is_empty() {
@@ -770,15 +773,12 @@ fn resolve_gitdir_from_file(dot_git: &AbsolutePathBuf) -> Option<AbsolutePathBuf
         );
         return None;
     }
-    let base = match dot_git.as_path().parent() {
-        Some(base) => base,
-        None => {
-            error!(
-                "Unable to resolve parent directory for {path}.",
-                path = dot_git.as_path().display()
-            );
-            return None;
-        }
+    let base = if let Some(base) = dot_git.as_path().parent() { base } else {
+        error!(
+            "Unable to resolve parent directory for {path}.",
+            path = dot_git.as_path().display()
+        );
+        return None;
     };
     let gitdir_path = match AbsolutePathBuf::resolve_path_against_base(gitdir_raw, base) {
         Ok(path) => path,
@@ -989,49 +989,49 @@ pub enum EventMsg {
 
 impl From<CollabAgentSpawnBeginEvent> for EventMsg {
     fn from(event: CollabAgentSpawnBeginEvent) -> Self {
-        EventMsg::CollabAgentSpawnBegin(event)
+        Self::CollabAgentSpawnBegin(event)
     }
 }
 
 impl From<CollabAgentSpawnEndEvent> for EventMsg {
     fn from(event: CollabAgentSpawnEndEvent) -> Self {
-        EventMsg::CollabAgentSpawnEnd(event)
+        Self::CollabAgentSpawnEnd(event)
     }
 }
 
 impl From<CollabAgentInteractionBeginEvent> for EventMsg {
     fn from(event: CollabAgentInteractionBeginEvent) -> Self {
-        EventMsg::CollabAgentInteractionBegin(event)
+        Self::CollabAgentInteractionBegin(event)
     }
 }
 
 impl From<CollabAgentInteractionEndEvent> for EventMsg {
     fn from(event: CollabAgentInteractionEndEvent) -> Self {
-        EventMsg::CollabAgentInteractionEnd(event)
+        Self::CollabAgentInteractionEnd(event)
     }
 }
 
 impl From<CollabWaitingBeginEvent> for EventMsg {
     fn from(event: CollabWaitingBeginEvent) -> Self {
-        EventMsg::CollabWaitingBegin(event)
+        Self::CollabWaitingBegin(event)
     }
 }
 
 impl From<CollabWaitingEndEvent> for EventMsg {
     fn from(event: CollabWaitingEndEvent) -> Self {
-        EventMsg::CollabWaitingEnd(event)
+        Self::CollabWaitingEnd(event)
     }
 }
 
 impl From<CollabCloseBeginEvent> for EventMsg {
     fn from(event: CollabCloseBeginEvent) -> Self {
-        EventMsg::CollabCloseBegin(event)
+        Self::CollabCloseBegin(event)
     }
 }
 
 impl From<CollabCloseEndEvent> for EventMsg {
     fn from(event: CollabCloseEndEvent) -> Self {
-        EventMsg::CollabCloseEnd(event)
+        Self::CollabCloseEnd(event)
     }
 }
 
@@ -1219,15 +1219,15 @@ impl HasLegacyEvent for ReasoningRawContentDeltaEvent {
 impl HasLegacyEvent for EventMsg {
     fn as_legacy_events(&self, show_raw_agent_reasoning: bool) -> Vec<EventMsg> {
         match self {
-            EventMsg::ItemStarted(event) => event.as_legacy_events(show_raw_agent_reasoning),
-            EventMsg::ItemCompleted(event) => event.as_legacy_events(show_raw_agent_reasoning),
-            EventMsg::AgentMessageContentDelta(event) => {
+            Self::ItemStarted(event) => event.as_legacy_events(show_raw_agent_reasoning),
+            Self::ItemCompleted(event) => event.as_legacy_events(show_raw_agent_reasoning),
+            Self::AgentMessageContentDelta(event) => {
                 event.as_legacy_events(show_raw_agent_reasoning)
             }
-            EventMsg::ReasoningContentDelta(event) => {
+            Self::ReasoningContentDelta(event) => {
                 event.as_legacy_events(show_raw_agent_reasoning)
             }
-            EventMsg::ReasoningRawContentDelta(event) => {
+            Self::ReasoningRawContentDelta(event) => {
                 event.as_legacy_events(show_raw_agent_reasoning)
             }
             _ => Vec::new(),
@@ -1291,8 +1291,9 @@ pub struct TokenUsageInfo {
 }
 
 impl TokenUsageInfo {
+    #[must_use] 
     pub fn new_or_append(
-        info: &Option<TokenUsageInfo>,
+        info: &Option<Self>,
         last: &Option<TokenUsage>,
         model_context_window: Option<i64>,
     ) -> Option<Self> {
@@ -1334,6 +1335,7 @@ impl TokenUsageInfo {
         };
     }
 
+    #[must_use] 
     pub fn full_context_window(context_window: i64) -> Self {
         let mut info = Self {
             total_token_usage: TokenUsage::default(),
@@ -1382,23 +1384,28 @@ pub struct CreditsSnapshot {
 const BASELINE_TOKENS: i64 = 12000;
 
 impl TokenUsage {
+    #[must_use] 
     pub fn is_zero(&self) -> bool {
         self.total_tokens == 0
     }
 
+    #[must_use] 
     pub fn cached_input(&self) -> i64 {
         self.cached_input_tokens.max(0)
     }
 
+    #[must_use] 
     pub fn non_cached_input(&self) -> i64 {
         (self.input_tokens - self.cached_input()).max(0)
     }
 
     /// Primary count for display as a single absolute value: non-cached input + output.
+    #[must_use] 
     pub fn blended_total(&self) -> i64 {
         (self.non_cached_input() + self.output_tokens.max(0)).max(0)
     }
 
+    #[must_use] 
     pub fn tokens_in_context_window(&self) -> i64 {
         self.total_tokens
     }
@@ -1413,6 +1420,7 @@ impl TokenUsage {
     /// This normalizes both the numerator and denominator by subtracting the
     /// baseline, so immediately after the first prompt the UI shows 100% left
     /// and trends toward 0% as the user fills the effective window.
+    #[must_use] 
     pub fn percent_of_context_window_remaining(&self, context_window: i64) -> i64 {
         if context_window <= BASELINE_TOKENS {
             return 0;
@@ -1427,7 +1435,7 @@ impl TokenUsage {
     }
 
     /// In-place element-wise sum of token counts.
-    pub fn add_assign(&mut self, other: &TokenUsage) {
+    pub fn add_assign(&mut self, other: &Self) {
         self.input_tokens += other.input_tokens;
         self.cached_input_tokens += other.cached_input_tokens;
         self.output_tokens += other.output_tokens;
@@ -1563,6 +1571,7 @@ pub struct McpToolCallEndEvent {
 }
 
 impl McpToolCallEndEvent {
+    #[must_use] 
     pub fn is_success(&self) -> bool {
         match &self.result {
             Ok(result) => !result.is_error.unwrap_or(false),
@@ -1607,76 +1616,82 @@ pub enum InitialHistory {
 }
 
 impl InitialHistory {
+    #[must_use] 
     pub fn forked_from_id(&self) -> Option<SessionId> {
         match self {
-            InitialHistory::New => None,
-            InitialHistory::Resumed(resumed) => {
+            Self::New => None,
+            Self::Resumed(resumed) => {
                 resumed.history.iter().find_map(|item| match item {
                     RolloutItem::SessionMeta(meta_line) => meta_line.meta.forked_from_id,
                     _ => None,
                 })
             }
-            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
+            Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => Some(meta_line.meta.id),
                 _ => None,
             }),
         }
     }
 
+    #[must_use] 
     pub fn session_cwd(&self) -> Option<PathBuf> {
         match self {
-            InitialHistory::New => None,
-            InitialHistory::Resumed(resumed) => session_cwd_from_items(&resumed.history),
-            InitialHistory::Forked(items) => session_cwd_from_items(items),
+            Self::New => None,
+            Self::Resumed(resumed) => session_cwd_from_items(&resumed.history),
+            Self::Forked(items) => session_cwd_from_items(items),
         }
     }
 
+    #[must_use] 
     pub fn get_rollout_items(&self) -> Vec<RolloutItem> {
         match self {
-            InitialHistory::New => Vec::new(),
-            InitialHistory::Resumed(resumed) => resumed.history.clone(),
-            InitialHistory::Forked(items) => items.clone(),
+            Self::New => Vec::new(),
+            Self::Resumed(resumed) => resumed.history.clone(),
+            Self::Forked(items) => items.clone(),
         }
     }
 
+    #[must_use] 
     pub fn get_event_msgs(&self) -> Option<Vec<EventMsg>> {
         match self {
-            InitialHistory::New => None,
-            InitialHistory::Resumed(resumed) => {
+            Self::New => None,
+            Self::Resumed(resumed) => {
                 Some(collect_resume_initial_events(resumed.history.as_slice()))
             }
-            InitialHistory::Forked(items) => Some(collect_events_only(items.as_slice())),
+            Self::Forked(items) => Some(collect_events_only(items.as_slice())),
         }
     }
 
+    #[must_use] 
     pub fn get_base_instructions(&self) -> Option<BaseInstructions> {
         // TODO: SessionMeta should (in theory) always be first in the history, so we can probably
         // only check the first item?
         match self {
-            InitialHistory::New => None,
-            InitialHistory::Resumed(resumed) => {
+            Self::New => None,
+            Self::Resumed(resumed) => {
                 resumed.history.iter().find_map(|item| match item {
                     RolloutItem::SessionMeta(meta_line) => meta_line.meta.base_instructions.clone(),
                     _ => None,
                 })
             }
-            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
+            Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => meta_line.meta.base_instructions.clone(),
                 _ => None,
             }),
         }
     }
 
+    #[must_use] 
     pub fn get_dynamic_tools(&self) -> Option<Vec<DynamicToolSpec>> {
         match self {
-            InitialHistory::New => None,
-            InitialHistory::Resumed(resumed) => {
+            Self::New => None,
+            Self::Resumed(resumed) => {
                 resumed.history.iter().find_map(|item| match item {
                     RolloutItem::SessionMeta(meta_line) => meta_line.meta.dynamic_tools.clone(),
                     _ => None,
                 })
             }
-            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
+            Self::Forked(items) => items.iter().find_map(|item| match item {
                 RolloutItem::SessionMeta(meta_line) => meta_line.meta.dynamic_tools.clone(),
                 _ => None,
             }),
@@ -1799,12 +1814,12 @@ pub enum SubAgentSource {
 impl fmt::Display for SessionSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SessionSource::Cli => f.write_str("cli"),
-            SessionSource::VSCode => f.write_str("vscode"),
-            SessionSource::Exec => f.write_str("exec"),
-            SessionSource::Mcp => f.write_str("mcp"),
-            SessionSource::SubAgent(sub_source) => write!(f, "subagent_{sub_source}"),
-            SessionSource::Unknown => f.write_str("unknown"),
+            Self::Cli => f.write_str("cli"),
+            Self::VSCode => f.write_str("vscode"),
+            Self::Exec => f.write_str("exec"),
+            Self::Mcp => f.write_str("mcp"),
+            Self::SubAgent(sub_source) => write!(f, "subagent_{sub_source}"),
+            Self::Unknown => f.write_str("unknown"),
         }
     }
 }
@@ -1812,15 +1827,15 @@ impl fmt::Display for SessionSource {
 impl fmt::Display for SubAgentSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SubAgentSource::Review => f.write_str("review"),
-            SubAgentSource::Compact => f.write_str("compact"),
-            SubAgentSource::SessionSpawn {
+            Self::Review => f.write_str("review"),
+            Self::Compact => f.write_str("compact"),
+            Self::SessionSpawn {
                 parent_session_id,
                 depth,
             } => {
                 write!(f, "session_spawn_{parent_session_id}_d{depth}")
             }
-            SubAgentSource::Other(other) => f.write_str(other),
+            Self::Other(other) => f.write_str(other),
         }
     }
 }
@@ -1862,7 +1877,7 @@ pub struct SessionMeta {
 
 impl Default for SessionMeta {
     fn default() -> Self {
-        SessionMeta {
+        Self {
             id: SessionId::default(),
             forked_from_id: None,
             timestamp: String::new(),
@@ -1881,6 +1896,7 @@ impl Default for SessionMeta {
 impl SessionMeta {
     /// Provider resolved from the new `model` object, with fallback to legacy
     /// `model_provider` for older session files.
+    #[must_use] 
     pub fn model_provider_id(&self) -> Option<&str> {
         self.model
             .as_ref()
@@ -1889,6 +1905,7 @@ impl SessionMeta {
     }
 
     /// Model code from the new `model` object when present.
+    #[must_use] 
     pub fn model_slug(&self) -> Option<&str> {
         self.model.as_ref().and_then(|model| {
             if model.model_slug.is_empty() {
@@ -1927,9 +1944,9 @@ pub struct CompactedItem {
 
 impl From<CompactedItem> for ResponseItem {
     fn from(value: CompactedItem) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
                 text: value.message,
             }],
@@ -2344,10 +2361,10 @@ pub enum McpAuthStatus {
 impl fmt::Display for McpAuthStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let text = match self {
-            McpAuthStatus::Unsupported => "Unsupported",
-            McpAuthStatus::NotLoggedIn => "Not logged in",
-            McpAuthStatus::BearerToken => "Bearer token",
-            McpAuthStatus::OAuth => "OAuth",
+            Self::Unsupported => "Unsupported",
+            Self::NotLoggedIn => "Not logged in",
+            Self::BearerToken => "Bearer token",
+            Self::OAuth => "OAuth",
         };
         f.write_str(text)
     }
@@ -2533,13 +2550,14 @@ pub enum ReviewDecision {
 impl ReviewDecision {
     /// Returns an opaque version of the decision without PII. We can't use an ignored flag
     /// on `serde` because the serialization is required by some surfaces.
+    #[must_use] 
     pub fn to_opaque_string(&self) -> &'static str {
         match self {
-            ReviewDecision::Approved => "approved",
-            ReviewDecision::ApprovedExecpolicyAmendment { .. } => "approved_with_amendment",
-            ReviewDecision::ApprovedForSession => "approved_for_session",
-            ReviewDecision::Denied => "denied",
-            ReviewDecision::Abort => "abort",
+            Self::Approved => "approved",
+            Self::ApprovedExecpolicyAmendment { .. } => "approved_with_amendment",
+            Self::ApprovedForSession => "approved_for_session",
+            Self::Denied => "denied",
+            Self::Abort => "abort",
         }
     }
 }

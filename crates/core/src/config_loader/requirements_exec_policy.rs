@@ -197,7 +197,7 @@ fn parse_pattern_token(
                 return Err(RequirementsExecPolicyParseError::InvalidPatternToken {
                     rule_index,
                     token_index,
-                    reason: "token cannot be empty".to_string(),
+                    reason: "token cannot be empty".to_owned(),
                 });
             }
             Ok(PatternToken::Single(single.clone()))
@@ -207,14 +207,14 @@ fn parse_pattern_token(
                 return Err(RequirementsExecPolicyParseError::InvalidPatternToken {
                     rule_index,
                     token_index,
-                    reason: "any_of cannot be empty".to_string(),
+                    reason: "any_of cannot be empty".to_owned(),
                 });
             }
             if alternatives.iter().any(|alt| alt.trim().is_empty()) {
                 return Err(RequirementsExecPolicyParseError::InvalidPatternToken {
                     rule_index,
                     token_index,
-                    reason: "any_of cannot include empty tokens".to_string(),
+                    reason: "any_of cannot include empty tokens".to_owned(),
                 });
             }
             Ok(PatternToken::Alts(alternatives.clone()))
@@ -222,12 +222,12 @@ fn parse_pattern_token(
         (Some(_), Some(_)) => Err(RequirementsExecPolicyParseError::InvalidPatternToken {
             rule_index,
             token_index,
-            reason: "set either token or any_of, not both".to_string(),
+            reason: "set either token or any_of, not both".to_owned(),
         }),
         (None, None) => Err(RequirementsExecPolicyParseError::InvalidPatternToken {
             rule_index,
             token_index,
-            reason: "set either token or any_of".to_string(),
+            reason: "set either token or any_of".to_owned(),
         }),
     }
 }

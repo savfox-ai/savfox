@@ -6,6 +6,7 @@ const ENVIRONMENT_CONTEXT_OPEN_TAG: &str = "<environment_context>";
 const TURN_ABORTED_OPEN_TAG: &str = "<turn_aborted>";
 const SKILL_INSTRUCTIONS_PREFIX: &str = "<skill";
 
+#[must_use] 
 pub fn is_internal_session_message(raw: &str) -> bool {
     let trimmed = raw.trim_start();
     if trimmed.is_empty() {
@@ -19,6 +20,7 @@ pub fn is_internal_session_message(raw: &str) -> bool {
         || lowered.starts_with(SKILL_INSTRUCTIONS_PREFIX)
 }
 
+#[must_use] 
 pub fn normalize_session_label(raw: &str) -> Option<String> {
     if is_internal_session_message(raw) {
         return None;
@@ -47,9 +49,10 @@ pub fn derive_session_label(
         .or_else(|| name.and_then(normalize_session_label))
 }
 
+#[must_use] 
 pub fn short_id(id: &str) -> String {
     if id.chars().count() <= 16 {
-        id.to_string()
+        id.to_owned()
     } else {
         let truncated: String = id.chars().take(16).collect();
         format!("{truncated}...")
@@ -82,14 +85,15 @@ pub struct SessionEntry {
 }
 
 impl SessionEntry {
+    #[must_use] 
     pub fn display_id(&self) -> String {
         self.session_id
             .as_deref()
             .or(self.id.as_deref())
-            .unwrap_or("-")
-            .to_string()
+            .unwrap_or("-").to_owned()
     }
 
+    #[must_use] 
     pub fn display_count(&self) -> u32 {
         self.message_count.or(self.messages).unwrap_or(0)
     }
@@ -133,14 +137,15 @@ pub struct SessionDetail {
 }
 
 impl SessionDetail {
+    #[must_use] 
     pub fn display_id(&self) -> String {
         self.session_id
             .as_deref()
             .or(self.id.as_deref())
-            .unwrap_or("-")
-            .to_string()
+            .unwrap_or("-").to_owned()
     }
 
+    #[must_use] 
     pub fn display_count(&self) -> u32 {
         self.message_count.or(self.messages).unwrap_or(0)
     }

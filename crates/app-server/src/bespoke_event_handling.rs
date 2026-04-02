@@ -678,7 +678,7 @@ pub(crate) async fn apply_bespoke_event_handling(
         EventMsg::ExitedReviewMode(review_event) => {
             let review = match review_event.review_output {
                 Some(output) => render_review_output_text(&output),
-                None => REVIEW_FALLBACK_MESSAGE.to_string(),
+                None => REVIEW_FALLBACK_MESSAGE.to_owned(),
             };
             let item = SessionItem::ExitedReviewMode {
                 id: event_turn_id.clone(),
@@ -926,7 +926,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 let Some(rollout_path) = conversation.rollout_path() else {
                     let error = JSONRPCErrorError {
                         code: INVALID_REQUEST_ERROR_CODE,
-                        message: "session has no persisted rollout".to_string(),
+                        message: "session has no persisted rollout".to_owned(),
                         data: None,
                     };
                     outgoing.send_error(request_id, error).await;
@@ -1016,7 +1016,7 @@ async fn handle_turn_diff(
 ) {
     let notification = TurnDiffUpdatedNotification {
         session_id: conversation_id.to_string(),
-        turn_id: event_turn_id.to_string(),
+        turn_id: event_turn_id.to_owned(),
         diff: turn_diff_event.unified_diff,
     };
     outgoing
@@ -1033,7 +1033,7 @@ async fn handle_turn_plan_update(
     // `update_plan` is a todo/checklist tool; it is not related to plan-mode updates
     let notification = TurnPlanUpdatedNotification {
         session_id: conversation_id.to_string(),
-        turn_id: event_turn_id.to_string(),
+        turn_id: event_turn_id.to_owned(),
         explanation: plan_update_event.explanation,
         plan: plan_update_event
             .plan
@@ -1139,7 +1139,7 @@ async fn maybe_emit_raw_response_item_completed(
 ) {
     let notification = RawResponseItemCompletedNotification {
         session_id: conversation_id.to_string(),
-        turn_id: turn_id.to_string(),
+        turn_id: turn_id.to_owned(),
         item,
     };
     outgoing
@@ -1316,17 +1316,17 @@ fn render_review_output_text(output: &ReviewOutputEvent) -> String {
     let mut sections = Vec::new();
     let explanation = output.overall_explanation.trim();
     if !explanation.is_empty() {
-        sections.push(explanation.to_string());
+        sections.push(explanation.to_owned());
     }
     if !output.findings.is_empty() {
         let findings = format_review_findings_block(&output.findings, None);
         let trimmed = findings.trim();
         if !trimmed.is_empty() {
-            sections.push(trimmed.to_string());
+            sections.push(trimmed.to_owned());
         }
     }
     if sections.is_empty() {
-        REVIEW_FALLBACK_MESSAGE.to_string()
+        REVIEW_FALLBACK_MESSAGE.to_owned()
     } else {
         sections.join("\n\n")
     }

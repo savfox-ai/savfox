@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
         .parent()
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| PathBuf::from("."));
-    let runtime = StateRuntime::init(savfox_home, "logs-client".to_string(), None).await?;
+    let runtime = StateRuntime::init(savfox_home, "logs-client".to_owned(), None).await?;
 
     let mut last_id = print_backfill(runtime.as_ref(), &filter, args.backfill).await?;
     if last_id == 0 {

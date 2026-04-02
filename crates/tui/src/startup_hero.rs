@@ -72,7 +72,7 @@ fn tooltip_line(tooltip: &str) -> Line<'static> {
     Line::from(vec![
         Span::styled("● ", Style::default().fg(TIP_ACCENT_COLOR)),
         Span::styled("Tip ", Style::default().fg(TIP_ACCENT_COLOR).bold()),
-        Span::styled(tooltip.to_string(), secondary_text_style()),
+        Span::styled(tooltip.to_owned(), secondary_text_style()),
     ])
 }
 

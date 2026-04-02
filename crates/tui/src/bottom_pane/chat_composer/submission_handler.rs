@@ -61,7 +61,7 @@ impl ChatComposer {
         pending_pastes: &[(String, String)],
     ) -> (String, Vec<TextElement>) {
         if pending_pastes.is_empty() || elements.is_empty() {
-            return (text.to_string(), elements);
+            return (text.to_owned(), elements);
         }
 
         // Stage 1: index pending paste payloads by placeholder for deterministic replacements.
@@ -103,7 +103,7 @@ impl ChatComposer {
                 let new_start = rebuilt.len();
                 rebuilt.push_str(elem_text);
                 let new_end = rebuilt.len();
-                let placeholder = placeholder.or_else(|| Some(elem_text.to_string()));
+                let placeholder = placeholder.or_else(|| Some(elem_text.to_owned()));
                 rebuilt_elements.push(TextElement::new(
                     ByteRange {
                         start: new_start,
@@ -147,7 +147,7 @@ impl ChatComposer {
         &mut self,
         record_history: bool,
     ) -> Option<(String, Vec<TextElement>)> {
-        let mut text = self.textarea.text().to_string();
+        let mut text = self.textarea.text().to_owned();
         let original_input = text.clone();
         let original_text_elements = self.textarea.text_elements();
         let original_local_image_paths = self
@@ -171,7 +171,7 @@ impl ChatComposer {
         let expanded_input = text.clone();
 
         // If there is neither text nor attachments, suppress submission entirely.
-        text = text.trim().to_string();
+        text = text.trim().to_owned();
         text_elements = Self::trim_text_elements(&expanded_input, &text, text_elements);
 
         if self.slash_commands_enabled()
@@ -314,7 +314,7 @@ impl ChatComposer {
             return (InputResult::None, true);
         }
 
-        let original_input = self.textarea.text().to_string();
+        let original_input = self.textarea.text().to_owned();
         let original_text_elements = self.textarea.text_elements();
         let original_local_image_paths = self
             .attached_images
@@ -391,7 +391,7 @@ impl ChatComposer {
         if !self.slash_commands_enabled() {
             return None;
         }
-        let text = self.textarea.text().to_string();
+        let text = self.textarea.text().to_owned();
         if text.starts_with(' ') {
             return None;
         }
@@ -422,7 +422,7 @@ impl ChatComposer {
         args_elements = Self::trim_text_elements(rest, trimmed_rest, args_elements);
         Some(InputResult::CommandWithArgs(
             cmd,
-            trimmed_rest.to_string(),
+            trimmed_rest.to_owned(),
             args_elements,
         ))
     }
@@ -446,7 +446,7 @@ impl ChatComposer {
         );
         let trimmed_rest = prepared_rest.trim();
         args_elements = Self::trim_text_elements(prepared_rest, trimmed_rest, args_elements);
-        Some((trimmed_rest.to_string(), args_elements))
+        Some((trimmed_rest.to_owned(), args_elements))
     }
 
     fn reject_slash_command_if_unavailable(&self, cmd: SlashCommand) -> bool {

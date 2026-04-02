@@ -113,7 +113,7 @@ async fn run_command_under_sandbox(
     let env = create_env(&config.shell_environment_policy);
 
     // Special-case Windows sandbox: execute and exit the process to emulate inherited stdio.
-    if let SandboxType::Windows = sandbox_type {
+    if matches!(sandbox_type, SandboxType::Windows) {
         #[cfg(target_os = "windows")]
         {
             use savfox_core::windows_sandbox::WindowsSandboxLevelExt;
@@ -251,6 +251,7 @@ async fn run_command_under_sandbox(
     handle_exit_status(status);
 }
 
+#[must_use] 
 pub fn create_sandbox_mode(full_auto: bool) -> SandboxMode {
     if full_auto {
         SandboxMode::WorkspaceWrite

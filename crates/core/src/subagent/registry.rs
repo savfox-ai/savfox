@@ -60,6 +60,7 @@ pub struct SubagentRegistry {
 
 impl SubagentRegistry {
     /// Create a new registry with default limits.
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
@@ -69,6 +70,7 @@ impl SubagentRegistry {
     }
 
     /// Create with custom limits.
+    #[must_use] 
     pub fn with_limits(max_depth: u32, max_concurrent: usize) -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),

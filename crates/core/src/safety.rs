@@ -28,7 +28,7 @@ pub fn assess_patch_safety(
 ) -> SafetyCheck {
     if action.is_empty() {
         return SafetyCheck::Reject {
-            reason: "empty patch".to_string(),
+            reason: "empty patch".to_owned(),
         };
     }
 
@@ -72,14 +72,14 @@ pub fn assess_patch_safety(
         }
     } else if policy == AskForApproval::Never {
         SafetyCheck::Reject {
-            reason: "writing outside of the project; rejected by user approval settings"
-                .to_string(),
+            reason: "writing outside of the project; rejected by user approval settings".to_owned(),
         }
     } else {
         SafetyCheck::AskUser
     }
 }
 
+#[must_use] 
 pub fn get_platform_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
     if cfg!(target_os = "macos") {
         Some(SandboxType::MacosSeatbelt)

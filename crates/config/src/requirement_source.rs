@@ -13,14 +13,14 @@ pub enum RequirementSource {
 impl fmt::Display for RequirementSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RequirementSource::Unknown => write!(f, "<unspecified>"),
-            RequirementSource::MdmManagedPreferences { domain, key } => {
+            Self::Unknown => write!(f, "<unspecified>"),
+            Self::MdmManagedPreferences { domain, key } => {
                 write!(f, "MDM {domain}:{key}")
             }
-            RequirementSource::CloudRequirements => {
+            Self::CloudRequirements => {
                 write!(f, "cloud requirements")
             }
-            RequirementSource::SystemRequirementsToml { file } => {
+            Self::SystemRequirementsToml { file } => {
                 write!(f, "{}", file.as_path().display())
             }
         }

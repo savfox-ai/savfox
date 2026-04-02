@@ -48,7 +48,7 @@ fn get_originator_value(provided: Option<String>) -> Originator {
     let value = std::env::var(SAVFOX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR)
         .ok()
         .or(provided)
-        .unwrap_or(DEFAULT_ORIGINATOR.to_string());
+        .unwrap_or(DEFAULT_ORIGINATOR.to_owned());
 
     match HeaderValue::from_str(&value) {
         Ok(header_value) => Originator {
@@ -58,7 +58,7 @@ fn get_originator_value(provided: Option<String>) -> Originator {
         Err(e) => {
             tracing::error!("Unable to turn originator override {value} into header value: {e}");
             Originator {
-                value: DEFAULT_ORIGINATOR.to_string(),
+                value: DEFAULT_ORIGINATOR.to_owned(),
                 header_value: HeaderValue::from_static(DEFAULT_ORIGINATOR),
             }
         }
@@ -109,6 +109,7 @@ pub fn originator() -> Originator {
     get_originator_value(None)
 }
 
+#[must_use] 
 pub fn is_first_party_originator(originator_value: &str) -> bool {
     originator_value == DEFAULT_ORIGINATOR
         || originator_value == "savfox_vscode"
@@ -164,7 +165,7 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
         tracing::warn!(
             "Falling back to base Savfox user agent because provided suffix could not be sanitized"
         );
-        fallback.to_string()
+        fallback.to_owned()
     } else {
         tracing::warn!(
             "Falling back to default Savfox originator because base user agent string is invalid"
@@ -174,6 +175,7 @@ fn sanitize_user_agent(candidate: String, fallback: &str) -> String {
 }
 
 /// Create an HTTP client with default `originator` and `User-Agent` headers set.
+#[must_use] 
 pub fn create_client() -> HttpClient {
     let inner = build_reqwest_client();
     HttpClient::new(inner)

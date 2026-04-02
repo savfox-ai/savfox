@@ -105,7 +105,7 @@ impl ToolHandler for UnifiedExecHandler {
             call_id,
             tool_name,
             payload,
-            ..
+            
         } = invocation;
 
         let arguments = match payload {
@@ -268,7 +268,7 @@ fn format_response(response: &UnifiedExecResponse) -> String {
         sections.push(format!("Original token count: {original_token_count}"));
     }
 
-    sections.push("Output:".to_string());
+    sections.push("Output:".to_owned());
     sections.push(response.output.clone());
 
     sections.join("\n")

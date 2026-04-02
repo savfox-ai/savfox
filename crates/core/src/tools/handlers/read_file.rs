@@ -407,7 +407,7 @@ mod indentation {
 fn format_line(bytes: &[u8]) -> String {
     let decoded = String::from_utf8_lossy(bytes);
     if decoded.len() > MAX_LINE_LENGTH {
-        take_bytes_at_char_boundary(&decoded, MAX_LINE_LENGTH).to_string()
+        take_bytes_at_char_boundary(&decoded, MAX_LINE_LENGTH).to_owned()
     } else {
         decoded.into_owned()
     }

@@ -12,29 +12,23 @@ pub fn run_main() -> i32 {
     let mut args = std::env::args_os();
     let _argv0 = args.next();
 
-    let patch_arg = match args.next() {
-        Some(arg) => match arg.into_string() {
-            Ok(s) => s,
-            Err(_) => {
-                eprintln!("Error: apply_patch requires a UTF-8 PATCH argument.");
-                return 1;
+    let patch_arg = if let Some(arg) = args.next() { if let Ok(s) = arg.into_string() { s } else {
+        eprintln!("Error: apply_patch requires a UTF-8 PATCH argument.");
+        return 1;
+    } } else {
+        // No argument provided; attempt to read the patch from stdin.
+        let mut buf = String::new();
+        match std::io::stdin().read_to_string(&mut buf) {
+            Ok(_) => {
+                if buf.is_empty() {
+                    eprintln!("Usage: apply_patch 'PATCH'\n       echo 'PATCH' | apply_patch");
+                    return 2;
+                }
+                buf
             }
-        },
-        None => {
-            // No argument provided; attempt to read the patch from stdin.
-            let mut buf = String::new();
-            match std::io::stdin().read_to_string(&mut buf) {
-                Ok(_) => {
-                    if buf.is_empty() {
-                        eprintln!("Usage: apply_patch 'PATCH'\n       echo 'PATCH' | apply_patch");
-                        return 2;
-                    }
-                    buf
-                }
-                Err(err) => {
-                    eprintln!("Error: Failed to read PATCH from stdin.\n{err}");
-                    return 1;
-                }
+            Err(err) => {
+                eprintln!("Error: Failed to read PATCH from stdin.\n{err}");
+                return 1;
             }
         }
     };

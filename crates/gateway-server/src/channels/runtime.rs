@@ -48,7 +48,7 @@ fn command_result_message(
     if let Some(error) = result.error.as_deref() {
         return format!("Command error: {error}");
     }
-    result.reply.clone().unwrap_or_else(|| fallback.to_string())
+    result.reply.clone().unwrap_or_else(|| fallback.to_owned())
 }
 
 fn looks_like_textual_approval_reply(text: &str) -> bool {
@@ -87,7 +87,7 @@ async fn apply_command_action(
                     entry.model = Some(model_value.clone());
                     entry.provider = provider_value.clone();
                     entry.patch_overrides(SessionOverrides {
-                        model: Some(model_value.clone()),
+                        model: Some(model_value),
                         ..SessionOverrides::default()
                     });
                 })
@@ -98,7 +98,7 @@ async fn apply_command_action(
             let _ = session_store
                 .update(session_id, move |entry| {
                     entry.patch_overrides(SessionOverrides {
-                        thinking: Some(level_value.clone()),
+                        thinking: Some(level_value),
                         ..SessionOverrides::default()
                     });
                 })
@@ -106,14 +106,14 @@ async fn apply_command_action(
         }
         CommandAction::SetVerbose { enabled } => {
             let verbose_value = if *enabled {
-                "on".to_string()
+                "on".to_owned()
             } else {
-                "off".to_string()
+                "off".to_owned()
             };
             let _ = session_store
                 .update(session_id, move |entry| {
                     entry.patch_overrides(SessionOverrides {
-                        verbose: Some(verbose_value.clone()),
+                        verbose: Some(verbose_value),
                         ..SessionOverrides::default()
                     });
                 })
@@ -249,9 +249,9 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
 ) {
     let parsed = parse_directives(&prompt);
     let cleaned_prompt = if parsed.directives.is_empty() {
-        prompt.trim().to_string()
+        prompt.trim().to_owned()
     } else {
-        parsed.cleaned_text.trim().to_string()
+        parsed.cleaned_text.trim().to_owned()
     };
     if cleaned_prompt.is_empty() {
         let outbound_channel = format!("{platform}:{channel_id}");
@@ -422,9 +422,9 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             .and_then(|o| o.model.as_ref())
             .or(tracked.model.as_ref())
         {
-            metadata.insert("model".to_string(), model.clone());
+            metadata.insert("model".to_owned(), model.clone());
         }
-        metadata.insert("tokens_used".to_string(), tracked.total_tokens.to_string());
+        metadata.insert("tokens_used".to_owned(), tracked.total_tokens.to_string());
 
         let command_ctx = CommandContext {
             sender_id: start_meta
@@ -501,8 +501,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     let provider = effective_model
         .split('/')
         .next()
-        .unwrap_or("unknown")
-        .to_string();
+        .unwrap_or("unknown").to_owned();
     let tone_suffix = configured_channel_tone_suffix(
         &gateway_channel.config().savfox_home,
         &routed_agent,
@@ -571,7 +570,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     });
 
     let on_approval: Box<dyn FnMut(&str) + Send> = Box::new(move |msg: &str| {
-        let _ = approval_tx.send(msg.to_string());
+        let _ = approval_tx.send(msg.to_owned());
     });
 
     let delta_tx = stream_tx.clone();
@@ -582,7 +581,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             Some(&tracked.session_id),
             move |delta: &str| {
                 if let Some(tx) = &delta_tx {
-                    let _ = tx.send(StreamEvent::Delta(delta.to_string()));
+                    let _ = tx.send(StreamEvent::Delta(delta.to_owned()));
                 }
             },
             on_approval,
@@ -639,7 +638,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     .update(&session_id, move |entry| {
                         entry.session_file = Some(session_file.clone());
                         if entry.thread_id.is_none() {
-                            entry.thread_id = Some(thread_id.clone());
+                            entry.thread_id = Some(thread_id);
                         }
                     })
                     .await;

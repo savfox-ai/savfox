@@ -31,11 +31,12 @@ pub struct ComposerInput {
 
 impl ComposerInput {
     /// Create a new composer input with a neutral placeholder.
+    #[must_use] 
     pub fn new() -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sender = AppEventSender::new(tx.clone());
         // `enhanced_keys_supported=true` enables Shift+Enter newline hint/behavior.
-        let inner = ChatComposer::new(true, sender, true, "Compose new task".to_string(), false);
+        let inner = ChatComposer::new(true, sender, true, "Compose new task".to_owned(), false);
         Self { inner, _tx: tx, rx }
     }
 
@@ -111,6 +112,7 @@ impl ComposerInput {
 
     /// Recommended delay to schedule the next micro-flush frame while a
     /// paste-burst is active.
+    #[must_use] 
     pub fn recommended_flush_delay() -> Duration {
         crate::bottom_pane::ChatComposer::recommended_paste_flush_delay()
     }

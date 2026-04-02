@@ -32,7 +32,7 @@ pub(crate) async fn run_inline_auto_compact_task(
     sess: Arc<Session>,
     turn_context: Arc<TurnContext>,
 ) {
-    let prompt = turn_context.compact_prompt().to_string();
+    let prompt = turn_context.compact_prompt().to_owned();
     let input = vec![UserInput::Text {
         text: prompt,
         // Compaction prompt is synthesized; no UI element ranges to preserve.
@@ -189,11 +189,12 @@ async fn run_compact_task_inner(
     sess.emit_turn_item_completed(&turn_context, compaction_item)
         .await;
     let warning = EventMsg::Warning(WarningEvent {
-        message: "Heads up: Long sessions and multiple compactions can cause the model to be less accurate. Start a new session when possible to keep sessions small and targeted.".to_string(),
+        message: "Heads up: Long sessions and multiple compactions can cause the model to be less accurate. Start a new session when possible to keep sessions small and targeted.".to_owned(),
     });
     sess.send_event(&turn_context, warning).await;
 }
 
+#[must_use] 
 pub fn content_items_to_text(content: &[ContentItem]) -> Option<String> {
     let mut pieces = Vec::new();
     for item in content {
@@ -295,7 +296,7 @@ fn build_compacted_history_with_limit(
     for message in &selected_messages {
         history.push(ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: message.clone(),
             }],
@@ -305,14 +306,14 @@ fn build_compacted_history_with_limit(
     }
 
     let summary_text = if summary_text.is_empty() {
-        "(no summary available)".to_string()
+        "(no summary available)".to_owned()
     } else {
-        summary_text.to_string()
+        summary_text.to_owned()
     };
 
     history.push(ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText { text: summary_text }],
         end_turn: None,
         phase: None,

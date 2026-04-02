@@ -25,8 +25,8 @@ impl ChatScreen {
     pub(crate) fn open_skills_menu(&mut self) {
         let items = vec![
             SelectionItem {
-                name: "List skills".to_string(),
-                description: Some("Tip: press $ to open this list directly.".to_string()),
+                name: "List skills".to_owned(),
+                description: Some("Tip: press $ to open this list directly.".to_owned()),
                 actions: vec![Box::new(|tx| {
                     tx.send(AppEvent::OpenSkillsList);
                 })],
@@ -34,8 +34,8 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Enable/Disable Skills".to_string(),
-                description: Some("Enable or disable skills.".to_string()),
+                name: "Enable/Disable Skills".to_owned(),
+                description: Some("Enable or disable skills.".to_owned()),
                 actions: vec![Box::new(|tx| {
                     tx.send(AppEvent::OpenManageSkillsPopup);
                 })],
@@ -43,8 +43,8 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Install from URL".to_string(),
-                description: Some("Install a skill from a git repository URL.".to_string()),
+                name: "Install from URL".to_owned(),
+                description: Some("Install a skill from a git repository URL.".to_owned()),
                 actions: vec![Box::new(|tx| {
                     tx.send(AppEvent::OpenInstallSkillFromUrl);
                 })],
@@ -54,8 +54,8 @@ impl ChatScreen {
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Skills".to_string()),
-            subtitle: Some("Choose an action".to_string()),
+            title: Some("Skills".to_owned()),
+            subtitle: Some("Choose an action".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
@@ -65,11 +65,11 @@ impl ChatScreen {
     pub(crate) fn open_install_skill_from_url(&mut self) {
         let tx = self.app_event_tx.clone();
         let view = CustomPromptView::new(
-            "Install skill from URL".to_string(),
-            "https://github.com/user/my-skill.git".to_string(),
-            Some("Enter a git repository URL".to_string()),
+            "Install skill from URL".to_owned(),
+            "https://github.com/user/my-skill.git".to_owned(),
+            Some("Enter a git repository URL".to_owned()),
             Box::new(move |url: String| {
-                let url = url.trim().to_string();
+                let url = url.trim().to_owned();
                 if !url.is_empty() {
                     tx.send(AppEvent::InstallSkillFromUrl { url });
                 }
@@ -80,7 +80,7 @@ impl ChatScreen {
 
     pub(crate) fn open_manage_skills_popup(&mut self) {
         if self.skills_all.is_empty() {
-            self.add_info_message("No skills available.".to_string(), None);
+            self.add_info_message("No skills available.".to_owned(), None);
             return;
         }
 
@@ -95,8 +95,8 @@ impl ChatScreen {
             .iter()
             .map(|skill| {
                 let core_skill = protocol_skill_to_core(skill);
-                let name = skill_name(&core_skill).to_string();
-                let description = skill_description(&core_skill).to_string();
+                let name = skill_name(&core_skill).to_owned();
+                let description = skill_description(&core_skill).to_owned();
                 let skill_name = core_skill.name.clone();
                 let path = core_skill.path;
                 SkillsToggleItem {
@@ -277,7 +277,7 @@ pub(crate) fn find_app_mentions(
     for (name, path) in &mentions.linked_paths {
         if let Some(connector_id) = app_id_from_path(path) {
             explicit_names.insert(name.clone());
-            selected_ids.insert(connector_id.to_string());
+            selected_ids.insert(connector_id.to_owned());
         }
     }
 
@@ -324,11 +324,11 @@ fn extract_tool_mentions_from_text(text: &str) -> ToolMentions {
         {
             if !is_common_env_var(name) {
                 if !is_app_or_mcp_path(path) {
-                    names.insert(name.to_string());
+                    names.insert(name.to_owned());
                 }
                 linked_paths
-                    .entry(name.to_string())
-                    .or_insert(path.to_string());
+                    .entry(name.to_owned())
+                    .or_insert(path.to_owned());
             }
             index = end_index;
             continue;
@@ -358,7 +358,7 @@ fn extract_tool_mentions_from_text(text: &str) -> ToolMentions {
 
         let name = &text[name_start..name_end];
         if !is_common_env_var(name) {
-            names.insert(name.to_string());
+            names.insert(name.to_owned());
         }
         index = name_end;
     }

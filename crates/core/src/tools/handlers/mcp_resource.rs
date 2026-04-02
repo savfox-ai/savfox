@@ -235,8 +235,8 @@ async fn handle_list_resources(
     let cursor = normalize_optional_string(cursor);
 
     let invocation = McpInvocation {
-        server: server.clone().unwrap_or_else(|| "savfox".to_string()),
-        tool: "list_mcp_resources".to_string(),
+        server: server.clone().unwrap_or_else(|| "savfox".to_owned()),
+        tool: "list_mcp_resources".to_owned(),
         arguments: arguments.clone(),
     };
 
@@ -338,8 +338,8 @@ async fn handle_list_resource_templates(
     let cursor = normalize_optional_string(cursor);
 
     let invocation = McpInvocation {
-        server: server.clone().unwrap_or_else(|| "savfox".to_string()),
-        tool: "list_mcp_resource_templates".to_string(),
+        server: server.clone().unwrap_or_else(|| "savfox".to_owned()),
+        tool: "list_mcp_resource_templates".to_owned(),
         arguments: arguments.clone(),
     };
 
@@ -442,7 +442,7 @@ async fn handle_read_resource(
 
     let invocation = McpInvocation {
         server: server.clone(),
-        tool: "read_mcp_resource".to_string(),
+        tool: "read_mcp_resource".to_owned(),
         arguments: arguments.clone(),
     };
 
@@ -535,7 +535,7 @@ async fn emit_tool_call_begin(
         .send_event(
             turn,
             EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
-                call_id: call_id.to_string(),
+                call_id: call_id.to_owned(),
                 invocation,
             }),
         )
@@ -554,7 +554,7 @@ async fn emit_tool_call_end(
         .send_event(
             turn,
             EventMsg::McpToolCallEnd(McpToolCallEndEvent {
-                call_id: call_id.to_string(),
+                call_id: call_id.to_owned(),
                 invocation,
                 duration,
                 result,
@@ -565,7 +565,7 @@ async fn emit_tool_call_end(
 
 fn normalize_optional_string(input: Option<String>) -> Option<String> {
     input.and_then(|value| {
-        let trimmed = value.trim().to_string();
+        let trimmed = value.trim().to_owned();
         if trimmed.is_empty() {
             None
         } else {

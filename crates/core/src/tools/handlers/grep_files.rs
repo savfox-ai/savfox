@@ -63,7 +63,7 @@ impl ToolHandler for GrepFilesHandler {
             if val.is_empty() {
                 None
             } else {
-                Some(val.to_string())
+                Some(val.to_owned())
             }
         });
 
@@ -71,7 +71,7 @@ impl ToolHandler for GrepFilesHandler {
             run_rg_search(pattern, include.as_deref(), &search_path, limit, &turn.cwd).await?;
 
         if search_results.is_empty() {
-            Ok(ToolOutput::fail("No matches found.".to_string()))
+            Ok(ToolOutput::fail("No matches found.".to_owned()))
         } else {
             Ok(ToolOutput::ok(search_results.join("\n")))
         }
@@ -136,7 +136,7 @@ fn parse_results(stdout: &[u8], limit: usize) -> Vec<String> {
             if text.is_empty() {
                 continue;
             }
-            results.push(text.to_string());
+            results.push(text.to_owned());
             if results.len() == limit {
                 break;
             }

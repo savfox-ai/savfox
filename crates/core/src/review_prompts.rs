@@ -38,7 +38,7 @@ pub fn resolve_review_request(
 
 pub fn review_prompt(target: &ReviewTarget, cwd: &Path) -> anyhow::Result<String> {
     match target {
-        ReviewTarget::UncommittedChanges => Ok(UNCOMMITTED_PROMPT.to_string()),
+        ReviewTarget::UncommittedChanges => Ok(UNCOMMITTED_PROMPT.to_owned()),
         ReviewTarget::BaseBranch { branch } => {
             if let Some(commit) = merge_base_with_head(cwd, branch)? {
                 Ok(BASE_BRANCH_PROMPT
@@ -62,14 +62,15 @@ pub fn review_prompt(target: &ReviewTarget, cwd: &Path) -> anyhow::Result<String
             if prompt.is_empty() {
                 anyhow::bail!("Review prompt cannot be empty");
             }
-            Ok(prompt.to_string())
+            Ok(prompt.to_owned())
         }
     }
 }
 
+#[must_use] 
 pub fn user_facing_hint(target: &ReviewTarget) -> String {
     match target {
-        ReviewTarget::UncommittedChanges => "current changes".to_string(),
+        ReviewTarget::UncommittedChanges => "current changes".to_owned(),
         ReviewTarget::BaseBranch { branch } => format!("changes against '{branch}'"),
         ReviewTarget::Commit { sha, title } => {
             let short_sha: String = sha.chars().take(7).collect();
@@ -79,13 +80,13 @@ pub fn user_facing_hint(target: &ReviewTarget) -> String {
                 format!("commit {short_sha}")
             }
         }
-        ReviewTarget::Custom { instructions } => instructions.trim().to_string(),
+        ReviewTarget::Custom { instructions } => instructions.trim().to_owned(),
     }
 }
 
 impl From<ResolvedReviewRequest> for ReviewRequest {
     fn from(resolved: ResolvedReviewRequest) -> Self {
-        ReviewRequest {
+        Self {
             target: resolved.target,
             user_facing_hint: Some(resolved.user_facing_hint),
         }

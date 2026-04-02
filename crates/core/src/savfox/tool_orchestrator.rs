@@ -231,8 +231,7 @@ pub(crate) async fn run_turn(
                     continue;
                 }
                 let event = EventMsg::Error(ErrorEvent {
-                    message: "Invalid image in your last message. Please remove it and try again."
-                        .to_string(),
+                    message: "Invalid image in your last message. Please remove it and try again.".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::BadRequest),
                 });
                 sess.send_event(&turn_context, event).await;
@@ -285,7 +284,7 @@ pub(super) fn filter_connectors_for_input(
         .filter(|path| tool_kind_for_path(path) == ToolMentionKind::App)
     {
         if let Some(connector_id) = app_id_from_path(path) {
-            allowed_connector_ids.insert(connector_id.to_string());
+            allowed_connector_ids.insert(connector_id.to_owned());
         }
     }
 
@@ -536,7 +535,7 @@ impl PlanParsers {
 
     fn assistant_parser_mut(&mut self, item_id: &str) -> &mut ProposedPlanParser {
         self.assistant
-            .entry(item_id.to_string())
+            .entry(item_id.to_owned())
             .or_insert_with(ProposedPlanParser::new)
     }
 
@@ -608,7 +607,7 @@ impl ProposedPlanItemState {
             session_id: sess.conversation_id.to_string(),
             turn_id: turn_context.sub_id.clone(),
             item_id: self.item_id.clone(),
-            delta: delta.to_string(),
+            delta: delta.to_owned(),
         };
         sess.send_event(turn_context, EventMsg::PlanDelta(event))
             .await;
@@ -648,7 +647,7 @@ async fn maybe_emit_pending_agent_message_start(
         sess.emit_turn_item_started(turn_context, &item).await;
         state
             .started_agent_message_items
-            .insert(item_id.to_string());
+            .insert(item_id.to_owned());
     }
 }
 
@@ -682,7 +681,7 @@ async fn handle_plan_segments(
                 if !has_non_whitespace && !state.started_agent_message_items.contains(item_id) {
                     let entry = state
                         .leading_whitespace_by_item
-                        .entry(item_id.to_string())
+                        .entry(item_id.to_owned())
                         .or_default();
                     entry.push_str(&delta);
                     continue;
@@ -701,7 +700,7 @@ async fn handle_plan_segments(
                 let event = AgentMessageContentDeltaEvent {
                     session_id: sess.conversation_id.to_string(),
                     turn_id: turn_context.sub_id.clone(),
-                    item_id: item_id.to_string(),
+                    item_id: item_id.to_owned(),
                     delta,
                 };
                 sess.send_event(turn_context, EventMsg::AgentMessageContentDelta(event))
@@ -837,16 +836,13 @@ async fn emit_turn_item_in_plan_mode(
     previously_active_item: Option<&TurnItem>,
     state: &mut PlanModeStreamState,
 ) {
-    match turn_item {
-        TurnItem::AgentMessage(agent_message) => {
-            emit_agent_message_in_plan_mode(sess, turn_context, agent_message, state).await;
+    if let TurnItem::AgentMessage(agent_message) = turn_item {
+        emit_agent_message_in_plan_mode(sess, turn_context, agent_message, state).await;
+    } else {
+        if previously_active_item.is_none() {
+            sess.emit_turn_item_started(turn_context, &turn_item).await;
         }
-        _ => {
-            if previously_active_item.is_none() {
-                sess.emit_turn_item_started(turn_context, &turn_item).await;
-            }
-            sess.emit_turn_item_completed(turn_context, turn_item).await;
-        }
+        sess.emit_turn_item_completed(turn_context, turn_item).await;
     }
 }
 
@@ -1123,7 +1119,7 @@ async fn try_run_sampling_request(
                             .await;
                     }
                 } else {
-                    error_or_panic("OutputTextDelta without active item".to_string());
+                    error_or_panic("OutputTextDelta without active item".to_owned());
                 }
             }
             ResponseEvent::ReasoningSummaryDelta {
@@ -1141,7 +1137,7 @@ async fn try_run_sampling_request(
                     sess.send_event(&turn_context, EventMsg::ReasoningContentDelta(event))
                         .await;
                 } else {
-                    error_or_panic("ReasoningSummaryDelta without active item".to_string());
+                    error_or_panic("ReasoningSummaryDelta without active item".to_owned());
                 }
             }
             ResponseEvent::ReasoningSummaryPartAdded { summary_index } => {
@@ -1153,7 +1149,7 @@ async fn try_run_sampling_request(
                         });
                     sess.send_event(&turn_context, event).await;
                 } else {
-                    error_or_panic("ReasoningSummaryPartAdded without active item".to_string());
+                    error_or_panic("ReasoningSummaryPartAdded without active item".to_owned());
                 }
             }
             ResponseEvent::ReasoningContentDelta {
@@ -1171,7 +1167,7 @@ async fn try_run_sampling_request(
                     sess.send_event(&turn_context, EventMsg::ReasoningRawContentDelta(event))
                         .await;
                 } else {
-                    error_or_panic("ReasoningRawContentDelta without active item".to_string());
+                    error_or_panic("ReasoningRawContentDelta without active item".to_owned());
                 }
             }
         }

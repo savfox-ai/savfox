@@ -43,7 +43,7 @@ async fn handle_admin_request(
     const MODE_BODY_LIMIT: usize = 8 * 1024;
 
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
+    let path = req.uri().path().to_owned();
     let response = match (method.as_str(), path.as_str()) {
         ("GET", "/health") => Response::new(Body::from("ok")),
         ("GET", "/config") => match state.current_cfg().await {

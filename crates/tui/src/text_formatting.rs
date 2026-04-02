@@ -105,16 +105,16 @@ pub(crate) fn truncate_text(text: &str, max_graphemes: usize) -> String {
                 let truncated = &text[..truncate_byte_index];
                 format!("{truncated}...")
             } else {
-                text.to_string()
+                text.to_owned()
             }
         } else {
             // max_graphemes < 3, so just return first max_graphemes without "..."
             let truncated = &text[..byte_index];
-            truncated.to_string()
+            truncated.to_owned()
         }
     } else {
         // There are max_graphemes or fewer graphemes, return original text
-        text.to_string()
+        text.to_owned()
     }
 }
 
@@ -126,7 +126,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
         return String::new();
     }
     if UnicodeWidthStr::width(path) <= max_width {
-        return path.to_string();
+        return path.to_owned();
     }
 
     let sep = std::path::MAIN_SEPARATOR;
@@ -150,7 +150,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
                 return root;
             }
         }
-        return "…".to_string();
+        return "…".to_owned();
     }
 
     struct Segment<'a> {
@@ -179,10 +179,10 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
             return String::new();
         }
         if UnicodeWidthStr::width(original) <= allowed_width {
-            return original.to_string();
+            return original.to_owned();
         }
         if allowed_width == 1 {
-            return "…".to_string();
+            return "…".to_owned();
         }
 
         let mut kept: Vec<char> = Vec::new();
@@ -293,7 +293,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
             .iter()
             .map(|seg| Segment {
                 original: seg,
-                text: (*seg).to_string(),
+                text: (*seg).to_owned(),
                 truncatable: true,
                 is_suffix: false,
             })
@@ -303,7 +303,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
         if need_ellipsis {
             segments.push(Segment {
                 original: "…",
-                text: "…".to_string(),
+                text: "…".to_owned(),
                 truncatable: false,
                 is_suffix: false,
             });
@@ -315,7 +315,7 @@ pub(crate) fn center_truncate_path(path: &str, max_width: usize) -> String {
                     .iter()
                     .map(|seg| Segment {
                         original: seg,
-                        text: (*seg).to_string(),
+                        text: (*seg).to_owned(),
                         truncatable: true,
                         is_suffix: true,
                     }),

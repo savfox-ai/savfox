@@ -100,7 +100,7 @@ pub async fn run(cmd: CronCommand) -> Result<(), Box<dyn std::error::Error>> {
                 }),
                 _ => json!({
                     "type": "systemEvent",
-                    "event": message.unwrap_or_else(|| "cron.fire".to_string()),
+                    "event": message.unwrap_or_else(|| "cron.fire".to_owned()),
                 }),
             };
 

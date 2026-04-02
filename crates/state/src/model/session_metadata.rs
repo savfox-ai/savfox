@@ -116,6 +116,7 @@ pub struct SessionMetadataBuilder {
 
 impl SessionMetadataBuilder {
     /// Create a new builder with required fields and sensible defaults.
+    #[must_use] 
     pub fn new(
         id: SessionId,
         rollout_path: PathBuf,
@@ -158,7 +159,7 @@ impl SessionMetadataBuilder {
             model_provider: self
                 .model_provider
                 .clone()
-                .unwrap_or_else(|| default_provider.to_string()),
+                .unwrap_or_else(|| default_provider.to_owned()),
             cwd: self.cwd.clone(),
             title: String::new(),
             sandbox_policy,
@@ -175,6 +176,7 @@ impl SessionMetadataBuilder {
 
 impl SessionMetadata {
     /// Return the list of field names that differ between `self` and `other`.
+    #[must_use] 
     pub fn diff_fields(&self, other: &Self) -> Vec<&'static str> {
         let mut diffs = Vec::new();
         if self.id != other.id {

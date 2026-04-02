@@ -79,6 +79,7 @@ enum RolloutCmd {
 }
 
 impl RolloutRecorderParams {
+    #[must_use] 
     pub fn new(
         conversation_id: SessionId,
         forked_from_id: Option<SessionId>,
@@ -95,6 +96,7 @@ impl RolloutRecorderParams {
         }
     }
 
+    #[must_use] 
     pub fn resume(path: PathBuf) -> Self {
         Self::Resume { path }
     }
@@ -280,7 +282,7 @@ impl RolloutRecorder {
                         timestamp,
                         cwd: config.cwd.clone(),
                         originator: originator().value,
-                        cli_version: env!("CARGO_PKG_VERSION").to_string(),
+                        cli_version: env!("CARGO_PKG_VERSION").to_owned(),
                         source,
                         model: Some(SessionModel {
                             provider: config.model_provider_id.clone(),
@@ -335,10 +337,12 @@ impl RolloutRecorder {
         })
     }
 
+    #[must_use] 
     pub fn rollout_path(&self) -> &Path {
         self.rollout_path.as_path()
     }
 
+    #[must_use] 
     pub fn state_db(&self) -> Option<StateDbHandle> {
         self.state_db.clone()
     }

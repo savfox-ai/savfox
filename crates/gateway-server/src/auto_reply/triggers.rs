@@ -133,16 +133,16 @@ impl Trigger {
     /// Check if this trigger matches the given message context.
     pub(crate) fn matches(&self, ctx: &MessageContext<'_>) -> bool {
         match self {
-            Trigger::Mention => ctx.is_mention,
-            Trigger::Keywords { keywords } => {
+            Self::Mention => ctx.is_mention,
+            Self::Keywords { keywords } => {
                 let lower = ctx.text.to_lowercase();
                 keywords.iter().any(|k| lower.contains(&k.to_lowercase()))
             }
-            Trigger::Regex { pattern } => Regex::new(pattern)
+            Self::Regex { pattern } => Regex::new(pattern)
                 .map(|re| re.is_match(ctx.text))
                 .unwrap_or(false),
-            Trigger::Always => true,
-            Trigger::Prefix { prefix } => ctx.text.starts_with(prefix),
+            Self::Always => true,
+            Self::Prefix { prefix } => ctx.text.starts_with(prefix),
         }
     }
 }

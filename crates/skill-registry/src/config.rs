@@ -11,7 +11,7 @@ pub struct RegistryConfig {
 impl Default for RegistryConfig {
     fn default() -> Self {
         Self {
-            git: DEFAULT_REGISTRY_GIT.to_string(),
+            git: DEFAULT_REGISTRY_GIT.to_owned(),
         }
     }
 }

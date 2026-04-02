@@ -215,11 +215,11 @@ fn join_arguments_as_script(args: &[String]) -> String {
 
 fn quote_argument(arg: &str) -> String {
     if arg.is_empty() {
-        return "''".to_string();
+        return "''".to_owned();
     }
 
     if arg.chars().all(|ch| !ch.is_whitespace()) {
-        return arg.to_string();
+        return arg.to_owned();
     }
 
     format!("'{}'", arg.replace('\'', "''"))

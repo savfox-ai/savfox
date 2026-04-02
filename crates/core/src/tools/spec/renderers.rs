@@ -27,7 +27,7 @@ pub(crate) fn create_tools_json_for_chat_completions_api(
     let tools_json = responses_api_tools_json
         .into_iter()
         .filter_map(|mut tool| {
-            if tool.get("type") != Some(&Value::String("function".to_string())) {
+            if tool.get("type") != Some(&Value::String("function".to_owned())) {
                 return None;
             }
 
@@ -35,8 +35,7 @@ pub(crate) fn create_tools_json_for_chat_completions_api(
                 let name = map
                     .get("name")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+                    .unwrap_or_default().to_owned();
                 map.remove("type");
                 Some(json!({
                     "type": "function",
@@ -60,7 +59,7 @@ pub(crate) fn create_tools_json_for_anthropic_api(
     let tools_json = responses_api_tools_json
         .into_iter()
         .filter_map(|tool| {
-            if tool.get("type") != Some(&Value::String("function".to_string())) {
+            if tool.get("type") != Some(&Value::String("function".to_owned())) {
                 return None;
             }
 

@@ -38,16 +38,16 @@ impl TemplateContext {
     /// Create a context from message metadata.
     pub(crate) fn from_message(user_id: &str, channel: &str, message: &str) -> Self {
         let mut vars = HashMap::new();
-        vars.insert("user".to_string(), user_id.to_string());
-        vars.insert("channel".to_string(), channel.to_string());
-        vars.insert("message".to_string(), message.to_string());
-        vars.insert("timestamp".to_string(), chrono::Utc::now().to_rfc3339());
+        vars.insert("user".to_owned(), user_id.to_owned());
+        vars.insert("channel".to_owned(), channel.to_owned());
+        vars.insert("message".to_owned(), message.to_owned());
+        vars.insert("timestamp".to_owned(), chrono::Utc::now().to_rfc3339());
         vars.insert(
-            "date".to_string(),
+            "date".to_owned(),
             chrono::Utc::now().format("%Y-%m-%d").to_string(),
         );
         vars.insert(
-            "time".to_string(),
+            "time".to_owned(),
             chrono::Utc::now().format("%H:%M:%S").to_string(),
         );
         Self {
@@ -125,7 +125,7 @@ impl TemplateEngine {
                 if let Some(stripped) = tag.strip_prefix("#if ") {
                     // Conditional block
                     let var_name = stripped.trim();
-                    let end_tag = format!("{{{{/if}}}}");
+                    let end_tag = "{{/if}}".to_owned();
                     let block_content = extract_until(&mut chars, &end_tag);
                     let has_value = ctx.get(var_name).is_some_and(|v| !v.is_empty());
                     if has_value {
@@ -134,7 +134,7 @@ impl TemplateEngine {
                 } else if let Some(stripped) = tag.strip_prefix("#each ") {
                     // Loop block
                     let list_name = stripped.trim();
-                    let end_tag = format!("{{{{/each}}}}");
+                    let end_tag = "{{/each}}".to_owned();
                     let block_content = extract_until(&mut chars, &end_tag);
                     if let Some(items) = ctx.lists.get(list_name) {
                         for (i, item) in items.iter().enumerate() {
@@ -205,7 +205,7 @@ impl PrefixInjection {
     pub(crate) fn new(prefix: impl Into<String>) -> Self {
         Self {
             prefix: prefix.into(),
-            separator: "\n\n".to_string(),
+            separator: "\n\n".to_owned(),
         }
     }
 

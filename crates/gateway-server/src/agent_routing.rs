@@ -43,14 +43,14 @@ pub struct AgentRouter {
 }
 
 fn default_agent() -> String {
-    "default".to_string()
+    "default".to_owned()
 }
 
 impl Default for AgentRouter {
     fn default() -> Self {
         Self {
             rules: Vec::new(),
-            default_agent: "default".to_string(),
+            default_agent: "default".to_owned(),
         }
     }
 }

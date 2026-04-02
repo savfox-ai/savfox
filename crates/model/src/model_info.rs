@@ -55,17 +55,18 @@ macro_rules! model_info {
     }};
 }
 
+#[must_use] 
 pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
     if slug.starts_with("exp-savfox") || slug.starts_with("savfox-1p") {
         model_info!(
             slug,
-            base_instructions: COMPACT_INSTRUCTIONS.to_string(),
+            base_instructions: COMPACT_INSTRUCTIONS.to_owned(),
             model_messages: Some(ModelMessages {
-                instructions_template: Some(COMPACT_INSTRUCTIONS_TEMPLATE.to_string()),
+                instructions_template: Some(COMPACT_INSTRUCTIONS_TEMPLATE.to_owned()),
                 instructions_variables: Some(ModelInstructionsVariables {
-                    personality_default: Some("".to_string()),
-                    personality_friendly: Some(PERSONALITY_FRIENDLY.to_string()),
-                    personality_pragmatic: Some(PERSONALITY_PRAGMATIC.to_string()),
+                    personality_default: Some("".to_owned()),
+                    personality_friendly: Some(PERSONALITY_FRIENDLY.to_owned()),
+                    personality_pragmatic: Some(PERSONALITY_PRAGMATIC.to_owned()),
                 }),
             }),
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),

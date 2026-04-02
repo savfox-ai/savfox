@@ -140,7 +140,7 @@ impl ToolHandler for WebSearchHandler {
             })
             .unwrap_or_default();
 
-        let output = serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string());
+        let output = serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_owned());
 
         Ok(ToolOutput::ok(output))
     }

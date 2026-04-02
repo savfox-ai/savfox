@@ -150,7 +150,7 @@ fn canonicalize_json(value: &Value) -> Value {
 
 fn schema_array_item_sort_key(item: &Value) -> Option<String> {
     match item {
-        Value::Null => Some("null".to_string()),
+        Value::Null => Some("null".to_owned()),
         Value::Bool(b) => Some(format!("b:{b}")),
         Value::Number(n) => Some(format!("n:{n}")),
         Value::String(s) => Some(format!("s:{s}")),

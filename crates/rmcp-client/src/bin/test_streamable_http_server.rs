@@ -66,11 +66,11 @@ impl TestToolServer {
 
     fn memo_resource() -> Resource {
         let raw = RawResource {
-            uri: MEMO_URI.to_string(),
-            name: "example-note".to_string(),
-            title: Some("Example Note".to_string()),
-            description: Some("A sample MCP resource exposed for integration tests.".to_string()),
-            mime_type: Some("text/plain".to_string()),
+            uri: MEMO_URI.to_owned(),
+            name: "example-note".to_owned(),
+            title: Some("Example Note".to_owned()),
+            description: Some("A sample MCP resource exposed for integration tests.".to_owned()),
+            mime_type: Some("text/plain".to_owned()),
             size: None,
             icons: None,
             meta: None,
@@ -80,13 +80,13 @@ impl TestToolServer {
 
     fn memo_template() -> ResourceTemplate {
         let raw = RawResourceTemplate {
-            uri_template: "memo://savfox/{slug}".to_string(),
-            name: "savfox-memo".to_string(),
-            title: Some("Savfox Memo".to_string()),
+            uri_template: "memo://savfox/{slug}".to_owned(),
+            name: "savfox-memo".to_owned(),
+            title: Some("Savfox Memo".to_owned()),
             description: Some(
-                "Template for memo://savfox/{slug} resources used in tests.".to_string(),
+                "Template for memo://savfox/{slug} resources used in tests.".to_owned(),
             ),
-            mime_type: Some("text/plain".to_string()),
+            mime_type: Some("text/plain".to_owned()),
             icons: None,
         };
         ResourceTemplate::new(raw, None)
@@ -214,7 +214,7 @@ fn parse_bind_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
     let default_addr = "127.0.0.1:3920";
     let bind_addr = std::env::var("MCP_STREAMABLE_HTTP_BIND_ADDR")
         .or_else(|_| std::env::var("BIND_ADDR"))
-        .unwrap_or_else(|_| default_addr.to_string());
+        .unwrap_or_else(|_| default_addr.to_owned());
     Ok(bind_addr.parse()?)
 }
 
@@ -224,7 +224,7 @@ async fn oauth_metadata(req: &mut Request, res: &mut Response) {
         .uri()
         .authority()
         .map(|a| a.to_string())
-        .unwrap_or_else(|| "127.0.0.1:3920".to_string());
+        .unwrap_or_else(|| "127.0.0.1:3920".to_owned());
     let metadata_base = format!("http://{bind_addr}");
     #[expect(clippy::expect_used)]
     let body = serde_json::to_vec(&json!({

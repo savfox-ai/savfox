@@ -110,7 +110,7 @@ impl MemoryStore {
                     .map(|term| {
                         let tf = text.matches(term.as_str()).count() as f64;
                         // Simplified BM25 without IDF (single-doc scoring)
-                        (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * doc_len / avg_len))
+                        (tf * (k1 + 1.0)) / k1.mul_add(1.0 - b + b * doc_len / avg_len, tf)
                     })
                     .sum();
 
@@ -151,29 +151,29 @@ impl ToolHandler for MemoryHandler {
                 let query = args.query.as_deref().unwrap_or("");
                 let store = MemoryStore::load();
                 let results = store.search(query, args.limit);
-                let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
+                let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_owned());
                 Ok(ToolOutput::ok(json))
             }
             "get" => {
                 let key = args.key.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(
-                        "'key' is required for get action".to_string(),
+                        "'key' is required for get action".to_owned(),
                     )
                 })?;
                 let store = MemoryStore::load();
                 let entry = store.entries.iter().find(|e| e.key == key);
-                let json = serde_json::to_string(&entry).unwrap_or_else(|_| "null".to_string());
+                let json = serde_json::to_string(&entry).unwrap_or_else(|_| "null".to_owned());
                 Ok(ToolOutput::ok(json))
             }
             "add" => {
                 let key = args.key.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(
-                        "'key' is required for add action".to_string(),
+                        "'key' is required for add action".to_owned(),
                     )
                 })?;
                 let content = args.content.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(
-                        "'content' is required for add action".to_string(),
+                        "'content' is required for add action".to_owned(),
                     )
                 })?;
                 let now = chrono::Utc::now().to_rfc3339();
@@ -181,13 +181,13 @@ impl ToolHandler for MemoryHandler {
 
                 // Update if the key already exists, otherwise insert a new entry.
                 if let Some(existing) = store.entries.iter_mut().find(|e| e.key == key) {
-                    existing.content = content.to_string();
+                    existing.content = content.to_owned();
                     existing.tags = args.tags.unwrap_or_default();
                     existing.updated_at = now;
                 } else {
                     store.entries.push(MemoryEntry {
-                        key: key.to_string(),
-                        content: content.to_string(),
+                        key: key.to_owned(),
+                        content: content.to_owned(),
                         tags: args.tags.unwrap_or_default(),
                         created_at: now.clone(),
                         updated_at: now,
@@ -203,7 +203,7 @@ impl ToolHandler for MemoryHandler {
             "delete" => {
                 let key = args.key.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(
-                        "'key' is required for delete action".to_string(),
+                        "'key' is required for delete action".to_owned(),
                     )
                 })?;
                 let mut store = MemoryStore::load();
@@ -221,7 +221,7 @@ impl ToolHandler for MemoryHandler {
             "list" => {
                 let store = MemoryStore::load();
                 let entries: Vec<_> = store.entries.iter().take(args.limit).collect();
-                let json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+                let json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_owned());
                 Ok(ToolOutput::ok(json))
             }
             other => model_err(format!("unknown memory action: {other}")),

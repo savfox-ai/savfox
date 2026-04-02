@@ -17,6 +17,7 @@ fn parse_alt_screen_mode(value: &str) -> Result<AltScreenMode, String> {
 
 #[derive(Parser, Debug)]
 #[command(version)]
+#[derive(Default)]
 pub struct Cli {
     /// Optional user prompt to start the session.
     #[arg(value_name = "PROMPT", value_hint = clap::ValueHint::Other)]
@@ -123,33 +124,6 @@ pub struct Cli {
     pub alt_screen: Option<AltScreenMode>,
 }
 
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            prompt: None,
-            images: Vec::new(),
-            resume_picker: false,
-            resume_last: false,
-            resume_session_id: None,
-            resume_show_all: false,
-            fork_picker: false,
-            fork_last: false,
-            fork_session_id: None,
-            fork_show_all: false,
-            model: None,
-            oss: false,
-            oss_provider: None,
-            sandbox_mode: None,
-            approval_policy: None,
-            full_auto: false,
-            dangerously_bypass_approvals_and_sandbox: false,
-            cwd: None,
-            web_search: false,
-            add_dir: Vec::new(),
-            alt_screen: None,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

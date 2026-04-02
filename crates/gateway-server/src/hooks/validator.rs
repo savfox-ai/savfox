@@ -60,7 +60,7 @@ pub(crate) enum ValidationResult {
 impl ValidationResult {
     /// Returns `true` when validation passed.
     pub(crate) fn is_pass(&self) -> bool {
-        matches!(self, ValidationResult::Pass)
+        matches!(self, Self::Pass)
     }
 }
 
@@ -134,7 +134,7 @@ impl ValidationRule {
     /// violation.
     fn check(&self, message: &str) -> Option<String> {
         match self {
-            ValidationRule::MaxLength { max } => {
+            Self::MaxLength { max } => {
                 let len = message.chars().count();
                 if len > *max {
                     Some(format!("message too long: {len} characters (max {max})"))
@@ -143,7 +143,7 @@ impl ValidationRule {
                 }
             }
 
-            ValidationRule::MinLength { min } => {
+            Self::MinLength { min } => {
                 let len = message.chars().count();
                 if len < *min {
                     Some(format!("message too short: {len} characters (min {min})"))
@@ -152,7 +152,7 @@ impl ValidationRule {
                 }
             }
 
-            ValidationRule::RegexMatch { pattern } => match Regex::new(pattern) {
+            Self::RegexMatch { pattern } => match Regex::new(pattern) {
                 Ok(re) => {
                     if re.is_match(message) {
                         None
@@ -165,7 +165,7 @@ impl ValidationRule {
                 Err(err) => Some(format!("invalid regex pattern '{pattern}': {err}")),
             },
 
-            ValidationRule::RegexReject { pattern } => match Regex::new(pattern) {
+            Self::RegexReject { pattern } => match Regex::new(pattern) {
                 Ok(re) => {
                     if re.is_match(message) {
                         Some(format!("message matches rejected pattern: {pattern}"))
@@ -176,7 +176,7 @@ impl ValidationRule {
                 Err(err) => Some(format!("invalid regex pattern '{pattern}': {err}")),
             },
 
-            ValidationRule::ContainsRequired { required } => {
+            Self::ContainsRequired { required } => {
                 let missing: Vec<&String> = required
                     .iter()
                     .filter(|r| !message.contains(r.as_str()))
@@ -193,7 +193,7 @@ impl ValidationRule {
                 }
             }
 
-            ValidationRule::BlockKeywords { keywords } => {
+            Self::BlockKeywords { keywords } => {
                 let lower = message.to_lowercase();
                 let found: Vec<&String> = keywords
                     .iter()
@@ -211,7 +211,7 @@ impl ValidationRule {
                 }
             }
 
-            ValidationRule::JsonSchema { schema } => {
+            Self::JsonSchema { schema } => {
                 let value = match serde_json::from_str::<serde_json::Value>(message) {
                     Ok(v) => v,
                     Err(_) => return Some("message is not valid JSON".into()),
@@ -248,10 +248,7 @@ impl ValidationRule {
 /// - `minItems` / `maxItems`: array length constraints
 /// - `enum`: allowed value list
 fn validate_json_schema(value: &serde_json::Value, schema: &serde_json::Value) -> Option<String> {
-    let schema_obj = match schema.as_object() {
-        Some(o) => o,
-        None => return None, // non-object schemas are treated as pass-through
-    };
+    let schema_obj = schema.as_object()?;
 
     let mut errors: Vec<String> = Vec::new();
 
@@ -276,73 +273,64 @@ fn validate_json_schema(value: &serde_json::Value, schema: &serde_json::Value) -
     }
 
     // ── enum check ──────────────────────────────────────────────────
-    if let Some(allowed) = schema_obj.get("enum").and_then(|e| e.as_array()) {
-        if !allowed.contains(value) {
+    if let Some(allowed) = schema_obj.get("enum").and_then(|e| e.as_array())
+        && !allowed.contains(value) {
             errors.push(format!("value not in allowed enum: {value}"));
         }
-    }
 
     // ── string constraints ──────────────────────────────────────────
     if let Some(s) = value.as_str() {
-        if let Some(min) = schema_obj.get("minLength").and_then(|v| v.as_u64()) {
-            if (s.chars().count() as u64) < min {
+        if let Some(min) = schema_obj.get("minLength").and_then(|v| v.as_u64())
+            && (s.chars().count() as u64) < min {
                 errors.push(format!("string shorter than minLength {min}"));
             }
-        }
-        if let Some(max) = schema_obj.get("maxLength").and_then(|v| v.as_u64()) {
-            if (s.chars().count() as u64) > max {
+        if let Some(max) = schema_obj.get("maxLength").and_then(|v| v.as_u64())
+            && (s.chars().count() as u64) > max {
                 errors.push(format!("string longer than maxLength {max}"));
             }
-        }
     }
 
     // ── number constraints ──────────────────────────────────────────
     if let Some(n) = value.as_f64() {
-        if let Some(min) = schema_obj.get("minimum").and_then(|v| v.as_f64()) {
-            if n < min {
+        if let Some(min) = schema_obj.get("minimum").and_then(|v| v.as_f64())
+            && n < min {
                 errors.push(format!("value {n} is less than minimum {min}"));
             }
-        }
-        if let Some(max) = schema_obj.get("maximum").and_then(|v| v.as_f64()) {
-            if n > max {
+        if let Some(max) = schema_obj.get("maximum").and_then(|v| v.as_f64())
+            && n > max {
                 errors.push(format!("value {n} is greater than maximum {max}"));
             }
-        }
     }
 
     // ── array constraints ───────────────────────────────────────────
     if let Some(arr) = value.as_array() {
-        if let Some(min) = schema_obj.get("minItems").and_then(|v| v.as_u64()) {
-            if (arr.len() as u64) < min {
+        if let Some(min) = schema_obj.get("minItems").and_then(|v| v.as_u64())
+            && (arr.len() as u64) < min {
                 errors.push(format!("array has {} items, minimum is {min}", arr.len()));
             }
-        }
-        if let Some(max) = schema_obj.get("maxItems").and_then(|v| v.as_u64()) {
-            if (arr.len() as u64) > max {
+        if let Some(max) = schema_obj.get("maxItems").and_then(|v| v.as_u64())
+            && (arr.len() as u64) > max {
                 errors.push(format!("array has {} items, maximum is {max}", arr.len()));
             }
-        }
     }
 
     // ── object: required + properties ───────────────────────────────
     if let Some(obj) = value.as_object() {
         if let Some(required) = schema_obj.get("required").and_then(|r| r.as_array()) {
             for req in required {
-                if let Some(key) = req.as_str() {
-                    if !obj.contains_key(key) {
+                if let Some(key) = req.as_str()
+                    && !obj.contains_key(key) {
                         errors.push(format!("missing required property '{key}'"));
                     }
-                }
             }
         }
 
         if let Some(props) = schema_obj.get("properties").and_then(|p| p.as_object()) {
             for (key, prop_schema) in props {
-                if let Some(prop_value) = obj.get(key) {
-                    if let Some(err) = validate_json_schema(prop_value, prop_schema) {
+                if let Some(prop_value) = obj.get(key)
+                    && let Some(err) = validate_json_schema(prop_value, prop_schema) {
                         errors.push(format!("property '{key}': {err}"));
                     }
-                }
             }
         }
     }

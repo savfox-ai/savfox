@@ -13,7 +13,9 @@ use tracing::info;
 use crate::home_paths::talk_mode_config_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TalkModeState {
+    #[default]
     Inactive,
     Listening,
     Processing,
@@ -21,11 +23,6 @@ pub enum TalkModeState {
     Paused,
 }
 
-impl Default for TalkModeState {
-    fn default() -> Self {
-        Self::Inactive
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TalkModeConfig {
@@ -44,7 +41,7 @@ pub struct TalkModeConfig {
 }
 
 fn default_voice() -> String {
-    "alloy".to_string()
+    "alloy".to_owned()
 }
 
 fn default_silence_threshold_ms() -> u64 {
@@ -103,7 +100,7 @@ pub async fn enable(
     let mut config = load_config(savfox_home).await?;
     config.enabled = true;
     if let Some(v) = voice {
-        config.default_voice = v.to_string();
+        config.default_voice = v.to_owned();
     }
     if let Some(t) = silence_threshold_ms {
         config.silence_threshold_ms = t;

@@ -28,7 +28,7 @@ pub(crate) fn validate_uuid_v7_session_id(raw: Option<&str>) -> Result<Option<St
 }
 
 pub(crate) fn provider_from_model(model: &str) -> String {
-    model.split('/').next().unwrap_or("unknown").to_string()
+    model.split('/').next().unwrap_or("unknown").to_owned()
 }
 
 pub(crate) async fn persist_chat_session_metadata(
@@ -48,9 +48,9 @@ pub(crate) async fn persist_chat_session_metadata(
     let output_tokens = token_usage
         .map(|usage| usage.output_tokens.max(0) as u64)
         .unwrap_or(0);
-    let model = model.to_string();
-    let provider = provider.to_string();
-    let thread_id = thread_id.to_string();
+    let model = model.to_owned();
+    let provider = provider.to_owned();
+    let thread_id = thread_id.to_owned();
 
     let updated = session_store
         .update(logical_session_id, {
@@ -99,17 +99,17 @@ pub(crate) async fn resolve_abort_candidate_ids(
 ) -> Vec<String> {
     let mut candidates: Vec<String> = Vec::new();
     if let Some(thread_id) = thread_id.map(str::trim).filter(|value| !value.is_empty()) {
-        candidates.push(thread_id.to_string());
+        candidates.push(thread_id.to_owned());
     }
 
     if let Some(session_id) = session_id.map(str::trim).filter(|value| !value.is_empty()) {
-        candidates.push(session_id.to_string());
+        candidates.push(session_id.to_owned());
         if let Some(entry) = session_store.get(session_id).await
             && let Some(mapped_thread_id) = entry.thread_id
         {
             let mapped_thread_id = mapped_thread_id.trim();
             if !mapped_thread_id.is_empty() {
-                candidates.push(mapped_thread_id.to_string());
+                candidates.push(mapped_thread_id.to_owned());
             }
         }
     }

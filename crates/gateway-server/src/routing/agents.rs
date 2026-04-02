@@ -36,7 +36,7 @@ impl Default for AgentConfig {
             .unwrap_or(0);
         Self {
             id: uuid::Uuid::now_v7().to_string(),
-            name: "New Agent".to_string(),
+            name: "New Agent".to_owned(),
             description: None,
             model: None,
             system_prompt: None,
@@ -68,14 +68,11 @@ pub async fn agents_get_handler(req: &mut Request, res: &mut Response) {
     }
 
     let store = agents_store().lock().await;
-    match store.get(&agent_id) {
-        Some(agent) => res.render(Text::Json(json!({ "agent": agent }).to_string())),
-        None => {
-            res.status_code(StatusCode::NOT_FOUND);
-            res.render(Text::Json(
-                json!({ "error": "agent not found" }).to_string(),
-            ));
-        }
+    if let Some(agent) = store.get(&agent_id) { res.render(Text::Json(json!({ "agent": agent }).to_string())) } else {
+        res.status_code(StatusCode::NOT_FOUND);
+        res.render(Text::Json(
+            json!({ "error": "agent not found" }).to_string(),
+        ));
     }
 }
 
@@ -102,20 +99,19 @@ pub async fn agents_create_handler(req: &mut Request, res: &mut Response) {
         name: body
             .get("name")
             .and_then(|v| v.as_str())
-            .unwrap_or("New Agent")
-            .to_string(),
+            .unwrap_or("New Agent").to_owned(),
         description: body
             .get("description")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
+            .map(|s| s.to_owned()),
         model: body
             .get("model")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
+            .map(|s| s.to_owned()),
         system_prompt: body
             .get("system_prompt")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
+            .map(|s| s.to_owned()),
         enabled: body
             .get("enabled")
             .and_then(|v| v.as_bool())
@@ -156,38 +152,35 @@ pub async fn agents_update_handler(req: &mut Request, res: &mut Response) {
     };
 
     let mut store = agents_store().lock().await;
-    match store.get_mut(&agent_id) {
-        Some(agent) => {
-            if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
-                agent.name = name.to_string();
-            }
-            if let Some(desc) = body.get("description").and_then(|v| v.as_str()) {
-                agent.description = Some(desc.to_string());
-            }
-            if let Some(model) = body.get("model").and_then(|v| v.as_str()) {
-                agent.model = Some(model.to_string());
-            }
-            if let Some(prompt) = body.get("system_prompt").and_then(|v| v.as_str()) {
-                agent.system_prompt = Some(prompt.to_string());
-            }
-            if let Some(enabled) = body.get("enabled").and_then(|v| v.as_bool()) {
-                agent.enabled = enabled;
-            }
-            agent.updated_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
+    if let Some(agent) = store.get_mut(&agent_id) {
+        if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
+            agent.name = name.to_owned();
+        }
+        if let Some(desc) = body.get("description").and_then(|v| v.as_str()) {
+            agent.description = Some(desc.to_owned());
+        }
+        if let Some(model) = body.get("model").and_then(|v| v.as_str()) {
+            agent.model = Some(model.to_owned());
+        }
+        if let Some(prompt) = body.get("system_prompt").and_then(|v| v.as_str()) {
+            agent.system_prompt = Some(prompt.to_owned());
+        }
+        if let Some(enabled) = body.get("enabled").and_then(|v| v.as_bool()) {
+            agent.enabled = enabled;
+        }
+        agent.updated_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
 
-            res.render(Text::Json(
-                json!({ "agent": agent, "status": "updated" }).to_string(),
-            ));
-        }
-        None => {
-            res.status_code(StatusCode::NOT_FOUND);
-            res.render(Text::Json(
-                json!({ "error": "agent not found" }).to_string(),
-            ));
-        }
+        res.render(Text::Json(
+            json!({ "agent": agent, "status": "updated" }).to_string(),
+        ));
+    } else {
+        res.status_code(StatusCode::NOT_FOUND);
+        res.render(Text::Json(
+            json!({ "error": "agent not found" }).to_string(),
+        ));
     }
 }
 
@@ -203,15 +196,12 @@ pub async fn agents_delete_handler(req: &mut Request, res: &mut Response) {
     }
 
     let mut store = agents_store().lock().await;
-    match store.remove(&agent_id) {
-        Some(agent) => res.render(Text::Json(
-            json!({ "agent": agent, "status": "deleted" }).to_string(),
-        )),
-        None => {
-            res.status_code(StatusCode::NOT_FOUND);
-            res.render(Text::Json(
-                json!({ "error": "agent not found" }).to_string(),
-            ));
-        }
+    if let Some(agent) = store.remove(&agent_id) { res.render(Text::Json(
+        json!({ "agent": agent, "status": "deleted" }).to_string(),
+    )) } else {
+        res.status_code(StatusCode::NOT_FOUND);
+        res.render(Text::Json(
+            json!({ "error": "agent not found" }).to_string(),
+        ));
     }
 }

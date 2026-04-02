@@ -22,12 +22,12 @@ impl EnvironmentContext {
     /// Compares two environment contexts, ignoring the shell. Useful when
     /// comparing turn to turn, since the initial environment_context will
     /// include the shell, and then it is not configurable from turn to turn.
-    pub fn equals_except_shell(&self, other: &EnvironmentContext) -> bool {
-        let EnvironmentContext {
+    pub fn equals_except_shell(&self, other: &Self) -> bool {
+        let Self {
             cwd,
             // should compare all fields except shell
             shell: _,
-            ..
+            
         } = other;
 
         self.cwd == *cwd
@@ -39,7 +39,7 @@ impl EnvironmentContext {
         } else {
             None
         };
-        EnvironmentContext::new(cwd, shell.clone())
+        Self::new(cwd, shell.clone())
     }
 
     pub fn from_turn_context(turn_context: &TurnContext, shell: &Shell) -> Self {
@@ -59,23 +59,23 @@ impl EnvironmentContext {
     /// </environment_context>
     /// ```
     pub fn serialize_to_xml(self) -> String {
-        let mut lines = vec![ENVIRONMENT_CONTEXT_OPEN_TAG.to_string()];
+        let mut lines = vec![ENVIRONMENT_CONTEXT_OPEN_TAG.to_owned()];
         if let Some(cwd) = self.cwd {
             lines.push(format!("  <cwd>{}</cwd>", cwd.to_string_lossy()));
         }
 
         let shell_name = self.shell.name();
         lines.push(format!("  <shell>{shell_name}</shell>"));
-        lines.push(ENVIRONMENT_CONTEXT_CLOSE_TAG.to_string());
+        lines.push(ENVIRONMENT_CONTEXT_CLOSE_TAG.to_owned());
         lines.join("\n")
     }
 }
 
 impl From<EnvironmentContext> for ResponseItem {
     fn from(ec: EnvironmentContext) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: ec.serialize_to_xml(),
             }],

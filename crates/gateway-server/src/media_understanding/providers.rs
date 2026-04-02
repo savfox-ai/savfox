@@ -38,7 +38,7 @@ pub trait MediaProvider: Send + Sync {
         _model: Option<&str>,
         _prompt: Option<&str>,
     ) -> MediaResult<ImageDescriptionResult> {
-        Err("Image description not supported".to_string())
+        Err("Image description not supported".to_owned())
     }
 
     async fn transcribe_audio(
@@ -48,7 +48,7 @@ pub trait MediaProvider: Send + Sync {
         _model: Option<&str>,
         _language: Option<&str>,
     ) -> MediaResult<AudioTranscriptionResult> {
-        Err("Audio transcription not supported".to_string())
+        Err("Audio transcription not supported".to_owned())
     }
 
     async fn describe_video(
@@ -58,7 +58,7 @@ pub trait MediaProvider: Send + Sync {
         _model: Option<&str>,
         _prompt: Option<&str>,
     ) -> MediaResult<VideoDescriptionResult> {
-        Err("Video description not supported".to_string())
+        Err("Video description not supported".to_owned())
     }
 }
 
@@ -69,14 +69,16 @@ pub struct OpenAIMediaProvider {
 }
 
 impl OpenAIMediaProvider {
+    #[must_use] 
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
             api_key,
-            base_url: "https://api.openai.com/v1".to_string(),
+            base_url: "https://api.openai.com/v1".to_owned(),
         }
     }
 
+    #[must_use] 
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
@@ -104,7 +106,7 @@ impl MediaProvider for OpenAIMediaProvider {
         let prompt = prompt.unwrap_or("Describe the image.");
 
         let base64_data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
-        let image_url = format!("data:image/jpeg;base64,{}", base64_data);
+        let image_url = format!("data:image/jpeg;base64,{base64_data}");
 
         let body = json!({
             "model": model,
@@ -129,12 +131,11 @@ impl MediaProvider for OpenAIMediaProvider {
 
         let text = json["choices"][0]["message"]["content"]
             .as_str()
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
 
         Ok(ImageDescriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 
@@ -148,14 +149,14 @@ impl MediaProvider for OpenAIMediaProvider {
         let model = model.unwrap_or("whisper-1");
 
         let mut form = reqwest::multipart::Form::new()
-            .text("model", model.to_string())
+            .text("model", model.to_owned())
             .part(
                 "file",
                 reqwest::multipart::Part::bytes(data.to_vec()).file_name("audio.mp3"),
             );
 
         if let Some(lang) = language {
-            form = form.text("language", lang.to_string());
+            form = form.text("language", lang.to_owned());
         }
 
         let json = send_json_request(
@@ -166,11 +167,11 @@ impl MediaProvider for OpenAIMediaProvider {
         )
         .await?;
 
-        let text = json["text"].as_str().unwrap_or("").to_string();
+        let text = json["text"].as_str().unwrap_or("").to_owned();
 
         Ok(AudioTranscriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 }
@@ -181,6 +182,7 @@ pub struct AnthropicMediaProvider {
 }
 
 impl AnthropicMediaProvider {
+    #[must_use] 
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -247,12 +249,11 @@ impl MediaProvider for AnthropicMediaProvider {
 
         let text = json["content"][0]["text"]
             .as_str()
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
 
         Ok(ImageDescriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 }
@@ -263,6 +264,7 @@ pub struct GoogleMediaProvider {
 }
 
 impl GoogleMediaProvider {
+    #[must_use] 
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -317,12 +319,11 @@ impl MediaProvider for GoogleMediaProvider {
 
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
 
         Ok(ImageDescriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 
@@ -362,12 +363,11 @@ impl MediaProvider for GoogleMediaProvider {
 
         let text = json["candidates"][0]["content"]["parts"][0]["text"]
             .as_str()
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
 
         Ok(VideoDescriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 }
@@ -378,6 +378,7 @@ pub struct DeepgramMediaProvider {
 }
 
 impl DeepgramMediaProvider {
+    #[must_use] 
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -405,8 +406,7 @@ impl MediaProvider for DeepgramMediaProvider {
     ) -> MediaResult<AudioTranscriptionResult> {
         let model = model.unwrap_or("nova-3");
         let mut url = format!(
-            "https://api.deepgram.com/v1/listen?model={}&smart_format=true",
-            model
+            "https://api.deepgram.com/v1/listen?model={model}&smart_format=true"
         );
         if let Some(lang) = language {
             url.push_str(&format!("&language={lang}"));
@@ -423,12 +423,11 @@ impl MediaProvider for DeepgramMediaProvider {
 
         let text = json["results"]["channels"][0]["alternatives"][0]["transcript"]
             .as_str()
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
 
         Ok(AudioTranscriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 }
@@ -439,6 +438,7 @@ pub struct GroqMediaProvider {
 }
 
 impl GroqMediaProvider {
+    #[must_use] 
     pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
@@ -467,14 +467,14 @@ impl MediaProvider for GroqMediaProvider {
         let model = model.unwrap_or("whisper-large-v3-turbo");
 
         let mut form = reqwest::multipart::Form::new()
-            .text("model", model.to_string())
+            .text("model", model.to_owned())
             .part(
                 "file",
                 reqwest::multipart::Part::bytes(data.to_vec()).file_name("audio.wav"),
             );
 
         if let Some(lang) = language {
-            form = form.text("language", lang.to_string());
+            form = form.text("language", lang.to_owned());
         }
 
         let json = send_json_request(
@@ -485,11 +485,11 @@ impl MediaProvider for GroqMediaProvider {
         )
         .await?;
 
-        let text = json["text"].as_str().unwrap_or("").to_string();
+        let text = json["text"].as_str().unwrap_or("").to_owned();
 
         Ok(AudioTranscriptionResult {
             text,
-            model: Some(model.to_string()),
+            model: Some(model.to_owned()),
         })
     }
 }
@@ -499,6 +499,7 @@ pub struct MediaProviders {
 }
 
 impl MediaProviders {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
@@ -506,13 +507,15 @@ impl MediaProviders {
     }
 
     pub fn register(&mut self, provider: Box<dyn MediaProvider>) {
-        self.providers.insert(provider.id().to_string(), provider);
+        self.providers.insert(provider.id().to_owned(), provider);
     }
 
+    #[must_use] 
     pub fn get(&self, id: &str) -> Option<&dyn MediaProvider> {
         self.providers.get(id).map(|p| p.as_ref())
     }
 
+    #[must_use] 
     pub fn get_for_capability(&self, capability: MediaCapability) -> Option<&dyn MediaProvider> {
         self.providers
             .values()
@@ -520,6 +523,7 @@ impl MediaProviders {
             .map(|p| p.as_ref())
     }
 
+    #[must_use] 
     pub fn list(&self) -> Vec<&dyn MediaProvider> {
         self.providers.values().map(|p| p.as_ref()).collect()
     }

@@ -45,7 +45,7 @@ pub async fn start_dingtalk_stream(
         .ok_or_else(|| anyhow::anyhow!("DingTalk stream mode requires client_secret"))?;
 
     let mut stream_client =
-        DingTalkStreamClient::new(client_id.to_string(), client_secret.to_string())
+        DingTalkStreamClient::new(client_id.to_owned(), client_secret.to_owned())
             .map_err(|err| anyhow::anyhow!("failed to build DingTalk stream client: {err}"))?;
     {
         let stream_config = stream_client.config_mut();
@@ -77,7 +77,7 @@ pub async fn start_dingtalk_stream(
         }
     });
 
-    let channel_id = channel_id.to_string();
+    let channel_id = channel_id.to_owned();
     tokio::spawn(async move {
         info!(channel_id = %channel_id, "DingTalk stream channel starting");
         if let Err(err) = stream_client.start().await {

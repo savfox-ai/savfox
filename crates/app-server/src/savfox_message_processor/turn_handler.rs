@@ -107,7 +107,7 @@ impl SavfoxMessageProcessor {
             vec![SessionItem::UserMessage {
                 id: turn_id.clone(),
                 content: vec![V2UserInput::Text {
-                    text: display_text.to_string(),
+                    text: display_text.to_owned(),
                     // Review prompt display text is synthesized; no UI element ranges to preserve.
                     text_elements: Vec::new(),
                 }],
@@ -208,7 +208,7 @@ impl SavfoxMessageProcessor {
             session_id,
             session: review_session,
             session_configured,
-            ..
+            
         } = self
             .session_manager
             .fork_session(usize::MAX, config, rollout_path)

@@ -83,7 +83,7 @@ fn resolve_upstream_if_remote_ahead(
             if trimmed.is_empty() {
                 return Ok(None);
             }
-            trimmed.to_string()
+            trimmed.to_owned()
         }
         Err(GitToolingError::GitCommand { .. }) => return Ok(None),
         Err(other) => return Err(other),

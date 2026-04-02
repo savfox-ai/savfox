@@ -190,27 +190,27 @@ impl SavfoxMessageProcessor {
         let cleaned_target = match target {
             ApiReviewTarget::UncommittedChanges => ApiReviewTarget::UncommittedChanges,
             ApiReviewTarget::BaseBranch { branch } => {
-                let branch = branch.trim().to_string();
+                let branch = branch.trim().to_owned();
                 if branch.is_empty() {
-                    return Err(invalid_request("branch must not be empty".to_string()));
+                    return Err(invalid_request("branch must not be empty".to_owned()));
                 }
                 ApiReviewTarget::BaseBranch { branch }
             }
             ApiReviewTarget::Commit { sha, title } => {
-                let sha = sha.trim().to_string();
+                let sha = sha.trim().to_owned();
                 if sha.is_empty() {
-                    return Err(invalid_request("sha must not be empty".to_string()));
+                    return Err(invalid_request("sha must not be empty".to_owned()));
                 }
                 let title = title
-                    .map(|t| t.trim().to_string())
+                    .map(|t| t.trim().to_owned())
                     .filter(|t| !t.is_empty());
                 ApiReviewTarget::Commit { sha, title }
             }
             ApiReviewTarget::Custom { instructions } => {
-                let trimmed = instructions.trim().to_string();
+                let trimmed = instructions.trim().to_owned();
                 if trimmed.is_empty() {
                     return Err(invalid_request(
-                        "instructions must not be empty".to_string(),
+                        "instructions must not be empty".to_owned(),
                     ));
                 }
                 ApiReviewTarget::Custom {
@@ -414,7 +414,7 @@ fn validate_dynamic_tools(
     for tool in tools {
         let name = tool.name.trim();
         if name.is_empty() {
-            return Err("dynamic tool name must not be empty".to_string());
+            return Err("dynamic tool name must not be empty".to_owned());
         }
         if name != tool.name {
             return Err(format!(
@@ -428,7 +428,7 @@ fn validate_dynamic_tools(
         if mcp_tool_names.contains(name) {
             return Err(format!("dynamic tool name conflicts with MCP tool: {name}"));
         }
-        if !seen.insert(name.to_string()) {
+        if !seen.insert(name.to_owned()) {
             return Err(format!("duplicate dynamic tool name: {name}"));
         }
 
@@ -554,7 +554,7 @@ pub(crate) async fn read_summary_from_rollout(
     let model_provider = session_meta
         .model_provider_id()
         .map(str::to_string)
-        .unwrap_or_else(|| fallback_provider.to_string());
+        .unwrap_or_else(|| fallback_provider.to_owned());
     let git_info = git.as_ref().map(map_git_info);
     let updated_at = updated_at.or_else(|| timestamp.clone());
 
@@ -620,7 +620,7 @@ fn extract_conversation_summary(
     let model_provider = session_meta
         .model_provider_id()
         .map(str::to_string)
-        .unwrap_or_else(|| fallback_provider.to_string());
+        .unwrap_or_else(|| fallback_provider.to_owned());
     let git_info = git.map(map_git_info);
     let updated_at = updated_at.or_else(|| timestamp.clone());
 
@@ -629,7 +629,7 @@ fn extract_conversation_summary(
         timestamp,
         updated_at,
         path,
-        preview: preview.to_string(),
+        preview: preview.to_owned(),
         model_provider,
         cwd: session_meta.cwd.clone(),
         cli_version: session_meta.cli_version.clone(),
@@ -679,7 +679,7 @@ fn build_ephemeral_session(
         updated_at: now,
         path: None,
         cwd: config_snapshot.cwd.clone(),
-        cli_version: env!("CARGO_PKG_VERSION").to_string(),
+        cli_version: env!("CARGO_PKG_VERSION").to_owned(),
         source: config_snapshot.session_source.clone().into(),
         git_info: None,
         turns: Vec::new(),

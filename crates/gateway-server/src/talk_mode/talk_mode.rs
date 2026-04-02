@@ -46,6 +46,7 @@ pub enum TalkModeEvent {
 }
 
 impl TalkModeService {
+    #[must_use] 
     pub fn new() -> Self {
         let config = TalkModeConfig::default();
         let turn_config = TurnDetectionConfig {
@@ -66,6 +67,7 @@ impl TalkModeService {
         }
     }
 
+    #[must_use] 
     pub fn with_config(config: TalkModeConfig) -> Self {
         let turn_config = TurnDetectionConfig {
             silence_threshold_ms: config.silence_threshold_ms,
@@ -86,6 +88,7 @@ impl TalkModeService {
     }
 
     /// Subscribe to talk mode events.
+    #[must_use] 
     pub fn subscribe(&self) -> broadcast::Receiver<TalkModeEvent> {
         self.event_tx.subscribe()
     }
@@ -97,7 +100,7 @@ impl TalkModeService {
             return Err(anyhow::anyhow!("Talk mode session already active"));
         }
 
-        *current = Some(session_id.to_string());
+        *current = Some(session_id.to_owned());
         self.conversation_manager
             .create_conversation(session_id)
             .await;
@@ -169,7 +172,7 @@ impl TalkModeService {
         // Emit event
         let _ = self.event_tx.send(TalkModeEvent::UserTranscribed {
             session_id: session_id.clone(),
-            text: text.to_string(),
+            text: text.to_owned(),
         });
 
         // Transition to processing
@@ -199,7 +202,7 @@ impl TalkModeService {
         // Emit event
         let _ = self.event_tx.send(TalkModeEvent::AssistantResponse {
             session_id: session_id.clone(),
-            text: text.to_string(),
+            text: text.to_owned(),
         });
 
         // Transition to speaking or listening based on config
@@ -228,14 +231,13 @@ impl TalkModeService {
         let mut detector = self.turn_detector.lock().await;
         let turn_ended = detector.process_level(level, timestamp_ms);
 
-        if turn_ended {
-            if let Some(session_id) = self.session_id().await {
+        if turn_ended
+            && let Some(session_id) = self.session_id().await {
                 let _ = self.event_tx.send(TalkModeEvent::TurnEnded {
                     session_id,
                     duration_ms: 0,
                 });
             }
-        }
     }
 
     /// Interrupt current turn.
@@ -265,7 +267,7 @@ impl TalkModeService {
         if *state != new_state {
             let from = format!("{:?}", *state);
             *state = new_state.clone();
-            let to = format!("{:?}", new_state);
+            let to = format!("{new_state:?}");
             debug!("Talk mode state changed: {} -> {}", from, to);
             let _ = self.event_tx.send(TalkModeEvent::StateChanged { from, to });
         }

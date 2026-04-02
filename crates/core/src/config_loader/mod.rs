@@ -2,6 +2,7 @@ mod cloud_requirements;
 mod config_requirements;
 mod diagnostics;
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 mod macos;
 mod requirements_exec_policy;
 mod state;
@@ -298,7 +299,7 @@ fn parse_config_file_content(config_file: &Path, contents: &str) -> io::Result<T
             })?;
             Ok(json_to_toml_value(&json_value))
         }
-        Some("yaml") | Some("yml") => {
+        Some("yaml" | "yml") => {
             let yaml_value: serde_yaml::Value = serde_yaml::from_str(contents).map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -475,7 +476,7 @@ pub(crate) fn project_root_markers_from_config(
                 "project_root_markers must be an array of strings",
             ));
         };
-        markers.push(marker.to_string());
+        markers.push(marker.to_owned());
     }
     Ok(Some(markers))
 }
@@ -700,18 +701,18 @@ fn resolve_env_expr(expr: &str) -> io::Result<String> {
                 if message.trim().is_empty() {
                     format!("required environment variable '{name}' is missing")
                 } else {
-                    message.trim().to_string()
+                    message.trim().to_owned()
                 },
             )),
         }
     } else if let Some((name, default)) = expr.split_once(":-") {
         let name = name.trim();
         if name.is_empty() {
-            return Ok(default.to_string());
+            return Ok(default.to_owned());
         }
         match std::env::var(name) {
             Ok(value) if !value.is_empty() => Ok(value),
-            _ => Ok(default.to_string()),
+            _ => Ok(default.to_owned()),
         }
     } else {
         let name = expr.trim();

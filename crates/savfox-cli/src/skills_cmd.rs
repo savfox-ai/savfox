@@ -45,7 +45,7 @@ pub fn run(cmd: SkillsCommand) -> Result<()> {
                         .get("category")
                         .and_then(|v| v.as_str())
                         .unwrap_or("-");
-                    println!("{:<28} {:<10} {}", name, installed, category);
+                    println!("{name:<28} {installed:<10} {category}");
                 }
                 println!("\nSkill enable/disable is managed per-agent in agent config files.");
             }
@@ -135,7 +135,7 @@ fn extract_skill_name(path: &Path) -> Option<String> {
         if let Some(value) = line.strip_prefix("name:") {
             let name = value.trim().trim_matches('"').trim_matches('\'').trim();
             if !name.is_empty() {
-                return Some(name.to_string());
+                return Some(name.to_owned());
             }
         }
     }

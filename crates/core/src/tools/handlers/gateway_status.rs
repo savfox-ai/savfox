@@ -46,7 +46,7 @@ impl ToolHandler for GatewayStatusHandler {
         };
         let args: GatewayStatusArgs = parse_arguments(&arguments)?;
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
         let timeout = if args.action == "restart" {
             RESTART_TIMEOUT
@@ -94,13 +94,13 @@ impl ToolHandler for GatewayStatusHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(delay_ms) = args.delay_ms {
                     body.insert(
-                        "delay_ms".to_string(),
+                        "delay_ms".to_owned(),
                         serde_json::Value::Number(delay_ms.into()),
                     );
                 }
                 if let Some(reason) = &args.reason {
                     body.insert(
-                        "reason".to_string(),
+                        "reason".to_owned(),
                         serde_json::Value::String(reason.clone()),
                     );
                 }

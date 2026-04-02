@@ -145,7 +145,7 @@ impl Session {
             .counter("savfox.model_warning", 1, &[]);
         let item = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: format!("Warning: {}", message.into()),
             }],

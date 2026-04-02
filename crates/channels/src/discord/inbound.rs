@@ -81,16 +81,17 @@ fn next_stream_generation() -> u64 {
 
 fn set_runtime_state(channel_id: &str, state: DiscordStreamRuntimeState) {
     if let Ok(mut store) = runtime_state_store().lock() {
-        store.insert(channel_id.to_string(), state);
+        store.insert(channel_id.to_owned(), state);
     }
 }
 
 fn update_runtime_state(channel_id: &str, apply: impl FnOnce(&mut DiscordStreamRuntimeState)) {
     if let Ok(mut store) = runtime_state_store().lock() {
-        apply(store.entry(channel_id.to_string()).or_default());
+        apply(store.entry(channel_id.to_owned()).or_default());
     }
 }
 
+#[must_use] 
 pub fn discord_stream_state_snapshot() -> HashMap<String, DiscordStreamRuntimeState> {
     runtime_state_store()
         .lock()
@@ -98,6 +99,7 @@ pub fn discord_stream_state_snapshot() -> HashMap<String, DiscordStreamRuntimeSt
         .unwrap_or_default()
 }
 
+#[must_use] 
 pub fn discord_stream_state_for(channel_id: &str) -> Option<DiscordStreamRuntimeState> {
     runtime_state_store()
         .lock()
@@ -249,7 +251,7 @@ pub async fn start_discord_stream(
     );
 
     let generation = next_stream_generation();
-    let tracked_channel_id = channel_id.to_string();
+    let tracked_channel_id = channel_id.to_owned();
     let cleanup_channel_id = tracked_channel_id.clone();
     let guild_id_filter = config.guild_id.clone();
     let (ready_tx, ready_rx) = oneshot::channel::<DiscordReadyState>();
@@ -264,7 +266,7 @@ pub async fn start_discord_stream(
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
-    let mut gateway_client = SerenityClient::builder(bot_token.to_string(), intents)
+    let mut gateway_client = SerenityClient::builder(bot_token, intents)
         .event_handler(handler)
         .await
         .map_err(|err| anyhow!("failed to build Discord gateway client: {err}"))?;
@@ -303,7 +305,7 @@ pub async fn start_discord_stream(
             update_runtime_state(channel_id, |state| {
                 state.connected = false;
                 state.last_error =
-                    Some("discord gateway exited before the Ready event".to_string());
+                    Some("discord gateway exited before the Ready event".to_owned());
             });
             return Err(anyhow!("discord gateway exited before the Ready event"));
         }
@@ -312,7 +314,7 @@ pub async fn start_discord_stream(
             update_runtime_state(channel_id, |state| {
                 state.connected = false;
                 state.last_error =
-                    Some("timed out waiting for the Discord gateway Ready event".to_string());
+                    Some("timed out waiting for the Discord gateway Ready event".to_owned());
             });
             return Err(anyhow!(
                 "timed out waiting for the Discord gateway Ready event"
@@ -328,14 +330,13 @@ pub async fn start_discord_stream(
         state.last_error = None;
     });
 
-    if let Ok(mut handles) = stream_handles().lock() {
-        if let Some(previous) = handles.insert(
-            channel_id.to_string(),
+    if let Ok(mut handles) = stream_handles().lock()
+        && let Some(previous) = handles.insert(
+            channel_id.to_owned(),
             DiscordStreamTaskEntry { generation, handle },
         ) {
             previous.handle.abort();
         }
-    }
 
     info!(channel_id = %channel_id, "Discord gateway stream started");
     Ok(())

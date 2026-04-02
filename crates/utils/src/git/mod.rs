@@ -40,6 +40,7 @@ pub struct GhostCommit {
 
 impl GhostCommit {
     /// Create a new ghost commit wrapper from a raw commit ID and optional parent.
+    #[must_use] 
     pub fn new(
         id: CommitID,
         parent: Option<CommitID>,
@@ -55,21 +56,25 @@ impl GhostCommit {
     }
 
     /// Commit ID for the snapshot.
+    #[must_use] 
     pub fn id(&self) -> &str {
         &self.id
     }
 
     /// Parent commit ID, if the repository had a `HEAD` at creation time.
+    #[must_use] 
     pub fn parent(&self) -> Option<&str> {
         self.parent.as_deref()
     }
 
     /// Untracked or ignored files that already existed when the snapshot was captured.
+    #[must_use] 
     pub fn preexisting_untracked_files(&self) -> &[PathBuf] {
         &self.preexisting_untracked_files
     }
 
     /// Untracked or ignored directories that already existed when the snapshot was captured.
+    #[must_use] 
     pub fn preexisting_untracked_dirs(&self) -> &[PathBuf] {
         &self.preexisting_untracked_dirs
     }

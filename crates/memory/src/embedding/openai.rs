@@ -11,6 +11,7 @@ pub struct OpenAIEmbeddingProvider {
 }
 
 impl OpenAIEmbeddingProvider {
+    #[must_use] 
     pub fn new(api_key: String, model: String) -> Self {
         Self {
             client: Client::new(),
@@ -69,7 +70,7 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
         let request = OpenAIRequest {
             model: self.model.clone(),
             input: texts.to_vec(),
-            encoding_format: "float".to_string(),
+            encoding_format: "float".to_owned(),
         };
 
         let response = self

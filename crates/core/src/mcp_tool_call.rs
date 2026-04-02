@@ -88,7 +88,7 @@ pub(crate) async fn handle_mcp_tool_call(
                 result
             }
             McpToolApprovalDecision::Decline => {
-                let message = "user rejected MCP tool call".to_string();
+                let message = "user rejected MCP tool call".to_owned();
                 notify_mcp_tool_call_skip(
                     sess.as_ref(),
                     turn_context,
@@ -99,7 +99,7 @@ pub(crate) async fn handle_mcp_tool_call(
                 .await
             }
             McpToolApprovalDecision::Cancel => {
-                let message = "user cancelled MCP tool call".to_string();
+                let message = "user cancelled MCP tool call".to_owned();
                 notify_mcp_tool_call_skip(
                     sess.as_ref(),
                     turn_context,
@@ -206,7 +206,7 @@ async fn maybe_request_mcp_tool_approval(
         questions: vec![question],
     };
     let response = sess
-        .request_user_input(turn_context, call_id.to_string(), args)
+        .request_user_input(turn_context, call_id.to_owned(), args)
         .await;
     Some(parse_mcp_tool_approval_response(response, &question_id))
 }
@@ -267,29 +267,29 @@ fn build_mcp_tool_approval_question(
     let tool_label = tool_title.unwrap_or(tool_name);
     let app_label = connector_name
         .map(|name| format!("The {name} app"))
-        .unwrap_or_else(|| "This app".to_string());
+        .unwrap_or_else(|| "This app".to_owned());
     let question = format!(
         "{app_label} wants to run the tool \"{tool_label}\", which {reason}. Allow this action?"
     );
 
     RequestUserInputQuestion {
         id: question_id,
-        header: "Approve app tool call?".to_string(),
+        header: "Approve app tool call?".to_owned(),
         question,
         is_other: false,
         is_secret: false,
         options: Some(vec![
             RequestUserInputQuestionOption {
-                label: MCP_TOOL_APPROVAL_ACCEPT.to_string(),
-                description: "Run the tool and continue.".to_string(),
+                label: MCP_TOOL_APPROVAL_ACCEPT.to_owned(),
+                description: "Run the tool and continue.".to_owned(),
             },
             RequestUserInputQuestionOption {
-                label: MCP_TOOL_APPROVAL_DECLINE.to_string(),
-                description: "Decline this tool call and continue.".to_string(),
+                label: MCP_TOOL_APPROVAL_DECLINE.to_owned(),
+                description: "Decline this tool call and continue.".to_owned(),
             },
             RequestUserInputQuestionOption {
-                label: MCP_TOOL_APPROVAL_CANCEL.to_string(),
-                description: "Cancel this tool call".to_string(),
+                label: MCP_TOOL_APPROVAL_CANCEL.to_owned(),
+                description: "Cancel this tool call".to_owned(),
             },
         ]),
     }
@@ -337,13 +337,13 @@ async fn notify_mcp_tool_call_skip(
     message: String,
 ) -> Result<CallToolResult, String> {
     let tool_call_begin_event = EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
-        call_id: call_id.to_string(),
+        call_id: call_id.to_owned(),
         invocation: invocation.clone(),
     });
     notify_mcp_tool_call_event(sess, turn_context, tool_call_begin_event).await;
 
     let tool_call_end_event = EventMsg::McpToolCallEnd(McpToolCallEndEvent {
-        call_id: call_id.to_string(),
+        call_id: call_id.to_owned(),
         invocation,
         duration: Duration::ZERO,
         result: Err(message.clone()),

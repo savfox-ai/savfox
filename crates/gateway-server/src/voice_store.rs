@@ -16,11 +16,11 @@ struct VoiceSettings {
 }
 
 fn default_talk_mode() -> String {
-    "text".to_string()
+    "text".to_owned()
 }
 
 fn default_keyword() -> String {
-    "hey savfox".to_string()
+    "hey savfox".to_owned()
 }
 
 impl Default for VoiceSettings {

@@ -23,6 +23,7 @@ pub struct MattermostChannelConfig {
 }
 
 impl MattermostChannelConfig {
+    #[must_use] 
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {

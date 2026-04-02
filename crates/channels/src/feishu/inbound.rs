@@ -88,7 +88,7 @@ impl FeishuEventHandler for SavfoxFeishuEventHandler {
             let event_id = event.event_id().map(str::to_string);
             debug!(event_id = ?event_id, event = ?event, "Received Feishu event via WebSocket");
             let payload = event.event.ok_or_else(|| {
-                FeishuSdkError::InvalidEventFormat("missing event payload".to_string())
+                FeishuSdkError::InvalidEventFormat("missing event payload".to_owned())
             })?;
             let message_event: FeishuMessageEvent = serde_json::from_value(payload)
                 .map_err(|e| FeishuSdkError::InvalidEventFormat(e.to_string()))?;
@@ -126,10 +126,10 @@ pub async fn build_feishu_event_dispatcher(
 ) -> Arc<EventDispatcher> {
     let mut event_config = EventDispatcherConfig::new();
     if let Some(token) = config.verification_token.as_deref() {
-        event_config = event_config.verification_token(token.to_string());
+        event_config = event_config.verification_token(token.to_owned());
     }
     if let Some(key) = config.encrypt_key.as_deref() {
-        event_config = event_config.encrypt_key(key.to_string());
+        event_config = event_config.encrypt_key(key.to_owned());
     }
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -157,7 +157,7 @@ pub async fn start_feishu_stream(
             config
                 .stream_locale
                 .clone()
-                .unwrap_or_else(|| default_stream_locale(&config.kind).to_string()),
+                .unwrap_or_else(|| default_stream_locale(&config.kind).to_owned()),
         )
         .auto_reconnect(config.stream_auto_reconnect)
         .reconnect_count(config.stream_reconnect_count)
@@ -170,7 +170,7 @@ pub async fn start_feishu_stream(
         .build()
         .map_err(|err| anyhow::anyhow!("failed to build Feishu stream client: {err}"))?;
 
-    let stream_key = channel_id.to_string();
+    let stream_key = channel_id.to_owned();
     let generation = next_stream_generation();
     let task_channel_id = stream_key.clone();
     let tracked_channel_id = stream_key.clone();

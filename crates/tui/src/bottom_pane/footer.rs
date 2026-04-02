@@ -95,20 +95,20 @@ impl CollaborationModeIndicator {
             String::new()
         };
         match self {
-            CollaborationModeIndicator::Plan => format!("Plan mode{suffix}"),
-            CollaborationModeIndicator::PairProgramming => {
+            Self::Plan => format!("Plan mode{suffix}"),
+            Self::PairProgramming => {
                 format!("Pair Programming mode{suffix}")
             }
-            CollaborationModeIndicator::Execute => format!("Execute mode{suffix}"),
+            Self::Execute => format!("Execute mode{suffix}"),
         }
     }
 
     fn styled_span(self, show_cycle_hint: bool) -> Span<'static> {
         let label = self.label(show_cycle_hint);
         match self {
-            CollaborationModeIndicator::Plan => Span::from(label).magenta(),
-            CollaborationModeIndicator::PairProgramming => Span::from(label).cyan(),
-            CollaborationModeIndicator::Execute => Span::from(label).dim(),
+            Self::Plan => Span::from(label).magenta(),
+            Self::PairProgramming => Span::from(label).cyan(),
+            Self::Execute => Span::from(label).dim(),
         }
     }
 }
@@ -434,7 +434,7 @@ pub(crate) fn single_line_footer_layout(
 
     // Final fallback: mode label only (covers queue mode where all queue
     // variants were too wide for even a bare left side).
-    if let Some(_) = collaboration_mode_indicator {
+    if collaboration_mode_indicator.is_some() {
         let mode_only = LeftSideState {
             hint: SummaryHintKind::None,
             show_cycle_hint: false,
@@ -843,14 +843,14 @@ pub(crate) fn context_window_line(
     }
 
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(8);
-    spans.push(Span::from(model_display.to_string()).cyan().bold());
+    spans.push(Span::from(model_display.to_owned()).cyan().bold());
     if !provider_display.is_empty() {
         spans.push(Span::from(" · ").dim());
-        spans.push(Span::from(provider_display.to_string()).dim());
+        spans.push(Span::from(provider_display.to_owned()).dim());
     }
     if !cwd_display.is_empty() {
         spans.push(Span::from(" · ").dim());
-        spans.push(Span::from(cwd_display.to_string()).dim());
+        spans.push(Span::from(cwd_display.to_owned()).dim());
     }
     spans.push(Span::from("  ").dim());
     spans.extend(context_spans);
@@ -868,11 +868,11 @@ pub(crate) fn render_model_status_line(area: Rect, buf: &mut Buffer, model: &str
     }
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
     if !model.is_empty() {
-        spans.push(Span::from(model.to_string()));
+        spans.push(Span::from(model.to_owned()));
     }
     if !provider.is_empty() {
         spans.push(Span::from(" ").dim());
-        spans.push(Span::from(provider.to_string()).dim());
+        spans.push(Span::from(provider.to_owned()).dim());
     }
     if spans.is_empty() {
         return;
@@ -942,11 +942,11 @@ pub(crate) fn render_path_info_line(area: Rect, buf: &mut Buffer, cwd: &str) {
         let parent = &cwd[..=pos];
         let name = &cwd[pos + 1..];
         Line::from(vec![
-            Span::from(parent.to_string()).dim(),
-            Span::from(name.to_string()).bold(),
+            Span::from(parent.to_owned()).dim(),
+            Span::from(name.to_owned()).bold(),
         ])
     } else {
-        Line::from(vec![Span::from(cwd.to_string()).dim()])
+        Line::from(vec![Span::from(cwd.to_owned()).dim()])
     };
     let indented = prefix_lines(
         vec![line],
@@ -995,11 +995,11 @@ enum DisplayCondition {
 impl DisplayCondition {
     fn matches(self, state: ShortcutsState) -> bool {
         match self {
-            DisplayCondition::Always => true,
-            DisplayCondition::WhenShiftEnterHint => state.use_shift_enter_hint,
-            DisplayCondition::WhenNotShiftEnterHint => !state.use_shift_enter_hint,
-            DisplayCondition::WhenUnderWSL => state.is_wsl,
-            DisplayCondition::WhenCollaborationModesEnabled => state.collaboration_modes_enabled,
+            Self::Always => true,
+            Self::WhenShiftEnterHint => state.use_shift_enter_hint,
+            Self::WhenNotShiftEnterHint => !state.use_shift_enter_hint,
+            Self::WhenUnderWSL => state.is_wsl,
+            Self::WhenCollaborationModesEnabled => state.collaboration_modes_enabled,
         }
     }
 }

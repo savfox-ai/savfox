@@ -116,9 +116,9 @@ pub enum OpenAiVerbosity {
 impl From<VerbosityConfig> for OpenAiVerbosity {
     fn from(v: VerbosityConfig) -> Self {
         match v {
-            VerbosityConfig::Low => OpenAiVerbosity::Low,
-            VerbosityConfig::Medium => OpenAiVerbosity::Medium,
-            VerbosityConfig::High => OpenAiVerbosity::High,
+            VerbosityConfig::Low => Self::Low,
+            VerbosityConfig::Medium => Self::Medium,
+            VerbosityConfig::High => Self::High,
         }
     }
 }
@@ -187,7 +187,7 @@ pub fn create_text_param_for_request(
             r#type: TextFormatType::JsonSchema,
             strict: true,
             schema: schema.clone(),
-            name: "savfox_output_schema".to_string(),
+            name: "savfox_output_schema".to_owned(),
         }),
     })
 }

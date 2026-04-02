@@ -6,9 +6,9 @@ use crate::client_common::tools::ToolSpec;
 
 pub(super) fn create_sessions_list_tool() -> ToolSpec {
     let properties = BTreeMap::from([(
-        "filter".to_string(),
+        "filter".to_owned(),
         JsonSchema::String {
-            description: Some("Optional filter for session type.".to_string()),
+            description: Some("Optional filter for session type.".to_owned()),
         },
     )]);
 
@@ -23,15 +23,15 @@ pub(super) fn create_sessions_list_tool() -> ToolSpec {
 pub(super) fn create_sessions_history_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "session_id".to_string(),
+            "session_id".to_owned(),
             JsonSchema::String {
-                description: Some("Session ID to get history for.".to_string()),
+                description: Some("Session ID to get history for.".to_owned()),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum number of messages to return (default 50).".to_string()),
+                description: Some("Maximum number of messages to return (default 50).".to_owned()),
             },
         ),
     ]);
@@ -47,15 +47,15 @@ pub(super) fn create_sessions_history_tool() -> ToolSpec {
 pub(super) fn create_sessions_send_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "session_id".to_string(),
+            "session_id".to_owned(),
             JsonSchema::String {
-                description: Some("Session ID to send the message to.".to_string()),
+                description: Some("Session ID to send the message to.".to_owned()),
             },
         ),
         (
-            "message".to_string(),
+            "message".to_owned(),
             JsonSchema::String {
-                description: Some("The message text to send.".to_string()),
+                description: Some("The message text to send.".to_owned()),
             },
         ),
     ]);
@@ -70,9 +70,9 @@ pub(super) fn create_sessions_send_tool() -> ToolSpec {
 
 pub(super) fn create_session_status_tool() -> ToolSpec {
     let properties = BTreeMap::from([(
-        "session_id".to_string(),
+        "session_id".to_owned(),
         JsonSchema::String {
-            description: Some("Session ID to check status for.".to_string()),
+            description: Some("Session ID to check status for.".to_owned()),
         },
     )]);
 
@@ -87,20 +87,18 @@ pub(super) fn create_session_status_tool() -> ToolSpec {
 pub(super) fn create_list_mcp_resources_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "server".to_string(),
+            "server".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Optional MCP server name. When omitted, lists resources from every configured server."
-                        .to_string(),
+                    "Optional MCP server name. When omitted, lists resources from every configured server.".to_owned(),
                 ),
             },
         ),
         (
-            "cursor".to_string(),
+            "cursor".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Opaque cursor returned by a previous list_mcp_resources call for the same server."
-                        .to_string(),
+                    "Opaque cursor returned by a previous list_mcp_resources call for the same server.".to_owned(),
                 ),
             },
         ),
@@ -117,20 +115,18 @@ pub(super) fn create_list_mcp_resources_tool() -> ToolSpec {
 pub(super) fn create_list_mcp_resource_templates_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "server".to_string(),
+            "server".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Optional MCP server name. When omitted, lists resource templates from all configured servers."
-                        .to_string(),
+                    "Optional MCP server name. When omitted, lists resource templates from all configured servers.".to_owned(),
                 ),
             },
         ),
         (
-            "cursor".to_string(),
+            "cursor".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Opaque cursor returned by a previous list_mcp_resource_templates call for the same server."
-                        .to_string(),
+                    "Opaque cursor returned by a previous list_mcp_resource_templates call for the same server.".to_owned(),
                 ),
             },
         ),
@@ -147,20 +143,18 @@ pub(super) fn create_list_mcp_resource_templates_tool() -> ToolSpec {
 pub(super) fn create_read_mcp_resource_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "server".to_string(),
+            "server".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "MCP server name exactly as configured. Must match the 'server' field returned by list_mcp_resources."
-                        .to_string(),
+                    "MCP server name exactly as configured. Must match the 'server' field returned by list_mcp_resources.".to_owned(),
                 ),
             },
         ),
         (
-            "uri".to_string(),
+            "uri".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Resource URI to read. Must be one of the URIs returned by list_mcp_resources."
-                        .to_string(),
+                    "Resource URI to read. Must be one of the URIs returned by list_mcp_resources.".to_owned(),
                 ),
             },
         ),
@@ -177,35 +171,34 @@ pub(super) fn create_read_mcp_resource_tool() -> ToolSpec {
 pub(super) fn create_sessions_spawn_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "prompt".to_string(),
+            "prompt".to_owned(),
             JsonSchema::String {
-                description: Some("The prompt/task for the spawned sub-agent.".to_string()),
+                description: Some("The prompt/task for the spawned sub-agent.".to_owned()),
             },
         ),
         (
-            "model".to_string(),
+            "model".to_owned(),
             JsonSchema::String {
-                description: Some("Optional model override for the sub-agent.".to_string()),
+                description: Some("Optional model override for the sub-agent.".to_owned()),
             },
         ),
         (
-            "instructions".to_string(),
+            "instructions".to_owned(),
             JsonSchema::String {
-                description: Some("Optional system instructions for the sub-agent.".to_string()),
+                description: Some("Optional system instructions for the sub-agent.".to_owned()),
             },
         ),
         (
-            "timeout_secs".to_string(),
+            "timeout_secs".to_owned(),
             JsonSchema::Number {
-                description: Some("Timeout in seconds (default 300).".to_string()),
+                description: Some("Timeout in seconds (default 300).".to_owned()),
             },
         ),
         (
-            "cleanup".to_string(),
+            "cleanup".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "Whether to clean up the agent session on completion (default true)."
-                        .to_string(),
+                    "Whether to clean up the agent session on completion (default true).".to_owned(),
                 ),
             },
         ),
@@ -222,47 +215,47 @@ pub(super) fn create_sessions_spawn_tool() -> ToolSpec {
 pub(super) fn create_agent_step_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "session_id".to_string(),
+            "session_id".to_owned(),
             JsonSchema::String {
-                description: Some("Session key or agent ID to invoke.".to_string()),
+                description: Some("Session key or agent ID to invoke.".to_owned()),
             },
         ),
         (
-            "prompt".to_string(),
+            "prompt".to_owned(),
             JsonSchema::String {
-                description: Some("The prompt or message to send to the agent.".to_string()),
+                description: Some("The prompt or message to send to the agent.".to_owned()),
             },
         ),
         (
-            "system".to_string(),
+            "system".to_owned(),
             JsonSchema::String {
-                description: Some("Optional system prompt override for this step.".to_string()),
+                description: Some("Optional system prompt override for this step.".to_owned()),
             },
         ),
         (
-            "model".to_string(),
+            "model".to_owned(),
             JsonSchema::String {
-                description: Some("Optional model override.".to_string()),
+                description: Some("Optional model override.".to_owned()),
             },
         ),
         (
-            "timeout_secs".to_string(),
+            "timeout_secs".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum seconds to wait (default: 60).".to_string()),
+                description: Some("Maximum seconds to wait (default: 60).".to_owned()),
             },
         ),
         (
-            "history_limit".to_string(),
+            "history_limit".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum history messages to scan for the reply (default: 50).".to_string(),
+                    "Maximum history messages to scan for the reply (default: 50).".to_owned(),
                 ),
             },
         ),
         (
-            "lane".to_string(),
+            "lane".to_owned(),
             JsonSchema::String {
-                description: Some("Agent lane (e.g., \"nested\" for sub-agent calls).".to_string()),
+                description: Some("Agent lane (e.g., \"nested\" for sub-agent calls).".to_owned()),
             },
         ),
     ]);
@@ -278,112 +271,106 @@ pub(super) fn create_agent_step_tool() -> ToolSpec {
 pub(super) fn create_sessions_send_a2a_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "source_session_id".to_string(),
+            "source_session_id".to_owned(),
             JsonSchema::String {
-                description: Some("Source session/agent ID (the requester).".to_string()),
+                description: Some("Source session/agent ID (the requester).".to_owned()),
             },
         ),
         (
-            "target_session_id".to_string(),
+            "target_session_id".to_owned(),
             JsonSchema::String {
-                description: Some("Target session/agent ID (the responder).".to_string()),
+                description: Some("Target session/agent ID (the responder).".to_owned()),
             },
         ),
         (
-            "message".to_string(),
+            "message".to_owned(),
             JsonSchema::String {
-                description: Some("Initial message to send from source to target.".to_string()),
+                description: Some("Initial message to send from source to target.".to_owned()),
             },
         ),
         (
-            "max_ping_pong_turns".to_string(),
+            "max_ping_pong_turns".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum ping-pong turns between agents (0 = single shot, max 10).".to_string(),
+                    "Maximum ping-pong turns between agents (0 = single shot, max 10).".to_owned(),
                 ),
             },
         ),
         (
-            "announce".to_string(),
+            "announce".to_owned(),
             JsonSchema::Boolean {
-                description: Some("Whether to announce the final result to a channel.".to_string()),
+                description: Some("Whether to announce the final result to a channel.".to_owned()),
             },
         ),
         (
-            "announce_channel".to_string(),
+            "announce_channel".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Channel to announce to (e.g., \"discord:channel_id\"). If omitted and \
-                     `announce=true`, uses source session's recent active channel when available."
-                        .to_string(),
+                     `announce=true`, uses source session's recent active channel when available.".to_owned(),
                 ),
             },
         ),
         (
-            "target_system".to_string(),
+            "target_system".to_owned(),
             JsonSchema::String {
-                description: Some("Optional system prompt for the target agent.".to_string()),
+                description: Some("Optional system prompt for the target agent.".to_owned()),
             },
         ),
         (
-            "turn_timeout_secs".to_string(),
+            "turn_timeout_secs".to_owned(),
             JsonSchema::Number {
-                description: Some("Timeout per turn in seconds (default: 60).".to_string()),
+                description: Some("Timeout per turn in seconds (default: 60).".to_owned()),
             },
         ),
         (
-            "message_type".to_string(),
+            "message_type".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "A2A message type: \"request\" (expects response), \"response\" (reply to prior request), \
-                     or \"notification\" (fire-and-forget). Defaults to \"request\"."
-                        .to_string(),
+                     or \"notification\" (fire-and-forget). Defaults to \"request\".".to_owned(),
                 ),
             },
         ),
         (
-            "correlation_id".to_string(),
+            "correlation_id".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Optional correlation ID for request-response matching. Auto-generated for requests when omitted."
-                        .to_string(),
+                    "Optional correlation ID for request-response matching. Auto-generated for requests when omitted.".to_owned(),
                 ),
             },
         ),
         (
-            "timeout_ms".to_string(),
+            "timeout_ms".to_owned(),
             JsonSchema::Number {
-                description: Some("Optional per-message timeout in milliseconds.".to_string()),
+                description: Some("Optional per-message timeout in milliseconds.".to_owned()),
             },
         ),
         (
-            "delegation_purpose".to_string(),
+            "delegation_purpose".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Human-readable description of why this delegation is occurring. Recorded in the delegation chain."
-                        .to_string(),
+                    "Human-readable description of why this delegation is occurring. Recorded in the delegation chain.".to_owned(),
                 ),
             },
         ),
         (
-            "delegation_chain".to_string(),
+            "delegation_chain".to_owned(),
             JsonSchema::Array {
                 items: Box::new(JsonSchema::String {
-                    description: Some("Agent ID in the delegation chain.".to_string()),
+                    description: Some("Agent ID in the delegation chain.".to_owned()),
                 }),
                 description: Some(
-                    "Ordered list of agent IDs forming the delegation chain. The source agent is auto-appended."
-                        .to_string(),
+                    "Ordered list of agent IDs forming the delegation chain. The source agent is auto-appended.".to_owned(),
                 ),
             },
         ),
         (
-            "result_injection_format".to_string(),
+            "result_injection_format".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Shape of the returned result payload: \"summary\" (default) or \
-                     \"full_transcript\"."
-                        .to_string(),
+                     \"full_transcript\".".to_owned(),
                 ),
             },
         ),

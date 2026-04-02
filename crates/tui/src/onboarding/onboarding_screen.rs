@@ -330,17 +330,17 @@ impl WidgetRef for &OnboardingScreen {
 impl KeyboardHandler for Step {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match self {
-            Step::Welcome(widget) => widget.handle_key_event(key_event),
-            Step::Auth(widget) => widget.handle_key_event(key_event),
-            Step::TrustDirectory(widget) => widget.handle_key_event(key_event),
+            Self::Welcome(widget) => widget.handle_key_event(key_event),
+            Self::Auth(widget) => widget.handle_key_event(key_event),
+            Self::TrustDirectory(widget) => widget.handle_key_event(key_event),
         }
     }
 
     fn handle_paste(&mut self, pasted: String) {
         match self {
-            Step::Welcome(_) => {}
-            Step::Auth(widget) => widget.handle_paste(pasted),
-            Step::TrustDirectory(widget) => widget.handle_paste(pasted),
+            Self::Welcome(_) => {}
+            Self::Auth(widget) => widget.handle_paste(pasted),
+            Self::TrustDirectory(widget) => widget.handle_paste(pasted),
         }
     }
 }
@@ -348,9 +348,9 @@ impl KeyboardHandler for Step {
 impl StepStateProvider for Step {
     fn get_step_state(&self) -> StepState {
         match self {
-            Step::Welcome(w) => w.get_step_state(),
-            Step::Auth(w) => w.get_step_state(),
-            Step::TrustDirectory(w) => w.get_step_state(),
+            Self::Welcome(w) => w.get_step_state(),
+            Self::Auth(w) => w.get_step_state(),
+            Self::TrustDirectory(w) => w.get_step_state(),
         }
     }
 }
@@ -358,13 +358,13 @@ impl StepStateProvider for Step {
 impl WidgetRef for Step {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         match self {
-            Step::Welcome(widget) => {
+            Self::Welcome(widget) => {
                 widget.render_ref(area, buf);
             }
-            Step::Auth(widget) => {
+            Self::Auth(widget) => {
                 widget.render_ref(area, buf);
             }
-            Step::TrustDirectory(widget) => {
+            Self::TrustDirectory(widget) => {
                 widget.render_ref(area, buf);
             }
         }

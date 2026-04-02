@@ -11,16 +11,19 @@ pub enum CredentialStoreError {
 }
 
 impl CredentialStoreError {
+    #[must_use] 
     pub fn new(error: KeyringError) -> Self {
         Self::Other(error)
     }
 
+    #[must_use] 
     pub fn message(&self) -> String {
         match self {
             Self::Other(error) => error.to_string(),
         }
     }
 
+    #[must_use] 
     pub fn into_error(self) -> KeyringError {
         match self {
             Self::Other(error) => error,
@@ -128,7 +131,7 @@ pub mod tests {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
             guard
-                .entry(account.to_string())
+                .entry(account.to_owned())
                 .or_insert_with(|| Arc::new(MockCredential::default()))
                 .clone()
         }

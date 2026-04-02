@@ -136,61 +136,55 @@ pub(crate) async fn handle_usage_export(
     let filtered: Vec<_> = sessions
         .iter()
         .filter(|s| {
-            if let Some(from) = date_from {
-                if s.created_at < from {
+            if let Some(from) = date_from
+                && s.created_at < from {
                     return false;
                 }
-            }
-            if let Some(to) = date_to {
-                if s.created_at > to {
+            if let Some(to) = date_to
+                && s.created_at > to {
                     return false;
                 }
-            }
             true
         })
         .collect();
 
     let count = filtered.len();
 
-    let data: Value = match format {
-        "csv" => {
-            let mut lines = Vec::with_capacity(count + 1);
-            lines.push(
-                "session_id,session_id,model,input_tokens,output_tokens,total_tokens,created_at,updated_at"
-                    .to_string(),
-            );
-            for s in &filtered {
-                lines.push(format!(
-                    "{},{},{},{},{},{},{},{}",
-                    s.session_id,
-                    s.session_id,
-                    s.model.as_deref().unwrap_or(""),
-                    s.input_tokens,
-                    s.output_tokens,
-                    s.total_tokens,
-                    s.created_at,
-                    s.updated_at,
-                ));
-            }
-            json!(lines.join("\n"))
+    let data: Value = if format == "csv" {
+        let mut lines = Vec::with_capacity(count + 1);
+        lines.push(
+            "session_id,session_id,model,input_tokens,output_tokens,total_tokens,created_at,updated_at".to_owned(),
+        );
+        for s in &filtered {
+            lines.push(format!(
+                "{},{},{},{},{},{},{},{}",
+                s.session_id,
+                s.session_id,
+                s.model.as_deref().unwrap_or(""),
+                s.input_tokens,
+                s.output_tokens,
+                s.total_tokens,
+                s.created_at,
+                s.updated_at,
+            ));
         }
-        _ => {
-            let entries: Vec<Value> = filtered
-                .iter()
-                .map(|s| {
-                    json!({
-                        "session_id": s.session_id,
-                        "model": s.model,
-                        "input_tokens": s.input_tokens,
-                        "output_tokens": s.output_tokens,
-                        "total_tokens": s.total_tokens,
-                        "created_at": s.created_at,
-                        "updated_at": s.updated_at,
-                    })
+        json!(lines.join("\n"))
+    } else {
+        let entries: Vec<Value> = filtered
+            .iter()
+            .map(|s| {
+                json!({
+                    "session_id": s.session_id,
+                    "model": s.model,
+                    "input_tokens": s.input_tokens,
+                    "output_tokens": s.output_tokens,
+                    "total_tokens": s.total_tokens,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
                 })
-                .collect();
-            json!(entries)
-        }
+            })
+            .collect();
+        json!(entries)
     };
 
     Ok(json!({
@@ -311,16 +305,14 @@ pub(crate) async fn handle_logs_export(params: &Value) -> RpcResult {
     let filtered: Vec<_> = all_entries
         .into_iter()
         .filter(|e| {
-            if let Some(level) = level_filter {
-                if e.level != level {
+            if let Some(level) = level_filter
+                && e.level != level {
                     return false;
                 }
-            }
-            if let Some(source) = source_filter {
-                if !e.source.contains(source) {
+            if let Some(source) = source_filter
+                && !e.source.contains(source) {
                     return false;
                 }
-            }
             true
         })
         .collect();
@@ -343,37 +335,34 @@ pub(crate) async fn handle_logs_config(params: &Value, channel: &GatewayChannel)
 
     let path = log_config_path(channel);
 
-    match action {
-        "set" => {
-            let mut config = read_log_rotation_config(channel).await;
+    if action == "set" {
+        let mut config = read_log_rotation_config(channel).await;
 
-            if let Some(max_size) = params.get("max_file_size_mb") {
-                config["max_file_size_mb"] = max_size.clone();
-            }
-            if let Some(max_files) = params.get("max_files") {
-                config["max_files"] = max_files.clone();
-            }
-
-            let json_str = serde_json::to_string_pretty(&config)
-                .map_err(|e| (INTERNAL_ERROR, format!("serialize error: {e}")))?;
-            tokio::fs::write(&path, json_str)
-                .await
-                .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;
-
-            Ok(json!({
-                "status": "ok",
-                "config": config,
-            }))
+        if let Some(max_size) = params.get("max_file_size_mb") {
+            config["max_file_size_mb"] = max_size.clone();
         }
-        _ => {
-            // "get" (default)
-            let config = read_log_rotation_config(channel).await;
-            let defaults = json!({
-                "max_file_size_mb": config.get("max_file_size_mb").cloned().unwrap_or(json!(50)),
-                "max_files": config.get("max_files").cloned().unwrap_or(json!(10)),
-            });
-            Ok(json!({ "config": defaults }))
+        if let Some(max_files) = params.get("max_files") {
+            config["max_files"] = max_files.clone();
         }
+
+        let json_str = serde_json::to_string_pretty(&config)
+            .map_err(|e| (INTERNAL_ERROR, format!("serialize error: {e}")))?;
+        tokio::fs::write(&path, json_str)
+            .await
+            .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;
+
+        Ok(json!({
+            "status": "ok",
+            "config": config,
+        }))
+    } else {
+        // "get" (default)
+        let config = read_log_rotation_config(channel).await;
+        let defaults = json!({
+            "max_file_size_mb": config.get("max_file_size_mb").cloned().unwrap_or(json!(50)),
+            "max_files": config.get("max_files").cloned().unwrap_or(json!(10)),
+        });
+        Ok(json!({ "config": defaults }))
     }
 }
 
@@ -451,7 +440,7 @@ pub(crate) async fn handle_security_analyze(params: &Value) -> RpcResult {
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
     if text.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'text' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'text' parameter".to_owned()));
     }
 
     let lower = text.to_lowercase();
@@ -532,7 +521,7 @@ pub(crate) async fn handle_security_rotate(
     if !rotate_gateway_token && !rotate_webhook_secrets {
         return Err((
             INVALID_PARAMS,
-            "nothing to rotate: enable gateway_token and/or webhook_secrets".to_string(),
+            "nothing to rotate: enable gateway_token and/or webhook_secrets".to_owned(),
         ));
     }
 
@@ -557,7 +546,7 @@ pub(crate) async fn handle_security_rotate(
         let root = doc
             .value
             .as_object_mut()
-            .ok_or((INTERNAL_ERROR, "config root is not an object".to_string()))?;
+            .ok_or((INTERNAL_ERROR, "config root is not an object".to_owned()))?;
 
         let gateway = root
             .entry("gateway")
@@ -569,9 +558,9 @@ pub(crate) async fn handle_security_rotate(
         let new_token = crate::auth::GatewayAuth::generate_token();
         let gateway_obj = gateway.as_object_mut().ok_or((
             INTERNAL_ERROR,
-            "gateway config is not an object".to_string(),
+            "gateway config is not an object".to_owned(),
         ))?;
-        gateway_obj.insert("token".to_string(), Value::String(new_token.clone()));
+        gateway_obj.insert("token".to_owned(), Value::String(new_token.clone()));
 
         let content = crate::security_audit::serialize_config_value(&doc.value, &doc.format)
             .map_err(|e| (INTERNAL_ERROR, e))?;
@@ -617,14 +606,13 @@ pub(crate) async fn handle_security_rotate(
     }
 
     let mut suggestions =
-        vec!["Run `savfox security audit` to verify current posture.".to_string()];
+        vec!["Run `savfox security audit` to verify current posture.".to_owned()];
     if rotate_gateway_token {
-        suggestions.push("Restart gateway to apply the rotated bearer token.".to_string());
+        suggestions.push("Restart gateway to apply the rotated bearer token.".to_owned());
     }
     if rotate_webhook_secrets {
         suggestions.push(
-            "Update webhook senders with the new signing secrets before sending events."
-                .to_string(),
+            "Update webhook senders with the new signing secrets before sending events.".to_owned(),
         );
     }
     result["suggestions"] = json!(suggestions);

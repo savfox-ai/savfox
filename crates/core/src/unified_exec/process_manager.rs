@@ -46,7 +46,7 @@ const UNIFIED_EXEC_ENV: [(&str, &str); 10] = [
 
 fn apply_unified_exec_env(mut env: HashMap<String, String>) -> HashMap<String, String> {
     for (key, value) in UNIFIED_EXEC_ENV {
-        env.insert(key.to_string(), value.to_string());
+        env.insert(key.to_owned(), value.to_owned());
     }
     env
 }
@@ -226,7 +226,7 @@ impl UnifiedExecProcessManager {
         &self,
         request: WriteStdinRequest<'_>,
     ) -> Result<UnifiedExecResponse, UnifiedExecError> {
-        let process_id = request.process_id.to_string();
+        let process_id = request.process_id.to_owned();
 
         let PreparedProcessHandles {
             writer_tx,
@@ -236,7 +236,7 @@ impl UnifiedExecProcessManager {
             command: session_command,
             process_id,
             tty,
-            ..
+            
         } = self.prepare_process_handles(process_id.as_str()).await?;
 
         if !request.input.is_empty() {
@@ -291,7 +291,7 @@ impl UnifiedExecProcessManager {
             }
             ProcessStatus::Unknown => {
                 return Err(UnifiedExecError::UnknownProcessId {
-                    process_id: request.process_id.to_string(),
+                    process_id: request.process_id.to_owned(),
                 });
             }
         };
@@ -347,7 +347,7 @@ impl UnifiedExecProcessManager {
                 .processes
                 .get_mut(process_id)
                 .ok_or(UnifiedExecError::UnknownProcessId {
-                    process_id: process_id.to_string(),
+                    process_id: process_id.to_owned(),
                 })?;
         entry.last_used = Instant::now();
         let OutputHandles {
@@ -497,7 +497,7 @@ impl UnifiedExecProcessManager {
             session: context.session.as_ref(),
             turn: context.turn.as_ref(),
             call_id: context.call_id.clone(),
-            tool_name: "exec_command".to_string(),
+            tool_name: "exec_command".to_owned(),
         };
         orchestrator
             .run(

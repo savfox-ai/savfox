@@ -47,8 +47,8 @@ const LETTER_RANGES: [(usize, usize); 6] = [
 pub fn logo_lines(_fg_color: Color, _shadow_color: Color, bold: bool) -> Vec<Line<'static>> {
     SAVFOX_LOGO
         .iter()
-        .enumerate()
-        .map(|(_row_idx, row_str)| {
+        
+        .map(|row_str| {
             let chars: Vec<char> = row_str.chars().collect();
             let mut spans: Vec<Span<'static>> = Vec::with_capacity(14);
             let mut pos = 0;
@@ -151,7 +151,7 @@ impl Renderable for AsciiLogo {
 
 /// Set the terminal window title using OSC 0 escape sequence.
 pub fn set_terminal_title(title: &str) {
-    let sequence = format!("\x1b]0;{}\x07", title);
+    let sequence = format!("\x1b]0;{title}\x07");
     let _ = std::io::Write::write_all(&mut std::io::stdout(), sequence.as_bytes());
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }

@@ -165,6 +165,7 @@ pub async fn delete_message(
 /// Verify a Slack request signature using HMAC-SHA256.
 ///
 /// `expected_sig` is the value of the `X-Slack-Signature` header.
+#[must_use] 
 pub fn verify_signature(
     signing_secret: &str,
     timestamp: &str,
@@ -191,6 +192,7 @@ pub fn verify_signature(
 /// Check whether a Slack timestamp is within the allowed replay window.
 ///
 /// Returns `false` if `ts` cannot be parsed or lies in the future.
+#[must_use] 
 pub fn is_timestamp_fresh(ts: &str, max_age_seconds: u64) -> bool {
     let now_epoch_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

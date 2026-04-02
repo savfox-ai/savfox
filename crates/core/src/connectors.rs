@@ -74,10 +74,12 @@ fn auth_manager_from_config(config: &Config) -> std::sync::Arc<AuthManager> {
     )
 }
 
+#[must_use] 
 pub fn connector_display_label(connector: &AppInfo) -> String {
     format_connector_label(&connector.name, &connector.id)
 }
 
+#[must_use] 
 pub fn connector_mention_slug(connector: &AppInfo) -> String {
     connector_name_slug(&connector_display_label(connector))
 }
@@ -91,11 +93,12 @@ pub(crate) fn accessible_connectors_from_mcp_tools(
         }
         let connector_id = tool.connector_id.as_deref()?;
         let connector_name = normalize_connector_value(tool.connector_name.as_deref());
-        Some((connector_id.to_string(), connector_name))
+        Some((connector_id.to_owned(), connector_name))
     });
     collect_accessible_connectors(tools)
 }
 
+#[must_use] 
 pub fn merge_connectors(
     connectors: Vec<AppInfo>,
     accessible_connectors: Vec<AppInfo>,
@@ -194,11 +197,13 @@ fn normalize_connector_value(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+#[must_use] 
 pub fn connector_install_url(name: &str, connector_id: &str) -> String {
     let slug = connector_name_slug(name);
     format!("https://savfox.ai/apps/{slug}/{connector_id}")
 }
 
+#[must_use] 
 pub fn connector_name_slug(name: &str) -> String {
     let mut normalized = String::with_capacity(name.len());
     for character in name.chars() {
@@ -210,12 +215,12 @@ pub fn connector_name_slug(name: &str) -> String {
     }
     let normalized = normalized.trim_matches('-');
     if normalized.is_empty() {
-        "app".to_string()
+        "app".to_owned()
     } else {
-        normalized.to_string()
+        normalized.to_owned()
     }
 }
 
 fn format_connector_label(name: &str, _id: &str) -> String {
-    name.to_string()
+    name.to_owned()
 }

@@ -47,6 +47,7 @@ pub struct HybridResult {
 /// 1. Text search using `search_memories()` to find keyword matches
 /// 2. Vector search using the `VectorStore` for semantic similarity
 /// 3. Merge and rank by weighted combination
+#[must_use] 
 pub fn hybrid_search(
     entries: &[MdMemoryEntry],
     vector_store: &VectorStore,
@@ -107,7 +108,7 @@ pub fn hybrid_search(
         .into_values()
         .map(|mut r| {
             r.combined_score =
-                r.text_score * config.text_weight + r.vector_score * config.vector_weight;
+                r.text_score.mul_add(config.text_weight, r.vector_score * config.vector_weight);
             r
         })
         .filter(|r| r.combined_score >= config.min_score)

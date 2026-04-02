@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[must_use] 
 pub fn format_env_display(env: Option<&HashMap<String, String>>, env_vars: &[String]) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -14,7 +15,7 @@ pub fn format_env_display(env: Option<&HashMap<String, String>>, env_vars: &[Str
     }
 
     if parts.is_empty() {
-        "-".to_string()
+        "-".to_owned()
     } else {
         parts.join(", ")
     }

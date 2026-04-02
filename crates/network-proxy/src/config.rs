@@ -89,15 +89,15 @@ impl NetworkMode {
 }
 
 fn default_proxy_url() -> String {
-    "http://127.0.0.1:3128".to_string()
+    "http://127.0.0.1:3128".to_owned()
 }
 
 fn default_admin_url() -> String {
-    "http://127.0.0.1:8080".to_string()
+    "http://127.0.0.1:8080".to_owned()
 }
 
 fn default_socks_url() -> String {
-    "http://127.0.0.1:8081".to_string()
+    "http://127.0.0.1:8081".to_owned()
 }
 
 /// Clamp non-loopback bind addresses to loopback unless explicitly allowed.
@@ -207,7 +207,7 @@ pub fn resolve_runtime(cfg: &NetworkProxyConfig) -> Result<RuntimeConfig> {
 fn resolve_addr(url: &str, default_port: u16) -> Result<SocketAddr> {
     let addr_parts = parse_host_port(url, default_port)?;
     let host = if addr_parts.host.eq_ignore_ascii_case("localhost") {
-        "127.0.0.1".to_string()
+        "127.0.0.1".to_owned()
     } else {
         addr_parts.host
     };
@@ -232,7 +232,7 @@ fn parse_host_port(url: &str, default_port: u16) -> Result<SocketAddressParts> {
     // Avoid treating unbracketed IPv6 literals like "2001:db8::1" as scheme-prefixed URLs.
     if matches!(trimmed.parse::<IpAddr>(), Ok(IpAddr::V6(_))) && !trimmed.starts_with('[') {
         return Ok(SocketAddressParts {
-            host: trimmed.to_string(),
+            host: trimmed.to_owned(),
             port: default_port,
         });
     }
@@ -240,7 +240,7 @@ fn parse_host_port(url: &str, default_port: u16) -> Result<SocketAddressParts> {
     // Prefer the standard URL parser when the input is URL-like. Prefix a scheme when absent so
     // we still accept loose host:port inputs.
     let candidate = if trimmed.contains("://") {
-        trimmed.to_string()
+        trimmed.to_owned()
     } else {
         format!("http://{trimmed}")
     };
@@ -252,7 +252,7 @@ fn parse_host_port(url: &str, default_port: u16) -> Result<SocketAddressParts> {
             bail!("missing host in network proxy address: {url}");
         }
         return Ok(SocketAddressParts {
-            host: host.to_string(),
+            host: host.to_owned(),
             port: parsed.port().unwrap_or(default_port),
         });
     }
@@ -283,7 +283,7 @@ fn parse_host_port_fallback(input: &str, default_port: u16) -> Result<SocketAddr
             bail!("missing host in network proxy address: {input}");
         }
         return Ok(SocketAddressParts {
-            host: host.to_string(),
+            host: host.to_owned(),
             port,
         });
     }
@@ -298,7 +298,7 @@ fn parse_host_port_fallback(input: &str, default_port: u16) -> Result<SocketAddr
             bail!("missing host in network proxy address: {input}");
         }
         return Ok(SocketAddressParts {
-            host: host.to_string(),
+            host: host.to_owned(),
             port,
         });
     }
@@ -307,7 +307,7 @@ fn parse_host_port_fallback(input: &str, default_port: u16) -> Result<SocketAddr
         bail!("missing host in network proxy address: {input}");
     }
     Ok(SocketAddressParts {
-        host: host_port.to_string(),
+        host: host_port.to_owned(),
         port: default_port,
     })
 }

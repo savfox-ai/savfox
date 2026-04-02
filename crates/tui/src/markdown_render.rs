@@ -118,6 +118,7 @@ impl IndentContext {
     }
 }
 
+#[must_use] 
 pub fn render_markdown_text(input: &str) -> Text<'static> {
     render_markdown_text_with_width(input, None)
 }
@@ -373,7 +374,7 @@ where
             if i > 0 {
                 self.push_line(Line::default());
             }
-            let content = line.to_string();
+            let content = line.to_owned();
             let span = Span::styled(
                 content,
                 self.inline_styles.last().copied().unwrap_or_default(),
@@ -403,7 +404,7 @@ where
                 self.push_line(Line::default());
             }
             let style = self.inline_styles.last().copied().unwrap_or_default();
-            self.push_span(Span::styled(line.to_string(), style));
+            self.push_span(Span::styled(line.to_owned(), style));
         }
         self.needs_newline = !inline;
     }

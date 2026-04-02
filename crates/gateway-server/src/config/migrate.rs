@@ -7,6 +7,7 @@ use tracing::info;
 pub const CURRENT_VERSION: u32 = 2;
 
 /// Detect config version
+#[must_use] 
 pub fn detect_version(config: &Value) -> u32 {
     config
         .get("config_version")
@@ -31,7 +32,7 @@ pub fn migrate(mut config: Value) -> Result<(Value, Vec<String>), String> {
 
     // Set current version
     if let Value::Object(ref mut map) = config {
-        map.insert("config_version".to_string(), Value::from(CURRENT_VERSION));
+        map.insert("config_version".to_owned(), Value::from(CURRENT_VERSION));
     }
 
     info!(from = version, to = CURRENT_VERSION, "config migrated");
@@ -42,8 +43,8 @@ pub fn migrate(mut config: Value) -> Result<(Value, Vec<String>), String> {
 /// - Move flat `model` + `provider` fields on agents to `models.primary` format
 /// - Rename `fallback_models` to `models.fallbacks`
 fn migrate_v1_to_v2(mut config: Value, log: &mut Vec<String>) -> Result<Value, String> {
-    if let Value::Object(ref mut root) = config {
-        if let Some(Value::Object(agents)) = root.get_mut("agents") {
+    if let Value::Object(ref mut root) = config
+        && let Some(Value::Object(agents)) = root.get_mut("agents") {
             for (name, agent) in agents.iter_mut() {
                 if let Value::Object(agent_map) = agent {
                     let mut needs_migration = false;
@@ -52,11 +53,11 @@ fn migrate_v1_to_v2(mut config: Value, log: &mut Vec<String>) -> Result<Value, S
                     let model = agent_map
                         .get("model")
                         .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                        .map(|s| s.to_owned());
                     let provider = agent_map
                         .get("provider")
                         .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
+                        .map(|s| s.to_owned());
                     let fallbacks = agent_map.get("fallback_models").cloned();
 
                     if model.is_some() || fallbacks.is_some() {
@@ -76,14 +77,14 @@ fn migrate_v1_to_v2(mut config: Value, log: &mut Vec<String>) -> Result<Value, S
                             } else {
                                 m.clone()
                             };
-                            models_obj.insert("primary".to_string(), Value::String(primary));
+                            models_obj.insert("primary".to_owned(), Value::String(primary));
                         }
 
                         if let Some(Value::Array(fb)) = &fallbacks {
-                            models_obj.insert("fallbacks".to_string(), Value::Array(fb.clone()));
+                            models_obj.insert("fallbacks".to_owned(), Value::Array(fb.clone()));
                         }
 
-                        agent_map.insert("models".to_string(), Value::Object(models_obj));
+                        agent_map.insert("models".to_owned(), Value::Object(models_obj));
 
                         // Remove old fields
                         agent_map.remove("model");
@@ -97,7 +98,6 @@ fn migrate_v1_to_v2(mut config: Value, log: &mut Vec<String>) -> Result<Value, S
                 }
             }
         }
-    }
 
     Ok(config)
 }

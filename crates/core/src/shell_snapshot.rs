@@ -43,7 +43,7 @@ impl ShellSnapshot {
             async move {
                 let timer = otel_manager.start_timer("savfox.shell_snapshot.duration_ms", &[]);
                 let snapshot =
-                    ShellSnapshot::try_new(&savfox_home, snapshot_session_id, &snapshot_shell)
+                    Self::try_new(&savfox_home, snapshot_session_id, &snapshot_shell)
                         .await
                         .map(Arc::new);
                 let success = if snapshot.is_some() { "true" } else { "false" };
@@ -410,12 +410,9 @@ pub async fn cleanup_stale_snapshots(
 
         let file_name = entry.file_name();
         let file_name = file_name.to_string_lossy();
-        let (session_id, _) = match file_name.rsplit_once('.') {
-            Some((stem, ext)) => (stem, ext),
-            None => {
-                remove_snapshot_file(&path).await;
-                continue;
-            }
+        let (session_id, _) = if let Some((stem, ext)) = file_name.rsplit_once('.') { (stem, ext) } else {
+            remove_snapshot_file(&path).await;
+            continue;
         };
         if session_id == active_session_id {
             continue;

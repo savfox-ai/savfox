@@ -73,21 +73,18 @@ impl ToolRegistry {
         let payload_for_response = invocation.payload.clone();
         let log_payload = payload_for_response.log_payload();
 
-        let handler = match self.handler(tool_name.as_ref()) {
-            Some(handler) => handler,
-            None => {
-                let message =
-                    unsupported_tool_call_message(&invocation.payload, tool_name.as_ref());
-                otel.tool_result(
-                    tool_name.as_ref(),
-                    &call_id_owned,
-                    log_payload.as_ref(),
-                    Duration::ZERO,
-                    false,
-                    &message,
-                );
-                return Err(FunctionCallError::RespondToModel(message));
-            }
+        let handler = if let Some(handler) = self.handler(tool_name.as_ref()) { handler } else {
+            let message =
+                unsupported_tool_call_message(&invocation.payload, tool_name.as_ref());
+            otel.tool_result(
+                tool_name.as_ref(),
+                &call_id_owned,
+                log_payload.as_ref(),
+                Duration::ZERO,
+                false,
+                &message,
+            );
+            return Err(FunctionCallError::RespondToModel(message));
         };
 
         if !handler.matches_kind(&invocation.payload) {
@@ -139,7 +136,7 @@ impl ToolRegistry {
             Ok(_) => {
                 let mut guard = output_cell.lock().await;
                 let output = guard.take().ok_or_else(|| {
-                    FunctionCallError::Fatal("tool produced no output".to_string())
+                    FunctionCallError::Fatal("tool produced no output".to_owned())
                 })?;
                 Ok(output.into_response(&call_id_owned, &payload_for_response))
             }

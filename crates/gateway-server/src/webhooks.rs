@@ -110,13 +110,13 @@ impl WebhookStore {
             .ok_or_else(|| format!("Webhook not found: {id}"))?;
 
         if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
-            webhook.name = name.to_string();
+            webhook.name = name.to_owned();
         }
         if let Some(secret) = updates.get("secret").and_then(|v| v.as_str()) {
-            webhook.secret = secret.to_string();
+            webhook.secret = secret.to_owned();
         }
         if let Some(agent) = updates.get("target_agent").and_then(|v| v.as_str()) {
-            webhook.target_agent = agent.to_string();
+            webhook.target_agent = agent.to_owned();
         }
         if let Some(enabled) = updates.get("enabled").and_then(|v| v.as_bool()) {
             webhook.enabled = enabled;

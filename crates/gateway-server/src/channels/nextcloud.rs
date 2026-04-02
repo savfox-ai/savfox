@@ -126,7 +126,7 @@ impl NextCloudChannel {
 
         Some(ChannelAction::StartThread {
             channel: format!("nextcloud:{room_token}:{actor_id}"),
-            prompt: text.to_string(),
+            prompt: text.to_owned(),
         })
     }
 }

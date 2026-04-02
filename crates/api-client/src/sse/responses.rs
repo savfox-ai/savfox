@@ -65,7 +65,7 @@ pub fn spawn_response_stream(
             .get("x-savfox-turn-state")
             .and_then(|v| v.to_str().ok())
     {
-        let _ = turn_state.set(header_value.to_string());
+        let _ = turn_state.set(header_value.to_owned());
     }
     let (tx_event, rx_event) = mpsc::channel::<Result<ResponseEvent, ApiError>>(1600);
     tokio::spawn(async move {
@@ -123,7 +123,7 @@ struct ResponseCompletedUsage {
 
 impl From<ResponseCompletedUsage> for TokenUsage {
     fn from(val: ResponseCompletedUsage) -> Self {
-        TokenUsage {
+        Self {
             input_tokens: val.input_tokens,
             cached_input_tokens: val
                 .input_tokens_details
@@ -166,6 +166,7 @@ pub enum ResponsesEventError {
 }
 
 impl ResponsesEventError {
+    #[must_use] 
     pub fn into_api_error(self) -> ApiError {
         match self {
             Self::Api(error) => error,
@@ -226,7 +227,7 @@ pub fn process_responses_event(
                     } else if is_invalid_prompt_error(&error) {
                         let message = error
                             .message
-                            .unwrap_or_else(|| "Invalid request.".to_string());
+                            .unwrap_or_else(|| "Invalid request.".to_owned());
                         response_error = ApiError::InvalidRequest { message };
                     } else {
                         let delay = try_parse_retry_after(&error);

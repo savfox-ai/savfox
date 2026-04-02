@@ -174,21 +174,21 @@ impl<'a> RtOptions<'a> {
         }
     }
 
-    pub fn word_separator(self, word_separator: textwrap::WordSeparator) -> RtOptions<'a> {
+    pub fn word_separator(self, word_separator: textwrap::WordSeparator) -> Self {
         RtOptions {
             word_separator,
             ..self
         }
     }
 
-    pub fn wrap_algorithm(self, wrap_algorithm: textwrap::WrapAlgorithm) -> RtOptions<'a> {
+    pub fn wrap_algorithm(self, wrap_algorithm: textwrap::WrapAlgorithm) -> Self {
         RtOptions {
             wrap_algorithm,
             ..self
         }
     }
 
-    pub fn word_splitter(self, word_splitter: textwrap::WordSplitter) -> RtOptions<'a> {
+    pub fn word_splitter(self, word_splitter: textwrap::WordSplitter) -> Self {
         RtOptions {
             word_splitter,
             ..self

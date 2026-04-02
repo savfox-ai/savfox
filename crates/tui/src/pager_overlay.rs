@@ -58,15 +58,15 @@ impl Overlay {
 
     pub(crate) fn handle_event(&mut self, tui: &mut tui::Tui, event: TuiEvent) -> Result<()> {
         match self {
-            Overlay::Transcript(o) => o.handle_event(tui, event),
-            Overlay::Static(o) => o.handle_event(tui, event),
+            Self::Transcript(o) => o.handle_event(tui, event),
+            Self::Static(o) => o.handle_event(tui, event),
         }
     }
 
     pub(crate) fn is_done(&self) -> bool {
         match self {
-            Overlay::Transcript(o) => o.is_done(),
-            Overlay::Static(o) => o.is_done(),
+            Self::Transcript(o) => o.is_done(),
+            Self::Static(o) => o.is_done(),
         }
     }
 }
@@ -192,7 +192,7 @@ impl SearchState {
             let info = if self.match_count > 0 {
                 format!(" [{}/{}]", self.current_match + 1, self.match_count)
             } else {
-                " [no matches]".to_string()
+                " [no matches]".to_owned()
             };
             Line::from(vec![
                 Span::from(format!("/{}", self.last_query)).dim(),
@@ -243,11 +243,10 @@ impl PagerView {
 
     /// Recompute cached heights if the width changed. Returns the total height.
     fn ensure_heights_cached(&mut self, width: u16) {
-        if let Some((cached_w, ..)) = &self.cached_heights {
-            if *cached_w == width {
+        if let Some((cached_w, ..)) = &self.cached_heights
+            && *cached_w == width {
                 return;
             }
-        }
         let heights: Vec<usize> = self
             .renderables
             .iter()
@@ -580,7 +579,7 @@ impl TranscriptOverlay {
         Self {
             view: PagerView::new(
                 Self::render_cells(&transcript_cells, None),
-                "T R A N S C R I P T".to_string(),
+                "T R A N S C R I P T".to_owned(),
                 usize::MAX,
             ),
             cells: transcript_cells,

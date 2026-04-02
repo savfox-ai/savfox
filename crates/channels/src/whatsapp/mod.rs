@@ -88,6 +88,7 @@ pub fn parse_start_meta(payload: &Value) -> WhatsAppStartMeta {
 }
 
 /// Parse the webhook payload and return a `ChannelAction`.
+#[must_use] 
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let Some(value) = first_value(payload) else {
         return ChannelAction::Ignore;
@@ -109,7 +110,7 @@ pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
 
             if !text.is_empty() {
                 return ChannelAction::StartThread {
-                    channel: from.to_string(),
+                    channel: from.to_owned(),
                     prompt: text.to_owned(),
                 };
             }

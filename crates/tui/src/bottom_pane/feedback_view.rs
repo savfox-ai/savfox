@@ -73,7 +73,7 @@ impl FeedbackNoteView {
     }
 
     fn submit(&mut self) {
-        let note = self.textarea.text().trim().to_string();
+        let note = self.textarea.text().trim().to_owned();
         let reason_opt = if note.is_empty() {
             None
         } else {
@@ -334,20 +334,20 @@ fn gutter() -> Span<'static> {
 fn feedback_title_and_placeholder(category: FeedbackCategory) -> (String, String) {
     match category {
         FeedbackCategory::BadResult => (
-            "Tell us more (bad result)".to_string(),
-            "(optional) Write a short description to help us further".to_string(),
+            "Tell us more (bad result)".to_owned(),
+            "(optional) Write a short description to help us further".to_owned(),
         ),
         FeedbackCategory::GoodResult => (
-            "Tell us more (good result)".to_string(),
-            "(optional) Write a short description to help us further".to_string(),
+            "Tell us more (good result)".to_owned(),
+            "(optional) Write a short description to help us further".to_owned(),
         ),
         FeedbackCategory::Bug => (
-            "Tell us more (bug)".to_string(),
-            "(optional) Write a short description to help us further".to_string(),
+            "Tell us more (bug)".to_owned(),
+            "(optional) Write a short description to help us further".to_owned(),
         ),
         FeedbackCategory::Other => (
-            "Tell us more (other)".to_string(),
-            "(optional) Write a short description to help us further".to_string(),
+            "Tell us more (other)".to_owned(),
+            "(optional) Write a short description to help us further".to_owned(),
         ),
     }
 }
@@ -387,7 +387,7 @@ fn issue_url_for_category(
 /// We accept a `session_id` so the call site stays symmetric with the external
 /// path, but we currently point to a fixed channel without prefilling text.
 fn slack_feedback_url(_session_id: &str) -> String {
-    SAVFOX_FEEDBACK_INTERNAL_URL.to_string()
+    SAVFOX_FEEDBACK_INTERNAL_URL.to_owned()
 }
 
 // Build the selection popup params for feedback categories.
@@ -395,7 +395,7 @@ pub(crate) fn feedback_selection_params(
     app_event_tx: AppEventSender,
 ) -> super::SelectionViewParams {
     super::SelectionViewParams {
-        title: Some("How was this?".to_string()),
+        title: Some("How was this?".to_owned()),
         items: vec![
             make_feedback_item(
                 app_event_tx.clone(),
@@ -429,11 +429,11 @@ pub(crate) fn feedback_selection_params(
 /// Build the selection popup params shown when feedback is disabled.
 pub(crate) fn feedback_disabled_params() -> super::SelectionViewParams {
     super::SelectionViewParams {
-        title: Some("Sending feedback is disabled".to_string()),
-        subtitle: Some("This action is disabled by configuration.".to_string()),
+        title: Some("Sending feedback is disabled".to_owned()),
+        subtitle: Some("This action is disabled by configuration.".to_owned()),
         footer_hint: Some(standard_popup_hint_line()),
         items: vec![super::SelectionItem {
-            name: "Close".to_string(),
+            name: "Close".to_owned(),
             dismiss_on_select: true,
             ..Default::default()
         }],
@@ -451,8 +451,8 @@ fn make_feedback_item(
         app_event_tx.send(AppEvent::OpenFeedbackConsent { category });
     });
     super::SelectionItem {
-        name: name.to_string(),
-        description: Some(description.to_string()),
+        name: name.to_owned(),
+        description: Some(description.to_owned()),
         actions: vec![action],
         dismiss_on_select: true,
         ..Default::default()
@@ -505,18 +505,17 @@ pub(crate) fn feedback_upload_consent_params(
         footer_hint: Some(standard_popup_hint_line()),
         items: vec![
             super::SelectionItem {
-                name: "Yes".to_string(),
+                name: "Yes".to_owned(),
                 description: Some(
-                    "Share the current Savfox session logs with the team for troubleshooting."
-                        .to_string(),
+                    "Share the current Savfox session logs with the team for troubleshooting.".to_owned(),
                 ),
                 actions: vec![yes_action],
                 dismiss_on_select: true,
                 ..Default::default()
             },
             super::SelectionItem {
-                name: "No".to_string(),
-                description: Some("".to_string()),
+                name: "No".to_owned(),
+                description: Some("".to_owned()),
                 actions: vec![no_action],
                 dismiss_on_select: true,
                 ..Default::default()

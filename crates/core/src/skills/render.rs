@@ -1,14 +1,15 @@
 use crate::skills::model::SkillMetadata;
 
+#[must_use] 
 pub fn render_skills_section(skills: &[SkillMetadata]) -> Option<String> {
     if skills.is_empty() {
         return None;
     }
 
     let mut lines: Vec<String> = Vec::new();
-    lines.push("## Skills".to_string());
-    lines.push("A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.".to_string());
-    lines.push("### Available skills".to_string());
+    lines.push("## Skills".to_owned());
+    lines.push("A skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.".to_owned());
+    lines.push("### Available skills".to_owned());
 
     for skill in skills {
         let path_str = skill.path.to_string_lossy().replace('\\', "/");
@@ -17,7 +18,7 @@ pub fn render_skills_section(skills: &[SkillMetadata]) -> Option<String> {
         lines.push(format!("- {name}: {description} (file: {path_str})"));
     }
 
-    lines.push("### How to use skills".to_string());
+    lines.push("### How to use skills".to_owned());
     lines.push(
         r###"- Discovery: The list above is the skills available in this session (name + description + file path). Skill bodies live on disk at the listed paths.
 - Trigger rules: If the user names a skill (with `$SkillName` or plain text) OR the task clearly matches a skill's description shown above, you must use that skill for that turn. Multiple mentions mean use them all. Do not carry skills across turns unless re-mentioned.
@@ -35,8 +36,7 @@ pub fn render_skills_section(skills: &[SkillMetadata]) -> Option<String> {
   - Keep context small: summarize long sections instead of pasting them; only load extra files when needed.
   - Avoid deep reference-chasing: prefer opening only files directly linked from `SKILL.md` unless you're blocked.
   - When variants exist (frameworks, providers, domains), pick only the relevant reference file(s) and note that choice.
-- Safety and fallback: If a skill can't be applied cleanly (missing files, unclear instructions), state the issue, pick the next-best approach, and continue."###
-            .to_string(),
+- Safety and fallback: If a skill can't be applied cleanly (missing files, unclear instructions), state the issue, pick the next-best approach, and continue."###.to_owned(),
     );
 
     Some(lines.join("\n"))

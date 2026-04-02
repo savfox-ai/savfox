@@ -88,7 +88,7 @@ impl SessionHeaderHistoryCell {
     pub(crate) fn format_directory_inner(directory: &Path, max_width: Option<usize>) -> String {
         let formatted = if let Some(rel) = relativize_to_home(directory) {
             if rel.as_os_str().is_empty() {
-                "~".to_string()
+                "~".to_owned()
             } else {
                 format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display())
             }
@@ -210,7 +210,7 @@ impl HistoryCell for SessionHeaderHistoryCell {
                     crate::ascii_logo::logo_lines(Color::White, Color::DarkGray, true);
                 logo_lines.push(Line::from(vec![
                     Span::from("v").dim(),
-                    Span::from(self.version.to_string()).dim(),
+                    Span::from(self.version.to_owned()).dim(),
                 ]));
                 logo_lines
             }

@@ -4,10 +4,11 @@ use savfox_core::config::Config;
 use crate::sandbox_summary::summarize_sandbox_policy;
 
 /// Build a list of key/value pairs summarizing the effective configuration.
+#[must_use] 
 pub fn create_config_summary_entries(config: &Config, model: &str) -> Vec<(&'static str, String)> {
     let mut entries = vec![
         ("workdir", config.cwd.display().to_string()),
-        ("model", model.to_string()),
+        ("model", model.to_owned()),
         ("provider", config.model_provider_id.clone()),
         ("approval", config.approval_policy.value().to_string()),
         (
@@ -21,7 +22,7 @@ pub fn create_config_summary_entries(config: &Config, model: &str) -> Vec<(&'sta
             .map(|effort| effort.to_string());
         entries.push((
             "reasoning effort",
-            reasoning_effort.unwrap_or_else(|| "none".to_string()),
+            reasoning_effort.unwrap_or_else(|| "none".to_owned()),
         ));
         entries.push((
             "reasoning summaries",

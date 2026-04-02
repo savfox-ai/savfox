@@ -44,7 +44,7 @@ impl ToolHandler for SlackActionsHandler {
 
         let token = std::env::var("SLACK_BOT_TOKEN").map_err(|_| {
             FunctionCallError::RespondToModel(
-                "SLACK_BOT_TOKEN environment variable is not set".to_string(),
+                "SLACK_BOT_TOKEN environment variable is not set".to_owned(),
             )
         })?;
 

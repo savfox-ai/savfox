@@ -124,7 +124,7 @@ impl KeyboardHandler for AuthModeWidget {
             SignInState::OpenAiAuthMethod => self.handle_openai_auth_key_event(key_event),
             SignInState::ChatGptSuccessMessage => {
                 if key_event.code == KeyCode::Enter {
-                    self.start_provider_connect("openai".to_string(), None);
+                    self.start_provider_connect("openai".to_owned(), None);
                 }
             }
             SignInState::ProviderError(_) => {
@@ -386,7 +386,7 @@ impl AuthModeWidget {
 
     fn disallow_api_login(&mut self) {
         self.highlighted_mode = SignInOption::ChatGpt;
-        self.error = Some(API_KEY_DISABLED_MESSAGE.to_string());
+        self.error = Some(API_KEY_DISABLED_MESSAGE.to_owned());
         *self.sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
         self.request_frame.schedule_frame();
     }
@@ -497,7 +497,7 @@ impl AuthModeWidget {
             let line1 = if is_selected {
                 Line::from(vec![
                     format!("{caret} {index}. ", index = idx + 1).cyan().dim(),
-                    text.to_string().cyan(),
+                    text.to_owned().cyan(),
                 ])
             } else {
                 format!("  {index}. {text}", index = idx + 1).into()
@@ -697,9 +697,9 @@ impl AuthModeWidget {
                         should_request_frame = true;
                     }
                     KeyCode::Enter => {
-                        let trimmed = state.value.trim().to_string();
+                        let trimmed = state.value.trim().to_owned();
                         if trimmed.is_empty() && !state.allow_empty_submit {
-                            self.error = Some("API key cannot be empty".to_string());
+                            self.error = Some("API key cannot be empty".to_owned());
                             should_request_frame = true;
                         } else {
                             let api_key = (!trimmed.is_empty()).then_some(trimmed);
@@ -755,7 +755,7 @@ impl AuthModeWidget {
         let mut guard = self.sign_in_state.write().unwrap();
         if let SignInState::ApiKeyEntry(state) = &mut *guard {
             if state.prepopulated_from_env {
-                state.value = trimmed.to_string();
+                state.value = trimmed.to_owned();
                 state.prepopulated_from_env = false;
             } else {
                 state.value.push_str(trimmed);
@@ -771,7 +771,7 @@ impl AuthModeWidget {
     }
 
     fn start_api_key_entry(&mut self) {
-        self.start_api_key_entry_for_provider("openai".to_string(), "OpenAI".to_string());
+        self.start_api_key_entry_for_provider("openai".to_owned(), "OpenAI".to_owned());
     }
 
     fn start_api_key_entry_for_provider(&mut self, provider_id: String, provider_name: String) {
@@ -789,7 +789,7 @@ impl AuthModeWidget {
 
         let env_prefill = provider_env_key_for_store(&provider_id, &provider)
             .and_then(|env_key| std::env::var(&env_key).ok())
-            .map(|value| value.trim().to_string())
+            .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
         let allow_empty_submit = read_provider_store_api_key(&self.savfox_home, &provider_id)
             .is_some()
@@ -800,23 +800,23 @@ impl AuthModeWidget {
         match &mut *guard {
             SignInState::ApiKeyEntry(state) => {
                 if state.value.is_empty() {
-                    if let Some(prefill) = env_prefill.clone() {
+                    if let Some(prefill) = env_prefill {
                         state.value = prefill;
                         state.prepopulated_from_env = true;
                     } else {
                         state.prepopulated_from_env = false;
                     }
                 }
-                state.provider_id = provider_id.clone();
-                state.provider_name = provider_name.clone();
+                state.provider_id = provider_id;
+                state.provider_name = provider_name;
                 state.allow_empty_submit = allow_empty_submit;
             }
             _ => {
                 *guard = SignInState::ApiKeyEntry(ApiKeyInputState {
                     value: env_prefill.clone().unwrap_or_default(),
                     prepopulated_from_env: env_prefill.is_some(),
-                    provider_id: provider_id.clone(),
-                    provider_name: provider_name.clone(),
+                    provider_id,
+                    provider_name,
                     allow_empty_submit,
                 });
             }
@@ -837,7 +837,7 @@ impl AuthModeWidget {
         self.error = None;
         *self.sign_in_state.write().unwrap() =
             SignInState::ProviderConnecting(ProviderConnectingState {
-                provider_name: provider_name.clone(),
+                provider_name,
             });
         self.request_frame.schedule_frame();
 
@@ -913,7 +913,7 @@ impl AuthModeWidget {
                 code: KeyCode::Enter,
                 ..
             } => {
-                let name = state.name_input.trim().to_string();
+                let name = state.name_input.trim().to_owned();
                 let account_id = if name.is_empty() {
                     state.result.provider_id.clone()
                 } else {
@@ -925,8 +925,7 @@ impl AuthModeWidget {
                     && account_id_exists(&self.savfox_home, &account_id)
                 {
                     state.error = Some(format!(
-                        "Account '{}' already exists. Choose a different name.",
-                        account_id
+                        "Account '{account_id}' already exists. Choose a different name."
                     ));
                     state.name_input.clear();
                     *self.sign_in_state.write().unwrap() = SignInState::ProviderNaming(state);
@@ -962,7 +961,7 @@ impl AuthModeWidget {
         let savfox_home = self.savfox_home.clone();
         let sign_in_state = self.sign_in_state.clone();
         let request_frame = self.request_frame.clone();
-        let account_name = account_name.to_string();
+        let account_name = account_name.to_owned();
 
         tokio::spawn(async move {
             let account_id = result.account_id.clone();
@@ -987,15 +986,15 @@ impl AuthModeWidget {
                         // carry the preliminary account_id from before naming).
                         let normalized_model =
                             savfox_core::parse_provider_prefixed_model(default_model.as_str())
-                                .map(|(_, slug)| slug.to_string())
+                                .map(|(_, slug)| slug.to_owned())
                                 .unwrap_or(default_model);
                         let mut edits: Vec<ConfigEdit> = Vec::new();
                         if !result.base_url.trim().is_empty() {
                             edits.push(ConfigEdit::SetPath {
                                 segments: vec![
-                                    "model_providers".to_string(),
+                                    "model_providers".to_owned(),
                                     account_id.clone(),
-                                    "base_url".to_string(),
+                                    "base_url".to_owned(),
                                 ],
                                 value: toml_edit_value(result.base_url.clone()),
                             });
@@ -1059,7 +1058,7 @@ impl AuthModeWidget {
         self.error = None;
         let opts = ServerOptions::new(
             self.savfox_home.clone(),
-            CLIENT_ID.to_string(),
+            CLIENT_ID.to_owned(),
             self.forced_chatgpt_workspace_id.clone(),
             self.cli_auth_credentials_store_mode,
         );
@@ -1080,19 +1079,16 @@ impl AuthModeWidget {
                     }
                     request_frame.schedule_frame();
                     let r = child.block_until_done().await;
-                    match r {
-                        Ok(()) => {
-                            // Force the auth manager to reload the new auth information.
-                            auth_manager.reload();
+                    if matches!(r, Ok(())) {
+                        // Force the auth manager to reload the new auth information.
+                        auth_manager.reload();
 
-                            *sign_in_state.write().unwrap() = SignInState::ChatGptSuccessMessage;
-                            request_frame.schedule_frame();
-                        }
-                        _ => {
-                            *sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
-                            // self.error = Some(e.to_string());
-                            request_frame.schedule_frame();
-                        }
+                        *sign_in_state.write().unwrap() = SignInState::ChatGptSuccessMessage;
+                        request_frame.schedule_frame();
+                    } else {
+                        *sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
+                        // self.error = Some(e.to_string());
+                        request_frame.schedule_frame();
                     }
                 });
             }
@@ -1112,7 +1108,7 @@ impl AuthModeWidget {
         self.error = None;
         let opts = ServerOptions::new(
             self.savfox_home.clone(),
-            CLIENT_ID.to_string(),
+            CLIENT_ID.to_owned(),
             self.forced_chatgpt_workspace_id.clone(),
             self.cli_auth_credentials_store_mode,
         );

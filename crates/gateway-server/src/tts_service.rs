@@ -58,7 +58,7 @@ pub(crate) async fn save_tts_config(savfox_home: &Path, cfg: &TtsConfig) -> Resu
 pub(crate) async fn status(savfox_home: &Path) -> Result<Value, String> {
     let cfg = load_tts_config(savfox_home).await?;
     let providers = providers();
-    let active = cfg.provider.clone().unwrap_or_else(|| "openai".to_string());
+    let active = cfg.provider.clone().unwrap_or_else(|| "openai".to_owned());
     let has_key = provider_key_from_env(&active).is_some();
     Ok(json!({
         "enabled": cfg.enabled,
@@ -160,7 +160,7 @@ pub(crate) fn providers() -> Value {
 /// API-key configured, active flag).
 pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, String> {
     let cfg = load_tts_config(savfox_home).await?;
-    let active_id = cfg.provider.clone().unwrap_or_else(|| "openai".to_string());
+    let active_id = cfg.provider.clone().unwrap_or_else(|| "openai".to_owned());
     let raw = providers();
     let arr = raw.as_array().cloned().unwrap_or_default();
 
@@ -170,8 +170,7 @@ pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, S
             let id = p
                 .get("id")
                 .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+                .unwrap_or("").to_owned();
             let is_active = id == active_id && cfg.enabled;
             let is_configured = provider_key_from_env(&id).is_some();
             let voices = voices_for_provider(&id);
@@ -181,9 +180,9 @@ pub(crate) async fn providers_with_status(savfox_home: &Path) -> Result<Value, S
                 .map(|a| a.len())
                 .unwrap_or(0);
             if let Some(obj) = p.as_object_mut() {
-                obj.insert("is_active".to_string(), json!(is_active));
-                obj.insert("is_configured".to_string(), json!(is_configured));
-                obj.insert("voice_count".to_string(), json!(voice_count));
+                obj.insert("is_active".to_owned(), json!(is_active));
+                obj.insert("is_configured".to_owned(), json!(is_configured));
+                obj.insert("voice_count".to_owned(), json!(voice_count));
             }
             p
         })
@@ -259,7 +258,7 @@ pub(crate) async fn convert(
 ) -> Result<Value, String> {
     let text = params.get("text").and_then(|v| v.as_str()).unwrap_or("");
     if text.is_empty() {
-        return Err("missing 'text' parameter".to_string());
+        return Err("missing 'text' parameter".to_owned());
     }
 
     let cfg = load_tts_config(savfox_home).await?;
@@ -268,7 +267,7 @@ pub(crate) async fn convert(
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
         .or(cfg.provider.clone())
-        .unwrap_or_else(|| "openai".to_string());
+        .unwrap_or_else(|| "openai".to_owned());
     let voice = params
         .get("voice")
         .and_then(|v| v.as_str())
@@ -291,10 +290,10 @@ pub(crate) async fn convert(
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-                .ok_or_else(|| "OPENAI_API_KEY is not configured".to_string())?;
+                .ok_or_else(|| "OPENAI_API_KEY is not configured".to_owned())?;
             let body = json!({
-                "model": model.unwrap_or_else(|| "gpt-4o-mini-tts".to_string()),
-                "voice": voice.unwrap_or_else(|| "alloy".to_string()),
+                "model": model.unwrap_or_else(|| "gpt-4o-mini-tts".to_owned()),
+                "voice": voice.unwrap_or_else(|| "alloy".to_owned()),
                 "input": text,
                 "format": format,
             });
@@ -322,14 +321,14 @@ pub(crate) async fn convert(
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("ELEVENLABS_API_KEY").ok())
-                .ok_or_else(|| "ELEVENLABS_API_KEY is not configured".to_string())?;
+                .ok_or_else(|| "ELEVENLABS_API_KEY is not configured".to_owned())?;
             let voice_id = voice
                 .or_else(|| std::env::var("ELEVENLABS_VOICE_ID").ok())
-                .unwrap_or_else(|| "EXAVITQu4vr4xnSDxMaL".to_string());
+                .unwrap_or_else(|| "EXAVITQu4vr4xnSDxMaL".to_owned());
             let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{voice_id}");
             let body = json!({
                 "text": text,
-                "model_id": model.unwrap_or_else(|| "eleven_multilingual_v2".to_string()),
+                "model_id": model.unwrap_or_else(|| "eleven_multilingual_v2".to_owned()),
                 "output_format": "mp3_44100_128"
             });
             let resp = http_client
@@ -353,22 +352,19 @@ pub(crate) async fn convert(
         }
         "edge" => {
             let edge_config = tts_edge::EdgeTtsConfig {
-                voice: voice.unwrap_or_else(|| "en-US-AriaNeural".to_string()),
+                voice: voice.unwrap_or_else(|| "en-US-AriaNeural".to_owned()),
                 rate: params
                     .get("rate")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0%")
-                    .to_string(),
+                    .unwrap_or("+0%").to_owned(),
                 volume: params
                     .get("volume")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0%")
-                    .to_string(),
+                    .unwrap_or("+0%").to_owned(),
                 pitch: params
                     .get("pitch")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("+0Hz")
-                    .to_string(),
+                    .unwrap_or("+0Hz").to_owned(),
             };
             tts_edge::synthesize(text, &edge_config).await?
         }
@@ -378,17 +374,16 @@ pub(crate) async fn convert(
                 .and_then(|v| v.as_str())
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("DEEPGRAM_API_KEY").ok())
-                .ok_or_else(|| "DEEPGRAM_API_KEY is not configured".to_string())?;
+                .ok_or_else(|| "DEEPGRAM_API_KEY is not configured".to_owned())?;
             let dg_config = tts_deepgram::DeepgramTtsConfig {
                 api_key: key,
                 model: voice
                     .or(model)
-                    .unwrap_or_else(|| "aura-asteria-en".to_string()),
+                    .unwrap_or_else(|| "aura-asteria-en".to_owned()),
                 encoding: params
                     .get("encoding")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("mp3")
-                    .to_string(),
+                    .unwrap_or("mp3").to_owned(),
                 sample_rate: params
                     .get("sample_rate")
                     .and_then(|v| v.as_u64())
@@ -403,7 +398,7 @@ pub(crate) async fn convert(
                 .map(ToOwned::to_owned)
                 .or_else(|| std::env::var("GOOGLE_CLOUD_TTS_API_KEY").ok())
                 .or_else(|| std::env::var("GOOGLE_API_KEY").ok())
-                .ok_or_else(|| "GOOGLE_CLOUD_TTS_API_KEY is not configured".to_string())?;
+                .ok_or_else(|| "GOOGLE_CLOUD_TTS_API_KEY is not configured".to_owned())?;
             let locale = params
                 .get("language")
                 .or_else(|| params.get("locale"))
@@ -463,7 +458,7 @@ pub(crate) async fn convert(
             let audio_content = payload
                 .get("audioContent")
                 .and_then(Value::as_str)
-                .ok_or_else(|| "google tts response missing audioContent".to_string())?;
+                .ok_or_else(|| "google tts response missing audioContent".to_owned())?;
             base64::engine::general_purpose::STANDARD
                 .decode(audio_content)
                 .map_err(|err| format!("google tts decode audio failed: {err}"))?
@@ -513,7 +508,7 @@ fn provider_key_from_env(provider: &str) -> Option<String> {
             .or_else(|| std::env::var("GOOGLE_API_KEY").ok()),
         "deepgram" => std::env::var("DEEPGRAM_API_KEY").ok(),
         // Edge TTS does not require an API key  - always "available".
-        "edge" => Some("not_required".to_string()),
+        "edge" => Some("not_required".to_owned()),
         _ => None,
     }
 }

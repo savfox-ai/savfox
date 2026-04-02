@@ -38,6 +38,7 @@ pub struct NetworkPolicyRequestArgs {
 }
 
 impl NetworkPolicyRequest {
+    #[must_use] 
     pub fn new(args: NetworkPolicyRequestArgs) -> Self {
         let NetworkPolicyRequestArgs {
             protocol,
@@ -70,7 +71,7 @@ impl NetworkDecision {
     pub fn deny(reason: impl Into<String>) -> Self {
         let reason = reason.into();
         let reason = if reason.is_empty() {
-            REASON_POLICY_DENIED.to_string()
+            REASON_POLICY_DENIED.to_owned()
         } else {
             reason
         };

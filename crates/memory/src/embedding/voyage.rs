@@ -11,6 +11,7 @@ pub struct VoyageEmbeddingProvider {
 }
 
 impl VoyageEmbeddingProvider {
+    #[must_use] 
     pub fn new(api_key: String, model: String) -> Self {
         Self {
             client: Client::new(),
@@ -78,7 +79,7 @@ impl EmbeddingProvider for VoyageEmbeddingProvider {
             model: self.model.clone(),
             input: texts.to_vec(),
             truncation: true,
-            input_type: "document".to_string(),
+            input_type: "document".to_owned(),
         };
 
         let response = self

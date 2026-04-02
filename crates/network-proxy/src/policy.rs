@@ -115,13 +115,13 @@ pub fn normalize_host(host: &str) -> String {
 
 fn normalize_dns_host(host: &str) -> String {
     let host = host.to_ascii_lowercase();
-    host.trim_end_matches('.').to_string()
+    host.trim_end_matches('.').to_owned()
 }
 
 fn normalize_pattern(pattern: &str) -> String {
     let pattern = pattern.trim();
     if pattern == "*" {
-        return "*".to_string();
+        return "*".to_owned();
     }
 
     let (prefix, remainder) = if let Some(domain) = pattern.strip_prefix("**.") {
@@ -189,7 +189,7 @@ impl DomainPattern {
         } else if let Some(domain) = input.strip_prefix("*.") {
             Self::parse_domain(domain, Self::SubdomainsOnly)
         } else {
-            Self::Exact(input.to_string())
+            Self::Exact(input.to_owned())
         }
     }
 
@@ -216,33 +216,33 @@ impl DomainPattern {
         if domain.is_empty() {
             return Self::Exact(String::new());
         }
-        build(domain.to_string())
+        build(domain.to_owned())
     }
 
-    pub(crate) fn allows(&self, candidate: &DomainPattern) -> bool {
+    pub(crate) fn allows(&self, candidate: &Self) -> bool {
         match self {
-            DomainPattern::Any => true,
-            DomainPattern::Exact(domain) => match candidate {
-                DomainPattern::Exact(candidate) => domain_eq(candidate, domain),
+            Self::Any => true,
+            Self::Exact(domain) => match candidate {
+                Self::Exact(candidate) => domain_eq(candidate, domain),
                 _ => false,
             },
-            DomainPattern::SubdomainsOnly(domain) => match candidate {
-                DomainPattern::Any => false,
-                DomainPattern::Exact(candidate) => is_strict_subdomain(candidate, domain),
-                DomainPattern::SubdomainsOnly(candidate) => {
+            Self::SubdomainsOnly(domain) => match candidate {
+                Self::Any => false,
+                Self::Exact(candidate) => is_strict_subdomain(candidate, domain),
+                Self::SubdomainsOnly(candidate) => {
                     is_subdomain_or_equal(candidate, domain)
                 }
-                DomainPattern::ApexAndSubdomains(candidate) => {
+                Self::ApexAndSubdomains(candidate) => {
                     is_strict_subdomain(candidate, domain)
                 }
             },
-            DomainPattern::ApexAndSubdomains(domain) => match candidate {
-                DomainPattern::Any => false,
-                DomainPattern::Exact(candidate) => is_subdomain_or_equal(candidate, domain),
-                DomainPattern::SubdomainsOnly(candidate) => {
+            Self::ApexAndSubdomains(domain) => match candidate {
+                Self::Any => false,
+                Self::Exact(candidate) => is_subdomain_or_equal(candidate, domain),
+                Self::SubdomainsOnly(candidate) => {
                     is_subdomain_or_equal(candidate, domain)
                 }
-                DomainPattern::ApexAndSubdomains(candidate) => {
+                Self::ApexAndSubdomains(candidate) => {
                     is_subdomain_or_equal(candidate, domain)
                 }
             },
@@ -261,7 +261,7 @@ fn parse_domain_for_constraints(domain: &str) -> String {
         domain
     };
     if host.contains('*') || host.contains('?') || host.contains('%') {
-        return domain.to_string();
+        return domain.to_owned();
     }
     match UrlHost::parse(host) {
         Ok(host) => host.to_string(),
@@ -271,7 +271,7 @@ fn parse_domain_for_constraints(domain: &str) -> String {
 
 fn expand_domain_pattern(pattern: &str) -> Vec<String> {
     match DomainPattern::parse(pattern) {
-        DomainPattern::Any => vec![pattern.to_string()],
+        DomainPattern::Any => vec![pattern.to_owned()],
         DomainPattern::Exact(domain) => vec![domain],
         DomainPattern::SubdomainsOnly(domain) => {
             vec![format!("?*.{domain}")]

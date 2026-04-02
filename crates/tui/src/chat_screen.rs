@@ -258,7 +258,7 @@ impl RateLimitWarningState {
             if let Some(threshold) = highest_secondary {
                 let limit_label = secondary_window_minutes
                     .map(get_limits_duration)
-                    .unwrap_or_else(|| "weekly".to_string());
+                    .unwrap_or_else(|| "weekly".to_owned());
                 let remaining_percent = 100.0 - threshold;
                 warnings.push(format!(
                     "Heads up, you have less than {remaining_percent:.0}% of your {limit_label} limit left. Run /status for a breakdown."
@@ -277,7 +277,7 @@ impl RateLimitWarningState {
             if let Some(threshold) = highest_primary {
                 let limit_label = primary_window_minutes
                     .map(get_limits_duration)
-                    .unwrap_or_else(|| "5h".to_string());
+                    .unwrap_or_else(|| "5h".to_owned());
                 let remaining_percent = 100.0 - threshold;
                 warnings.push(format!(
                     "Heads up, you have less than {remaining_percent:.0}% of your {limit_label} limit left. Run /status for a breakdown."
@@ -303,11 +303,11 @@ pub(crate) fn get_limits_duration(windows_minutes: i64) -> String {
         let hours = std::cmp::max(1, adjusted / MINUTES_PER_HOUR);
         format!("{hours}h")
     } else if windows_minutes <= MINUTES_PER_WEEK.saturating_add(ROUNDING_BIAS_MINUTES) {
-        "weekly".to_string()
+        "weekly".to_owned()
     } else if windows_minutes <= MINUTES_PER_MONTH.saturating_add(ROUNDING_BIAS_MINUTES) {
-        "monthly".to_string()
+        "monthly".to_owned()
     } else {
-        "annual".to_string()
+        "annual".to_owned()
     }
 }
 
@@ -570,7 +570,7 @@ impl From<String> for UserMessage {
 impl From<&str> for UserMessage {
     fn from(text: &str) -> Self {
         Self {
-            text: text.to_string(),
+            text: text.to_owned(),
             local_images: Vec::new(),
             // Plain text conversion has no UI element ranges.
             text_elements: Vec::new(),
@@ -747,7 +747,7 @@ impl ChatScreen {
         self.session_name = event.session_name.clone();
         self.forked_from = event.forked_from_id;
         if let Some(name) = &event.session_name {
-            crate::ascii_logo::set_terminal_title(&format!("Savfox | {}", name));
+            crate::ascii_logo::set_terminal_title(&format!("Savfox | {name}"));
         }
         self.current_rollout_path = event.rollout_path.clone();
         let initial_messages = event.initial_messages.clone();
@@ -803,7 +803,7 @@ impl ChatScreen {
         if self.session_id == Some(event.session_id) {
             self.session_name = event.session_name.clone();
             if let Some(name) = &event.session_name {
-                crate::ascii_logo::set_terminal_title(&format!("Savfox | {}", name));
+                crate::ascii_logo::set_terminal_title(&format!("Savfox | {name}"));
             }
             self.request_redraw();
         }
@@ -908,7 +908,7 @@ impl ChatScreen {
     }
 
     fn on_plan_item_completed(&mut self, text: String) {
-        let streamed_plan = self.plan_delta_buffer.trim().to_string();
+        let streamed_plan = self.plan_delta_buffer.trim().to_owned();
         let plan_text = if text.trim().is_empty() {
             streamed_plan
         } else {
@@ -1077,7 +1077,7 @@ impl ChatScreen {
         let code_mask = collaboration_modes::code_mask(self.models_manager.as_ref());
         let (implement_actions, implement_disabled_reason) = match code_mask {
             Some(mask) => {
-                let user_text = PLAN_IMPLEMENTATION_CODING_MESSAGE.to_string();
+                let user_text = PLAN_IMPLEMENTATION_CODING_MESSAGE.to_owned();
                 let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                     tx.send(AppEvent::SubmitUserMessageWithMode {
                         text: user_text.clone(),
@@ -1086,13 +1086,13 @@ impl ChatScreen {
                 })];
                 (actions, None)
             }
-            None => (Vec::new(), Some("Code mode unavailable".to_string())),
+            None => (Vec::new(), Some("Code mode unavailable".to_owned())),
         };
 
         let items = vec![
             SelectionItem {
-                name: PLAN_IMPLEMENTATION_YES.to_string(),
-                description: Some("Switch to Code and start coding.".to_string()),
+                name: PLAN_IMPLEMENTATION_YES.to_owned(),
+                description: Some("Switch to Code and start coding.".to_owned()),
                 selected_description: None,
                 is_current: false,
                 actions: implement_actions,
@@ -1101,8 +1101,8 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: PLAN_IMPLEMENTATION_NO.to_string(),
-                description: Some("Continue planning with the model.".to_string()),
+                name: PLAN_IMPLEMENTATION_NO.to_owned(),
+                description: Some("Continue planning with the model.".to_owned()),
                 selected_description: None,
                 is_current: false,
                 actions: Vec::new(),
@@ -1112,7 +1112,7 @@ impl ChatScreen {
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some(PLAN_IMPLEMENTATION_TITLE.to_string()),
+            title: Some(PLAN_IMPLEMENTATION_TITLE.to_owned()),
             subtitle: None,
             footer_hint: Some(standard_popup_hint_line()),
             items,
@@ -1121,12 +1121,9 @@ impl ChatScreen {
     }
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
-        match info {
-            Some(info) => self.apply_token_info(info),
-            None => {
-                self.bottom_pane.set_context_window(None, None);
-                self.token_info = None;
-            }
+        if let Some(info) = info { self.apply_token_info(info) } else {
+            self.bottom_pane.set_context_window(None, None);
+            self.token_info = None;
         }
     }
 
@@ -1154,12 +1151,9 @@ impl ChatScreen {
 
     fn restore_pre_review_token_info(&mut self) {
         if let Some(saved) = self.pre_review_token_info.take() {
-            match saved {
-                Some(info) => self.apply_token_info(info),
-                None => {
-                    self.bottom_pane.set_context_window(None, None);
-                    self.token_info = None;
-                }
+            if let Some(info) = saved { self.apply_token_info(info) } else {
+                self.bottom_pane.set_context_window(None, None);
+                self.token_info = None;
             }
         }
     }
@@ -1312,7 +1306,7 @@ impl ChatScreen {
                     .map(ToString::to_string)
                     .collect();
                 if starting.len() > max_to_show {
-                    to_show.push("…".to_string());
+                    to_show.push("…".to_owned());
                 }
                 let header = if total > 1 {
                     format!(
@@ -1523,7 +1517,7 @@ impl ChatScreen {
             let header = if let Some(command) = &command_display {
                 format!("Waiting for background terminal · {command}")
             } else {
-                "Waiting for background terminal".to_string()
+                "Waiting for background terminal".to_owned()
             };
             self.set_status_header(header);
             match &mut self.unified_exec_wait_streak {
@@ -1603,7 +1597,7 @@ impl ChatScreen {
         if ev.source != ExecCommandSource::UnifiedExecStartup {
             return;
         }
-        let key = ev.process_id.clone().unwrap_or(ev.call_id.to_string());
+        let key = ev.process_id.clone().unwrap_or(ev.call_id.clone());
         let command_display = strip_bash_lc_and_escape(&ev.command);
         if let Some(existing) = self
             .unified_exec_processes
@@ -1625,7 +1619,7 @@ impl ChatScreen {
     }
 
     fn track_unified_exec_process_end(&mut self, ev: &ExecCommandEndEvent) {
-        let key = ev.process_id.clone().unwrap_or(ev.call_id.to_string());
+        let key = ev.process_id.clone().unwrap_or(ev.call_id.clone());
         let before = self.unified_exec_processes.len();
         self.unified_exec_processes
             .retain(|process| process.key != key);
@@ -1659,7 +1653,7 @@ impl ChatScreen {
             .map(str::trim_end)
             .filter(|line| !line.is_empty())
         {
-            process.recent_chunks.push(line.to_string());
+            process.recent_chunks.push(line.to_owned());
         }
 
         const MAX_RECENT_CHUNKS: usize = 3;
@@ -1771,7 +1765,7 @@ impl ChatScreen {
         self.bottom_pane.set_interrupt_hint_visible(false);
         let message = event
             .message
-            .unwrap_or_else(|| "Undo in progress...".to_string());
+            .unwrap_or_else(|| "Undo in progress...".to_owned());
         self.set_status_header(message);
     }
 
@@ -1780,9 +1774,9 @@ impl ChatScreen {
         self.bottom_pane.hide_status_indicator();
         let message = message.unwrap_or_else(|| {
             if success {
-                "Undo completed successfully.".to_string()
+                "Undo completed successfully.".to_owned()
             } else {
-                "Undo failed.".to_string()
+                "Undo failed.".to_owned()
             }
         });
         if success {
@@ -2171,13 +2165,13 @@ impl ChatScreen {
         let mut config = config;
         config.model = model.clone();
         let mut rng = rand::rng();
-        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_string();
+        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_owned();
         let savfox_op_tx = spawn_agent(config.clone(), app_event_tx.clone(), session_manager);
 
         let model_override = model.as_deref();
         let model_for_header = model
             .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL_DISPLAY_NAME.to_string());
+            .unwrap_or_else(|| DEFAULT_MODEL_DISPLAY_NAME.to_owned());
         let active_collaboration_mask =
             Self::initial_collaboration_mask(&config, models_manager.as_ref(), model_override);
         let header_model = active_collaboration_mask
@@ -2333,12 +2327,12 @@ impl ChatScreen {
         let mut config = config;
         config.model = model.clone();
         let mut rng = rand::rng();
-        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_string();
+        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_owned();
 
         let model_override = model.as_deref();
         let model_for_header = model
             .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL_DISPLAY_NAME.to_string());
+            .unwrap_or_else(|| DEFAULT_MODEL_DISPLAY_NAME.to_owned());
         let active_collaboration_mask =
             Self::initial_collaboration_mask(&config, models_manager.as_ref(), model_override);
         let header_model = active_collaboration_mask
@@ -2477,7 +2471,7 @@ impl ChatScreen {
         } = common;
         let model = model.filter(|m| !m.trim().is_empty());
         let mut rng = rand::rng();
-        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_string();
+        let placeholder = PLACEHOLDERS[rng.random_range(0..PLACEHOLDERS.len())].to_owned();
 
         let model_override = model.as_deref();
         let header_model = model
@@ -2848,7 +2842,7 @@ impl ChatScreen {
                     return;
                 }
                 const INIT_PROMPT: &str = include_str!("../prompt_for_init_command.md");
-                self.submit_user_message(INIT_PROMPT.to_string().into());
+                self.submit_user_message(INIT_PROMPT.to_owned().into());
             }
             SlashCommand::Compact => {
                 self.clear_token_usage();
@@ -2872,22 +2866,22 @@ impl ChatScreen {
             SlashCommand::Plan => {
                 if !self.collaboration_modes_enabled() {
                     self.add_info_message(
-                        "Collaboration modes are disabled.".to_string(),
-                        Some("Enable collaboration modes to use /plan.".to_string()),
+                        "Collaboration modes are disabled.".to_owned(),
+                        Some("Enable collaboration modes to use /plan.".to_owned()),
                     );
                     return;
                 }
                 if let Some(mask) = collaboration_modes::plan_mask(self.models_manager.as_ref()) {
                     self.set_collaboration_mask(mask);
                 } else {
-                    self.add_info_message("Plan mode unavailable right now.".to_string(), None);
+                    self.add_info_message("Plan mode unavailable right now.".to_owned(), None);
                 }
             }
             SlashCommand::Collab => {
                 if !self.collaboration_modes_enabled() {
                     self.add_info_message(
-                        "Collaboration modes are disabled.".to_string(),
-                        Some("Enable collaboration modes to use /collab.".to_string()),
+                        "Collaboration modes are disabled.".to_owned(),
+                        Some("Enable collaboration modes to use /collab.".to_owned()),
                     );
                     return;
                 }
@@ -2923,7 +2917,7 @@ impl ChatScreen {
                         // Avoid panicking in interactive UI; treat this as a recoverable
                         // internal error.
                         self.add_error_message(
-                            "Internal error: missing the 'auto' approval preset.".to_string(),
+                            "Internal error: missing the 'auto' approval preset.".to_owned(),
                         );
                         return;
                     };
@@ -2965,7 +2959,7 @@ impl ChatScreen {
                             if is_git_repo {
                                 diff_text
                             } else {
-                                "`/diff` — _not inside a git repository_".to_string()
+                                "`/diff` — _not inside a git repository_".to_owned()
                             }
                         }
                         Err(e) => format!("Failed to compute diff: {e}"),
@@ -2998,7 +2992,7 @@ impl ChatScreen {
                         None,
                     );
                 } else {
-                    self.add_info_message("Rollout path is not available yet.".to_string(), None);
+                    self.add_info_message("Rollout path is not available yet.".to_owned(), None);
                 }
             }
             SlashCommand::TestApproval => {
@@ -3007,7 +3001,7 @@ impl ChatScreen {
                 use savfox_core::protocol::{ApplyPatchApprovalRequestEvent, EventMsg, FileChange};
 
                 self.app_event_tx.send(AppEvent::SavfoxEvent(Event {
-                    id: "1".to_string(),
+                    id: "1".to_owned(),
                     // msg: EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
                     //     call_id: "1".to_string(),
                     //     command: vec!["git".into(), "apply".into()],
@@ -3015,19 +3009,19 @@ impl ChatScreen {
                     //     reason: Some("test".to_string()),
                     // }),
                     msg: EventMsg::ApplyPatchApprovalRequest(ApplyPatchApprovalRequestEvent {
-                        call_id: "1".to_string(),
-                        turn_id: "turn-1".to_string(),
+                        call_id: "1".to_owned(),
+                        turn_id: "turn-1".to_owned(),
                         changes: HashMap::from([
                             (
                                 PathBuf::from("/tmp/test.txt"),
                                 FileChange::Add {
-                                    content: "test".to_string(),
+                                    content: "test".to_owned(),
                                 },
                             ),
                             (
                                 PathBuf::from("/tmp/test2.txt"),
                                 FileChange::Update {
-                                    unified_diff: "+test\n-test2".to_string(),
+                                    unified_diff: "+test\n-test2".to_owned(),
                                     move_path: None,
                                 },
                             ),
@@ -3069,7 +3063,7 @@ impl ChatScreen {
                     return;
                 };
                 let Some(name) = savfox_core::util::normalize_session_name(&prepared_args) else {
-                    self.add_error_message("Session name cannot be empty.".to_string());
+                    self.add_error_message("Session name cannot be empty.".to_owned());
                     return;
                 };
                 let cell = Self::rename_confirmation_cell(&name, self.session_id);
@@ -3135,13 +3129,13 @@ impl ChatScreen {
         };
         let session_id = self.session_id;
         let view = CustomPromptView::new(
-            title.to_string(),
-            "Type a name and press Enter".to_string(),
+            title.to_owned(),
+            "Type a name and press Enter".to_owned(),
             None,
             Box::new(move |name: String| {
                 let Some(name) = savfox_core::util::normalize_session_name(&name) else {
                     tx.send(AppEvent::InsertHistoryCell(Box::new(
-                        history_cell::new_error_event("Session name cannot be empty.".to_string()),
+                        history_cell::new_error_event("Session name cannot be empty.".to_owned()),
                     )));
                     return;
                 };
@@ -3240,14 +3234,14 @@ impl ChatScreen {
             if cmd.is_empty() {
                 self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
                     history_cell::new_info_event(
-                        USER_SHELL_COMMAND_HELP_TITLE.to_string(),
-                        Some(USER_SHELL_COMMAND_HELP_HINT.to_string()),
+                        USER_SHELL_COMMAND_HELP_TITLE.to_owned(),
+                        Some(USER_SHELL_COMMAND_HELP_HINT.to_owned()),
                     ),
                 )));
                 return;
             }
             self.submit_op(Op::RunUserShellCommand {
-                command: cmd.to_string(),
+                command: cmd.to_owned(),
             });
             return;
         }
@@ -3311,7 +3305,7 @@ impl ChatScreen {
             cwd: self.config.cwd.clone(),
             approval_policy: self.config.approval_policy.value(),
             sandbox_policy: self.config.sandbox_policy.get().clone(),
-            model: effective_mode.model().to_string(),
+            model: effective_mode.model().to_owned(),
             effort: effective_mode.reasoning_effort(),
             summary: self.config.model_reasoning_summary,
             final_output_json_schema: None,
@@ -3601,7 +3595,7 @@ impl ChatScreen {
             self.flush_active_cell();
 
             if output.findings.is_empty() {
-                let explanation = output.overall_explanation.trim().to_string();
+                let explanation = output.overall_explanation.trim().to_owned();
                 if explanation.is_empty() {
                     tracing::error!("Reviewer failed to output a response.");
                     self.add_to_history(history_cell::new_error_event(
@@ -3623,7 +3617,7 @@ impl ChatScreen {
         self.restore_pre_review_token_info();
         // Append a finishing banner at the end of this turn.
         self.add_to_history(history_cell::new_review_status_line(
-            "<< Code review finished >>".to_string(),
+            "<< Code review finished >>".to_owned(),
         ));
         self.request_redraw();
     }
@@ -3866,8 +3860,8 @@ impl ChatScreen {
     }
 
     fn open_rate_limit_switch_prompt(&mut self, preset: ModelPreset) {
-        let switch_model = preset.slug.to_string();
-        let name = preset.name.to_string();
+        let switch_model = preset.slug.clone();
+        let name = preset.name.clone();
         let default_effort: ReasoningEffortConfig = preset.default_reasoning_effort;
 
         let switch_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
@@ -3893,7 +3887,7 @@ impl ChatScreen {
             tx.send(AppEvent::PersistRateLimitSwitchPromptHidden);
         })];
         let description = if preset.description.is_empty() {
-            Some("Uses fewer credits for upcoming turns.".to_string())
+            Some("Uses fewer credits for upcoming turns.".to_owned())
         } else {
             Some(preset.description)
         };
@@ -3909,7 +3903,7 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Keep current model".to_string(),
+                name: "Keep current model".to_owned(),
                 description: None,
                 selected_description: None,
                 is_current: false,
@@ -3918,9 +3912,9 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Keep current model (never show again)".to_string(),
+                name: "Keep current model (never show again)".to_owned(),
                 description: Some(
-                    "Hide future rate limit reminders about switching models.".to_string(),
+                    "Hide future rate limit reminders about switching models.".to_owned(),
                 ),
                 selected_description: None,
                 is_current: false,
@@ -3931,7 +3925,7 @@ impl ChatScreen {
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Approaching rate limits".to_string()),
+            title: Some("Approaching rate limits".to_owned()),
             subtitle: Some(format!("Switch to {name} for lower credit usage?")),
             footer_hint: Some(standard_popup_hint_line()),
             items,
@@ -3942,7 +3936,7 @@ impl ChatScreen {
     pub(crate) fn open_connect_provider_popup(&mut self) {
         let candidates = connect_provider_candidates(&self.config.model_providers);
         if candidates.is_empty() {
-            self.add_error_message("No model providers are available to connect.".to_string());
+            self.add_error_message("No model providers are available to connect.".to_owned());
             return;
         }
 
@@ -3973,12 +3967,12 @@ impl ChatScreen {
         }
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Connect Model Provider".to_string()),
-            subtitle: Some("Pick a provider, authenticate, then import models.".to_string()),
+            title: Some("Connect Model Provider".to_owned()),
+            subtitle: Some("Pick a provider, authenticate, then import models.".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             is_searchable: true,
-            search_placeholder: Some("Search providers".to_string()),
+            search_placeholder: Some("Search providers".to_owned()),
             ..Default::default()
         });
     }
@@ -4037,7 +4031,7 @@ impl ChatScreen {
             });
         })];
 
-        let provider_id_api = provider_id.clone();
+        let provider_id_api = provider_id;
         let api_actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
             tx.send(AppEvent::OpenConnectApiKeyPrompt {
                 provider_id: provider_id_api.clone(),
@@ -4046,40 +4040,40 @@ impl ChatScreen {
 
         let items = vec![
             SelectionItem {
-                name: "Sign in with ChatGPT".to_string(),
+                name: "Sign in with ChatGPT".to_owned(),
                 description: Some(
-                    "Usage included with Plus, Pro, Team, and Enterprise plans.".to_string(),
+                    "Usage included with Plus, Pro, Team, and Enterprise plans.".to_owned(),
                 ),
                 actions: browser_actions,
                 dismiss_on_select: true,
-                search_value: Some("chatgpt browser oauth".to_string()),
+                search_value: Some("chatgpt browser oauth".to_owned()),
                 ..Default::default()
             },
             SelectionItem {
-                name: "Sign in with Device Code".to_string(),
-                description: Some("Sign in from another device with a one-time code.".to_string()),
+                name: "Sign in with Device Code".to_owned(),
+                description: Some("Sign in from another device with a one-time code.".to_owned()),
                 actions: headless_actions,
                 dismiss_on_select: true,
-                search_value: Some("device code headless".to_string()),
+                search_value: Some("device code headless".to_owned()),
                 ..Default::default()
             },
             SelectionItem {
-                name: "Provide your own API key".to_string(),
-                description: Some("Pay for what you use.".to_string()),
+                name: "Provide your own API key".to_owned(),
+                description: Some("Pay for what you use.".to_owned()),
                 actions: api_actions,
                 dismiss_on_select: true,
-                search_value: Some("api key".to_string()),
+                search_value: Some("api key".to_owned()),
                 ..Default::default()
             },
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Select auth method".to_string()),
+            title: Some("Select auth method".to_owned()),
             subtitle: Some(format!("Choose how to connect {provider_name}.")),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             is_searchable: true,
-            search_placeholder: Some("Search".to_string()),
+            search_placeholder: Some("Search".to_owned()),
             ..Default::default()
         });
     }
@@ -4109,13 +4103,13 @@ impl ChatScreen {
 
         let tx = self.app_event_tx.clone();
         let title = format!("Connect {}", provider.name);
-        let provider_id_for_action = provider_id.clone();
+        let provider_id_for_action = provider_id;
         let view = CustomPromptView::new(
             title,
-            prompt.to_string(),
+            prompt.to_owned(),
             None,
             Box::new(move |api_key: String| {
-                let api_key = api_key.trim().to_string();
+                let api_key = api_key.trim().to_owned();
                 let api_key = (!api_key.is_empty()).then_some(api_key);
                 tx.send(AppEvent::BeginProviderConnect {
                     provider_id: provider_id_for_action.clone(),
@@ -4136,19 +4130,18 @@ impl ChatScreen {
     ) {
         let tx = self.app_event_tx.clone();
         let provider_name = result.provider_name.clone();
-        let title = format!("Name this {} account", provider_name);
+        let title = format!("Name this {provider_name} account");
         let context = error_hint.unwrap_or_else(|| {
-            "Leave empty to use the default name, or type a name (e.g. 'Work', 'Personal')"
-                .to_string()
+            "Leave empty to use the default name, or type a name (e.g. 'Work', 'Personal')".to_owned()
         });
         let view = CustomPromptView::new(
             title,
-            "Type account name and press Enter".to_string(),
+            "Type account name and press Enter".to_owned(),
             Some(context),
             Box::new(move |name: String| {
                 tx.send(AppEvent::ProviderConnectNamed {
                     result: result.clone(),
-                    account_name: name.trim().to_string(),
+                    account_name: name.trim().to_owned(),
                 });
             }),
         )
@@ -4162,7 +4155,7 @@ impl ChatScreen {
             load_provider_store_model_presets(self.config.savfox_home.as_path())
         else {
             self.add_info_message(
-                "Connected provider, but no imported models were found.".to_string(),
+                "Connected provider, but no imported models were found.".to_owned(),
                 None,
             );
             return;
@@ -4177,7 +4170,7 @@ impl ChatScreen {
 
         if presets.is_empty() {
             self.add_info_message(
-                "Connected provider, but no selectable models were found.".to_string(),
+                "Connected provider, but no selectable models were found.".to_owned(),
                 None,
             );
             return;
@@ -4188,26 +4181,21 @@ impl ChatScreen {
     /// Open a popup to choose a quick auto model. Selecting "All models"
     /// opens the full picker with every available preset.
     pub(crate) fn open_model_popup(&mut self) {
-        let presets: Vec<ModelPreset> = match self.model_presets_for_popup() {
-            Ok(models) => models,
-            Err(_) => {
-                self.add_info_message(
-                    "Models are being updated; please try /model again in a moment.".to_string(),
-                    None,
-                );
-                return;
-            }
+        let presets: Vec<ModelPreset> = if let Ok(models) = self.model_presets_for_popup() { models } else {
+            self.add_info_message(
+                "Models are being updated; please try /model again in a moment.".to_owned(),
+                None,
+            );
+            return;
         };
         self.open_model_popup_with_presets(presets);
     }
 
     fn model_presets_for_popup(&self) -> Result<Vec<ModelPreset>, ()> {
         if let Some(presets) = load_provider_store_model_presets(self.config.savfox_home.as_path())
-        {
-            if !presets.is_empty() {
+            && !presets.is_empty() {
                 return Ok(presets);
             }
-        }
         self.models_manager
             .try_list_models(&self.config)
             .map_err(|_| ())
@@ -4216,7 +4204,7 @@ impl ChatScreen {
     pub(crate) fn open_personality_popup(&mut self) {
         if !self.is_session_configured() {
             self.add_info_message(
-                "Personality selection is available after you send the first message.".to_string(),
+                "Personality selection is available after you send the first message.".to_owned(),
                 None,
             );
             return;
@@ -4239,8 +4227,8 @@ impl ChatScreen {
         let items: Vec<SelectionItem> = personalities
             .into_iter()
             .map(|personality| {
-                let name = Self::personality_label(personality).to_string();
-                let description = Some(Self::personality_description(personality).to_string());
+                let name = Self::personality_label(personality).to_owned();
+                let description = Some(Self::personality_description(personality).to_owned());
                 let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                     tx.send(AppEvent::SavfoxOp(Op::OverrideTurnContext {
                         cwd: None,
@@ -4284,8 +4272,8 @@ impl ChatScreen {
     }
 
     fn model_menu_header(&self, title: &str, subtitle: &str) -> Box<dyn Renderable> {
-        let title = title.to_string();
-        let subtitle = subtitle.to_string();
+        let title = title.to_owned();
+        let subtitle = subtitle.to_owned();
         let mut header = ColumnRenderable::new();
         header.push(Line::from(title.bold()));
         header.push(Line::from(subtitle.dim()));
@@ -4319,7 +4307,7 @@ impl ChatScreen {
             return None;
         }
 
-        Some(trimmed.to_string())
+        Some(trimmed.to_owned())
     }
 
     fn model_provider_buckets(&self) -> Vec<ModelProviderBucket> {
@@ -4331,14 +4319,11 @@ impl ChatScreen {
             .config
             .model_providers
             .iter()
-            .filter_map(|(provider_id, provider)| {
-                Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)
-                    .then(|| ModelProviderBucket {
+            .filter(|&(provider_id, provider)| Self::provider_is_configured(provider_id, provider, &builtin_ids, has_cached_auth)).map(|(provider_id, provider)| ModelProviderBucket {
                         id: provider_id.clone(),
                         name: provider.name.clone(),
                         aliases: Self::provider_aliases(provider_id, &provider.name),
                     })
-            })
             .collect();
 
         if !buckets
@@ -4398,7 +4383,7 @@ impl ChatScreen {
         let store_files = list_provider_store_files(&self.config.savfox_home);
         let store_map: HashMap<String, &ProviderStoreFile> = store_files
             .iter()
-            .map(|f| (f.account_id().to_string(), f))
+            .map(|f| (f.account_id().to_owned(), f))
             .collect();
 
         let builtins = built_in_model_providers();
@@ -4415,14 +4400,14 @@ impl ChatScreen {
                             .get(pid)
                             .map(|p| p.name.clone())
                             .or_else(|| builtins.get(pid).map(|p| p.name.clone()))
-                            .unwrap_or_else(|| pid.to_string());
+                            .unwrap_or_else(|| pid.to_owned());
                         let acct_name = file.name.trim();
                         let name = if !acct_name.is_empty() && account_id != pid {
                             format!("{base} / {acct_name}")
                         } else {
                             base
                         };
-                        (name, pid.to_string())
+                        (name, pid.to_owned())
                     } else {
                         let base = self
                             .config
@@ -4434,7 +4419,7 @@ impl ChatScreen {
                         (base, account_id.clone())
                     };
                 ModelProviderBucket {
-                    id: account_id.clone(),
+                    id: account_id,
                     name: display_name.clone(),
                     aliases: Self::provider_aliases(&base_pid, &display_name),
                 }
@@ -4508,7 +4493,7 @@ impl ChatScreen {
             "zhipu" => vec!["glm", "chatglm"],
             _ => Vec::new(),
         } {
-            aliases.push(alias.to_string());
+            aliases.push(alias.to_owned());
         }
 
         aliases.sort();
@@ -4590,8 +4575,8 @@ impl ChatScreen {
         let current_label = presets
             .iter()
             .find(|preset| Self::model_matches_current_selection(current_model, &preset.slug))
-            .map(|preset| preset.name.to_string())
-            .unwrap_or_else(|| self.model_display_name().to_string());
+            .map(|preset| preset.name.clone())
+            .unwrap_or_else(|| self.model_display_name().to_owned());
 
         let (mut auto_presets, other_presets): (Vec<ModelPreset>, Vec<ModelPreset>) = presets
             .into_iter()
@@ -4641,7 +4626,7 @@ impl ChatScreen {
             ));
 
             items.push(SelectionItem {
-                name: "All models".to_string(),
+                name: "All models".to_owned(),
                 description,
                 is_current,
                 actions,
@@ -4690,13 +4675,13 @@ impl ChatScreen {
     pub(crate) fn open_all_models_popup(&mut self, presets: Vec<ModelPreset>) {
         if presets.is_empty() {
             self.add_info_message(
-                "No additional models are available right now.".to_string(),
+                "No additional models are available right now.".to_owned(),
                 None,
             );
             return;
         }
 
-        let current_model = self.current_model().to_string();
+        let current_model = self.current_model().to_owned();
         let provider_buckets = self.model_provider_buckets_for_presets(&presets);
         let current_provider_idx = provider_buckets
             .iter()
@@ -4738,7 +4723,7 @@ impl ChatScreen {
 
             for preset in bucket_models {
                 let description =
-                    (!preset.description.is_empty()).then_some(preset.description.to_string());
+                    (!preset.description.is_empty()).then_some(preset.description.clone());
                 let is_current =
                     Self::model_matches_current_selection(current_model.as_str(), &preset.slug);
                 let single_supported_effort = preset.supported_reasoning_efforts.len() == 1;
@@ -4776,7 +4761,7 @@ impl ChatScreen {
         }
 
         if items.is_empty() {
-            self.add_info_message("No models are available right now.".to_string(), None);
+            self.add_info_message("No models are available right now.".to_owned(), None);
             return;
         }
 
@@ -4789,7 +4774,7 @@ impl ChatScreen {
             items,
             header,
             is_searchable: true,
-            search_placeholder: Some("Search model".to_string()),
+            search_placeholder: Some("Search model".to_owned()),
             max_visible_rows: 20,
             initial_selected_idx,
             ..Default::default()
@@ -4800,7 +4785,7 @@ impl ChatScreen {
         let presets = collaboration_modes::presets_for_tui(self.models_manager.as_ref());
         if presets.is_empty() {
             self.add_info_message(
-                "No collaboration modes are available right now.".to_string(),
+                "No collaboration modes are available right now.".to_owned(),
                 None,
             );
             return;
@@ -4833,8 +4818,8 @@ impl ChatScreen {
             .collect();
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Select Collaboration Mode".to_string()),
-            subtitle: Some("Pick a collaboration preset.".to_string()),
+            title: Some("Select Collaboration Mode".to_owned()),
+            subtitle: Some("Pick a collaboration preset.".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             ..Default::default()
@@ -4851,7 +4836,7 @@ impl ChatScreen {
                 savfox_core::request_model_for_provider(&model_for_action, &provider_id);
             let effort_label = effort_for_action
                 .map(|effort| effort.to_string())
-                .unwrap_or_else(|| "default".to_string());
+                .unwrap_or_else(|| "default".to_owned());
             tx.send(AppEvent::SavfoxOp(Op::OverrideTurnContext {
                 cwd: None,
                 approval_policy: None,
@@ -4882,7 +4867,7 @@ impl ChatScreen {
     pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
         let (selected_provider_id, selected_model_slug) =
             parse_provider_prefixed_model(&preset.slug)
-                .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()))
+                .map(|(provider_id, model_slug)| (provider_id.to_owned(), model_slug.to_owned()))
                 .unwrap_or_else(|| (self.config.model_provider_id.clone(), preset.slug.clone()));
         let (default_effort, supported) = Self::reasoning_effort_options_for_model(
             &preset,
@@ -4949,7 +4934,7 @@ impl ChatScreen {
             .or_else(|| choices.iter().find_map(|choice| choice.stored))
             .or(Some(default_effort));
 
-        let model_slug = preset.slug.to_string();
+        let model_slug = preset.slug.clone();
         let is_current_model =
             Self::model_matches_current_selection(self.current_model(), &preset.slug);
         let highlight_choice = if is_current_model {
@@ -4968,7 +4953,7 @@ impl ChatScreen {
         let mut items: Vec<SelectionItem> = Vec::new();
         for choice in choices.iter() {
             let effort = choice.display;
-            let mut effort_label = Self::reasoning_effort_label(effort).to_string();
+            let mut effort_label = Self::reasoning_effort_label(effort).to_owned();
             if choice.stored == default_choice {
                 effort_label.push_str(" (default)");
             }
@@ -4979,7 +4964,7 @@ impl ChatScreen {
                     supported
                         .iter()
                         .find(|option| option.effort == effort)
-                        .map(|option| option.description.to_string())
+                        .map(|option| option.description.clone())
                 })
                 .filter(|text| !text.is_empty());
 
@@ -5085,7 +5070,7 @@ impl ChatScreen {
             normalized_model,
             effort
                 .map(|e| e.to_string())
-                .unwrap_or_else(|| "default".to_string())
+                .unwrap_or_else(|| "default".to_owned())
         );
     }
 
@@ -5125,11 +5110,11 @@ impl ChatScreen {
             let is_current =
                 Self::preset_matches_current(current_approval, current_sandbox, &preset);
             let name = if preset.id == "auto" && windows_degraded_sandbox_enabled {
-                "Default (non-elevated sandbox)".to_string()
+                "Default (non-elevated sandbox)".to_owned()
             } else {
-                preset.label.to_string()
+                preset.label.to_owned()
             };
-            let description = Some(preset.description.to_string());
+            let description = Some(preset.description.to_owned());
             let disabled_reason = match self.config.approval_policy.can_set(&preset.policy.approval)
             {
                 Ok(()) => None,
@@ -5224,7 +5209,7 @@ impl ChatScreen {
         });
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Update Model Permissions".to_string()),
+            title: Some("Update Model Permissions".to_owned()),
             footer_note,
             footer_hint: Some(standard_popup_hint_line()),
             items,
@@ -5241,8 +5226,8 @@ impl ChatScreen {
                 let description = spec.stage.experimental_menu_description()?;
                 Some(ExperimentalFeatureItem {
                     feature: spec.id,
-                    name: name.to_string(),
-                    description: description.to_string(),
+                    name: name.to_owned(),
+                    description: description.to_owned(),
                     enabled: self.config.features.enabled(spec.id),
                 })
             })
@@ -5369,22 +5354,22 @@ impl ChatScreen {
 
         let items = vec![
             SelectionItem {
-                name: "Yes, continue anyway".to_string(),
-                description: Some("Apply full access for this session".to_string()),
+                name: "Yes, continue anyway".to_owned(),
+                description: Some("Apply full access for this session".to_owned()),
                 actions: accept_actions,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "Yes, and don't ask again".to_string(),
-                description: Some("Enable full access and remember this choice".to_string()),
+                name: "Yes, and don't ask again".to_owned(),
+                description: Some("Enable full access and remember this choice".to_owned()),
                 actions: accept_and_remember_actions,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "Cancel".to_string(),
-                description: Some("Go back without enabling full access".to_string()),
+                name: "Cancel".to_owned(),
+                description: Some("Go back without enabling full access".to_owned()),
                 actions: deny_actions,
                 dismiss_on_select: true,
                 ..Default::default()
@@ -5477,14 +5462,14 @@ impl ChatScreen {
 
         let items = vec![
             SelectionItem {
-                name: "Continue".to_string(),
+                name: "Continue".to_owned(),
                 description: Some(format!("Apply {mode_label} for this session")),
                 actions: accept_actions,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "Continue and don't warn again".to_string(),
+                name: "Continue and don't warn again".to_owned(),
                 description: Some(format!("Enable {mode_label} and remember this choice")),
                 actions: accept_and_remember_actions,
                 dismiss_on_select: true,
@@ -5529,7 +5514,7 @@ impl ChatScreen {
             let preset_clone = preset;
             let items = vec![
                 SelectionItem {
-                    name: "Enable experimental sandbox".to_string(),
+                    name: "Enable experimental sandbox".to_owned(),
                     description: None,
                     actions: vec![Box::new(move |tx| {
                         tx.send(AppEvent::EnableWindowsSandboxForAgentMode {
@@ -5541,7 +5526,7 @@ impl ChatScreen {
                     ..Default::default()
                 },
                 SelectionItem {
-                    name: "Go back".to_string(),
+                    name: "Go back".to_owned(),
                     description: None,
                     actions: vec![Box::new(|tx| {
                         tx.send(AppEvent::OpenApprovalsPopup);
@@ -5585,9 +5570,9 @@ impl ChatScreen {
         ));
 
         let stay_label = if stay_full_access {
-            "Stay in Agent Full Access".to_string()
+            "Stay in Agent Full Access".to_owned()
         } else {
-            "Stay in Read-Only".to_string()
+            "Stay in Read-Only".to_owned()
         };
         let mut stay_actions = if stay_full_access {
             Vec::new()
@@ -5616,7 +5601,7 @@ impl ChatScreen {
         let accept_otel = self.otel_manager.clone();
         let items = vec![
             SelectionItem {
-                name: "Set up agent sandbox (requires elevation)".to_string(),
+                name: "Set up agent sandbox (requires elevation)".to_owned(),
                 description: None,
                 actions: vec![Box::new(move |tx| {
                     accept_otel.counter("savfox.windows_sandbox.elevated_prompt_accept", 1, &[]);
@@ -5683,9 +5668,9 @@ impl ChatScreen {
         let elevated_preset = preset.clone();
         let legacy_preset = preset;
         let stay_label = if stay_full_access {
-            "Stay in Agent Full Access".to_string()
+            "Stay in Agent Full Access".to_owned()
         } else {
-            "Stay in Read-Only".to_string()
+            "Stay in Read-Only".to_owned()
         };
         let mut stay_actions = if stay_full_access {
             Vec::new()
@@ -5712,7 +5697,7 @@ impl ChatScreen {
         );
         let items = vec![
             SelectionItem {
-                name: "Try elevated agent sandbox setup again".to_string(),
+                name: "Try elevated agent sandbox setup again".to_owned(),
                 description: None,
                 actions: vec![Box::new({
                     let otel = self.otel_manager.clone();
@@ -5728,7 +5713,7 @@ impl ChatScreen {
                 ..Default::default()
             },
             SelectionItem {
-                name: "Use non-elevated agent sandbox".to_string(),
+                name: "Use non-elevated agent sandbox".to_owned(),
                 description: None,
                 actions: vec![Box::new({
                     let otel = self.otel_manager.clone();
@@ -5791,11 +5776,11 @@ impl ChatScreen {
         // accidentally queue messages that will run under an unexpected mode.
         self.bottom_pane.set_composer_input_enabled(
             false,
-            Some("Input disabled until setup completes.".to_string()),
+            Some("Input disabled until setup completes.".to_owned()),
         );
         self.bottom_pane.ensure_status_indicator();
         self.bottom_pane.set_interrupt_hint_visible(false);
-        self.set_status_header("Setting up agent sandbox. This can take a minute.".to_string());
+        self.set_status_header("Setting up agent sandbox. This can take a minute.".to_owned());
         self.request_redraw();
     }
 
@@ -5928,7 +5913,7 @@ impl ChatScreen {
 
     /// Set the active model provider in the widget's config copy.
     pub(crate) fn set_model_provider(&mut self, provider_id: &str, provider: ModelProviderInfo) {
-        self.config.model_provider_id = provider_id.to_string();
+        self.config.model_provider_id = provider_id.to_owned();
         self.config.model_provider = provider;
         self.refresh_model_display();
         self.sync_image_paste_enabled();
@@ -5938,11 +5923,11 @@ impl ChatScreen {
     pub(crate) fn set_model(&mut self, model: &str) {
         self.current_collaboration_mode =
             self.current_collaboration_mode
-                .with_updates(Some(model.to_string()), None, None);
+                .with_updates(Some(model.to_owned()), None, None);
         if self.collaboration_modes_enabled()
             && let Some(mask) = self.active_collaboration_mask.as_mut()
         {
-            mask.model = Some(model.to_string());
+            mask.model = Some(model.to_owned());
         }
         self.refresh_model_display();
     }
@@ -6042,7 +6027,7 @@ impl ChatScreen {
             None => collaboration_modes::default_mask(models_manager)?,
         };
         if let Some(model_override) = model_override {
-            mask.model = Some(model_override.to_string());
+            mask.model = Some(model_override.to_owned());
         }
         Some(mask)
     }
@@ -6094,7 +6079,7 @@ impl ChatScreen {
         let cwd = &self.config.cwd;
         if let Some(rel) = relativize_to_home(cwd) {
             if rel.as_os_str().is_empty() {
-                "~".to_string()
+                "~".to_owned()
             } else {
                 format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display())
             }
@@ -6114,7 +6099,7 @@ impl ChatScreen {
     }
 
     fn model_display_with_reasoning_effort(&self) -> String {
-        let mut model = self.model_display_name().to_string();
+        let mut model = self.model_display_name().to_owned();
         if let Some(reasoning_effort) = self.effective_reasoning_effort() {
             model.push(' ');
             model.push_str(reasoning_effort.to_string().as_str());
@@ -6130,7 +6115,7 @@ impl ChatScreen {
                 .model_providers
                 .get(provider_id)
                 .map(|provider| provider.name.clone())
-                .unwrap_or_else(|| provider_id.to_string());
+                .unwrap_or_else(|| provider_id.to_owned());
         }
         self.config.model_provider.name.clone()
     }
@@ -6242,7 +6227,7 @@ impl ChatScreen {
         let placeholder_style = Style::default().add_modifier(Modifier::DIM | Modifier::ITALIC);
         Box::new(
             history_cell::SessionHeaderHistoryCell::new_startup_with_style(
-                model.to_string(),
+                model.to_owned(),
                 placeholder_style,
                 None,
                 config.cwd.clone(),
@@ -6297,7 +6282,7 @@ impl ChatScreen {
     fn rename_confirmation_cell(name: &str, session_id: Option<SessionId>) -> PlainHistoryCell {
         let resume_cmd = savfox_core::util::resume_command(Some(name), session_id)
             .unwrap_or_else(|| format!("savfox resume {name}"));
-        let name = name.to_string();
+        let name = name.to_owned();
         let line = vec![
             "• ".into(),
             "Session renamed to ".into(),
@@ -6319,8 +6304,8 @@ impl ChatScreen {
     pub(crate) fn add_connectors_output(&mut self) {
         if !self.connectors_enabled() {
             self.add_info_message(
-                "Apps are disabled.".to_string(),
-                Some("Enable the apps feature to use $ or /apps.".to_string()),
+                "Apps are disabled.".to_owned(),
+                Some("Enable the apps feature to use $ or /apps.".to_owned()),
             );
             return;
         }
@@ -6328,7 +6313,7 @@ impl ChatScreen {
         match self.connectors_cache.clone() {
             ConnectorsCacheState::Ready(snapshot) => {
                 if snapshot.connectors.is_empty() {
-                    self.add_info_message("No apps available.".to_string(), None);
+                    self.add_info_message("No apps available.".to_owned(), None);
                 } else {
                     self.open_connectors_popup(&snapshot.connectors);
                 }
@@ -6340,15 +6325,15 @@ impl ChatScreen {
             }
             ConnectorsCacheState::Loading => {
                 self.add_to_history(history_cell::new_info_event(
-                    "Apps are still loading.".to_string(),
-                    Some("Try again in a moment.".to_string()),
+                    "Apps are still loading.".to_owned(),
+                    Some("Try again in a moment.".to_owned()),
                 ));
             }
             ConnectorsCacheState::Uninitialized => {
                 self.prefetch_connectors();
                 self.add_to_history(history_cell::new_info_event(
-                    "Apps are still loading.".to_string(),
-                    Some("Try again in a moment.".to_string()),
+                    "Apps are still loading.".to_owned(),
+                    Some("Try again in a moment.".to_owned()),
                 ));
             }
         }
@@ -6398,7 +6383,7 @@ impl ChatScreen {
             };
             if let Some(install_url) = connector.install_url.clone() {
                 let title = connector_title.clone();
-                let instructions = instructions.to_string();
+                let instructions = instructions.to_owned();
                 let description = link_description.clone();
                 item.actions = vec![Box::new(move |tx| {
                     tx.send(AppEvent::OpenAppLink {
@@ -6410,15 +6395,15 @@ impl ChatScreen {
                     });
                 })];
                 item.dismiss_on_select = true;
-                item.selected_description = Some(selected_label.to_string());
+                item.selected_description = Some(selected_label.to_owned());
             } else {
                 item.actions = vec![Box::new(move |tx| {
                     tx.send(AppEvent::InsertHistoryCell(Box::new(
-                        history_cell::new_info_event(missing_label.to_string(), None),
+                        history_cell::new_info_event(missing_label.to_owned(), None),
                     )));
                 })];
                 item.dismiss_on_select = true;
-                item.selected_description = Some(missing_label.to_string());
+                item.selected_description = Some(missing_label.to_owned());
             }
             items.push(item);
         }
@@ -6428,7 +6413,7 @@ impl ChatScreen {
             footer_hint: Some(Self::connectors_popup_hint_line()),
             items,
             is_searchable: true,
-            search_placeholder: Some("Type to search apps".to_string()),
+            search_placeholder: Some("Type to search apps".to_owned()),
             ..Default::default()
         });
     }
@@ -6449,7 +6434,7 @@ impl ChatScreen {
         };
         match Self::connector_description(connector) {
             Some(description) => format!("{status_label} · {description}"),
-            None => status_label.to_string(),
+            None => status_label.to_owned(),
         }
     }
 
@@ -6663,7 +6648,7 @@ impl ChatScreen {
         let mut items: Vec<SelectionItem> = Vec::new();
 
         items.push(SelectionItem {
-            name: "Review against a base branch".to_string(),
+            name: "Review against a base branch".to_owned(),
             description: Some("(PR Style)".into()),
             actions: vec![Box::new({
                 let cwd = self.config.cwd.clone();
@@ -6676,7 +6661,7 @@ impl ChatScreen {
         });
 
         items.push(SelectionItem {
-            name: "Review uncommitted changes".to_string(),
+            name: "Review uncommitted changes".to_owned(),
             actions: vec![Box::new(move |tx: &AppEventSender| {
                 tx.send(AppEvent::SavfoxOp(Op::Review {
                     review_request: ReviewRequest {
@@ -6691,7 +6676,7 @@ impl ChatScreen {
 
         // New: Review a specific commit (opens commit picker)
         items.push(SelectionItem {
-            name: "Review a commit".to_string(),
+            name: "Review a commit".to_owned(),
             actions: vec![Box::new({
                 let cwd = self.config.cwd.clone();
                 move |tx| {
@@ -6703,7 +6688,7 @@ impl ChatScreen {
         });
 
         items.push(SelectionItem {
-            name: "Custom review instructions".to_string(),
+            name: "Custom review instructions".to_owned(),
             actions: vec![Box::new(move |tx| {
                 tx.send(AppEvent::OpenReviewCustomPrompt);
             })],
@@ -6723,7 +6708,7 @@ impl ChatScreen {
         let branches = local_git_branches(cwd).await;
         let current_branch = current_branch_name(cwd)
             .await
-            .unwrap_or_else(|| "(detached HEAD)".to_string());
+            .unwrap_or_else(|| "(detached HEAD)".to_owned());
         let mut items: Vec<SelectionItem> = Vec::with_capacity(branches.len());
 
         for option in branches {
@@ -6747,11 +6732,11 @@ impl ChatScreen {
         }
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Select a base branch".to_string()),
+            title: Some("Select a base branch".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             is_searchable: true,
-            search_placeholder: Some("Type to search branches".to_string()),
+            search_placeholder: Some("Type to search branches".to_owned()),
             ..Default::default()
         });
     }
@@ -6785,11 +6770,11 @@ impl ChatScreen {
         }
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Select a commit to review".to_string()),
+            title: Some("Select a commit to review".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             is_searchable: true,
-            search_placeholder: Some("Type to search commits".to_string()),
+            search_placeholder: Some("Type to search commits".to_owned()),
             ..Default::default()
         });
     }
@@ -6797,11 +6782,11 @@ impl ChatScreen {
     pub(crate) fn show_review_custom_prompt(&mut self) {
         let tx = self.app_event_tx.clone();
         let view = CustomPromptView::new(
-            "Custom review instructions".to_string(),
-            "Type instructions and press Enter".to_string(),
+            "Custom review instructions".to_owned(),
+            "Type instructions and press Enter".to_owned(),
             None,
             Box::new(move |prompt: String| {
-                let trimmed = prompt.trim().to_string();
+                let trimmed = prompt.trim().to_owned();
                 if trimmed.is_empty() {
                     return;
                 }
@@ -6942,14 +6927,14 @@ enum Notification {
 impl Notification {
     fn display(&self) -> String {
         match self {
-            Notification::AgentTurnComplete { response } => {
-                Notification::agent_turn_preview(response)
-                    .unwrap_or_else(|| "Agent turn complete".to_string())
+            Self::AgentTurnComplete { response } => {
+                Self::agent_turn_preview(response)
+                    .unwrap_or_else(|| "Agent turn complete".to_owned())
             }
-            Notification::ExecApprovalRequested { command } => {
+            Self::ExecApprovalRequested { command } => {
                 format!("Approval requested: {}", truncate_text(command, 30))
             }
-            Notification::EditApprovalRequested { cwd, changes } => {
+            Self::EditApprovalRequested { cwd, changes } => {
                 format!(
                     "Savfox wants to edit {}",
                     if changes.len() == 1 {
@@ -6960,7 +6945,7 @@ impl Notification {
                     }
                 )
             }
-            Notification::ElicitationRequested { server_name } => {
+            Self::ElicitationRequested { server_name } => {
                 format!("Approval requested by {server_name}")
             }
         }
@@ -6968,10 +6953,10 @@ impl Notification {
 
     fn type_name(&self) -> &str {
         match self {
-            Notification::AgentTurnComplete { .. } => "agent-turn-complete",
-            Notification::ExecApprovalRequested { .. }
-            | Notification::EditApprovalRequested { .. }
-            | Notification::ElicitationRequested { .. } => "approval-requested",
+            Self::AgentTurnComplete { .. } => "agent-turn-complete",
+            Self::ExecApprovalRequested { .. }
+            | Self::EditApprovalRequested { .. }
+            | Self::ElicitationRequested { .. } => "approval-requested",
         }
     }
 
@@ -7112,7 +7097,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         .or_else(|| {
             value_string(model, &["id", "model"])
                 .or_else(|| value_string(model, &["model_slug"]))
-                .map(|value| value.trim().to_string())
+                .map(|value| value.trim().to_owned())
         })?;
     if raw_id.is_empty() {
         return None;
@@ -7126,7 +7111,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
     let model_tail = model_id.rsplit('/').next().unwrap_or(model_id.as_str());
     let name = value_string(model, &["name", "display_name", "displayName", "title"])
         .or_else(|| value_string(model, &["model_slug"]))
-        .unwrap_or_else(|| model_tail.to_string());
+        .unwrap_or_else(|| model_tail.to_owned());
     let description = value_string(model, &["description", "remark"]).unwrap_or_default();
     let is_default = value_bool_any(model, &["is_default", "isDefault"]).unwrap_or(false);
     let is_disabled = value_bool_any(model, &["is_disabled", "disabled", "hidden"])
@@ -7148,7 +7133,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         .unwrap_or_else(|| {
             vec![ReasoningEffortPreset {
                 effort: default_reasoning_effort,
-                description: "Use provider default reasoning level".to_string(),
+                description: "Use provider default reasoning level".to_owned(),
             }]
         });
     let supports_personality =
@@ -7178,7 +7163,7 @@ fn value_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
         if let Some(text) = value.get(*key).and_then(serde_json::Value::as_str) {
             let trimmed = text.trim();
             if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+                return Some(trimmed.to_owned());
             }
         }
     }
@@ -7220,7 +7205,7 @@ fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningE
             })
             .and_then(|text| {
                 serde_json::from_value::<ReasoningEffortConfig>(serde_json::Value::String(
-                    text.to_string(),
+                    text.to_owned(),
                 ))
                 .ok()
             });
@@ -7231,8 +7216,7 @@ fn normalize_reasoning_presets(raw: &serde_json::Value) -> Option<Vec<ReasoningE
         let description = obj
             .get("description")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default().to_owned();
         presets.push(ReasoningEffortPreset {
             effort,
             description,
@@ -7299,7 +7283,7 @@ fn extract_first_bold(s: &str) -> Option<String> {
                     let inner = &s[start..j];
                     let trimmed = inner.trim();
                     if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
+                        return Some(trimmed.to_owned());
                     } else {
                         return None;
                     }
@@ -7360,7 +7344,7 @@ pub(crate) fn show_review_commit_picker_with_entries(
 
 fn format_duration_short(seconds: u64) -> String {
     if seconds < 60 {
-        "less than a minute".to_string()
+        "less than a minute".to_owned()
     } else if seconds < 3600 {
         format!("{}m", seconds / 60)
     } else if seconds < 86_400 {

@@ -18,7 +18,7 @@ impl Default for VoiceWakeState {
     fn default() -> Self {
         Self {
             enabled: false,
-            keyword: "hey assistant".to_string(),
+            keyword: "hey assistant".to_owned(),
             sensitivity: 0.5,
             auto_reply: true,
         }
@@ -54,7 +54,7 @@ pub async fn voicewake_set_handler(req: &mut Request, res: &mut Response) {
         state.enabled = enabled;
     }
     if let Some(keyword) = body.get("keyword").and_then(|v| v.as_str()) {
-        state.keyword = keyword.to_string();
+        state.keyword = keyword.to_owned();
     }
     if let Some(sensitivity) = body.get("sensitivity").and_then(|v| v.as_f64()) {
         state.sensitivity = sensitivity as f32;

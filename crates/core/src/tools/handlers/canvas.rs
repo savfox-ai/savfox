@@ -66,7 +66,7 @@ impl ToolHandler for CanvasHandler {
         };
         let args: CanvasArgs = parse_arguments(&arguments)?;
         let canvas_url =
-            std::env::var("SAVFOX_CANVAS_URL").unwrap_or_else(|_| DEFAULT_CANVAS_URL.to_string());
+            std::env::var("SAVFOX_CANVAS_URL").unwrap_or_else(|_| DEFAULT_CANVAS_URL.to_owned());
 
         let timeout = if args.action == "snapshot" {
             SNAPSHOT_TIMEOUT
@@ -86,25 +86,25 @@ impl ToolHandler for CanvasHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
                 if let Some(url) = &args.url {
-                    body.insert("url".to_string(), serde_json::Value::String(url.clone()));
+                    body.insert("url".to_owned(), serde_json::Value::String(url.clone()));
                 }
                 if let Some(title) = &args.title {
                     body.insert(
-                        "title".to_string(),
+                        "title".to_owned(),
                         serde_json::Value::String(title.clone()),
                     );
                 }
                 if let Some(width) = args.width {
-                    body.insert("width".to_string(), serde_json::Value::Number(width.into()));
+                    body.insert("width".to_owned(), serde_json::Value::Number(width.into()));
                 }
                 if let Some(height) = args.height {
                     body.insert(
-                        "height".to_string(),
+                        "height".to_owned(),
                         serde_json::Value::Number(height.into()),
                     );
                 }
@@ -120,7 +120,7 @@ impl ToolHandler for CanvasHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
@@ -134,16 +134,16 @@ impl ToolHandler for CanvasHandler {
             }
             "navigate" => {
                 let url = args.url.as_deref().ok_or_else(|| {
-                    FunctionCallError::RespondToModel("navigate requires 'url' field".to_string())
+                    FunctionCallError::RespondToModel("navigate requires 'url' field".to_owned())
                 })?;
                 let mut body = serde_json::Map::new();
                 body.insert(
-                    "url".to_string(),
-                    serde_json::Value::String(url.to_string()),
+                    "url".to_owned(),
+                    serde_json::Value::String(url.to_owned()),
                 );
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
@@ -158,17 +158,17 @@ impl ToolHandler for CanvasHandler {
             "eval" => {
                 let code = args.code.as_deref().ok_or_else(|| {
                     FunctionCallError::RespondToModel(
-                        "eval requires 'code' field with JavaScript".to_string(),
+                        "eval requires 'code' field with JavaScript".to_owned(),
                     )
                 })?;
                 let mut body = serde_json::Map::new();
                 body.insert(
-                    "code".to_string(),
-                    serde_json::Value::String(code.to_string()),
+                    "code".to_owned(),
+                    serde_json::Value::String(code.to_owned()),
                 );
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
@@ -184,13 +184,13 @@ impl ToolHandler for CanvasHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(format) = &args.format {
                     body.insert(
-                        "format".to_string(),
+                        "format".to_owned(),
                         serde_json::Value::String(format.clone()),
                     );
                 }
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
@@ -205,20 +205,20 @@ impl ToolHandler for CanvasHandler {
             "a2ui_push" => {
                 let mut body = serde_json::Map::new();
                 if let Some(command) = &args.command {
-                    body.insert("command".to_string(), command.clone());
+                    body.insert("command".to_owned(), command.clone());
                 }
                 if let Some(component) = &args.component {
                     body.insert(
-                        "component".to_string(),
+                        "component".to_owned(),
                         serde_json::Value::String(component.clone()),
                     );
                 }
                 if let Some(props) = &args.props {
-                    body.insert("props".to_string(), props.clone());
+                    body.insert("props".to_owned(), props.clone());
                 }
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }
@@ -234,7 +234,7 @@ impl ToolHandler for CanvasHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(node_id) = &args.node_id {
                     body.insert(
-                        "nodeId".to_string(),
+                        "nodeId".to_owned(),
                         serde_json::Value::String(node_id.clone()),
                     );
                 }

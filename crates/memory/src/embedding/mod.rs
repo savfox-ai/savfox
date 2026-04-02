@@ -24,7 +24,7 @@ pub fn create_embedding_provider(
             let key = api_keys
                 .openai
                 .as_ref()
-                .ok_or_else(|| EmbeddingError::MissingApiKey("openai".to_string()))?;
+                .ok_or_else(|| EmbeddingError::MissingApiKey("openai".to_owned()))?;
             Ok(Box::new(OpenAIEmbeddingProvider::new(
                 key.clone(),
                 model.clone(),
@@ -34,7 +34,7 @@ pub fn create_embedding_provider(
             let key = api_keys
                 .voyage
                 .as_ref()
-                .ok_or_else(|| EmbeddingError::MissingApiKey("voyage".to_string()))?;
+                .ok_or_else(|| EmbeddingError::MissingApiKey("voyage".to_owned()))?;
             Ok(Box::new(VoyageEmbeddingProvider::new(
                 key.clone(),
                 model.clone(),
@@ -44,7 +44,7 @@ pub fn create_embedding_provider(
             let key = api_keys
                 .gemini
                 .as_ref()
-                .ok_or_else(|| EmbeddingError::MissingApiKey("gemini".to_string()))?;
+                .ok_or_else(|| EmbeddingError::MissingApiKey("gemini".to_owned()))?;
             Ok(Box::new(GeminiEmbeddingProvider::new(
                 key.clone(),
                 model.clone(),
@@ -80,11 +80,13 @@ pub struct EmbeddingBatch {
     pub indices: Vec<usize>,
 }
 
+#[must_use] 
 pub fn estimate_tokens(text: &str) -> usize {
     let bytes = text.len();
     bytes / 4 + 1
 }
 
+#[must_use] 
 pub fn split_into_batches(texts: &[String], max_tokens_per_batch: usize) -> Vec<EmbeddingBatch> {
     let mut batches = Vec::new();
     let mut current_texts = Vec::new();

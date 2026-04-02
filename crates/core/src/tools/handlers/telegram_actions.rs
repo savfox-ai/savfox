@@ -45,7 +45,7 @@ impl ToolHandler for TelegramActionsHandler {
 
         let token = std::env::var("TELEGRAM_BOT_TOKEN").map_err(|_| {
             FunctionCallError::RespondToModel(
-                "TELEGRAM_BOT_TOKEN environment variable is not set".to_string(),
+                "TELEGRAM_BOT_TOKEN environment variable is not set".to_owned(),
             )
         })?;
 

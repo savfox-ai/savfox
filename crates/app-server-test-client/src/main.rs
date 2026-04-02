@@ -165,7 +165,7 @@ fn trigger_cmd_approval(
 ) -> Result<()> {
     let default_prompt =
         "Run `touch /tmp/should-trigger-approval` so I can confirm the file exists.";
-    let message = user_message.unwrap_or_else(|| default_prompt.to_string());
+    let message = user_message.unwrap_or_else(|| default_prompt.to_owned());
     send_message_v2_with_policies(
         savfox_bin,
         config_overrides,
@@ -184,7 +184,7 @@ fn trigger_patch_approval(
 ) -> Result<()> {
     let default_prompt =
         "Create a file named APPROVAL_DEMO.txt containing a short hello message using apply_patch.";
-    let message = user_message.unwrap_or_else(|| default_prompt.to_string());
+    let message = user_message.unwrap_or_else(|| default_prompt.to_owned());
     send_message_v2_with_policies(
         savfox_bin,
         config_overrides,
@@ -204,7 +204,7 @@ fn no_trigger_cmd_approval(
     send_message_v2_with_policies(
         savfox_bin,
         config_overrides,
-        prompt.to_string(),
+        prompt.to_owned(),
         None,
         None,
         dynamic_tools,
@@ -341,7 +341,7 @@ fn parse_dynamic_tools_arg(dynamic_tools: &Option<String>) -> Result<Option<Vec<
         fs::read_to_string(Path::new(path))
             .with_context(|| format!("read dynamic tools file {path}"))?
     } else {
-        raw_arg.to_string()
+        raw_arg.to_owned()
     };
 
     let value: Value = serde_json::from_str(&raw_json).context("parse dynamic tools JSON")?;
@@ -398,9 +398,9 @@ impl SavfoxClient {
             request_id: request_id.clone(),
             params: InitializeParams {
                 client_info: ClientInfo {
-                    name: "savfox-toy-app-server".to_string(),
-                    title: Some("Savfox Toy App Server".to_string()),
-                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    name: "savfox-toy-app-server".to_owned(),
+                    title: Some("Savfox Toy App Server".to_owned()),
+                    version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
                 capabilities: Some(InitializeCapabilities {
                     experimental_api: true,

@@ -41,7 +41,7 @@ pub async fn maybe_migrate_personality(
     let model_provider_id = config_toml
         .model_provider
         .clone()
-        .unwrap_or_else(|| "openai".to_string());
+        .unwrap_or_else(|| "openai".to_owned());
 
     if !has_recorded_sessions(savfox_home, model_provider_id.as_str()).await? {
         create_marker(&marker_path).await?;

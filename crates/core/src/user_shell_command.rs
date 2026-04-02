@@ -26,18 +26,18 @@ fn format_user_shell_command_body(
     turn_context: &TurnContext,
 ) -> String {
     let mut sections = Vec::new();
-    sections.push("<command>".to_string());
-    sections.push(command.to_string());
-    sections.push("</command>".to_string());
-    sections.push("<result>".to_string());
+    sections.push("<command>".to_owned());
+    sections.push(command.to_owned());
+    sections.push("</command>".to_owned());
+    sections.push("<result>".to_owned());
     sections.push(format!("Exit code: {}", exec_output.exit_code));
     sections.push(format_duration_line(exec_output.duration));
-    sections.push("Output:".to_string());
+    sections.push("Output:".to_owned());
     sections.push(format_exec_output_str(
         exec_output,
         turn_context.truncation_policy,
     ));
-    sections.push("</result>".to_string());
+    sections.push("</result>".to_owned());
     sections.join("\n")
 }
 
@@ -57,7 +57,7 @@ pub fn user_shell_command_record_item(
 ) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
             text: format_user_shell_command_record(command, exec_output, turn_context),
         }],

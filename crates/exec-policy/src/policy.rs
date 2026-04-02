@@ -15,14 +15,17 @@ pub struct Policy {
 }
 
 impl Policy {
+    #[must_use] 
     pub fn new(rules_by_program: MultiMap<String, RuleRef>) -> Self {
         Self { rules_by_program }
     }
 
+    #[must_use] 
     pub fn empty() -> Self {
         Self::new(MultiMap::new())
     }
 
+    #[must_use] 
     pub fn rules(&self) -> &MultiMap<String, RuleRef> {
         &self.rules_by_program
     }
@@ -40,7 +43,7 @@ impl Policy {
                 }
 
                 let mut prefix = Vec::with_capacity(prefix_rule.pattern.rest.len() + 1);
-                prefix.push(prefix_rule.pattern.first.as_ref().to_string());
+                prefix.push(prefix_rule.pattern.first.as_ref().to_owned());
                 prefix.extend(prefix_rule.pattern.rest.iter().map(render_pattern_token));
                 prefixes.push(prefix);
             }
@@ -54,7 +57,7 @@ impl Policy {
     pub fn add_prefix_rule(&mut self, prefix: &[String], decision: Decision) -> Result<()> {
         let (first_token, rest) = prefix
             .split_first()
-            .ok_or_else(|| Error::InvalidPattern("prefix cannot be empty".to_string()))?;
+            .ok_or_else(|| Error::InvalidPattern("prefix cannot be empty".to_owned()))?;
 
         let rule: RuleRef = Arc::new(PrefixRule {
             pattern: PrefixPattern {
@@ -109,6 +112,7 @@ impl Policy {
     ///
     /// If `heuristics_fallback.is_some()`, then the returned vector is
     /// guaranteed to be non-empty.
+    #[must_use] 
     pub fn matches_for_command(
         &self,
         cmd: &[String],
@@ -152,6 +156,7 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
+    #[must_use] 
     pub fn is_match(&self) -> bool {
         self.matched_rules
             .iter()

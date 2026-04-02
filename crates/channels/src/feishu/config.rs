@@ -31,6 +31,7 @@ pub struct FeishuChannelConfig {
 }
 
 impl FeishuChannelConfig {
+    #[must_use] 
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -63,7 +64,7 @@ impl FeishuChannelConfig {
             first_non_empty_config_string(raw, &["encryptKey", "encrypt_key", "event_encrypt_key"]);
         let receive_id_type =
             first_non_empty_config_string(raw, &["receiveIdType", "receive_id_type", "id_type"])
-                .unwrap_or_else(|| "chat_id".to_string());
+                .unwrap_or_else(|| "chat_id".to_owned());
         let inbound_mode = feishu_inbound_mode(raw);
         let stream_locale =
             first_non_empty_config_string(raw, &["streamLocale", "stream_locale", "locale"]);
@@ -125,6 +126,7 @@ impl FeishuChannelConfig {
                     .is_some_and(|value| !value.trim().is_empty()))
     }
 
+    #[must_use] 
     pub fn stream_enabled(&self) -> bool {
         self.inbound_mode == FeishuInboundMode::Stream
     }
@@ -161,7 +163,7 @@ fn default_stream_config() -> StreamConfig {
 
 fn configured_base_url(kind: &str, raw: &serde_json::Map<String, Value>) -> String {
     first_non_empty_config_string(raw, &["baseUrl", "base_url", "apiBaseUrl", "api_base_url"])
-        .unwrap_or_else(|| default_base_url(kind).to_string())
+        .unwrap_or_else(|| default_base_url(kind).to_owned())
 }
 
 fn feishu_inbound_mode(raw: &serde_json::Map<String, Value>) -> FeishuInboundMode {
@@ -204,7 +206,7 @@ fn first_non_empty_config_string(
             if text.is_empty() {
                 None
             } else {
-                Some(text.to_string())
+                Some(text.to_owned())
             }
         })
     })
@@ -288,9 +290,7 @@ pub async fn load_feishu_channel_config(
         .await
         .context("failed to load channel configs")?;
     Ok(all_configs
-        .iter()
-        .filter_map(FeishuChannelConfig::from_channel_config)
-        .next())
+        .iter().find_map(FeishuChannelConfig::from_channel_config))
 }
 
 pub async fn fetch_feishu_tenant_access_token(
@@ -339,7 +339,7 @@ pub async fn fetch_feishu_tenant_access_token(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("Feishu tenant access token response missing token"))?;
-    Ok(token.to_string())
+    Ok(token.to_owned())
 }
 
 pub(crate) fn build_feishu_sdk_config(

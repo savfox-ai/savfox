@@ -113,7 +113,7 @@ pub(crate) fn compose_rate_limit_data(
                 let label: String = primary
                     .window_minutes
                     .map(get_limits_duration)
-                    .unwrap_or_else(|| "5h".to_string());
+                    .unwrap_or_else(|| "5h".to_owned());
                 let label = capitalize_first(&label);
                 rows.push(StatusRateLimitRow {
                     label: format!("{label} limit"),
@@ -128,7 +128,7 @@ pub(crate) fn compose_rate_limit_data(
                 let label: String = secondary
                     .window_minutes
                     .map(get_limits_duration)
-                    .unwrap_or_else(|| "weekly".to_string());
+                    .unwrap_or_else(|| "weekly".to_owned());
                 let label = capitalize_first(&label);
                 rows.push(StatusRateLimitRow {
                     label: format!("{label} limit"),
@@ -186,14 +186,14 @@ fn credit_status_row(credits: &CreditsSnapshotDisplay) -> Option<StatusRateLimit
     }
     if credits.unlimited {
         return Some(StatusRateLimitRow {
-            label: "Credits".to_string(),
-            value: StatusRateLimitValue::Text("Unlimited".to_string()),
+            label: "Credits".to_owned(),
+            value: StatusRateLimitValue::Text("Unlimited".to_owned()),
         });
     }
     let balance = credits.balance.as_ref()?;
     let display_balance = format_credit_balance(balance)?;
     Some(StatusRateLimitRow {
-        label: "Credits".to_string(),
+        label: "Credits".to_owned(),
         value: StatusRateLimitValue::Text(format!("{display_balance} credits")),
     })
 }

@@ -58,19 +58,19 @@ const AUTH_PROVIDER_DISPLAY_NAME: &str = "OpenAI";
 impl From<&AuthDotJson> for ProviderStoreFile {
     fn from(auth: &AuthDotJson) -> Self {
         let auth_type = if auth.tokens.is_some() || auth.auth_mode == Some(AuthMode::Chatgpt) {
-            "chatgpt_oauth".to_string()
+            "chatgpt_oauth".to_owned()
         } else {
-            "api_key".to_string()
+            "api_key".to_owned()
         };
         Self {
             version: PROVIDER_STORE_FILE_VERSION,
-            id: AUTH_PROVIDER_ID.to_string(),
-            provider_id: AUTH_PROVIDER_ID.to_string(),
-            name: AUTH_PROVIDER_DISPLAY_NAME.to_string(),
+            id: AUTH_PROVIDER_ID.to_owned(),
+            provider_id: AUTH_PROVIDER_ID.to_owned(),
+            name: AUTH_PROVIDER_DISPLAY_NAME.to_owned(),
             slug: String::new(),
             auth: Some(ProviderStoreAuth {
                 auth_type,
-                env_key: Some("OPENAI_API_KEY".to_string()),
+                env_key: Some("OPENAI_API_KEY".to_owned()),
                 api_key: auth.openai_api_key.clone(),
                 auth_mode: auth.auth_mode,
                 tokens: auth.tokens.clone(),
@@ -140,11 +140,10 @@ impl FileAuthStorage {
         let mut file = File::open(auth_file)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        if let Ok(provider_file) = serde_json::from_str::<ProviderStoreFile>(&contents) {
-            if let Some(auth) = provider_file.into_auth_dot_json() {
+        if let Ok(provider_file) = serde_json::from_str::<ProviderStoreFile>(&contents)
+            && let Some(auth) = provider_file.into_auth_dot_json() {
                 return Ok(auth);
             }
-        }
         serde_json::from_str(&contents).map_err(Into::into)
     }
 
@@ -220,14 +219,13 @@ impl FileAuthStorage {
             provider_file.id = auth_file
                 .file_stem()
                 .and_then(|stem| stem.to_str())
-                .unwrap_or(AUTH_PROVIDER_ID)
-                .to_string();
+                .unwrap_or(AUTH_PROVIDER_ID).to_owned();
         }
         if provider_file.provider_id.trim().is_empty() {
-            provider_file.provider_id = AUTH_PROVIDER_ID.to_string();
+            provider_file.provider_id = AUTH_PROVIDER_ID.to_owned();
         }
         if provider_file.name.trim().is_empty() {
-            provider_file.name = AUTH_PROVIDER_DISPLAY_NAME.to_string();
+            provider_file.name = AUTH_PROVIDER_DISPLAY_NAME.to_owned();
         }
         if provider_file.slug.trim().is_empty() && !provider_file.name.trim().is_empty() {
             provider_file.slug =

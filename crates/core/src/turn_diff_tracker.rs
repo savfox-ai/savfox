@@ -41,6 +41,7 @@ pub struct TurnDiffTracker {
 }
 
 impl TurnDiffTracker {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -91,7 +92,7 @@ impl TurnDiffTracker {
                         path: path.clone(),
                         content: vec![],
                         mode: FileMode::Regular,
-                        oid: ZERO_OID.to_string(),
+                        oid: ZERO_OID.to_owned(),
                     })
                 };
 
@@ -107,23 +108,20 @@ impl TurnDiffTracker {
                 ..
             } = change
             {
-                let uuid_filename = match self.external_to_temp_name.get(path) {
-                    Some(i) => i.clone(),
-                    None => {
-                        // This should be rare, but if we haven't mapped the source, create it with
-                        // no baseline.
-                        let i = Uuid::new_v4().to_string();
-                        self.baseline_file_info.insert(
-                            i.clone(),
-                            BaselineFileInfo {
-                                path: path.clone(),
-                                content: vec![],
-                                mode: FileMode::Regular,
-                                oid: ZERO_OID.to_string(),
-                            },
-                        );
-                        i
-                    }
+                let uuid_filename = if let Some(i) = self.external_to_temp_name.get(path) { i.clone() } else {
+                    // This should be rare, but if we haven't mapped the source, create it with
+                    // no baseline.
+                    let i = Uuid::new_v4().to_string();
+                    self.baseline_file_info.insert(
+                        i.clone(),
+                        BaselineFileInfo {
+                            path: path.clone(),
+                            content: vec![],
+                            mode: FileMode::Regular,
+                            oid: ZERO_OID.to_owned(),
+                        },
+                    );
+                    i
                 };
                 // Update current external mapping for temp file name.
                 self.temp_name_to_current_path
@@ -225,7 +223,7 @@ impl TurnDiffTracker {
         if !output.status.success() {
             return None;
         }
-        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         if s.len() == 40 { Some(s) } else { None }
     }
 
@@ -267,7 +265,7 @@ impl TurnDiffTracker {
             if let Some(info) = self.baseline_file_info.get(internal_file_name) {
                 (info.path.clone(), info.mode, info.oid.clone())
             } else {
-                (PathBuf::new(), FileMode::Regular, ZERO_OID.to_string())
+                (PathBuf::new(), FileMode::Regular, ZERO_OID.to_owned())
             }
         };
         let current_external_path = match self.get_path_for_internal(internal_file_name) {
@@ -299,7 +297,7 @@ impl TurnDiffTracker {
                     })
             }
         } else {
-            ZERO_OID.to_string()
+            ZERO_OID.to_owned()
         };
 
         // Borrow baseline content only after all &mut self uses are done.
@@ -350,12 +348,12 @@ impl TurnDiffTracker {
             let old_header = if left_present {
                 format!("a/{left_display}")
             } else {
-                DEV_NULL.to_string()
+                DEV_NULL.to_owned()
             };
             let new_header = if right_bytes.is_some() {
                 format!("b/{right_display}")
             } else {
-                DEV_NULL.to_string()
+                DEV_NULL.to_owned()
             };
 
             let diff = similar::TextDiff::from_lines(l, r);
@@ -371,12 +369,12 @@ impl TurnDiffTracker {
             let old_header = if left_present {
                 format!("a/{left_display}")
             } else {
-                DEV_NULL.to_string()
+                DEV_NULL.to_owned()
             };
             let new_header = if right_bytes.is_some() {
                 format!("b/{right_display}")
             } else {
-                DEV_NULL.to_string()
+                DEV_NULL.to_owned()
             };
             aggregated.push_str(&format!("--- {old_header}\n"));
             aggregated.push_str(&format!("+++ {new_header}\n"));
@@ -415,10 +413,10 @@ enum FileMode {
 impl FileMode {
     fn as_str(self) -> &'static str {
         match self {
-            FileMode::Regular => "100644",
+            Self::Regular => "100644",
             #[cfg(unix)]
             FileMode::Executable => "100755",
-            FileMode::Symlink => "120000",
+            Self::Symlink => "120000",
         }
     }
 }

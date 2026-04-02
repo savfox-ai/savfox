@@ -133,36 +133,33 @@ async fn run_coordinator(session_key: String, mut inbox: mpsc::Receiver<InboundT
                     break;
                 }
                 next = inbox.recv() => {
-                    match next {
-                        Some(overflow_task) => {
-                            // New message while primary is running → Speculative mode:
-                            // spawn an independent pipeline for the overflow message.
-                            overflow_served = true;
-                            let ogw = Arc::clone(&overflow_task.gateway_channel);
-                            let oss = Arc::clone(&overflow_task.session_store);
-                            let op = overflow_task.platform;
-                            let oc = overflow_task.channel_id;
-                            let oprompt = overflow_task.prompt;
-                            let oname = overflow_task.name;
-                            let ometa = overflow_task.meta;
-                            tokio::spawn(async move {
-                                super::spawn_start_thread_pipeline_with_meta(
-                                    ogw,
-                                    oss,
-                                    op,
-                                    oc,
-                                    oprompt,
-                                    oname,
-                                    ometa,
-                                )
-                                .await;
-                            });
-                        }
-                        None => {
-                            // Inbox closed, wait for primary then exit.
-                            let _ = primary_handle.await;
-                            break;
-                        }
+                    if let Some(overflow_task) = next {
+                        // New message while primary is running → Speculative mode:
+                        // spawn an independent pipeline for the overflow message.
+                        overflow_served = true;
+                        let ogw = Arc::clone(&overflow_task.gateway_channel);
+                        let oss = Arc::clone(&overflow_task.session_store);
+                        let op = overflow_task.platform;
+                        let oc = overflow_task.channel_id;
+                        let oprompt = overflow_task.prompt;
+                        let oname = overflow_task.name;
+                        let ometa = overflow_task.meta;
+                        tokio::spawn(async move {
+                            super::spawn_start_thread_pipeline_with_meta(
+                                ogw,
+                                oss,
+                                op,
+                                oc,
+                                oprompt,
+                                oname,
+                                ometa,
+                            )
+                            .await;
+                        });
+                    } else {
+                        // Inbox closed, wait for primary then exit.
+                        let _ = primary_handle.await;
+                        break;
                     }
                 }
             }

@@ -218,7 +218,7 @@ fn emit_project_config_warnings(app_event_tx: &AppEventSender, config: &Config) 
                 .disabled_reason
                 .as_ref()
                 .map(ToString::to_string)
-                .unwrap_or_else(|| "config.toml is disabled.".to_string()),
+                .unwrap_or_else(|| "config.toml is disabled.".to_owned()),
         ));
     }
 
@@ -229,8 +229,7 @@ fn emit_project_config_warnings(app_event_tx: &AppEventSender, config: &Config) 
     let mut message = concat!(
         "Project config.toml files are disabled in the following folders. ",
         "Settings in those files are ignored, but skills and exec policies still load.\n",
-    )
-    .to_string();
+    ).to_owned();
     for (index, (folder, reason)) in disabled_folders.iter().enumerate() {
         let display_index = index + 1;
         message.push_str(&format!("    {display_index}. {folder}\n"));
@@ -500,7 +499,7 @@ impl App {
             feedback: self.feedback.clone(),
             is_first_run: false,
             feedback_audience: self.feedback_audience,
-            model: Some(self.chat_screen.current_model().to_string()),
+            model: Some(self.chat_screen.current_model().to_owned()),
             otel_manager: self.otel_manager.clone(),
         }
     }
@@ -539,7 +538,7 @@ impl App {
     fn openai_connect_server_options(&self) -> ServerOptions {
         ServerOptions::new(
             self.config.savfox_home.clone(),
-            CLIENT_ID.to_string(),
+            CLIENT_ID.to_owned(),
             self.config.forced_chatgpt_workspace_id.clone(),
             self.config.cli_auth_credentials_store_mode,
         )
@@ -697,7 +696,7 @@ impl App {
     fn open_agent_picker(&mut self) {
         if self.session_event_channels.is_empty() {
             self.chat_screen
-                .add_info_message("No agents available yet.".to_string(), None);
+                .add_info_message("No agents available yet.".to_owned(), None);
             return;
         }
 
@@ -759,8 +758,8 @@ impl App {
             .collect();
 
         self.chat_screen.show_selection_view(SelectionViewParams {
-            title: Some("Agents".to_string()),
-            subtitle: Some("Select a session to focus".to_string()),
+            title: Some("Agents".to_owned()),
+            subtitle: Some("Select a session to focus".to_owned()),
             footer_hint: Some(standard_popup_hint_line()),
             items,
             initial_selected_idx,
@@ -1252,7 +1251,7 @@ impl App {
     async fn handle_event(&mut self, tui: &mut tui::Tui, event: AppEvent) -> Result<AppRunControl> {
         match event {
             AppEvent::NewSession => {
-                let model = self.chat_screen.current_model().to_string();
+                let model = self.chat_screen.current_model().to_owned();
                 let summary = session_summary(
                     self.chat_screen.token_usage(),
                     self.chat_screen.session_id(),
@@ -1417,7 +1416,7 @@ impl App {
                     }
                 } else {
                     self.chat_screen
-                        .add_error_message("Current session is not ready to fork yet.".to_string());
+                        .add_error_message("Current session is not ready to fork yet.".to_owned());
                 }
 
                 tui.frame_requester().schedule_frame();
@@ -1497,7 +1496,7 @@ impl App {
                 };
                 self.overlay = Some(Overlay::new_static_with_lines(
                     pager_lines,
-                    "D I F F".to_string(),
+                    "D I F F".to_owned(),
                 ));
                 tui.frame_requester().schedule_frame();
             }
@@ -1552,10 +1551,9 @@ impl App {
                             Ok(server) => {
                                 let auth_url = server.auth_url.clone();
                                 self.chat_screen.add_info_message(
-                                    "Opening browser for ChatGPT sign-in...".to_string(),
+                                    "Opening browser for ChatGPT sign-in...".to_owned(),
                                     Some(
-                                        "Complete sign-in, then Savfox will import OpenAI models automatically."
-                                            .to_string(),
+                                        "Complete sign-in, then Savfox will import OpenAI models automatically.".to_owned(),
                                     ),
                                 );
                                 self.chat_screen.add_info_message(
@@ -1586,7 +1584,7 @@ impl App {
                     }
                     OpenAiConnectAuthMethod::Headless => {
                         self.chat_screen.add_info_message(
-                            "Starting headless ChatGPT sign-in...".to_string(),
+                            "Starting headless ChatGPT sign-in...".to_owned(),
                             None,
                         );
                         let mut opts = self.openai_connect_server_options();
@@ -1633,7 +1631,7 @@ impl App {
                     format!(
                         "Headless ChatGPT sign-in:\n1) Open {verification_url}\n2) Enter code: {user_code}"
                     ),
-                    Some("Savfox is waiting for authorization...".to_string()),
+                    Some("Savfox is waiting for authorization...".to_owned()),
                 );
             }
             AppEvent::OpenAiConnectAuthCompleted {
@@ -1711,7 +1709,7 @@ impl App {
 
                 if result.models.is_empty() {
                     self.chat_screen.add_error_message(
-                        "Connected, but the provider did not return any models.".to_string(),
+                        "Connected, but the provider did not return any models.".to_owned(),
                     );
                     return Ok(AppRunControl::Continue);
                 }
@@ -1744,8 +1742,7 @@ impl App {
                     && account_id_exists(self.config.savfox_home.as_path(), &account_id)
                 {
                     let hint = format!(
-                        "Account '{}' already exists. Please choose a different name.",
-                        account_id
+                        "Account '{account_id}' already exists. Please choose a different name."
                     );
                     self.chat_screen
                         .show_provider_naming_prompt(result, Some(hint));
@@ -1765,8 +1762,7 @@ impl App {
                     result.api_key.as_deref(),
                 ) {
                     self.chat_screen.add_error_message(format!(
-                        "Failed to save provider models for {}: {err}",
-                        account_id
+                        "Failed to save provider models for {account_id}: {err}"
                     ));
                     return Ok(AppRunControl::Continue);
                 }
@@ -1825,7 +1821,7 @@ impl App {
                 // existing prefix and use the bare model slug so that the
                 // correct account_id is applied below.
                 let normalized_model = parse_provider_prefixed_model(default_model.as_str())
-                    .map(|(_, slug)| slug.to_string())
+                    .map(|(_, slug)| slug.to_owned())
                     .unwrap_or(default_model);
 
                 self.app_event_tx
@@ -1850,9 +1846,9 @@ impl App {
                 if !result.base_url.trim().is_empty() {
                     edits.push(ConfigEdit::SetPath {
                         segments: vec![
-                            "model_providers".to_string(),
+                            "model_providers".to_owned(),
                             account_id.clone(),
-                            "base_url".to_string(),
+                            "base_url".to_owned(),
                         ],
                         value: toml_edit_value(result.base_url.clone()),
                     });
@@ -2127,10 +2123,10 @@ impl App {
                                 self.chat_screen.add_info_message(
                                     match mode {
                                         WindowsSandboxEnableMode::Elevated => {
-                                            "Enabled elevated agent sandbox.".to_string()
+                                            "Enabled elevated agent sandbox.".to_owned()
                                         }
                                         WindowsSandboxEnableMode::Legacy => {
-                                            "Enabled non-elevated agent sandbox.".to_string()
+                                            "Enabled non-elevated agent sandbox.".to_owned()
                                         }
                                     },
                                     None,
@@ -2304,7 +2300,7 @@ impl App {
                             // in the config file so that the user does not miss the feature
                             // once it gets globally released.
                             builder = builder.with_edits(vec![ConfigEdit::ClearPath {
-                                segments: vec!["features".to_string(), feature_key.to_string()],
+                                segments: vec!["features".to_owned(), feature_key.to_owned()],
                             }]);
                         }
                     }
@@ -2481,7 +2477,7 @@ impl App {
                     let diff_summary = DiffSummary::new(changes, cwd);
                     self.overlay = Some(Overlay::new_static_with_renderables(
                         vec![diff_summary.into()],
-                        "P A T C H".to_string(),
+                        "P A T C H".to_owned(),
                     ));
                 }
                 ApprovalRequest::Exec { command, .. } => {
@@ -2490,7 +2486,7 @@ impl App {
                     let full_cmd_lines = highlight_bash_to_lines(&full_cmd);
                     self.overlay = Some(Overlay::new_static_with_lines(
                         full_cmd_lines,
-                        "E X E C".to_string(),
+                        "E X E C".to_owned(),
                     ));
                 }
                 ApprovalRequest::McpElicitation {
@@ -2507,7 +2503,7 @@ impl App {
                     .wrap(Wrap { trim: false });
                     self.overlay = Some(Overlay::new_static_with_renderables(
                         vec![Box::new(paragraph)],
-                        "E L I C I T A T I O N".to_string(),
+                        "E L I C I T A T I O N".to_owned(),
                     ));
                 }
             },
@@ -2634,7 +2630,7 @@ impl App {
     }
 
     fn current_model_display(&self) -> String {
-        let model = self.chat_screen.current_model().to_string();
+        let model = self.chat_screen.current_model().to_owned();
         let reasoning = match self.config.model_reasoning_effort {
             None | Some(ReasoningEffortConfig::None) => None,
             effort => Self::reasoning_label_for(model.as_str(), effort),
@@ -2671,12 +2667,11 @@ impl App {
             .trim_end_matches(".git")
             .rsplit('/')
             .next()
-            .unwrap_or("skill")
-            .to_string();
+            .unwrap_or("skill").to_owned();
 
         if name.is_empty() || name == "." || name == ".." {
             self.chat_screen
-                .add_error_message("Could not derive skill name from URL.".to_string());
+                .add_error_message("Could not derive skill name from URL.".to_owned());
             return;
         }
 
@@ -2710,7 +2705,7 @@ impl App {
             }
             Ok(result) => {
                 self.chat_screen
-                    .add_error_message(result.error.unwrap_or_else(|| "unknown error".to_string()));
+                    .add_error_message(result.error.unwrap_or_else(|| "unknown error".to_owned()));
             }
             Err(err) => {
                 self.chat_screen
@@ -2725,8 +2720,7 @@ impl App {
             Err(external_editor::EditorError::MissingEditor) => {
                 self.chat_screen
                     .add_to_history(history_cell::new_error_event(
-                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Savfox."
-                        .to_string(),
+                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Savfox.".to_owned(),
                 ));
                 self.reset_external_editor_state(tui);
                 return;
@@ -2752,7 +2746,7 @@ impl App {
         match editor_result {
             Ok(new_text) => {
                 // Trim trailing whitespace
-                let cleaned = new_text.trim_end().to_string();
+                let cleaned = new_text.trim_end().to_owned();
                 self.chat_screen.apply_external_edit(cleaned);
             }
             Err(err) => {
@@ -2769,7 +2763,7 @@ impl App {
         self.chat_screen
             .set_external_editor_state(ExternalEditorState::Requested);
         self.chat_screen.set_footer_hint_override(Some(vec![(
-            EXTERNAL_EDITOR_HINT.to_string(),
+            EXTERNAL_EDITOR_HINT.to_owned(),
             String::new(),
         )]));
         tui.frame_requester().schedule_frame();

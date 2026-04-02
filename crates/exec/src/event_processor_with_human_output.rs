@@ -170,9 +170,9 @@ impl EventProcessor for EventProcessorWithHumanOutput {
             }
             EventMsg::McpStartupUpdate(update) => {
                 let status_text = match update.status {
-                    savfox_core::protocol::McpStartupStatus::Starting => "starting".to_string(),
-                    savfox_core::protocol::McpStartupStatus::Ready => "ready".to_string(),
-                    savfox_core::protocol::McpStartupStatus::Cancelled => "cancelled".to_string(),
+                    savfox_core::protocol::McpStartupStatus::Starting => "starting".to_owned(),
+                    savfox_core::protocol::McpStartupStatus::Ready => "ready".to_owned(),
+                    savfox_core::protocol::McpStartupStatus::Cancelled => "cancelled".to_owned(),
                     savfox_core::protocol::McpStartupStatus::Failed { ref error } => {
                         format!("failed: {error}")
                     }
@@ -198,7 +198,7 @@ impl EventProcessor for EventProcessorWithHumanOutput {
                     parts.push(format!("cancelled: {}", summary.cancelled.join(", ")));
                 }
                 let joined = if parts.is_empty() {
-                    "no servers".to_string()
+                    "no servers".to_owned()
                 } else {
                     parts.join("; ")
                 };
@@ -301,15 +301,12 @@ impl EventProcessor for EventProcessorWithHumanOutput {
                     .take(MAX_OUTPUT_LINES_FOR_EXEC_TOOL_CALL)
                     .collect::<Vec<_>>()
                     .join("\n");
-                match exit_code {
-                    0 => {
-                        let title = format!(" succeeded{duration}:");
-                        ts_msg!(self, "{}", title.style(self.green));
-                    }
-                    _ => {
-                        let title = format!(" exited {exit_code}{duration}:");
-                        ts_msg!(self, "{}", title.style(self.red));
-                    }
+                if exit_code == 0 {
+                    let title = format!(" succeeded{duration}:");
+                    ts_msg!(self, "{}", title.style(self.green));
+                } else {
+                    let title = format!(" exited {exit_code}{duration}:");
+                    ts_msg!(self, "{}", title.style(self.red));
                 }
                 eprintln!("{}", truncated_output.style(self.dimmed));
             }
@@ -346,7 +343,7 @@ impl EventProcessor for EventProcessorWithHumanOutput {
 
                 if let Ok(res) = result {
                     let val = serde_json::to_value(res)
-                        .unwrap_or_else(|_| serde_json::Value::String("<result>".to_string()));
+                        .unwrap_or_else(|_| serde_json::Value::String("<result>".to_owned()));
                     let pretty =
                         serde_json::to_string_pretty(&val).unwrap_or_else(|_| val.to_string());
 
@@ -817,27 +814,27 @@ fn format_collab_invocation(tool: &str, call_id: &str, prompt: Option<&str>) -> 
 
 fn format_collab_status(status: &AgentStatus) -> String {
     match status {
-        AgentStatus::PendingInit => "pending init".to_string(),
-        AgentStatus::Running => "running".to_string(),
+        AgentStatus::PendingInit => "pending init".to_owned(),
+        AgentStatus::Running => "running".to_owned(),
         AgentStatus::Completed(Some(message)) => {
             let preview = truncate_preview(message.trim(), 120);
             if preview.is_empty() {
-                "completed".to_string()
+                "completed".to_owned()
             } else {
                 format!("completed: \"{preview}\"")
             }
         }
-        AgentStatus::Completed(None) => "completed".to_string(),
+        AgentStatus::Completed(None) => "completed".to_owned(),
         AgentStatus::Errored(message) => {
             let preview = truncate_preview(message.trim(), 120);
             if preview.is_empty() {
-                "errored".to_string()
+                "errored".to_owned()
             } else {
                 format!("errored: \"{preview}\"")
             }
         }
-        AgentStatus::Shutdown => "shutdown".to_string(),
-        AgentStatus::NotFound => "not found".to_string(),
+        AgentStatus::Shutdown => "shutdown".to_owned(),
+        AgentStatus::NotFound => "not found".to_owned(),
     }
 }
 
@@ -859,7 +856,7 @@ fn is_collab_status_failure(status: &AgentStatus) -> bool {
 
 fn format_receiver_list(ids: &[savfox_protocol::SessionId]) -> String {
     if ids.is_empty() {
-        return "none".to_string();
+        return "none".to_owned();
     }
     ids.iter()
         .map(ToString::to_string)
@@ -869,7 +866,7 @@ fn format_receiver_list(ids: &[savfox_protocol::SessionId]) -> String {
 
 fn truncate_preview(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
-        return text.to_string();
+        return text.to_owned();
     }
 
     let preview = text.chars().take(max_chars).collect::<String>();

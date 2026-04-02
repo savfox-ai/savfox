@@ -161,7 +161,7 @@ impl GatewayChannel {
         // The callers often pass "default" to mean "use the default agent",
         // which should NOT replace the configured model name.
         if !model.is_empty() && model != "default" {
-            config.model = Some(model.to_string());
+            config.model = Some(model.to_owned());
         }
 
         let requested_session_id = session_id
@@ -185,11 +185,11 @@ impl GatewayChannel {
             self.resolve_agent_session(config, requested_session_id.as_deref())
                 .await?
         };
-        let session_id = resolved_session.session_id.clone();
+        let session_id = resolved_session.session_id;
 
         let session = self
             .session_manager
-            .get_session(session_id.clone())
+            .get_session(session_id)
             .await
             .map_err(|e| anyhow::anyhow!("failed to get session: {e}"))?;
         let rollout_path = session.rollout_path();
@@ -348,7 +348,7 @@ impl GatewayChannel {
         }
 
         if reply.is_empty() {
-            reply = "(no response from agent)".to_string();
+            reply = "(no response from agent)".to_owned();
         }
 
         Ok(AgentInvocationResult {
@@ -402,8 +402,8 @@ impl GatewayChannel {
                 // When concurrent_fork is enabled, check whether the existing
                 // session is busy.  If so, fork a new ephemeral session that
                 // shares the completed history but processes independently.
-                if concurrent_fork {
-                    if let Ok(session) = self.session_manager.get_session(active_thread_id).await {
+                if concurrent_fork
+                    && let Ok(session) = self.session_manager.get_session(active_thread_id).await {
                         let status = session.agent_status().await;
                         if matches!(status, AgentStatus::Running | AgentStatus::PendingInit) {
                             debug!(
@@ -416,7 +416,6 @@ impl GatewayChannel {
                                 .await;
                         }
                     }
-                }
 
                 return Ok(ResolvedAgentSession {
                     session_id: active_thread_id,
@@ -546,7 +545,7 @@ impl GatewayChannel {
         thread_session_id: &SessionId,
     ) {
         let mut bindings = self.logical_session_threads.lock().await;
-        bindings.insert(logical_session_id.to_string(), *thread_session_id);
+        bindings.insert(logical_session_id.to_owned(), *thread_session_id);
     }
 
     /// Unbind the logical session thread mapping so the next message creates a
@@ -558,8 +557,8 @@ impl GatewayChannel {
 
     /// Interrupt the active agent session bound to a logical session, if any.
     pub(crate) async fn interrupt_logical_session(&self, logical_session_id: &str) {
-        if let Some(session) = self.get_logical_session(logical_session_id).await {
-            if let Err(err) = session
+        if let Some(session) = self.get_logical_session(logical_session_id).await
+            && let Err(err) = session
                 .submit(savfox_protocol::protocol::Op::Interrupt)
                 .await
             {
@@ -568,14 +567,13 @@ impl GatewayChannel {
                     "failed to interrupt session: {err}"
                 );
             }
-        }
     }
 
     /// Roll back conversation history on the active agent thread.
     /// Pass `u32::MAX` to clear all history.
     pub(crate) async fn rollback_logical_session(&self, logical_session_id: &str, num_turns: u32) {
-        if let Some(session) = self.get_logical_session(logical_session_id).await {
-            if let Err(err) = session
+        if let Some(session) = self.get_logical_session(logical_session_id).await
+            && let Err(err) = session
                 .submit(savfox_protocol::protocol::Op::SessionRollback { num_turns })
                 .await
             {
@@ -584,7 +582,6 @@ impl GatewayChannel {
                     "failed to rollback session: {err}"
                 );
             }
-        }
     }
 
     /// Resolve the active `SavfoxSession` for a logical session id, if any.
@@ -621,11 +618,10 @@ impl GatewayChannel {
                 }
             }
 
-            if let Some(thread_id) = entry.thread_id.as_deref() {
-                if let Some(path) = self.find_rollout_path_candidate(thread_id).await? {
+            if let Some(thread_id) = entry.thread_id.as_deref()
+                && let Some(path) = self.find_rollout_path_candidate(thread_id).await? {
                     return Ok(Some(path));
                 }
-            }
         }
 
         self.find_rollout_path_candidate(session_id).await

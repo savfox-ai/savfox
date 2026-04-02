@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, ClientNotification, ClientRequest, ErrorCode, ErrorData,
     Implementation, InitializeResult, JsonRpcError, JsonRpcNotification, JsonRpcRequest,
-    JsonRpcResponse, RequestId, ServerCapabilities, ToolsCapability,
+    JsonRpcResponse, RequestId, ServerCapabilities,
 };
 use savfox_core::config::Config;
 use savfox_core::default_client::{USER_AGENT_SUFFIX, get_savfox_user_agent};
@@ -122,7 +122,7 @@ impl MessageProcessor {
                         request_id,
                         ErrorData::new(
                             ErrorCode::METHOD_NOT_FOUND,
-                            "unsupported request".to_string(),
+                            "unsupported request".to_owned(),
                             None,
                         ),
                     )
@@ -209,7 +209,7 @@ impl MessageProcessor {
             }
         };
         if let serde_json::Value::Object(ref mut obj) = server_info_value {
-            obj.insert("user_agent".to_string(), json!(get_savfox_user_agent()));
+            obj.insert("user_agent".to_owned(), json!(get_savfox_user_agent()));
         }
 
         let capabilities = ServerCapabilities::builder()
@@ -237,7 +237,7 @@ impl MessageProcessor {
         };
 
         if let serde_json::Value::Object(ref mut obj) = result_value {
-            obj.insert("serverInfo".to_string(), server_info_value);
+            obj.insert("serverInfo".to_owned(), server_info_value);
         }
 
         self.initialized = true;
@@ -322,36 +322,33 @@ impl MessageProcessor {
         arguments: Option<rmcp::model::JsonObject>,
     ) {
         let arguments = arguments.map(serde_json::Value::Object);
-        let (initial_prompt, config): (String, Config) = match arguments {
-            Some(json_val) => match serde_json::from_value::<SavfoxToolCallParam>(json_val) {
-                Ok(tool_cfg) => match tool_cfg
-                    .into_config(self.savfox_linux_sandbox_exe.clone())
-                    .await
-                {
-                    Ok(cfg) => cfg,
-                    Err(e) => {
-                        let result = CallToolResult::error(vec![rmcp::model::Content::text(
-                            format!("Failed to load Savfox configuration from overrides: {e}"),
-                        )]);
-                        self.outgoing.send_response(id, result).await;
-                        return;
-                    }
-                },
+        let (initial_prompt, config): (String, Config) = if let Some(json_val) = arguments { match serde_json::from_value::<SavfoxToolCallParam>(json_val) {
+            Ok(tool_cfg) => match tool_cfg
+                .into_config(self.savfox_linux_sandbox_exe.clone())
+                .await
+            {
+                Ok(cfg) => cfg,
                 Err(e) => {
-                    let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
-                        "Failed to parse configuration for Savfox tool: {e}"
-                    ))]);
+                    let result = CallToolResult::error(vec![rmcp::model::Content::text(
+                        format!("Failed to load Savfox configuration from overrides: {e}"),
+                    )]);
                     self.outgoing.send_response(id, result).await;
                     return;
                 }
             },
-            None => {
-                let result = CallToolResult::error(vec![rmcp::model::Content::text(
-                    "Missing arguments for savfox tool-call; the `prompt` field is required.",
-                )]);
+            Err(e) => {
+                let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
+                    "Failed to parse configuration for Savfox tool: {e}"
+                ))]);
                 self.outgoing.send_response(id, result).await;
                 return;
             }
+        } } else {
+            let result = CallToolResult::error(vec![rmcp::model::Content::text(
+                "Missing arguments for savfox tool-call; the `prompt` field is required.",
+            )]);
+            self.outgoing.send_response(id, result).await;
+            return;
         };
 
         // Clone outgoing and server to move into async task.
@@ -384,28 +381,25 @@ impl MessageProcessor {
         tracing::info!("tools/call -> params: {:?}", arguments);
 
         // parse arguments
-        let savfox_tool_call_reply_param: SavfoxToolCallReplyParam = match arguments {
-            Some(json_val) => match serde_json::from_value::<SavfoxToolCallReplyParam>(json_val) {
-                Ok(params) => params,
-                Err(e) => {
-                    tracing::error!("Failed to parse Savfox tool call reply parameters: {e}");
-                    let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
-                        "Failed to parse configuration for Savfox tool: {e}"
-                    ))]);
-                    self.outgoing.send_response(request_id, result).await;
-                    return;
-                }
-            },
-            None => {
-                tracing::error!(
-                    "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required."
-                );
-                let result = CallToolResult::error(vec![rmcp::model::Content::text(
-                    "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required.",
-                )]);
+        let savfox_tool_call_reply_param: SavfoxToolCallReplyParam = if let Some(json_val) = arguments { match serde_json::from_value::<SavfoxToolCallReplyParam>(json_val) {
+            Ok(params) => params,
+            Err(e) => {
+                tracing::error!("Failed to parse Savfox tool call reply parameters: {e}");
+                let result = CallToolResult::error(vec![rmcp::model::Content::text(format!(
+                    "Failed to parse configuration for Savfox tool: {e}"
+                ))]);
                 self.outgoing.send_response(request_id, result).await;
                 return;
             }
+        } } else {
+            tracing::error!(
+                "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required."
+            );
+            let result = CallToolResult::error(vec![rmcp::model::Content::text(
+                "Missing arguments for savfox-reply tool-call; the `session_id` and `prompt` fields are required.",
+            )]);
+            self.outgoing.send_response(request_id, result).await;
+            return;
         };
 
         let session_id = match savfox_tool_call_reply_param.get_session_id() {
@@ -424,18 +418,15 @@ impl MessageProcessor {
         let outgoing = self.outgoing.clone();
         let running_requests_id_to_savfox_uuid = self.running_requests_id_to_savfox_uuid.clone();
 
-        let savfox = match self.session_manager.get_session(session_id).await {
-            Ok(c) => c,
-            Err(_) => {
-                tracing::warn!("Session not found for session_id: {session_id}");
-                let result = crate::agent_tool_runner::create_call_tool_result_with_session_id(
-                    session_id,
-                    format!("Session not found for session_id: {session_id}"),
-                    Some(true),
-                );
-                outgoing.send_response(request_id, result).await;
-                return;
-            }
+        let savfox = if let Ok(c) = self.session_manager.get_session(session_id).await { c } else {
+            tracing::warn!("Session not found for session_id: {session_id}");
+            let result = crate::agent_tool_runner::create_call_tool_result_with_session_id(
+                session_id,
+                format!("Session not found for session_id: {session_id}"),
+                Some(true),
+            );
+            outgoing.send_response(request_id, result).await;
+            return;
         };
 
         // Spawn the long-running reply handler.
@@ -478,23 +469,17 @@ impl MessageProcessor {
         // Obtain the session id while holding the first lock, then release.
         let session_id = {
             let map_guard = self.running_requests_id_to_savfox_uuid.lock().await;
-            match map_guard.get(&request_id) {
-                Some(id) => *id,
-                None => {
-                    tracing::warn!("Session not found for request_id: {request_id_string}");
-                    return;
-                }
+            if let Some(id) = map_guard.get(&request_id) { *id } else {
+                tracing::warn!("Session not found for request_id: {request_id_string}");
+                return;
             }
         };
         tracing::info!("session_id: {session_id}");
 
         // Obtain the Savfox session from the server.
-        let savfox_arc = match self.session_manager.get_session(session_id).await {
-            Ok(c) => c,
-            Err(_) => {
-                tracing::warn!("Session not found for session_id: {session_id}");
-                return;
-            }
+        let savfox_arc = if let Ok(c) = self.session_manager.get_session(session_id).await { c } else {
+            tracing::warn!("Session not found for session_id: {session_id}");
+            return;
         };
 
         // Submit interrupt to Savfox.

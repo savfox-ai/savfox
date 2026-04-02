@@ -57,14 +57,15 @@ pub(crate) fn try_parse_error_message(text: &str) -> String {
         && let Some(message) = error.get("message")
         && let Some(message_str) = message.as_str()
     {
-        return message_str.to_string();
+        return message_str.to_owned();
     }
     if text.is_empty() {
-        return "Unknown error".to_string();
+        return "Unknown error".to_owned();
     }
-    text.to_string()
+    text.to_owned()
 }
 
+#[must_use] 
 pub fn resolve_path(base: &Path, path: &PathBuf) -> PathBuf {
     if path.is_absolute() {
         path.clone()
@@ -74,12 +75,13 @@ pub fn resolve_path(base: &Path, path: &PathBuf) -> PathBuf {
 }
 
 /// Trim a session name and return `None` if it is empty after trimming.
+#[must_use] 
 pub fn normalize_session_name(name: &str) -> Option<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(trimmed.to_owned())
     }
 }
 

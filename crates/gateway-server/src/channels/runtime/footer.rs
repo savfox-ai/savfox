@@ -28,7 +28,7 @@ fn truncate_chars(text: &str, max_len: usize) -> String {
     }
     let count = text.chars().count();
     if count <= max_len {
-        return text.to_string();
+        return text.to_owned();
     }
     if max_len <= 3 {
         return ".".repeat(max_len);
@@ -48,7 +48,7 @@ fn render_footer_template(
     profile: Option<&str>,
     usage: Option<&TokenUsage>,
 ) -> String {
-    let profile_value = profile.unwrap_or("").trim().to_string();
+    let profile_value = profile.unwrap_or("").trim().to_owned();
     let token_value = usage.map(|u| u.total_tokens.max(0));
     let cost_value = token_value.map(|v| v as f64 * 0.00001);
 
@@ -65,10 +65,10 @@ fn render_footer_template(
         .unwrap_or_default();
     let tokens_text = token_value
         .map(|v| v.to_string())
-        .unwrap_or_else(|| "n/a".to_string());
+        .unwrap_or_else(|| "n/a".to_owned());
     let cost_text = cost_value
         .map(|v| format!("{v:.4}"))
-        .unwrap_or_else(|| "n/a".to_string());
+        .unwrap_or_else(|| "n/a".to_owned());
 
     template
         .replace("{model}", model)
@@ -118,7 +118,7 @@ pub(super) fn format_model_footer(
 pub(super) fn append_footer(reply: &str, footer: &str) -> String {
     let reply = reply.trim_end();
     if reply.is_empty() {
-        footer.to_string()
+        footer.to_owned()
     } else {
         format!("{reply}\n\n---\n{footer}")
     }

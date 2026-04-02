@@ -18,10 +18,10 @@ pub async fn supported_models(session_manager: Arc<SessionManager>, config: &Con
 
 fn model_from_preset(preset: ModelPreset) -> Model {
     Model {
-        id: preset.id.to_string(),
-        slug: preset.slug.to_string(),
-        name: preset.name.to_string(),
-        description: preset.description.to_string(),
+        id: preset.id.clone(),
+        slug: preset.slug.clone(),
+        name: preset.name.clone(),
+        description: preset.description.clone(),
         supported_reasoning_efforts: reasoning_efforts_from_preset(
             preset.supported_reasoning_efforts,
         ),
@@ -39,7 +39,7 @@ fn reasoning_efforts_from_preset(
         .iter()
         .map(|preset| ReasoningEffortOption {
             reasoning_effort: preset.effort,
-            description: preset.description.to_string(),
+            description: preset.description.clone(),
         })
         .collect()
 }

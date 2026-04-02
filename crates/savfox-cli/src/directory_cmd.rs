@@ -249,8 +249,7 @@ fn print_self_table(result: &Value) {
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         println!(
-            "{:<10} {:<28} {:<11} {:<8} {}",
-            channel, account_id, configured, enabled, source
+            "{channel:<10} {account_id:<28} {configured:<11} {enabled:<8} {source}"
         );
     }
 }
@@ -276,8 +275,7 @@ fn print_peers_table(result: &Value) {
         let identity = peer.get("identity").and_then(|v| v.as_str()).unwrap_or("-");
         let last_seen = format_ms(peer.get("last_seen_ms"));
         println!(
-            "{:<10} {:<22} {:<24} {:<18} {}",
-            channel, peer_id, name, identity, last_seen
+            "{channel:<10} {peer_id:<22} {name:<24} {identity:<18} {last_seen}"
         );
     }
 }
@@ -309,8 +307,7 @@ fn print_groups_table(result: &Value) {
             .unwrap_or(0);
         let last_seen = format_ms(group.get("last_seen_ms"));
         println!(
-            "{:<10} {:<22} {:<28} {:<8} {}",
-            channel, group_id, name, members, last_seen
+            "{channel:<10} {group_id:<22} {name:<28} {members:<8} {last_seen}"
         );
     }
 }
@@ -342,8 +339,7 @@ fn print_group_members_table(result: &Value) {
         let sessions = member.get("sessions").and_then(|v| v.as_u64()).unwrap_or(0);
         let last_seen = format_ms(member.get("last_seen_ms"));
         println!(
-            "{:<10} {:<22} {:<24} {:<8} {}",
-            channel, user_id, name, sessions, last_seen
+            "{channel:<10} {user_id:<22} {name:<24} {sessions:<8} {last_seen}"
         );
     }
 }
@@ -356,5 +352,5 @@ fn format_ms(value: Option<&Value>) -> String {
     value
         .and_then(|v| v.as_u64())
         .map(|v| v.to_string())
-        .unwrap_or_else(|| "-".to_string())
+        .unwrap_or_else(|| "-".to_owned())
 }

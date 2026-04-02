@@ -39,7 +39,7 @@ pub async fn send_dingtalk_text_message(
 
 fn resolve_target(channel: &str, access_token: Option<&str>) -> Option<String> {
     if channel.starts_with("https://") || channel.starts_with("http://") {
-        return Some(channel.to_string());
+        return Some(channel.to_owned());
     }
     if let Some(token) = access_token.map(str::trim).filter(|v| !v.is_empty()) {
         return Some(format!(
@@ -52,7 +52,7 @@ fn resolve_target(channel: &str, access_token: Option<&str>) -> Option<String> {
 fn with_signature_if_needed(url: &str, webhook_secret: Option<&str>) -> anyhow::Result<String> {
     let secret = match webhook_secret.map(str::trim).filter(|v| !v.is_empty()) {
         Some(secret) => secret,
-        None => return Ok(url.to_string()),
+        None => return Ok(url.to_owned()),
     };
 
     let timestamp = chrono::Utc::now().timestamp_millis().to_string();

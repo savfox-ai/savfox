@@ -223,7 +223,7 @@ impl SessionHandle {
                 Some(at) => {
                     let ts = at.turn_state.lock().await;
                     match reply.target_id.as_deref() {
-                        Some(id) if ts.has_pending_approval(id) => Some(id.to_string()),
+                        Some(id) if ts.has_pending_approval(id) => Some(id.to_owned()),
                         Some(_) => None,
                         None => ts.pending_approval_key_if_unambiguous(),
                     }
@@ -295,14 +295,14 @@ fn parse_textual_approval_reply(text: &str) -> Option<ParsedApprovalReply> {
     if let Some(id) = parse_approval_command_id(normalized, "approve") {
         return Some(ParsedApprovalReply {
             decision: ReviewDecision::Approved,
-            target_id: Some(id.to_string()),
+            target_id: Some(id.to_owned()),
         });
     }
 
     if let Some(id) = parse_approval_command_id(normalized, "deny") {
         return Some(ParsedApprovalReply {
             decision: ReviewDecision::Denied,
-            target_id: Some(id.to_string()),
+            target_id: Some(id.to_owned()),
         });
     }
 
@@ -426,7 +426,7 @@ impl SessionConfiguration {
 
     fn session_config_snapshot(&self) -> SessionConfigSnapshot {
         SessionConfigSnapshot {
-            model: self.collaboration_mode.model().to_string(),
+            model: self.collaboration_mode.model().to_owned(),
             model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
             approval_policy: self.approval_policy.value(),
             sandbox_policy: self.sandbox_policy.get().clone(),
@@ -651,7 +651,7 @@ impl Session {
 
         if self
             .inject_response_items(vec![ResponseInputItem::Message {
-                role: "developer".to_string(),
+                role: "developer".to_owned(),
                 content: vec![ContentItem::InputText { text }],
             }])
             .await

@@ -47,23 +47,20 @@ pub(crate) fn get_tooltip(plan: Option<PlanType>) -> Option<String> {
     // Leave small chance for a random tooltip to be shown.
     if rng.random_ratio(8, 10) {
         match plan {
-            Some(PlanType::Plus)
-            | Some(PlanType::Business)
-            | Some(PlanType::Team)
-            | Some(PlanType::Enterprise)
-            | Some(PlanType::Pro) => {
+            Some(PlanType::Plus | PlanType::Business | PlanType::Team |
+PlanType::Enterprise | PlanType::Pro) => {
                 if !PAID_TOOLTIP.is_empty() {
-                    return Some(PAID_TOOLTIP.to_string());
+                    return Some(PAID_TOOLTIP.to_owned());
                 }
             }
-            Some(PlanType::Go) | Some(PlanType::Free) => {
+            Some(PlanType::Go | PlanType::Free) => {
                 if !FREE_GO_TOOLTIP.is_empty() {
-                    return Some(FREE_GO_TOOLTIP.to_string());
+                    return Some(FREE_GO_TOOLTIP.to_owned());
                 }
             }
             _ => {
                 if !OTHER_TOOLTIP.is_empty() {
-                    return Some(OTHER_TOOLTIP.to_string());
+                    return Some(OTHER_TOOLTIP.to_owned());
                 }
             }
         }
@@ -201,11 +198,11 @@ pub(crate) mod announcement {
             };
 
             Some(Self {
-                content: content.to_string(),
+                content: content.to_owned(),
                 from_date,
                 to_date,
                 version_regex,
-                target_app: raw.target_app.unwrap_or("cli".to_string()).to_lowercase(),
+                target_app: raw.target_app.unwrap_or("cli".to_owned()).to_lowercase(),
             })
         }
 

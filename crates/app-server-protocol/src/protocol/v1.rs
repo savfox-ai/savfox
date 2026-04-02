@@ -116,33 +116,33 @@ pub enum SavfoxErrorInfo {
 impl From<CoreSavfoxErrorInfo> for SavfoxErrorInfo {
     fn from(value: CoreSavfoxErrorInfo) -> Self {
         match value {
-            CoreSavfoxErrorInfo::ContextWindowExceeded => SavfoxErrorInfo::ContextWindowExceeded,
-            CoreSavfoxErrorInfo::UsageLimitExceeded => SavfoxErrorInfo::UsageLimitExceeded,
+            CoreSavfoxErrorInfo::ContextWindowExceeded => Self::ContextWindowExceeded,
+            CoreSavfoxErrorInfo::UsageLimitExceeded => Self::UsageLimitExceeded,
             CoreSavfoxErrorInfo::ModelCap {
                 model,
                 reset_after_seconds,
-            } => SavfoxErrorInfo::ModelCap {
+            } => Self::ModelCap {
                 model,
                 reset_after_seconds,
             },
             CoreSavfoxErrorInfo::HttpConnectionFailed { http_status_code } => {
-                SavfoxErrorInfo::HttpConnectionFailed { http_status_code }
+                Self::HttpConnectionFailed { http_status_code }
             }
             CoreSavfoxErrorInfo::ResponseStreamConnectionFailed { http_status_code } => {
-                SavfoxErrorInfo::ResponseStreamConnectionFailed { http_status_code }
+                Self::ResponseStreamConnectionFailed { http_status_code }
             }
-            CoreSavfoxErrorInfo::InternalServerError => SavfoxErrorInfo::InternalServerError,
-            CoreSavfoxErrorInfo::Unauthorized => SavfoxErrorInfo::Unauthorized,
-            CoreSavfoxErrorInfo::BadRequest => SavfoxErrorInfo::BadRequest,
-            CoreSavfoxErrorInfo::SessionRollbackFailed => SavfoxErrorInfo::SessionRollbackFailed,
-            CoreSavfoxErrorInfo::SandboxError => SavfoxErrorInfo::SandboxError,
+            CoreSavfoxErrorInfo::InternalServerError => Self::InternalServerError,
+            CoreSavfoxErrorInfo::Unauthorized => Self::Unauthorized,
+            CoreSavfoxErrorInfo::BadRequest => Self::BadRequest,
+            CoreSavfoxErrorInfo::SessionRollbackFailed => Self::SessionRollbackFailed,
+            CoreSavfoxErrorInfo::SandboxError => Self::SandboxError,
             CoreSavfoxErrorInfo::ResponseStreamDisconnected { http_status_code } => {
-                SavfoxErrorInfo::ResponseStreamDisconnected { http_status_code }
+                Self::ResponseStreamDisconnected { http_status_code }
             }
             CoreSavfoxErrorInfo::ResponseTooManyFailedAttempts { http_status_code } => {
-                SavfoxErrorInfo::ResponseTooManyFailedAttempts { http_status_code }
+                Self::ResponseTooManyFailedAttempts { http_status_code }
             }
-            CoreSavfoxErrorInfo::Other => SavfoxErrorInfo::Other,
+            CoreSavfoxErrorInfo::Other => Self::Other,
         }
     }
 }
@@ -160,12 +160,13 @@ pub enum AskForApproval {
 }
 
 impl AskForApproval {
+    #[must_use] 
     pub fn to_core(self) -> CoreAskForApproval {
         match self {
-            AskForApproval::UnlessTrusted => CoreAskForApproval::UnlessTrusted,
-            AskForApproval::OnFailure => CoreAskForApproval::OnFailure,
-            AskForApproval::OnRequest => CoreAskForApproval::OnRequest,
-            AskForApproval::Never => CoreAskForApproval::Never,
+            Self::UnlessTrusted => CoreAskForApproval::UnlessTrusted,
+            Self::OnFailure => CoreAskForApproval::OnFailure,
+            Self::OnRequest => CoreAskForApproval::OnRequest,
+            Self::Never => CoreAskForApproval::Never,
         }
     }
 }
@@ -173,10 +174,10 @@ impl AskForApproval {
 impl From<CoreAskForApproval> for AskForApproval {
     fn from(value: CoreAskForApproval) -> Self {
         match value {
-            CoreAskForApproval::UnlessTrusted => AskForApproval::UnlessTrusted,
-            CoreAskForApproval::OnFailure => AskForApproval::OnFailure,
-            CoreAskForApproval::OnRequest => AskForApproval::OnRequest,
-            CoreAskForApproval::Never => AskForApproval::Never,
+            CoreAskForApproval::UnlessTrusted => Self::UnlessTrusted,
+            CoreAskForApproval::OnFailure => Self::OnFailure,
+            CoreAskForApproval::OnRequest => Self::OnRequest,
+            CoreAskForApproval::Never => Self::Never,
         }
     }
 }
@@ -191,11 +192,12 @@ pub enum SandboxMode {
 }
 
 impl SandboxMode {
+    #[must_use] 
     pub fn to_core(self) -> CoreSandboxMode {
         match self {
-            SandboxMode::ReadOnly => CoreSandboxMode::ReadOnly,
-            SandboxMode::WorkspaceWrite => CoreSandboxMode::WorkspaceWrite,
-            SandboxMode::DangerFullAccess => CoreSandboxMode::DangerFullAccess,
+            Self::ReadOnly => CoreSandboxMode::ReadOnly,
+            Self::WorkspaceWrite => CoreSandboxMode::WorkspaceWrite,
+            Self::DangerFullAccess => CoreSandboxMode::DangerFullAccess,
         }
     }
 }
@@ -203,9 +205,9 @@ impl SandboxMode {
 impl From<CoreSandboxMode> for SandboxMode {
     fn from(value: CoreSandboxMode) -> Self {
         match value {
-            CoreSandboxMode::ReadOnly => SandboxMode::ReadOnly,
-            CoreSandboxMode::WorkspaceWrite => SandboxMode::WorkspaceWrite,
-            CoreSandboxMode::DangerFullAccess => SandboxMode::DangerFullAccess,
+            CoreSandboxMode::ReadOnly => Self::ReadOnly,
+            CoreSandboxMode::WorkspaceWrite => Self::WorkspaceWrite,
+            CoreSandboxMode::DangerFullAccess => Self::DangerFullAccess,
         }
     }
 }
@@ -269,13 +271,14 @@ pub enum ConfigLayerSource {
 impl ConfigLayerSource {
     /// A settings from a layer with a higher precedence will override a setting
     /// from a layer with a lower precedence.
+    #[must_use] 
     pub fn precedence(&self) -> i16 {
         match self {
-            ConfigLayerSource::Mdm { .. } => 0,
-            ConfigLayerSource::System { .. } => 10,
-            ConfigLayerSource::User { .. } => 20,
-            ConfigLayerSource::Project { .. } => 25,
-            ConfigLayerSource::SessionFlags => 30,
+            Self::Mdm { .. } => 0,
+            Self::System { .. } => 10,
+            Self::User { .. } => 20,
+            Self::Project { .. } => 25,
+            Self::SessionFlags => 30,
         }
     }
 }
@@ -571,13 +574,14 @@ pub enum SandboxPolicy {
 }
 
 impl SandboxPolicy {
+    #[must_use] 
     pub fn to_core(&self) -> savfox_protocol::protocol::SandboxPolicy {
         match self {
-            SandboxPolicy::DangerFullAccess => {
+            Self::DangerFullAccess => {
                 savfox_protocol::protocol::SandboxPolicy::DangerFullAccess
             }
-            SandboxPolicy::ReadOnly => savfox_protocol::protocol::SandboxPolicy::ReadOnly,
-            SandboxPolicy::ExternalSandbox { network_access } => {
+            Self::ReadOnly => savfox_protocol::protocol::SandboxPolicy::ReadOnly,
+            Self::ExternalSandbox { network_access } => {
                 savfox_protocol::protocol::SandboxPolicy::ExternalSandbox {
                     network_access: match network_access {
                         NetworkAccess::Restricted => CoreNetworkAccess::Restricted,
@@ -585,7 +589,7 @@ impl SandboxPolicy {
                     },
                 }
             }
-            SandboxPolicy::WorkspaceWrite {
+            Self::WorkspaceWrite {
                 writable_roots,
                 network_access,
                 exclude_tmpdir_env_var,
@@ -604,11 +608,11 @@ impl From<savfox_protocol::protocol::SandboxPolicy> for SandboxPolicy {
     fn from(value: savfox_protocol::protocol::SandboxPolicy) -> Self {
         match value {
             savfox_protocol::protocol::SandboxPolicy::DangerFullAccess => {
-                SandboxPolicy::DangerFullAccess
+                Self::DangerFullAccess
             }
-            savfox_protocol::protocol::SandboxPolicy::ReadOnly => SandboxPolicy::ReadOnly,
+            savfox_protocol::protocol::SandboxPolicy::ReadOnly => Self::ReadOnly,
             savfox_protocol::protocol::SandboxPolicy::ExternalSandbox { network_access } => {
-                SandboxPolicy::ExternalSandbox {
+                Self::ExternalSandbox {
                     network_access: match network_access {
                         CoreNetworkAccess::Restricted => NetworkAccess::Restricted,
                         CoreNetworkAccess::Enabled => NetworkAccess::Enabled,
@@ -620,7 +624,7 @@ impl From<savfox_protocol::protocol::SandboxPolicy> for SandboxPolicy {
                 network_access,
                 exclude_tmpdir_env_var,
                 exclude_slash_tmp,
-            } => SandboxPolicy::WorkspaceWrite {
+            } => Self::WorkspaceWrite {
                 writable_roots,
                 network_access,
                 exclude_tmpdir_env_var,
@@ -638,6 +642,7 @@ pub struct ExecPolicyAmendment {
 }
 
 impl ExecPolicyAmendment {
+    #[must_use] 
     pub fn into_core(self) -> CoreExecPolicyAmendment {
         CoreExecPolicyAmendment::new(self.command)
     }
@@ -695,12 +700,12 @@ pub enum SessionSource {
 impl From<CoreSessionSource> for SessionSource {
     fn from(value: CoreSessionSource) -> Self {
         match value {
-            CoreSessionSource::Cli => SessionSource::Cli,
-            CoreSessionSource::VSCode => SessionSource::VsCode,
-            CoreSessionSource::Exec => SessionSource::Exec,
-            CoreSessionSource::Mcp => SessionSource::AppServer,
-            CoreSessionSource::SubAgent(sub) => SessionSource::SubAgent(sub),
-            CoreSessionSource::Unknown => SessionSource::Unknown,
+            CoreSessionSource::Cli => Self::Cli,
+            CoreSessionSource::VSCode => Self::VsCode,
+            CoreSessionSource::Exec => Self::Exec,
+            CoreSessionSource::Mcp => Self::AppServer,
+            CoreSessionSource::SubAgent(sub) => Self::SubAgent(sub),
+            CoreSessionSource::Unknown => Self::Unknown,
         }
     }
 }
@@ -708,12 +713,12 @@ impl From<CoreSessionSource> for SessionSource {
 impl From<SessionSource> for CoreSessionSource {
     fn from(value: SessionSource) -> Self {
         match value {
-            SessionSource::Cli => CoreSessionSource::Cli,
-            SessionSource::VsCode => CoreSessionSource::VSCode,
-            SessionSource::Exec => CoreSessionSource::Exec,
-            SessionSource::AppServer => CoreSessionSource::Mcp,
-            SessionSource::SubAgent(sub) => CoreSessionSource::SubAgent(sub),
-            SessionSource::Unknown => CoreSessionSource::Unknown,
+            SessionSource::Cli => Self::Cli,
+            SessionSource::VsCode => Self::VSCode,
+            SessionSource::Exec => Self::Exec,
+            SessionSource::AppServer => Self::Mcp,
+            SessionSource::SubAgent(sub) => Self::SubAgent(sub),
+            SessionSource::Unknown => Self::Unknown,
         }
     }
 }
@@ -728,22 +733,23 @@ pub struct GitInfo {
 }
 
 impl CommandAction {
+    #[must_use] 
     pub fn into_core(self) -> CoreParsedCommand {
         match self {
-            CommandAction::Read {
+            Self::Read {
                 command: cmd,
                 name,
                 path,
             } => CoreParsedCommand::Read { cmd, name, path },
-            CommandAction::ListFiles { command: cmd, path } => {
+            Self::ListFiles { command: cmd, path } => {
                 CoreParsedCommand::ListFiles { cmd, path }
             }
-            CommandAction::Search {
+            Self::Search {
                 command: cmd,
                 query,
                 path,
             } => CoreParsedCommand::Search { cmd, query, path },
-            CommandAction::Unknown { command: cmd } => CoreParsedCommand::Unknown { cmd },
+            Self::Unknown { command: cmd } => CoreParsedCommand::Unknown { cmd },
         }
     }
 }
@@ -751,20 +757,20 @@ impl CommandAction {
 impl From<CoreParsedCommand> for CommandAction {
     fn from(value: CoreParsedCommand) -> Self {
         match value {
-            CoreParsedCommand::Read { cmd, name, path } => CommandAction::Read {
+            CoreParsedCommand::Read { cmd, name, path } => Self::Read {
                 command: cmd,
                 name,
                 path,
             },
             CoreParsedCommand::ListFiles { cmd, path } => {
-                CommandAction::ListFiles { command: cmd, path }
+                Self::ListFiles { command: cmd, path }
             }
-            CoreParsedCommand::Search { cmd, query, path } => CommandAction::Search {
+            CoreParsedCommand::Search { cmd, query, path } => Self::Search {
                 command: cmd,
                 query,
                 path,
             },
-            CoreParsedCommand::Unknown { cmd } => CommandAction::Unknown { command: cmd },
+            CoreParsedCommand::Unknown { cmd } => Self::Unknown { command: cmd },
         }
     }
 }
@@ -1928,6 +1934,7 @@ pub struct TextElement {
 }
 
 impl TextElement {
+    #[must_use] 
     pub fn new(byte_range: ByteRange, placeholder: Option<String>) -> Self {
         Self {
             byte_range,
@@ -1939,6 +1946,7 @@ impl TextElement {
         self.placeholder = placeholder;
     }
 
+    #[must_use] 
     pub fn placeholder(&self) -> Option<&str> {
         self.placeholder.as_deref()
     }
@@ -1989,17 +1997,17 @@ pub enum UserInput {
 impl UserInput {
     pub fn into_core(self) -> CoreUserInput {
         match self {
-            UserInput::Text {
+            Self::Text {
                 text,
                 text_elements,
             } => CoreUserInput::Text {
                 text,
                 text_elements: text_elements.into_iter().map(Into::into).collect(),
             },
-            UserInput::Image { url } => CoreUserInput::Image { image_url: url },
-            UserInput::LocalImage { path } => CoreUserInput::LocalImage { path },
-            UserInput::Skill { name, path } => CoreUserInput::Skill { name, path },
-            UserInput::Mention { name, path } => CoreUserInput::Mention { name, path },
+            Self::Image { url } => CoreUserInput::Image { image_url: url },
+            Self::LocalImage { path } => CoreUserInput::LocalImage { path },
+            Self::Skill { name, path } => CoreUserInput::Skill { name, path },
+            Self::Mention { name, path } => CoreUserInput::Mention { name, path },
         }
     }
 }
@@ -2010,14 +2018,14 @@ impl From<CoreUserInput> for UserInput {
             CoreUserInput::Text {
                 text,
                 text_elements,
-            } => UserInput::Text {
+            } => Self::Text {
                 text,
                 text_elements: text_elements.into_iter().map(Into::into).collect(),
             },
-            CoreUserInput::Image { image_url } => UserInput::Image { url: image_url },
-            CoreUserInput::LocalImage { path } => UserInput::LocalImage { path },
-            CoreUserInput::Skill { name, path } => UserInput::Skill { name, path },
-            CoreUserInput::Mention { name, path } => UserInput::Mention { name, path },
+            CoreUserInput::Image { image_url } => Self::Image { url: image_url },
+            CoreUserInput::LocalImage { path } => Self::LocalImage { path },
+            CoreUserInput::Skill { name, path } => Self::Skill { name, path },
+            CoreUserInput::Mention { name, path } => Self::Mention { name, path },
             _ => unreachable!("unsupported user input variant"),
         }
     }
@@ -2155,15 +2163,15 @@ impl From<savfox_protocol::models::WebSearchAction> for WebSearchAction {
     fn from(value: savfox_protocol::models::WebSearchAction) -> Self {
         match value {
             savfox_protocol::models::WebSearchAction::Search { query, queries } => {
-                WebSearchAction::Search { query, queries }
+                Self::Search { query, queries }
             }
             savfox_protocol::models::WebSearchAction::OpenPage { url } => {
-                WebSearchAction::OpenPage { url }
+                Self::OpenPage { url }
             }
             savfox_protocol::models::WebSearchAction::FindInPage { url, pattern } => {
-                WebSearchAction::FindInPage { url, pattern }
+                Self::FindInPage { url, pattern }
             }
-            savfox_protocol::models::WebSearchAction::Other => WebSearchAction::Other,
+            savfox_protocol::models::WebSearchAction::Other => Self::Other,
         }
     }
 }
@@ -2171,7 +2179,7 @@ impl From<savfox_protocol::models::WebSearchAction> for WebSearchAction {
 impl From<CoreTurnItem> for SessionItem {
     fn from(value: CoreTurnItem) -> Self {
         match value {
-            CoreTurnItem::UserMessage(user) => SessionItem::UserMessage {
+            CoreTurnItem::UserMessage(user) => Self::UserMessage {
                 id: user.id,
                 content: user.content.into_iter().map(UserInput::from).collect(),
             },
@@ -2183,24 +2191,24 @@ impl From<CoreTurnItem> for SessionItem {
                         CoreAgentMessageContent::Text { text } => text,
                     })
                     .collect::<String>();
-                SessionItem::AgentMessage { id: agent.id, text }
+                Self::AgentMessage { id: agent.id, text }
             }
-            CoreTurnItem::Plan(plan) => SessionItem::Plan {
+            CoreTurnItem::Plan(plan) => Self::Plan {
                 id: plan.id,
                 text: plan.text,
             },
-            CoreTurnItem::Reasoning(reasoning) => SessionItem::Reasoning {
+            CoreTurnItem::Reasoning(reasoning) => Self::Reasoning {
                 id: reasoning.id,
                 summary: reasoning.summary_text,
                 content: reasoning.raw_content,
             },
-            CoreTurnItem::WebSearch(search) => SessionItem::WebSearch {
+            CoreTurnItem::WebSearch(search) => Self::WebSearch {
                 id: search.id,
                 query: search.query,
                 action: Some(WebSearchAction::from(search.action)),
             },
             CoreTurnItem::ContextCompaction(compaction) => {
-                SessionItem::ContextCompaction { id: compaction.id }
+                Self::ContextCompaction { id: compaction.id }
             }
         }
     }

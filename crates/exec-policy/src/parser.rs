@@ -30,6 +30,7 @@ impl Default for PolicyParser {
 }
 
 impl PolicyParser {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             builder: RefCell::new(PolicyBuilder::new()),
@@ -43,7 +44,7 @@ impl PolicyParser {
         dialect.enable_f_strings = true;
         let ast = AstModule::parse(
             policy_identifier,
-            policy_file_contents.to_string(),
+            policy_file_contents.to_owned(),
             &dialect,
         )
         .map_err(Error::Starlark)?;
@@ -76,7 +77,7 @@ impl PolicyBuilder {
 
     fn add_rule(&mut self, rule: RuleRef) {
         self.rules_by_program
-            .insert(rule.program().to_string(), rule);
+            .insert(rule.program().to_owned(), rule);
     }
 
     fn build(self) -> crate::policy::Policy {
@@ -91,7 +92,7 @@ fn parse_pattern<'v>(pattern: UnpackList<Value<'v>>) -> Result<Vec<PatternToken>
         .map(parse_pattern_token)
         .collect::<Result<_>>()?;
     if tokens.is_empty() {
-        Err(Error::InvalidPattern("pattern cannot be empty".to_string()))
+        Err(Error::InvalidPattern("pattern cannot be empty".to_owned()))
     } else {
         Ok(tokens)
     }
@@ -99,7 +100,7 @@ fn parse_pattern<'v>(pattern: UnpackList<Value<'v>>) -> Result<Vec<PatternToken>
 
 fn parse_pattern_token<'v>(value: Value<'v>) -> Result<PatternToken> {
     if let Some(s) = value.unpack_str() {
-        Ok(PatternToken::Single(s.to_string()))
+        Ok(PatternToken::Single(s.to_owned()))
     } else if let Some(list) = ListRef::from_value(value) {
         let tokens: Vec<String> = list
             .content()
@@ -119,7 +120,7 @@ fn parse_pattern_token<'v>(value: Value<'v>) -> Result<PatternToken> {
 
         match tokens.as_slice() {
             [] => Err(Error::InvalidPattern(
-                "pattern alternatives cannot be empty".to_string(),
+                "pattern alternatives cannot be empty".to_owned(),
             )),
             [single] => Ok(PatternToken::Single(single.clone())),
             _ => Ok(PatternToken::Alts(tokens)),
@@ -151,12 +152,12 @@ fn parse_example<'v>(value: Value<'v>) -> Result<Vec<String>> {
 
 fn parse_string_example(raw: &str) -> Result<Vec<String>> {
     let tokens = shlex::split(raw).ok_or_else(|| {
-        Error::InvalidExample("example string has invalid shell syntax".to_string())
+        Error::InvalidExample("example string has invalid shell syntax".to_owned())
     })?;
 
     if tokens.is_empty() {
         Err(Error::InvalidExample(
-            "example cannot be an empty string".to_string(),
+            "example cannot be an empty string".to_owned(),
         ))
     } else {
         Ok(tokens)
@@ -182,7 +183,7 @@ fn parse_list_example(list: &ListRef) -> Result<Vec<String>> {
 
     if tokens.is_empty() {
         Err(Error::InvalidExample(
-            "example cannot be an empty list".to_string(),
+            "example cannot be an empty list".to_owned(),
         ))
     } else {
         Ok(tokens)
@@ -216,9 +217,9 @@ fn policy_builtins(builder: &mut GlobalsBuilder) {
 
         let justification = match justification {
             Some(raw) if raw.trim().is_empty() => {
-                return Err(Error::InvalidRule("justification cannot be empty".to_string()).into());
+                return Err(Error::InvalidRule("justification cannot be empty".to_owned()).into());
             }
-            Some(raw) => Some(raw.to_string()),
+            Some(raw) => Some(raw.to_owned()),
             None => None,
         };
 
@@ -235,7 +236,7 @@ fn policy_builtins(builder: &mut GlobalsBuilder) {
 
         let (first_token, remaining_tokens) = pattern_tokens
             .split_first()
-            .ok_or_else(|| Error::InvalidPattern("pattern cannot be empty".to_string()))?;
+            .ok_or_else(|| Error::InvalidPattern("pattern cannot be empty".to_owned()))?;
 
         let rest: Arc<[PatternToken]> = remaining_tokens.to_vec().into();
 

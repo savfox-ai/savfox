@@ -169,15 +169,16 @@ pub async fn delete_message(
 /// - IDs starting with `oc_` map to `"chat_id"`.
 /// - IDs starting with `ou_` map to `"open_id"`.
 /// - Otherwise the configured value is used, falling back to `"chat_id"`.
+#[must_use] 
 pub fn infer_receive_id_type(channel_id: &str, configured: &str) -> String {
     let normalized = configured.trim();
     if channel_id.starts_with("oc_") {
-        "chat_id".to_string()
+        "chat_id".to_owned()
     } else if channel_id.starts_with("ou_") {
-        "open_id".to_string()
+        "open_id".to_owned()
     } else if normalized.is_empty() {
-        "chat_id".to_string()
+        "chat_id".to_owned()
     } else {
-        normalized.to_string()
+        normalized.to_owned()
     }
 }

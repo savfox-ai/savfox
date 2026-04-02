@@ -56,7 +56,7 @@ impl SessionTask for GhostSnapshotTask {
                                 .send_event(
                                     &ctx_for_warning,
                                     EventMsg::Warning(WarningEvent {
-                                        message: "Repository snapshot is taking longer than expected. Large untracked or ignored files can slow snapshots; consider adding large files or directories to .gitignore or disabling `undo` in your config.".to_string()
+                                        message: "Repository snapshot is taking longer than expected. Large untracked or ignored files can slow snapshots; consider adding large files or directories to .gitignore or disabling `undo` in your config.".to_owned()
                                     }),
                                 )
                                 .await;

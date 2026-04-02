@@ -10,8 +10,8 @@ pub fn text_response(status: StatusCode, body: &str) -> Response {
     Response::builder()
         .status(status)
         .header("content-type", "text/plain")
-        .body(Body::from(body.to_string()))
-        .unwrap_or_else(|_| Response::new(Body::from(body.to_string())))
+        .body(Body::from(body.to_owned()))
+        .unwrap_or_else(|_| Response::new(Body::from(body.to_owned())))
 }
 
 pub fn json_response<T: Serialize>(value: &T) -> Response {
@@ -19,7 +19,7 @@ pub fn json_response<T: Serialize>(value: &T) -> Response {
         Ok(body) => body,
         Err(err) => {
             error!("failed to serialize JSON response: {err}");
-            "{}".to_string()
+            "{}".to_owned()
         }
     };
     Response::builder()

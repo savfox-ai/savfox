@@ -15,6 +15,7 @@ fn search_action_detail(query: &Option<String>, queries: &Option<Vec<String>>) -
     })
 }
 
+#[must_use] 
 pub fn web_search_action_detail(action: &WebSearchAction) -> String {
     match action {
         WebSearchAction::Search { query, queries } => search_action_detail(query, queries),
@@ -32,7 +33,7 @@ pub fn web_search_action_detail(action: &WebSearchAction) -> String {
 pub fn web_search_detail(action: Option<&WebSearchAction>, query: &str) -> String {
     let detail = action.map(web_search_action_detail).unwrap_or_default();
     if detail.is_empty() {
-        query.to_string()
+        query.to_owned()
     } else {
         detail
     }

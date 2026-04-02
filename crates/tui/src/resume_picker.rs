@@ -45,22 +45,22 @@ pub enum SessionPickerAction {
 impl SessionPickerAction {
     fn title(self) -> &'static str {
         match self {
-            SessionPickerAction::Resume => "Resume a previous session",
-            SessionPickerAction::Fork => "Fork a previous session",
+            Self::Resume => "Resume a previous session",
+            Self::Fork => "Fork a previous session",
         }
     }
 
     fn action_label(self) -> &'static str {
         match self {
-            SessionPickerAction::Resume => "resume",
-            SessionPickerAction::Fork => "fork",
+            Self::Resume => "resume",
+            Self::Fork => "fork",
         }
     }
 
     fn selection(self, path: PathBuf) -> SessionSelection {
         match self {
-            SessionPickerAction::Resume => SessionSelection::Resume(path),
-            SessionPickerAction::Fork => SessionSelection::Fork(path),
+            Self::Resume => SessionSelection::Resume(path),
+            Self::Fork => SessionSelection::Fork(path),
         }
     }
 }
@@ -130,7 +130,7 @@ async fn run_session_picker(
     let alt = AltScreenGuard::enter(tui);
     let (bg_tx, bg_rx) = mpsc::unbounded_channel();
 
-    let default_provider = default_provider.to_string();
+    let default_provider = default_provider.to_owned();
     let filter_cwd = if show_all {
         None
     } else {
@@ -281,15 +281,15 @@ enum LoadTrigger {
 
 impl LoadingState {
     fn is_pending(&self) -> bool {
-        matches!(self, LoadingState::Pending(_))
+        matches!(self, Self::Pending(_))
     }
 }
 
 impl SearchState {
     fn active_token(&self) -> Option<usize> {
         match self {
-            SearchState::Idle => None,
-            SearchState::Active { token } => Some(*token),
+            Self::Idle => None,
+            Self::Active { token } => Some(*token),
         }
     }
 
@@ -765,7 +765,7 @@ fn head_to_row(item: &SessionItem) -> Row {
 
     let (cwd, git_branch, session_id) = extract_session_meta_from_head(&item.head);
     let preview = preview_from_head(&item.head)
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| String::from("(no message yet)"));
 
@@ -1067,7 +1067,7 @@ fn format_updated_label(row: &Row) -> String {
     match (row.updated_at, row.created_at) {
         (Some(updated), _) => human_time_ago(updated),
         (None, Some(created)) => human_time_ago(created),
-        (None, None) => "-".to_string(),
+        (None, None) => "-".to_owned(),
     }
 }
 
@@ -1122,10 +1122,10 @@ struct ColumnMetrics {
 fn calculate_column_metrics(rows: &[Row], include_cwd: bool) -> ColumnMetrics {
     fn right_elide(s: &str, max: usize) -> String {
         if s.chars().count() <= max {
-            return s.to_string();
+            return s.to_owned();
         }
         if max <= 1 {
-            return "…".to_string();
+            return "…".to_owned();
         }
         let tail_len = max - 1;
         let tail: String = s

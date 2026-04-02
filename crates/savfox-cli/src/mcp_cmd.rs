@@ -137,7 +137,7 @@ pub struct LogoutArgs {
 
 impl McpCli {
     pub async fn run(self) -> Result<()> {
-        let McpCli { subcommand } = self;
+        let Self { subcommand } = self;
 
         match subcommand {
             McpSubcommand::List(args) => {
@@ -455,7 +455,7 @@ async fn run_list(list_args: ListArgs) -> Result<()> {
                 cwd,
             } => {
                 let args_display = if args.is_empty() {
-                    "-".to_string()
+                    "-".to_owned()
                 } else {
                     args.join(" ")
                 };
@@ -464,7 +464,7 @@ async fn run_list(list_args: ListArgs) -> Result<()> {
                     .as_ref()
                     .map(|path| path.display().to_string())
                     .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| "-".to_string());
+                    .unwrap_or_else(|| "-".to_owned());
                 let status = format_mcp_status(cfg);
                 let auth_status = auth_statuses
                     .get(name.as_str())
@@ -493,7 +493,7 @@ async fn run_list(list_args: ListArgs) -> Result<()> {
                     .unwrap_or(McpAuthStatus::Unsupported)
                     .to_string();
                 let bearer_token_display =
-                    bearer_token_env_var.as_deref().unwrap_or("-").to_string();
+                    bearer_token_env_var.as_deref().unwrap_or("-").to_owned();
                 http_rows.push([
                     name.clone(),
                     url.clone(),
@@ -682,9 +682,9 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
     println!("  enabled: {}", server.enabled);
     let format_tool_list = |tools: &Option<Vec<String>>| -> String {
         match tools {
-            Some(list) if list.is_empty() => "[]".to_string(),
+            Some(list) if list.is_empty() => "[]".to_owned(),
             Some(list) => list.join(", "),
-            None => "-".to_string(),
+            None => "-".to_owned(),
         }
     };
     if server.enabled_tools.is_some() {
@@ -706,7 +706,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
             println!("  transport: stdio");
             println!("  command: {command}");
             let args_display = if args.is_empty() {
-                "-".to_string()
+                "-".to_owned()
             } else {
                 args.join(" ")
             };
@@ -715,7 +715,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "-".to_string());
+                .unwrap_or_else(|| "-".to_owned());
             println!("  cwd: {cwd_display}");
             let env_display = format_env_display(env.as_ref(), env_vars);
             println!("  env: {env_display}");
@@ -740,7 +740,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
                         .collect::<Vec<_>>()
                         .join(", ")
                 }
-                _ => "-".to_string(),
+                _ => "-".to_owned(),
             };
             println!("  http_headers: {headers_display}");
             let env_headers_display = match env_http_headers {
@@ -753,7 +753,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
                         .collect::<Vec<_>>()
                         .join(", ")
                 }
-                _ => "-".to_string(),
+                _ => "-".to_owned(),
             };
             println!("  env_http_headers: {env_headers_display}");
         }
@@ -775,13 +775,13 @@ fn parse_env_pair(raw: &str) -> Result<(String, String), String> {
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_string())?;
+        .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_owned())?;
     let value = parts
         .next()
         .map(str::to_string)
-        .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_string())?;
+        .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_owned())?;
 
-    Ok((key.to_string(), value))
+    Ok((key.to_owned(), value))
 }
 
 fn validate_server_name(name: &str) -> Result<()> {
@@ -799,10 +799,10 @@ fn validate_server_name(name: &str) -> Result<()> {
 
 fn format_mcp_status(config: &McpServerConfig) -> String {
     if config.enabled {
-        "enabled".to_string()
+        "enabled".to_owned()
     } else if let Some(reason) = config.disabled_reason.as_ref() {
         format!("disabled: {reason}")
     } else {
-        "disabled".to_string()
+        "disabled".to_owned()
     }
 }

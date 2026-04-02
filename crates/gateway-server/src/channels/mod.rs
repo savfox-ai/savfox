@@ -121,8 +121,8 @@ pub(crate) fn create_channel_registry() -> ChannelRegistry {
 
 fn saved_channel_platform_matches(kind: &str, platform: &str) -> bool {
     let normalize = |value: &str| match value.trim().to_ascii_lowercase().as_str() {
-        "lark" => "feishu".to_string(),
-        other => other.to_string(),
+        "lark" => "feishu".to_owned(),
+        other => other.to_owned(),
     };
     normalize(kind) == normalize(platform)
 }
@@ -171,7 +171,7 @@ pub(crate) async fn ensure_inbound_channel_enabled(
     };
 
     match saved_channel_enabled_state(&gateway_channel.config().savfox_home, platform).await {
-        Ok(Some(true)) | Ok(None) => true,
+        Ok(Some(true) | None) => true,
         Ok(Some(false)) => {
             render_error(
                 res,
@@ -218,11 +218,11 @@ pub(crate) async fn initialize_and_start_channels(
         info!("Starting channel '{}' of type '{}'", channel_id, kind);
 
         let result = match kind.as_str() {
-            "matrix" => start_matrix_channel(&config, &registry, &channel, session_store).await,
+            "matrix" => start_matrix_channel(&config, &registry, channel, session_store).await,
             "dingtalk" => start_dingtalk_channel(&config, channel, session_store).await,
-            "discord" => start_discord_channel(&config, &registry, &channel, session_store).await,
-            "telegram" => start_telegram_channel(&config, &registry, &channel, session_store).await,
-            "slack" => start_slack_channel(&config, &registry, &channel).await,
+            "discord" => start_discord_channel(&config, &registry, channel, session_store).await,
+            "telegram" => start_telegram_channel(&config, &registry, channel, session_store).await,
+            "slack" => start_slack_channel(&config, &registry, channel).await,
             "mattermost" | "googlechat" | "line" | "whatsapp" | "qq" | "wechat" => {
                 start_webhook_only_channel(&config).await
             }
@@ -478,7 +478,7 @@ pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow
         std::collections::HashMap::new();
 
     for config in &all_configs {
-        let configs = by_kind.entry(config.kind.clone()).or_insert_with(Vec::new);
+        let configs = by_kind.entry(config.kind.clone()).or_default();
         configs.push((config.id.clone(), config.enabled));
 
         if config.enabled {
@@ -500,11 +500,10 @@ pub(crate) async fn log_all_configured_channels(savfox_home: &PathBuf) -> anyhow
             let status = if *enabled { "ENABLED" } else { "DISABLED" };
             info!("  - {} [{}]", id, status);
 
-            if *enabled && kind.eq_ignore_ascii_case("matrix") {
-                if let Err(err) = log_matrix_channel_details(savfox_home, id).await {
+            if *enabled && kind.eq_ignore_ascii_case("matrix")
+                && let Err(err) = log_matrix_channel_details(savfox_home, id).await {
                     warn!("Failed to log Matrix channel details for {}: {}", id, err);
                 }
-            }
         }
     }
 
@@ -524,7 +523,7 @@ async fn log_matrix_channel_details(savfox_home: &PathBuf, channel_id: &str) -> 
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty());
         let rooms_str = if config.rooms.is_empty() {
-            "none".to_string()
+            "none".to_owned()
         } else {
             config.rooms.join(", ")
         };

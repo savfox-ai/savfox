@@ -72,6 +72,7 @@ impl MemoryManager {
         })
     }
 
+    #[must_use] 
     pub fn subscribe_progress(&self) -> broadcast::Receiver<MemorySyncProgress> {
         self.progress_tx.subscribe()
     }
@@ -213,7 +214,7 @@ impl MemoryManager {
         let results = self
             .search
             .search(
-                &*storage,
+                &storage,
                 self.provider.as_ref(),
                 query,
                 self.config.max_results,
@@ -226,16 +227,16 @@ impl MemoryManager {
 
     pub async fn search_vector(&self, query: &str) -> Result<Vec<MemorySearchResult>, MemoryError> {
         let query_embedding = self
-            .embed_texts_cached(&[query.to_string()])
+            .embed_texts_cached(&[query.to_owned()])
             .await?
             .into_iter()
             .next()
-            .ok_or_else(|| MemoryError::EmbeddingError("empty embedding response".to_string()))?;
+            .ok_or_else(|| MemoryError::EmbeddingError("empty embedding response".to_owned()))?;
 
         let storage = self.storage.read().await;
         let results = self
             .search
-            .search_vector_only(&*storage, &query_embedding, self.config.max_results)
+            .search_vector_only(&storage, &query_embedding, self.config.max_results)
             .map_err(|e| MemoryError::SearchError(e.to_string()))?;
 
         Ok(results)
@@ -248,7 +249,7 @@ impl MemoryManager {
         let storage = self.storage.read().await;
         let results = self
             .search
-            .search_keyword_only(&*storage, query, self.config.max_results)
+            .search_keyword_only(&storage, query, self.config.max_results)
             .map_err(|e| MemoryError::SearchError(e.to_string()))?;
 
         Ok(results)
@@ -262,7 +263,7 @@ impl MemoryManager {
         let chunk = MemoryChunk {
             id: uuid::Uuid::new_v4().to_string(),
             source: crate::types::MemorySource::Manual,
-            content: content.to_string(),
+            content: content.to_owned(),
             embedding: None,
             metadata: metadata.unwrap_or_else(|| MemoryMetadata {
                 file_path: None,
@@ -304,8 +305,8 @@ impl MemoryManager {
 
     pub async fn update_index_meta(&self) -> Result<(), MemoryError> {
         let meta = MemoryIndexMeta {
-            model: self.provider.model_name().to_string(),
-            provider: self.provider.provider_name().to_string(),
+            model: self.provider.model_name().to_owned(),
+            provider: self.provider.provider_name().to_owned(),
             chunk_tokens: self.config.chunk_tokens,
             chunk_overlap: self.config.chunk_overlap,
             vector_dims: self.provider.vector_dims(),

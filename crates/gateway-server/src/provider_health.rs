@@ -36,6 +36,7 @@ pub struct ProviderHealthService {
 }
 
 impl ProviderHealthService {
+    #[must_use] 
     pub fn new(check_interval_secs: u64) -> Self {
         Self {
             health: RwLock::new(HashMap::new()),
@@ -47,9 +48,9 @@ impl ProviderHealthService {
     pub async fn record_success(&self, provider: &str, latency_ms: u64) {
         let mut health = self.health.write().await;
         let entry = health
-            .entry(provider.to_string())
+            .entry(provider.to_owned())
             .or_insert_with(|| ProviderHealth {
-                provider: provider.to_string(),
+                provider: provider.to_owned(),
                 status: HealthStatus::Unknown,
                 latency_ms: None,
                 error_count: 0,
@@ -73,9 +74,9 @@ impl ProviderHealthService {
     pub async fn record_failure(&self, provider: &str, error_msg: &str) {
         let mut health = self.health.write().await;
         let entry = health
-            .entry(provider.to_string())
+            .entry(provider.to_owned())
             .or_insert_with(|| ProviderHealth {
-                provider: provider.to_string(),
+                provider: provider.to_owned(),
                 status: HealthStatus::Unknown,
                 latency_ms: None,
                 error_count: 0,
@@ -85,7 +86,7 @@ impl ProviderHealthService {
             });
         entry.error_count += 1;
         entry.last_check = now_secs();
-        entry.last_error = Some(error_msg.to_string());
+        entry.last_error = Some(error_msg.to_owned());
 
         if entry.error_count >= 5 {
             entry.status = HealthStatus::Unhealthy;

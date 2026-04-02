@@ -102,6 +102,7 @@ pub enum ErrorClass {
 
 impl ErrorClass {
     /// Returns `true` when this error matches the given trigger.
+    #[must_use] 
     pub fn matches(&self, trigger: &FallbackTrigger) -> bool {
         matches!(
             (self, trigger),
@@ -114,6 +115,7 @@ impl ErrorClass {
 
     /// Whether this error class is retryable at all. Auth and bad-request
     /// errors are terminal — switching models would not help.
+    #[must_use] 
     pub fn is_retryable(&self) -> bool {
         !matches!(self, Self::AuthError | Self::BadRequest)
     }
@@ -131,6 +133,7 @@ pub struct FallbackResolver {
 
 impl FallbackResolver {
     /// Create a new resolver from the given strategy.
+    #[must_use] 
     pub fn new(strategy: FallbackStrategy) -> Self {
         Self { strategy }
     }

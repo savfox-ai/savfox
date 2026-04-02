@@ -105,14 +105,13 @@ async fn run_check(channel: &str, format: &str) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
         println!();
-        println!("Current version: v{}", CURRENT_VERSION);
-        println!("Latest version:  v{} ({})", latest_ver, channel);
+        println!("Current version: v{CURRENT_VERSION}");
+        println!("Latest version:  v{latest_ver} ({channel})");
 
         if update_available {
             println!();
             println!(
-                "Update available! Run: savfox update install --channel {}",
-                channel
+                "Update available! Run: savfox update install --channel {channel}"
             );
             println!(
                 "Release notes: https://github.com/anomalyco/savfox/releases/tag/{}",
@@ -123,7 +122,7 @@ async fn run_check(channel: &str, format: &str) -> Result<()> {
                 println!();
                 println!("Changelog:");
                 for line in notes.lines().take(20) {
-                    println!("  {}", line);
+                    println!("  {line}");
                 }
                 let line_count = notes.lines().count();
                 if line_count > 20 {
@@ -157,14 +156,13 @@ async fn run_install(
 
     if !force && latest_ver <= current {
         eprintln!(
-            "Already up to date (v{}). Use --force to reinstall.",
-            latest_ver
+            "Already up to date (v{latest_ver}). Use --force to reinstall."
         );
         return Ok(());
     }
 
     let target_triple = get_target_triple()?;
-    let asset_name = format!("savfox-{}", target_triple);
+    let asset_name = format!("savfox-{target_triple}");
 
     let asset = latest
         .assets
@@ -176,7 +174,7 @@ async fn run_install(
                 .iter()
                 .find(|a| a.name.contains(&target_triple))
         })
-        .context(format!("No asset found for target {}", target_triple))?;
+        .context(format!("No asset found for target {target_triple}"))?;
 
     eprintln!("Downloading {} ({} bytes)...", asset.name, asset.size);
 
@@ -196,7 +194,7 @@ async fn run_install(
 
     install_binary(&temp_file, &current_exe)?;
 
-    eprintln!("Update installed successfully to v{}!", latest_ver);
+    eprintln!("Update installed successfully to v{latest_ver}!");
     eprintln!("Restart savfox to use the new version.");
 
     if !skip_restart && gateway_daemon_likely_running() {
@@ -283,7 +281,7 @@ fn install_binary(temp_file: &Path, current_exe: &Path) -> Result<()> {
 
 async fn fetch_releases() -> Result<Vec<GitHubRelease>> {
     let client = reqwest::Client::builder()
-        .user_agent(format!("savfox/{}", CURRENT_VERSION))
+        .user_agent(format!("savfox/{CURRENT_VERSION}"))
         .build()
         .context("Failed to create HTTP client")?;
 
@@ -322,11 +320,9 @@ fn find_latest_release<'a>(
             .or_else(|| releases.iter().find(|r| !r.prerelease && !r.draft))
             .context("No releases found")?,
         "dev" | "nightly" => releases
-            .iter()
-            .filter(|r| !r.draft)
-            .next()
+            .iter().find(|r| !r.draft)
             .context("No releases found")?,
-        _ => anyhow::bail!("Unknown channel: {}. Use stable, beta, or dev.", channel),
+        _ => anyhow::bail!("Unknown channel: {channel}. Use stable, beta, or dev."),
     };
 
     Ok(release)
@@ -334,7 +330,7 @@ fn find_latest_release<'a>(
 
 fn extract_version(tag: &str) -> Result<semver::Version> {
     let version_str = tag.trim_start_matches('v');
-    semver::Version::parse(version_str).context(format!("Failed to parse version from tag {}", tag))
+    semver::Version::parse(version_str).context(format!("Failed to parse version from tag {tag}"))
 }
 
 fn get_target_triple() -> Result<String> {
@@ -357,7 +353,7 @@ fn get_target_triple() -> Result<String> {
             } else {
                 "unknown"
             };
-            format!("{}-{}", arch, os)
+            format!("{arch}-{os}")
         });
     Ok(target)
 }

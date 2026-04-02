@@ -63,7 +63,7 @@ impl RectExt for Rect {
     fn inset(&self, insets: Insets) -> Rect {
         let horizontal = insets.left.saturating_add(insets.right);
         let vertical = insets.top.saturating_add(insets.bottom);
-        Rect {
+        Self {
             x: self.x.saturating_add(insets.left),
             y: self.y.saturating_add(insets.top),
             width: self.width.saturating_sub(horizontal),

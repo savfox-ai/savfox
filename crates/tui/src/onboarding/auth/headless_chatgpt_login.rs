@@ -49,17 +49,14 @@ pub(super) fn start_headless_chatgpt_login(widget: &mut AuthModeWidget, mut opts
                             }
                             request_frame.schedule_frame();
                             let r = child.block_until_done().await;
-                            match r {
-                                Ok(()) => {
-                                    auth_manager.reload();
-                                    *sign_in_state.write().unwrap() =
-                                        SignInState::ChatGptSuccessMessage;
-                                    request_frame.schedule_frame();
-                                }
-                                _ => {
-                                    *sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
-                                    request_frame.schedule_frame();
-                                }
+                            if matches!(r, Ok(())) {
+                                auth_manager.reload();
+                                *sign_in_state.write().unwrap() =
+                                    SignInState::ChatGptSuccessMessage;
+                                request_frame.schedule_frame();
+                            } else {
+                                *sign_in_state.write().unwrap() = SignInState::OpenAiAuthMethod;
+                                request_frame.schedule_frame();
                             }
                         }
                         Err(_) => {

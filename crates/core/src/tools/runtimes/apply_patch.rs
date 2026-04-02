@@ -50,7 +50,7 @@ impl ApplyPatchRuntime {
         Ok(CommandSpec {
             program,
             args: vec![
-                SAVFOX_APPLY_PATCH_ARG1.to_string(),
+                SAVFOX_APPLY_PATCH_ARG1.to_owned(),
                 req.action.patch.clone(),
             ],
             cwd: req.action.cwd.clone(),
@@ -94,7 +94,7 @@ impl Approvable<ApplyPatchRequest> for ApplyPatchRuntime {
     ) -> BoxFuture<'a, ReviewDecision> {
         let session = ctx.session;
         let turn = ctx.turn;
-        let call_id = ctx.call_id.to_string();
+        let call_id = ctx.call_id.to_owned();
         let retry_reason = ctx.retry_reason.clone();
         let approval_keys = self.approval_keys(req);
         let changes = req.changes.clone();

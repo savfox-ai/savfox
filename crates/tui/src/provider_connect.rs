@@ -65,7 +65,7 @@ pub(crate) struct ProviderConnectRuntimeAuth {
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 pub(crate) fn connect_provider_candidates(
@@ -93,18 +93,18 @@ pub(crate) fn connect_provider_candidates(
             let requires_api_key = provider_requires_api_key(provider_id);
             let mut description_parts: Vec<String> = Vec::new();
             description_parts.push(if requires_api_key {
-                "API key".to_string()
+                "API key".to_owned()
             } else {
-                "No API key".to_string()
+                "No API key".to_owned()
             });
             if let Some(base_url) = resolve_provider_base_url(provider_id, provider) {
                 description_parts.push(base_url);
             } else {
-                description_parts.push("configure base URL before use".to_string());
+                description_parts.push("configure base URL before use".to_owned());
             }
             let description = description_parts.join(" · ");
             Some(ConnectProviderCandidate {
-                id: provider_id.to_string(),
+                id: provider_id.to_owned(),
                 name: provider.name.clone(),
                 description,
                 requires_api_key,
@@ -185,9 +185,9 @@ pub(crate) fn resolve_provider_base_url(
     }
 
     match provider_id.trim().to_ascii_lowercase().as_str() {
-        "openai" => Some(DEFAULT_OPENAI_BASE_URL.to_string()),
-        "ollama" | "ollama-chat" => Some(DEFAULT_OLLAMA_BASE_URL.to_string()),
-        "lmstudio" => Some(DEFAULT_LMSTUDIO_BASE_URL.to_string()),
+        "openai" => Some(DEFAULT_OPENAI_BASE_URL.to_owned()),
+        "ollama" | "ollama-chat" => Some(DEFAULT_OLLAMA_BASE_URL.to_owned()),
+        "lmstudio" => Some(DEFAULT_LMSTUDIO_BASE_URL.to_owned()),
         _ => None,
     }
 }
@@ -204,13 +204,13 @@ fn resolve_provider_base_url_for_connect(
     match provider_id.trim().to_ascii_lowercase().as_str() {
         "openai" => {
             if runtime_auth.use_chatgpt_openai_base_url {
-                Some(DEFAULT_CHATGPT_OPENAI_BASE_URL.to_string())
+                Some(DEFAULT_CHATGPT_OPENAI_BASE_URL.to_owned())
             } else {
-                Some(DEFAULT_OPENAI_BASE_URL.to_string())
+                Some(DEFAULT_OPENAI_BASE_URL.to_owned())
             }
         }
-        "ollama" | "ollama-chat" => Some(DEFAULT_OLLAMA_BASE_URL.to_string()),
-        "lmstudio" => Some(DEFAULT_LMSTUDIO_BASE_URL.to_string()),
+        "ollama" | "ollama-chat" => Some(DEFAULT_OLLAMA_BASE_URL.to_owned()),
+        "lmstudio" => Some(DEFAULT_LMSTUDIO_BASE_URL.to_owned()),
         _ => None,
     }
 }
@@ -472,7 +472,7 @@ pub(crate) async fn connect_provider(
     // Parse models using account_id as the provider prefix.
     let models = parse_remote_models(&payload, &account_id);
     if models.is_empty() {
-        return Err("Connection succeeded, but no models were returned.".to_string());
+        return Err("Connection succeeded, but no models were returned.".to_owned());
     }
 
     let env_key = provider_env_key_for_store(&provider_id, &provider);

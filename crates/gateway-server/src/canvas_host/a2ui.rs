@@ -10,15 +10,15 @@ pub struct A2UIComponent {
     #[serde(default)]
     pub props: HashMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<A2UIComponent>,
+    pub children: Vec<Self>,
 }
 
 impl A2UIComponent {
     pub fn text(id: impl Into<String>, content: impl Into<String>) -> Self {
         let mut props = HashMap::new();
-        props.insert("content".to_string(), serde_json::json!(content.into()));
+        props.insert("content".to_owned(), serde_json::json!(content.into()));
         Self {
-            component_type: "text".to_string(),
+            component_type: "text".to_owned(),
             id: id.into(),
             props,
             children: Vec::new(),
@@ -27,10 +27,10 @@ impl A2UIComponent {
 
     pub fn heading(id: impl Into<String>, level: u8, content: impl Into<String>) -> Self {
         let mut props = HashMap::new();
-        props.insert("level".to_string(), serde_json::json!(level));
-        props.insert("content".to_string(), serde_json::json!(content.into()));
+        props.insert("level".to_owned(), serde_json::json!(level));
+        props.insert("content".to_owned(), serde_json::json!(content.into()));
         Self {
-            component_type: "heading".to_string(),
+            component_type: "heading".to_owned(),
             id: id.into(),
             props,
             children: Vec::new(),
@@ -43,10 +43,10 @@ impl A2UIComponent {
         action: impl Into<String>,
     ) -> Self {
         let mut props = HashMap::new();
-        props.insert("label".to_string(), serde_json::json!(label.into()));
-        props.insert("action".to_string(), serde_json::json!(action.into()));
+        props.insert("label".to_owned(), serde_json::json!(label.into()));
+        props.insert("action".to_owned(), serde_json::json!(action.into()));
         Self {
-            component_type: "button".to_string(),
+            component_type: "button".to_owned(),
             id: id.into(),
             props,
             children: Vec::new(),
@@ -55,12 +55,12 @@ impl A2UIComponent {
 
     pub fn image(id: impl Into<String>, src: impl Into<String>, alt: Option<String>) -> Self {
         let mut props = HashMap::new();
-        props.insert("src".to_string(), serde_json::json!(src.into()));
+        props.insert("src".to_owned(), serde_json::json!(src.into()));
         if let Some(alt) = alt {
-            props.insert("alt".to_string(), serde_json::json!(alt));
+            props.insert("alt".to_owned(), serde_json::json!(alt));
         }
         Self {
-            component_type: "image".to_string(),
+            component_type: "image".to_owned(),
             id: id.into(),
             props,
             children: Vec::new(),
@@ -69,7 +69,7 @@ impl A2UIComponent {
 
     pub fn card(id: impl Into<String>) -> Self {
         Self {
-            component_type: "card".to_string(),
+            component_type: "card".to_owned(),
             id: id.into(),
             props: HashMap::new(),
             children: Vec::new(),
@@ -78,7 +78,7 @@ impl A2UIComponent {
 
     pub fn list(id: impl Into<String>) -> Self {
         Self {
-            component_type: "list".to_string(),
+            component_type: "list".to_owned(),
             id: id.into(),
             props: HashMap::new(),
             children: Vec::new(),
@@ -88,18 +88,19 @@ impl A2UIComponent {
     pub fn input(id: impl Into<String>, placeholder: impl Into<String>) -> Self {
         let mut props = HashMap::new();
         props.insert(
-            "placeholder".to_string(),
+            "placeholder".to_owned(),
             serde_json::json!(placeholder.into()),
         );
         Self {
-            component_type: "input".to_string(),
+            component_type: "input".to_owned(),
             id: id.into(),
             props,
             children: Vec::new(),
         }
     }
 
-    pub fn child(mut self, child: A2UIComponent) -> Self {
+    #[must_use] 
+    pub fn child(mut self, child: Self) -> Self {
         self.children.push(child);
         self
     }

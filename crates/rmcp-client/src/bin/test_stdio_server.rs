@@ -25,6 +25,7 @@ const MEMO_URI: &str = "memo://savfox/example-note";
 const MEMO_CONTENT: &str = "This is a sample MCP resource served by the rmcp test server.";
 const SMALL_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 
+#[must_use] 
 pub fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
     (tokio::io::stdin(), tokio::io::stdout())
 }
@@ -138,11 +139,11 @@ impl TestToolServer {
 
     fn memo_resource() -> Resource {
         let raw = RawResource {
-            uri: MEMO_URI.to_string(),
-            name: "example-note".to_string(),
-            title: Some("Example Note".to_string()),
-            description: Some("A sample MCP resource exposed for integration tests.".to_string()),
-            mime_type: Some("text/plain".to_string()),
+            uri: MEMO_URI.to_owned(),
+            name: "example-note".to_owned(),
+            title: Some("Example Note".to_owned()),
+            description: Some("A sample MCP resource exposed for integration tests.".to_owned()),
+            mime_type: Some("text/plain".to_owned()),
             size: None,
             icons: None,
             meta: None,
@@ -152,13 +153,13 @@ impl TestToolServer {
 
     fn memo_template() -> ResourceTemplate {
         let raw = RawResourceTemplate {
-            uri_template: "memo://savfox/{slug}".to_string(),
-            name: "savfox-memo".to_string(),
-            title: Some("Savfox Memo".to_string()),
+            uri_template: "memo://savfox/{slug}".to_owned(),
+            name: "savfox-memo".to_owned(),
+            title: Some("Savfox Memo".to_owned()),
             description: Some(
-                "Template for memo://savfox/{slug} resources used in tests.".to_string(),
+                "Template for memo://savfox/{slug} resources used in tests.".to_owned(),
             ),
-            mime_type: Some("text/plain".to_string()),
+            mime_type: Some("text/plain".to_owned()),
             icons: None,
         };
         ResourceTemplate::new(raw, None)
@@ -359,12 +360,12 @@ impl TestToolServer {
                 )
             })?
         } else {
-            ("image/png".to_string(), SMALL_PNG_BASE64.to_string())
+            ("image/png".to_owned(), SMALL_PNG_BASE64.to_owned())
         };
 
         let caption = args
             .caption
-            .unwrap_or_else(|| "Here is the image:".to_string());
+            .unwrap_or_else(|| "Here is the image:".to_owned());
 
         let mut content = Vec::new();
         match args.scenario {
@@ -377,15 +378,15 @@ impl TestToolServer {
             }
             ImageScenario::InvalidBase64ThenImage => {
                 content.push(rmcp::model::Content::image(
-                    "not-base64".to_string(),
-                    "image/png".to_string(),
+                    "not-base64".to_owned(),
+                    "image/png".to_owned(),
                 ));
                 content.push(rmcp::model::Content::image(valid_data_b64, mime_type));
             }
             ImageScenario::InvalidImageBytesThenImage => {
                 content.push(rmcp::model::Content::image(
-                    "bm90IGFuIGltYWdl".to_string(),
-                    "image/png".to_string(),
+                    "bm90IGFuIGltYWdl".to_owned(),
+                    "image/png".to_owned(),
                 ));
                 content.push(rmcp::model::Content::image(valid_data_b64, mime_type));
             }
@@ -413,7 +414,7 @@ fn parse_data_url(url: &str) -> Option<(String, String)> {
     let rest = url.strip_prefix("data:")?;
     let (mime_and_opts, data) = rest.split_once(',')?;
     let (mime, _opts) = mime_and_opts.split_once(';').unwrap_or((mime_and_opts, ""));
-    Some((mime.to_string(), data.to_string()))
+    Some((mime.to_owned(), data.to_owned()))
 }
 
 #[tokio::main]

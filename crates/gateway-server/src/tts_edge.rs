@@ -192,8 +192,7 @@ pub const DEFAULT_OUTPUT_FORMAT: &str = "audio-24khz-48kbitrate-mono-mp3";
 /// Build the full WebSocket URL with token and connection id.
 pub fn build_ws_url(connection_id: &str) -> String {
     format!(
-        "{}?TrustedClientToken={}&ConnectionId={}",
-        EDGE_TTS_WS_URL, TRUSTED_CLIENT_TOKEN, connection_id
+        "{EDGE_TTS_WS_URL}?TrustedClientToken={TRUSTED_CLIENT_TOKEN}&ConnectionId={connection_id}"
     )
 }
 
@@ -261,7 +260,7 @@ pub fn extract_audio_from_binary(data: &[u8]) -> Option<Vec<u8>> {
 /// for debugging or forwarding to an external Edge TTS proxy.
 pub async fn synthesize(text: &str, config: &EdgeTtsConfig) -> Result<Vec<u8>, String> {
     if text.is_empty() {
-        return Err("text must not be empty".to_string());
+        return Err("text must not be empty".to_owned());
     }
 
     // Generate all the protocol artefacts.

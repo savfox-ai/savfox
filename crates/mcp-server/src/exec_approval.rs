@@ -67,7 +67,7 @@ pub(crate) async fn handle_exec_approval_request(
         message,
         requested_schema: json!({"type":"object","properties":{}}),
         session_id,
-        savfox_elicitation: "exec-approval".to_string(),
+        savfox_elicitation: "exec-approval".to_owned(),
         savfox_mcp_tool_call_id: tool_call_id.clone(),
         savfox_event_id: event_id.clone(),
         savfox_call_id: call_id,

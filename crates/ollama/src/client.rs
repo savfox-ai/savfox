@@ -189,7 +189,7 @@ impl OllamaClient {
                                 if let Ok(value) = serde_json::from_str::<JsonValue>(text) {
                                     for ev in pull_events_from_value(&value) { yield ev; }
                                     if let Some(err_msg) = value.get("error").and_then(|e| e.as_str()) {
-                                        yield PullEvent::Error(err_msg.to_string());
+                                        yield PullEvent::Error(err_msg.to_owned());
                                         return;
                                     }
                                     if let Some(status) = value.get("status").and_then(|s| s.as_str())

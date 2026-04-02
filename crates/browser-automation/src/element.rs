@@ -35,7 +35,7 @@ impl Element {
         result
             .get("outerHTML")
             .and_then(|h| h.as_str())
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .ok_or_else(|| anyhow!("Failed to get element text"))
     }
 
@@ -55,7 +55,7 @@ impl Element {
         Ok(result
             .get("value")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string()))
+            .map(|s| s.to_owned()))
     }
 
     pub async fn set_attribute(&self, name: &str, value: &str) -> Result<()> {
@@ -103,7 +103,7 @@ impl Element {
             .and_then(|c| c.as_array())
             .ok_or_else(|| anyhow!("Failed to get box model"))?;
 
-        let x = content.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0)
+        let x = content.first().and_then(|v| v.as_f64()).unwrap_or(0.0)
             + content.get(2).and_then(|v| v.as_f64()).unwrap_or(0.0) / 2.0;
         let y = content.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0)
             + content.get(5).and_then(|v| v.as_f64()).unwrap_or(0.0) / 2.0;
@@ -221,10 +221,12 @@ impl Element {
         Ok(())
     }
 
+    #[must_use] 
     pub fn node_id(&self) -> u64 {
         self.node_id
     }
 
+    #[must_use] 
     pub fn selector(&self) -> &str {
         &self.selector
     }

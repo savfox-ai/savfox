@@ -14,6 +14,7 @@ pub enum MemoryLayer {
 }
 
 impl MemoryLayer {
+    #[must_use] 
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Global => "global",
@@ -68,7 +69,7 @@ fn default_priority() -> u32 {
 }
 
 fn default_author() -> String {
-    "user".to_string()
+    "user".to_owned()
 }
 
 impl Default for MemoryFrontmatter {
@@ -77,7 +78,7 @@ impl Default for MemoryFrontmatter {
             tags: Vec::new(),
             priority: 5,
             pinned: false,
-            author: "user".to_string(),
+            author: "user".to_owned(),
             created_at: None,
             updated_at: None,
             expires_at: None,

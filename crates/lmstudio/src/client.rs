@@ -35,9 +35,9 @@ impl LMStudioClient {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        let client = LMStudioClient {
+        let client = Self {
             client,
-            base_url: base_url.to_string(),
+            base_url: base_url.clone(),
         };
         client.check_server().await?;
 
@@ -132,12 +132,12 @@ impl LMStudioClient {
     fn find_lms_with_home_dir(home_dir: Option<&str>) -> std::io::Result<String> {
         // First try 'lms' in PATH
         if which::which("lms").is_ok() {
-            return Ok("lms".to_string());
+            return Ok("lms".to_owned());
         }
 
         // Platform-specific fallback paths
         let home = match home_dir {
-            Some(dir) => dir.to_string(),
+            Some(dir) => dir.to_owned(),
             None => {
                 #[cfg(unix)]
                 {

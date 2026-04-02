@@ -76,7 +76,7 @@ impl ResponsesWebsocketConnection {
             let Some(ws_stream) = guard.as_mut() else {
                 let _ = tx_event
                     .send(Err(ApiError::Stream(
-                        "websocket connection is closed".to_string(),
+                        "websocket connection is closed".to_owned(),
                     )))
                     .await;
                 return;
@@ -199,7 +199,7 @@ async fn connect_websocket(
             .get(X_SAVFOX_TURN_STATE_HEADER)
             .and_then(|value| value.to_str().ok())
     {
-        let _ = turn_state.set(header_value.to_string());
+        let _ = turn_state.set(header_value.to_owned());
     }
     Ok((stream, reasoning_included))
 }
@@ -221,7 +221,7 @@ fn map_ws_error(err: WsError, url: &Url) -> ApiError {
             })
         }
         WsError::ConnectionClosed | WsError::AlreadyClosed => {
-            ApiError::Stream("websocket closed".to_string())
+            ApiError::Stream("websocket closed".to_owned())
         }
         WsError::Io(err) => ApiError::Transport(TransportError::Network(err.to_string())),
         other => ApiError::Transport(TransportError::Network(other.to_string())),

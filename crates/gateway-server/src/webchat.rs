@@ -174,24 +174,20 @@ pub(crate) async fn create_session_handler(
     res: &mut Response,
 ) {
     // Validate gateway auth first.
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let token = extract_bearer_token(req);
-    if let Some(ref t) = token {
-        if auth.validate(t).await.is_none() {
+    if let Some(ref t) = token
+        && auth.validate(t).await.is_none() {
             res.status_code(StatusCode::UNAUTHORIZED);
             res.render(Text::Json(
                 json!({"error": "invalid or missing authorization token"}).to_string(),
             ));
             return;
         }
-    }
     // Allow session creation without auth for public-facing widgets  - the
     // returned session token is scoped to this single session.
 
@@ -269,24 +265,18 @@ pub(crate) async fn create_session_handler(
 /// and returns the agent's reply.
 #[handler]
 pub(crate) async fn send_message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     // Authenticate via session-scoped token.
-    let token = match extract_bearer_token(req) {
-        Some(t) => t,
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(
-                json!({"error": "missing Authorization header"}).to_string(),
-            ));
-            return;
-        }
+    let token = if let Some(t) = extract_bearer_token(req) { t } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(
+            json!({"error": "missing Authorization header"}).to_string(),
+        ));
+        return;
     };
 
     let body: SendMessageRequest = match req.parse_json().await {
@@ -311,15 +301,12 @@ pub(crate) async fn send_message_handler(req: &mut Request, depot: &mut Depot, r
     // Validate that the token belongs to the claimed session.
     {
         let store = webchat_store().lock().await;
-        let session = match store.get(&body.session_id) {
-            Some(s) => s,
-            None => {
-                res.status_code(StatusCode::NOT_FOUND);
-                res.render(Text::Json(
-                    json!({"error": "session not found"}).to_string(),
-                ));
-                return;
-            }
+        let session = if let Some(s) = store.get(&body.session_id) { s } else {
+            res.status_code(StatusCode::NOT_FOUND);
+            res.render(Text::Json(
+                json!({"error": "session not found"}).to_string(),
+            ));
+            return;
         };
         if session.token != token {
             res.status_code(StatusCode::UNAUTHORIZED);

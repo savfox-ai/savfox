@@ -54,7 +54,7 @@ impl ToolHandler for RequestUserInputHandler {
             .await
             .ok_or_else(|| {
                 FunctionCallError::RespondToModel(
-                    "request_user_input was cancelled before receiving a response".to_string(),
+                    "request_user_input was cancelled before receiving a response".to_owned(),
                 )
             })?;
 

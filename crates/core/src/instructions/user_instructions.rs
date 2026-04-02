@@ -23,9 +23,9 @@ impl UserInstructions {
 
 impl From<UserInstructions> for ResponseItem {
     fn from(ui: UserInstructions) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: format!(
                     "{USER_INSTRUCTIONS_PREFIX}{directory}\n\n<INSTRUCTIONS>\n{contents}\n</INSTRUCTIONS>",
@@ -59,9 +59,9 @@ impl SkillInstructions {
 
 impl From<SkillInstructions> for ResponseItem {
     fn from(si: SkillInstructions) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
                 text: format!(
                     "<skill>\n<name>{}</name>\n<path>{}</path>\n{}\n</skill>",

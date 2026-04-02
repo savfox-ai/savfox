@@ -156,17 +156,14 @@ impl ChatComposerHistory {
             Some(idx) => Some(idx + 1),
         };
 
-        match next_idx_opt {
-            Some(idx) => {
-                self.history_cursor = Some(idx);
-                self.populate_history_at_index(idx as usize, app_event_tx)
-            }
-            None => {
-                // Past newest – clear and exit browsing mode.
-                self.history_cursor = None;
-                self.last_history_text = None;
-                Some(HistoryEntry::empty())
-            }
+        if let Some(idx) = next_idx_opt {
+            self.history_cursor = Some(idx);
+            self.populate_history_at_index(idx as usize, app_event_tx)
+        } else {
+            // Past newest – clear and exit browsing mode.
+            self.history_cursor = None;
+            self.last_history_text = None;
+            Some(HistoryEntry::empty())
         }
     }
 

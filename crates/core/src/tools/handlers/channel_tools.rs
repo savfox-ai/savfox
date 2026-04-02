@@ -57,7 +57,7 @@ impl ToolHandler for ChannelToolsHandler {
         let args: ChannelToolsArgs = parse_arguments(&arguments)?;
         // Route to the gateway's message API for platform-specific dispatch.
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
@@ -79,7 +79,7 @@ impl ToolHandler for ChannelToolsHandler {
                     let mut body_map: serde_json::Map<String, serde_json::Value> =
                         serde_json::from_value(body).unwrap_or_default();
                     body_map.insert(
-                        "session_id".to_string(),
+                        "session_id".to_owned(),
                         serde_json::Value::String(session_id.clone()),
                     );
                     send_post(

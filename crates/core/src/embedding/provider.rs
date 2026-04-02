@@ -72,7 +72,7 @@ impl OpenAiEmbedding {
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: base_url.unwrap_or_else(|| "https://api.openai.com".to_string()),
+            base_url: base_url.unwrap_or_else(|| "https://api.openai.com".to_owned()),
             api_key: api_key.into(),
             model: model.into(),
             dimensions,
@@ -156,7 +156,7 @@ impl OllamaEmbedding {
     pub fn new(model: impl Into<String>, dimensions: usize, base_url: Option<String>) -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: base_url.unwrap_or_else(|| "http://127.0.0.1:11434".to_string()),
+            base_url: base_url.unwrap_or_else(|| "http://127.0.0.1:11434".to_owned()),
             model: model.into(),
             dimensions,
         }
@@ -216,6 +216,7 @@ pub struct LocalEmbedding {
 
 impl LocalEmbedding {
     /// Create a stub local embedding provider.
+    #[must_use] 
     pub fn new(dimensions: usize) -> Self {
         Self { dimensions }
     }
@@ -225,7 +226,7 @@ impl LocalEmbedding {
 impl EmbeddingProvider for LocalEmbedding {
     async fn embed(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         Err(EmbeddingError::NotImplemented(
-            "local embedding model support is not yet available".to_string(),
+            "local embedding model support is not yet available".to_owned(),
         ))
     }
 

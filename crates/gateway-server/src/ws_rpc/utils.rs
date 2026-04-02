@@ -65,7 +65,7 @@ pub fn str_array(params: &Value, key: &str) -> Vec<String> {
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(|s| s.to_owned()))
                 .collect()
         })
         .unwrap_or_default()

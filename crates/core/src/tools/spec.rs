@@ -135,13 +135,13 @@ pub enum JsonSchema {
         description: Option<String>,
     },
     Array {
-        items: Box<JsonSchema>,
+        items: Box<Self>,
 
         #[serde(skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
     Object {
-        properties: BTreeMap<String, JsonSchema>,
+        properties: BTreeMap<String, Self>,
         #[serde(skip_serializing_if = "Option::is_none")]
         required: Option<Vec<String>>,
         #[serde(
@@ -175,40 +175,36 @@ impl From<JsonSchema> for AdditionalProperties {
 fn create_cron_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Action to perform: \"list\" (show all jobs), \"add\" (create a job), \
-                     \"remove\" (delete a job), \"next\" (show next run times)."
-                        .to_string(),
+                     \"remove\" (delete a job), \"next\" (show next run times).".to_owned(),
                 ),
             },
         ),
         (
-            "name".to_string(),
+            "name".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Name/identifier for the cron job (required for add, remove, next)."
-                        .to_string(),
+                    "Name/identifier for the cron job (required for add, remove, next).".to_owned(),
                 ),
             },
         ),
         (
-            "schedule".to_string(),
+            "schedule".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Cron schedule expression, e.g. \"0 0 * * * *\" (required for add). \
-                     Uses 6-field format: sec min hour day month weekday."
-                        .to_string(),
+                     Uses 6-field format: sec min hour day month weekday.".to_owned(),
                 ),
             },
         ),
         (
-            "command".to_string(),
+            "command".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Shell command to execute when the job triggers (required for add)."
-                        .to_string(),
+                    "Shell command to execute when the job triggers (required for add).".to_owned(),
                 ),
             },
         ),
@@ -225,24 +221,23 @@ fn create_cron_tool() -> ToolSpec {
 fn create_tts_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "text".to_string(),
+            "text".to_owned(),
             JsonSchema::String {
-                description: Some("Text to convert to speech.".to_string()),
+                description: Some("Text to convert to speech.".to_owned()),
             },
         ),
         (
-            "voice".to_string(),
+            "voice".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Voice name: \"alloy\" (default), \"echo\", \"fable\", \"onyx\", \"nova\", \"shimmer\"."
-                        .to_string(),
+                    "Voice name: \"alloy\" (default), \"echo\", \"fable\", \"onyx\", \"nova\", \"shimmer\".".to_owned(),
                 ),
             },
         ),
         (
-            "output_path".to_string(),
+            "output_path".to_owned(),
             JsonSchema::String {
-                description: Some("File path where the audio (MP3) will be saved.".to_string()),
+                description: Some("File path where the audio (MP3) will be saved.".to_owned()),
             },
         ),
     ]);
@@ -258,27 +253,26 @@ fn create_tts_tool() -> ToolSpec {
 fn create_image_analyze_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "path".to_string(),
+            "path".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Path to the local image file to analyze.".to_string(),
+                    "Path to the local image file to analyze.".to_owned(),
                 ),
             },
         ),
         (
-            "prompt".to_string(),
+            "prompt".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Analysis prompt describing what to look for in the image.".to_string(),
+                    "Analysis prompt describing what to look for in the image.".to_owned(),
                 ),
             },
         ),
         (
-            "detail".to_string(),
+            "detail".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Detail level: \"low\" for a brief analysis, \"high\" (default) for a thorough analysis."
-                        .to_string(),
+                    "Detail level: \"low\" for a brief analysis, \"high\" (default) for a thorough analysis.".to_owned(),
                 ),
             },
         ),
@@ -297,42 +291,39 @@ fn create_image_analyze_tool() -> ToolSpec {
 fn create_process_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Action to perform: \"list\", \"poll\", \"read_log\", \"write\", \"send_keys\", \"kill\"."
-                        .to_string(),
+                    "Action to perform: \"list\", \"poll\", \"read_log\", \"write\", \"send_keys\", \"kill\".".to_owned(),
                 ),
             },
         ),
         (
-            "process_id".to_string(),
+            "process_id".to_owned(),
             JsonSchema::String {
-                description: Some("Identifier of the target process.".to_string()),
+                description: Some("Identifier of the target process.".to_owned()),
             },
         ),
         (
-            "input".to_string(),
+            "input".to_owned(),
             JsonSchema::String {
-                description: Some("Text to write to stdin (for \"write\" action).".to_string()),
+                description: Some("Text to write to stdin (for \"write\" action).".to_owned()),
             },
         ),
         (
-            "keys".to_string(),
+            "keys".to_owned(),
             JsonSchema::Array {
                 items: Box::new(JsonSchema::String { description: None }),
                 description: Some(
-                    "Key names to send (for \"send_keys\" action): \"ctrl-c\", \"ctrl-d\", \"enter\", \"tab\", \"up\", \"down\", \"left\", \"right\", \"escape\", \"f1\"-\"f4\", \"home\", \"end\"."
-                        .to_string(),
+                    "Key names to send (for \"send_keys\" action): \"ctrl-c\", \"ctrl-d\", \"enter\", \"tab\", \"up\", \"down\", \"left\", \"right\", \"escape\", \"f1\"-\"f4\", \"home\", \"end\".".to_owned(),
                 ),
             },
         ),
         (
-            "signal".to_string(),
+            "signal".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Signal to send (for \"kill\" action): \"SIGTERM\" (default) or \"SIGINT\"."
-                        .to_string(),
+                    "Signal to send (for \"kill\" action): \"SIGTERM\" (default) or \"SIGINT\".".to_owned(),
                 ),
             },
         ),
@@ -349,42 +340,40 @@ fn create_process_tool() -> ToolSpec {
 fn create_gateway_status_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Gateway action: \"status\" (connected clients), \"config\" (configuration), \
                      \"health\" (health check), \"config.get\" (full config with schema), \
                      \"config.patch\" (merge update config), \"config.apply\" (replace config), \
-                     \"restart\" (restart gateway)."
-                        .to_string(),
+                     \"restart\" (restart gateway).".to_owned(),
                 ),
             },
         ),
         (
-            "raw".to_string(),
+            "raw".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Config content (YAML/JSON) for config.patch and config.apply actions."
-                        .to_string(),
+                    "Config content (YAML/JSON) for config.patch and config.apply actions.".to_owned(),
                 ),
             },
         ),
         (
-            "note".to_string(),
+            "note".to_owned(),
             JsonSchema::String {
-                description: Some("Change description note for config operations.".to_string()),
+                description: Some("Change description note for config operations.".to_owned()),
             },
         ),
         (
-            "delay_ms".to_string(),
+            "delay_ms".to_owned(),
             JsonSchema::Number {
-                description: Some("Restart delay in milliseconds.".to_string()),
+                description: Some("Restart delay in milliseconds.".to_owned()),
             },
         ),
         (
-            "reason".to_string(),
+            "reason".to_owned(),
             JsonSchema::String {
-                description: Some("Reason for restart.".to_string()),
+                description: Some("Reason for restart.".to_owned()),
             },
         ),
     ]);
@@ -400,45 +389,44 @@ fn create_gateway_status_tool() -> ToolSpec {
 fn create_memory_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Memory action: \"search\", \"get\", \"add\", \"delete\", \"list\"."
-                        .to_string(),
+                    "Memory action: \"search\", \"get\", \"add\", \"delete\", \"list\".".to_owned(),
                 ),
             },
         ),
         (
-            "query".to_string(),
+            "query".to_owned(),
             JsonSchema::String {
-                description: Some("Search query text (for \"search\" action).".to_string()),
+                description: Some("Search query text (for \"search\" action).".to_owned()),
             },
         ),
         (
-            "key".to_string(),
+            "key".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Memory entry key (for \"get\", \"add\", \"delete\").".to_string(),
+                    "Memory entry key (for \"get\", \"add\", \"delete\").".to_owned(),
                 ),
             },
         ),
         (
-            "content".to_string(),
+            "content".to_owned(),
             JsonSchema::String {
-                description: Some("Memory entry content (for \"add\" action).".to_string()),
+                description: Some("Memory entry content (for \"add\" action).".to_owned()),
             },
         ),
         (
-            "tags".to_string(),
+            "tags".to_owned(),
             JsonSchema::Array {
                 items: Box::new(JsonSchema::String { description: None }),
-                description: Some("Tags to associate with the memory entry.".to_string()),
+                description: Some("Tags to associate with the memory entry.".to_owned()),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum results to return (default 10).".to_string()),
+                description: Some("Maximum results to return (default 10).".to_owned()),
             },
         ),
     ]);
@@ -454,65 +442,64 @@ fn create_memory_tool() -> ToolSpec {
 fn create_md_memory_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Action: \"list\", \"get\", \"create\", \"update\", \"delete\", \"search\", \"promote\"."
-                        .to_string(),
+                    "Action: \"list\", \"get\", \"create\", \"update\", \"delete\", \"search\", \"promote\".".to_owned(),
                 ),
             },
         ),
         (
-            "slug".to_string(),
+            "slug".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Memory entry slug (kebab-case filename without .md).".to_string(),
+                    "Memory entry slug (kebab-case filename without .md).".to_owned(),
                 ),
             },
         ),
         (
-            "layer".to_string(),
+            "layer".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Memory layer: \"global\", \"project\", \"agent\", \"session\".".to_string(),
+                    "Memory layer: \"global\", \"project\", \"agent\", \"session\".".to_owned(),
                 ),
             },
         ),
         (
-            "target_layer".to_string(),
+            "target_layer".to_owned(),
             JsonSchema::String {
-                description: Some("Target layer for \"promote\" action.".to_string()),
+                description: Some("Target layer for \"promote\" action.".to_owned()),
             },
         ),
         (
-            "content".to_string(),
+            "content".to_owned(),
             JsonSchema::String {
-                description: Some("Markdown content for \"create\" or \"update\".".to_string()),
+                description: Some("Markdown content for \"create\" or \"update\".".to_owned()),
             },
         ),
         (
-            "tags".to_string(),
+            "tags".to_owned(),
             JsonSchema::Array {
                 items: Box::new(JsonSchema::String { description: None }),
-                description: Some("Tags for the memory entry.".to_string()),
+                description: Some("Tags for the memory entry.".to_owned()),
             },
         ),
         (
-            "priority".to_string(),
+            "priority".to_owned(),
             JsonSchema::Number {
-                description: Some("Priority 1-10 (higher = more important, default 5).".to_string()),
+                description: Some("Priority 1-10 (higher = more important, default 5).".to_owned()),
             },
         ),
         (
-            "query".to_string(),
+            "query".to_owned(),
             JsonSchema::String {
-                description: Some("Search query text (for \"search\" action).".to_string()),
+                description: Some("Search query text (for \"search\" action).".to_owned()),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum results to return (default 10).".to_string()),
+                description: Some("Maximum results to return (default 10).".to_owned()),
             },
         ),
     ]);
@@ -528,36 +515,35 @@ fn create_md_memory_tool() -> ToolSpec {
 fn create_image_generate_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "prompt".to_string(),
+            "prompt".to_owned(),
             JsonSchema::String {
-                description: Some("Image generation prompt describing what to create.".to_string()),
+                description: Some("Image generation prompt describing what to create.".to_owned()),
             },
         ),
         (
-            "output_path".to_string(),
+            "output_path".to_owned(),
             JsonSchema::String {
-                description: Some("File path where the generated image will be saved.".to_string()),
+                description: Some("File path where the generated image will be saved.".to_owned()),
             },
         ),
         (
-            "size".to_string(),
+            "size".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Image dimensions: \"1024x1024\" (default), \"1792x1024\", \"1024x1792\"."
-                        .to_string(),
+                    "Image dimensions: \"1024x1024\" (default), \"1792x1024\", \"1024x1792\".".to_owned(),
                 ),
             },
         ),
         (
-            "model".to_string(),
+            "model".to_owned(),
             JsonSchema::String {
-                description: Some("Model to use: \"dall-e-3\" (default).".to_string()),
+                description: Some("Model to use: \"dall-e-3\" (default).".to_owned()),
             },
         ),
         (
-            "quality".to_string(),
+            "quality".to_owned(),
             JsonSchema::String {
-                description: Some("Quality: \"standard\" (default) or \"hd\".".to_string()),
+                description: Some("Quality: \"standard\" (default) or \"hd\".".to_owned()),
             },
         ),
     ]);
@@ -573,36 +559,35 @@ fn create_image_generate_tool() -> ToolSpec {
 fn create_nodes_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Node action: \"list\", \"status\", \"run_command\", \"camera_capture\", \"get_location\", \"send_notification\"."
-                        .to_string(),
+                    "Node action: \"list\", \"status\", \"run_command\", \"camera_capture\", \"get_location\", \"send_notification\".".to_owned(),
                 ),
             },
         ),
         (
-            "node_id".to_string(),
+            "node_id".to_owned(),
             JsonSchema::String {
-                description: Some("Target node identifier.".to_string()),
+                description: Some("Target node identifier.".to_owned()),
             },
         ),
         (
-            "command".to_string(),
+            "command".to_owned(),
             JsonSchema::String {
-                description: Some("Command to run on the node (for \"run_command\").".to_string()),
+                description: Some("Command to run on the node (for \"run_command\").".to_owned()),
             },
         ),
         (
-            "message".to_string(),
+            "message".to_owned(),
             JsonSchema::String {
-                description: Some("Notification message text.".to_string()),
+                description: Some("Notification message text.".to_owned()),
             },
         ),
         (
-            "title".to_string(),
+            "title".to_owned(),
             JsonSchema::String {
-                description: Some("Notification title.".to_string()),
+                description: Some("Notification title.".to_owned()),
             },
         ),
     ]);
@@ -618,74 +603,73 @@ fn create_nodes_tool() -> ToolSpec {
 fn create_browser_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Browser action: \"status\", \"start\", \"stop\", \"profiles\", \"tabs\", \
                      \"open\", \"focus\", \"close\", \"snapshot\", \"screenshot\", \"navigate\", \
-                     \"console\", \"pdf\", \"upload\", \"dialog\", \"act\"."
-                        .to_string(),
+                     \"console\", \"pdf\", \"upload\", \"dialog\", \"act\".".to_owned(),
                 ),
             },
         ),
         (
-            "profile".to_string(),
+            "profile".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Browser profile: \"default\", \"chrome\", or custom name.".to_string(),
+                    "Browser profile: \"default\", \"chrome\", or custom name.".to_owned(),
                 ),
             },
         ),
         (
-            "target_id".to_string(),
+            "target_id".to_owned(),
             JsonSchema::String {
-                description: Some("Tab/page target identifier.".to_string()),
+                description: Some("Tab/page target identifier.".to_owned()),
             },
         ),
         (
-            "target_url".to_string(),
+            "target_url".to_owned(),
             JsonSchema::String {
-                description: Some("URL for navigate/open actions.".to_string()),
+                description: Some("URL for navigate/open actions.".to_owned()),
             },
         ),
         (
-            "format".to_string(),
+            "format".to_owned(),
             JsonSchema::String {
-                description: Some("Snapshot format: \"ai\" or \"aria\".".to_string()),
+                description: Some("Snapshot format: \"ai\" or \"aria\".".to_owned()),
             },
         ),
         (
-            "refs".to_string(),
+            "refs".to_owned(),
             JsonSchema::String {
-                description: Some("Ref strategy for snapshots: \"role\" or \"aria\".".to_string()),
+                description: Some("Ref strategy for snapshots: \"role\" or \"aria\".".to_owned()),
             },
         ),
         (
-            "max_chars".to_string(),
+            "max_chars".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum characters for snapshot output.".to_string()),
+                description: Some("Maximum characters for snapshot output.".to_owned()),
             },
         ),
         (
-            "selector".to_string(),
+            "selector".to_owned(),
             JsonSchema::String {
-                description: Some("CSS selector for targeted operations.".to_string()),
+                description: Some("CSS selector for targeted operations.".to_owned()),
             },
         ),
         (
-            "full_page".to_string(),
+            "full_page".to_owned(),
             JsonSchema::Boolean {
-                description: Some("Capture full page screenshot (default: false).".to_string()),
+                description: Some("Capture full page screenshot (default: false).".to_owned()),
             },
         ),
         (
-            "image_type".to_string(),
+            "image_type".to_owned(),
             JsonSchema::String {
-                description: Some("Screenshot image type: \"png\" or \"jpeg\".".to_string()),
+                description: Some("Screenshot image type: \"png\" or \"jpeg\".".to_owned()),
             },
         ),
         (
-            "request".to_string(),
+            "request".to_owned(),
             JsonSchema::Object {
                 properties: BTreeMap::new(),
                 required: None,
@@ -693,30 +677,29 @@ fn create_browser_tool() -> ToolSpec {
             },
         ),
         (
-            "paths".to_string(),
+            "paths".to_owned(),
             JsonSchema::Array {
                 items: Box::new(JsonSchema::String { description: None }),
-                description: Some("File paths for upload action.".to_string()),
+                description: Some("File paths for upload action.".to_owned()),
             },
         ),
         (
-            "accept".to_string(),
+            "accept".to_owned(),
             JsonSchema::Boolean {
-                description: Some("Whether to accept a dialog.".to_string()),
+                description: Some("Whether to accept a dialog.".to_owned()),
             },
         ),
         (
-            "prompt_text".to_string(),
+            "prompt_text".to_owned(),
             JsonSchema::String {
-                description: Some("Text to enter in a prompt dialog.".to_string()),
+                description: Some("Text to enter in a prompt dialog.".to_owned()),
             },
         ),
         (
-            "level".to_string(),
+            "level".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Console log level filter: \"error\", \"warning\", \"log\", \"info\"."
-                        .to_string(),
+                    "Console log level filter: \"error\", \"warning\", \"log\", \"info\".".to_owned(),
                 ),
             },
         ),
@@ -733,44 +716,43 @@ fn create_browser_tool() -> ToolSpec {
 fn create_canvas_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "action".to_string(),
+            "action".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Canvas action: \"present\" (show canvas), \"hide\", \"navigate\" (load URL), \
                      \"eval\" (run JavaScript), \"snapshot\" (capture screenshot), \
-                     \"a2ui_push\" (push A2UI component), \"a2ui_reset\"."
-                        .to_string(),
+                     \"a2ui_push\" (push A2UI component), \"a2ui_reset\".".to_owned(),
                 ),
             },
         ),
         (
-            "node_id".to_string(),
+            "node_id".to_owned(),
             JsonSchema::String {
-                description: Some("Target node ID.".to_string()),
+                description: Some("Target node ID.".to_owned()),
             },
         ),
         (
-            "url".to_string(),
+            "url".to_owned(),
             JsonSchema::String {
-                description: Some("URL for navigate action.".to_string()),
+                description: Some("URL for navigate action.".to_owned()),
             },
         ),
         (
-            "code".to_string(),
+            "code".to_owned(),
             JsonSchema::String {
-                description: Some("JavaScript code for eval action.".to_string()),
+                description: Some("JavaScript code for eval action.".to_owned()),
             },
         ),
         (
-            "format".to_string(),
+            "format".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Image format for snapshot: \"png\", \"jpg\", \"jpeg\".".to_string(),
+                    "Image format for snapshot: \"png\", \"jpg\", \"jpeg\".".to_owned(),
                 ),
             },
         ),
         (
-            "command".to_string(),
+            "command".to_owned(),
             JsonSchema::Object {
                 properties: BTreeMap::new(),
                 required: None,
@@ -778,13 +760,13 @@ fn create_canvas_tool() -> ToolSpec {
             },
         ),
         (
-            "component".to_string(),
+            "component".to_owned(),
             JsonSchema::String {
-                description: Some("A2UI component ID or path.".to_string()),
+                description: Some("A2UI component ID or path.".to_owned()),
             },
         ),
         (
-            "props".to_string(),
+            "props".to_owned(),
             JsonSchema::Object {
                 properties: BTreeMap::new(),
                 required: None,
@@ -792,21 +774,21 @@ fn create_canvas_tool() -> ToolSpec {
             },
         ),
         (
-            "title".to_string(),
+            "title".to_owned(),
             JsonSchema::String {
-                description: Some("Title for the canvas presentation.".to_string()),
+                description: Some("Title for the canvas presentation.".to_owned()),
             },
         ),
         (
-            "width".to_string(),
+            "width".to_owned(),
             JsonSchema::Number {
-                description: Some("Width of the canvas.".to_string()),
+                description: Some("Width of the canvas.".to_owned()),
             },
         ),
         (
-            "height".to_string(),
+            "height".to_owned(),
             JsonSchema::Number {
-                description: Some("Height of the canvas.".to_string()),
+                description: Some("Height of the canvas.".to_owned()),
             },
         ),
     ]);
@@ -822,17 +804,16 @@ fn create_canvas_tool() -> ToolSpec {
 fn create_gateway_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "method".to_string(),
+            "method".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Gateway JSON-RPC method to call (e.g., \"agents.list\", \"chat.send\", \
-                     \"sessions.list\", \"cron.add\", \"config.get\", \"tools.invoke\")."
-                        .to_string(),
+                     \"sessions.list\", \"cron.add\", \"config.get\", \"tools.invoke\").".to_owned(),
                 ),
             },
         ),
         (
-            "params".to_string(),
+            "params".to_owned(),
             JsonSchema::Object {
                 properties: BTreeMap::new(),
                 required: None,
@@ -852,27 +833,27 @@ fn create_gateway_tool() -> ToolSpec {
 fn create_llm_task_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "prompt".to_string(),
+            "prompt".to_owned(),
             JsonSchema::String {
-                description: Some("The task prompt to send to the LLM.".to_string()),
+                description: Some("The task prompt to send to the LLM.".to_owned()),
             },
         ),
         (
-            "model".to_string(),
+            "model".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Optional model to use (defaults to the agent's model).".to_string(),
+                    "Optional model to use (defaults to the agent's model).".to_owned(),
                 ),
             },
         ),
         (
-            "system".to_string(),
+            "system".to_owned(),
             JsonSchema::String {
-                description: Some("Optional system prompt for the task.".to_string()),
+                description: Some("Optional system prompt for the task.".to_owned()),
             },
         ),
         (
-            "output_schema".to_string(),
+            "output_schema".to_owned(),
             JsonSchema::Object {
                 properties: BTreeMap::new(),
                 required: None,
@@ -880,21 +861,21 @@ fn create_llm_task_tool() -> ToolSpec {
             },
         ),
         (
-            "temperature".to_string(),
+            "temperature".to_owned(),
             JsonSchema::Number {
-                description: Some("Temperature for sampling (0.0 to 2.0).".to_string()),
+                description: Some("Temperature for sampling (0.0 to 2.0).".to_owned()),
             },
         ),
         (
-            "max_tokens".to_string(),
+            "max_tokens".to_owned(),
             JsonSchema::Number {
-                description: Some("Maximum tokens for the response.".to_string()),
+                description: Some("Maximum tokens for the response.".to_owned()),
             },
         ),
         (
-            "timeout_secs".to_string(),
+            "timeout_secs".to_owned(),
             JsonSchema::Number {
-                description: Some("Timeout in seconds (default: 120).".to_string()),
+                description: Some("Timeout in seconds (default: 120).".to_owned()),
             },
         ),
     ]);
@@ -1059,7 +1040,7 @@ pub(crate) fn build_specs(
 
     if config
         .experimental_supported_tools
-        .contains(&"sessions".to_string())
+        .contains(&"sessions".to_owned())
     {
         let sessions_handler = Arc::new(SessionsHandler);
         builder.push_spec(create_sessions_list_tool());

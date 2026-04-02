@@ -213,43 +213,44 @@ pub enum SavfoxError {
 
 impl From<CancelErr> for SavfoxError {
     fn from(_: CancelErr) -> Self {
-        SavfoxError::TurnAborted
+        Self::TurnAborted
     }
 }
 
 impl SavfoxError {
+    #[must_use] 
     pub fn is_retryable(&self) -> bool {
         match self {
-            SavfoxError::TurnAborted
-            | SavfoxError::Interrupted
-            | SavfoxError::EnvVar(_)
-            | SavfoxError::Fatal(_)
-            | SavfoxError::UsageNotIncluded
-            | SavfoxError::QuotaExceeded
-            | SavfoxError::InvalidImageRequest()
-            | SavfoxError::InvalidRequest(_)
-            | SavfoxError::RefreshTokenFailed(_)
-            | SavfoxError::UnsupportedOperation(_)
-            | SavfoxError::Sandbox(_)
-            | SavfoxError::LandlockSandboxExecutableNotProvided
-            | SavfoxError::RetryLimit(_)
-            | SavfoxError::ContextWindowExceeded
-            | SavfoxError::SessionNotFound(_)
-            | SavfoxError::AgentLimitReached { .. }
-            | SavfoxError::Spawn
-            | SavfoxError::SessionConfiguredNotFirstEvent
-            | SavfoxError::UsageLimitReached(_)
-            | SavfoxError::ModelCap(_) => false,
-            SavfoxError::Stream(..)
-            | SavfoxError::Timeout
-            | SavfoxError::UnexpectedStatus(_)
-            | SavfoxError::ResponseStreamFailed(_)
-            | SavfoxError::ConnectionFailed(_)
-            | SavfoxError::InternalServerError
-            | SavfoxError::InternalAgentDied
-            | SavfoxError::Io(_)
-            | SavfoxError::Json(_)
-            | SavfoxError::TokioJoin(_) => true,
+            Self::TurnAborted
+            | Self::Interrupted
+            | Self::EnvVar(_)
+            | Self::Fatal(_)
+            | Self::UsageNotIncluded
+            | Self::QuotaExceeded
+            | Self::InvalidImageRequest()
+            | Self::InvalidRequest(_)
+            | Self::RefreshTokenFailed(_)
+            | Self::UnsupportedOperation(_)
+            | Self::Sandbox(_)
+            | Self::LandlockSandboxExecutableNotProvided
+            | Self::RetryLimit(_)
+            | Self::ContextWindowExceeded
+            | Self::SessionNotFound(_)
+            | Self::AgentLimitReached { .. }
+            | Self::Spawn
+            | Self::SessionConfiguredNotFirstEvent
+            | Self::UsageLimitReached(_)
+            | Self::ModelCap(_) => false,
+            Self::Stream(..)
+            | Self::Timeout
+            | Self::UnexpectedStatus(_)
+            | Self::ResponseStreamFailed(_)
+            | Self::ConnectionFailed(_)
+            | Self::InternalServerError
+            | Self::InternalAgentDied
+            | Self::Io(_)
+            | Self::Json(_)
+            | Self::TokioJoin(_) => true,
             #[cfg(target_os = "linux")]
             SavfoxError::LandlockRuleset(_) | SavfoxError::LandlockPathFd(_) => false,
         }
@@ -408,13 +409,13 @@ impl std::fmt::Display for UsageLimitReachedError {
                 "You've hit your usage limit. Upgrade to Pro (https://savfox.ai/explore/pro), visit https://savfox.ai/savfox/settings/usage to purchase more credits{}",
                 retry_suffix_after_or(self.resets_at.as_ref())
             ),
-            Some(PlanType::Known(KnownPlan::Team)) | Some(PlanType::Known(KnownPlan::Business)) => {
+            Some(PlanType::Known(KnownPlan::Team | KnownPlan::Business)) => {
                 format!(
                     "You've hit your usage limit. To get more access now, send a request to your admin{}",
                     retry_suffix_after_or(self.resets_at.as_ref())
                 )
             }
-            Some(PlanType::Known(KnownPlan::Free)) | Some(PlanType::Known(KnownPlan::Go)) => {
+            Some(PlanType::Known(KnownPlan::Free | KnownPlan::Go)) => {
                 format!(
                     "You've hit your usage limit. Upgrade to Plus to continue using Savfox (https://savfox.ai/explore/plus),{}",
                     retry_suffix_after_or(self.resets_at.as_ref())
@@ -424,8 +425,7 @@ impl std::fmt::Display for UsageLimitReachedError {
                 "You've hit your usage limit. Visit https://savfox.ai/savfox/settings/usage to purchase more credits{}",
                 retry_suffix_after_or(self.resets_at.as_ref())
             ),
-            Some(PlanType::Known(KnownPlan::Enterprise))
-            | Some(PlanType::Known(KnownPlan::Edu)) => format!(
+            Some(PlanType::Known(KnownPlan::Enterprise | KnownPlan::Edu)) => format!(
                 "You've hit your usage limit.{}",
                 retry_suffix(self.resets_at.as_ref())
             ),
@@ -468,7 +468,7 @@ fn retry_suffix(resets_at: Option<&DateTime<Utc>>) -> String {
         let formatted = format_retry_timestamp(resets_at);
         format!(" Try again at {formatted}.")
     } else {
-        " Try again later.".to_string()
+        " Try again later.".to_owned()
     }
 }
 
@@ -477,7 +477,7 @@ fn retry_suffix_after_or(resets_at: Option<&DateTime<Utc>>) -> String {
         let formatted = format_retry_timestamp(resets_at);
         format!(" or try again at {formatted}.")
     } else {
-        " or try again later.".to_string()
+        " or try again later.".to_owned()
     }
 }
 
@@ -496,7 +496,7 @@ fn format_retry_timestamp(resets_at: &DateTime<Utc>) -> String {
 
 fn format_duration_short(seconds: u64) -> String {
     if seconds < 60 {
-        "less than a minute".to_string()
+        "less than a minute".to_owned()
     } else if seconds < 3600 {
         format!("{}m", seconds / 60)
     } else if seconds < 86_400 {
@@ -558,44 +558,47 @@ impl SavfoxError {
     /// Minimal shim so that existing `e.downcast_ref::<SavfoxError>()` checks continue to compile
     /// after replacing `anyhow::Error` in the return signature. This mirrors the behavior of
     /// `anyhow::Error::downcast_ref` but works directly on our concrete enum.
+    #[must_use] 
     pub fn downcast_ref<T: std::any::Any>(&self) -> Option<&T> {
         (self as &dyn std::any::Any).downcast_ref::<T>()
     }
 
     /// Translate core error to client-facing protocol error.
+    #[must_use] 
     pub fn to_savfox_protocol_error(&self) -> SavfoxErrorInfo {
         match self {
-            SavfoxError::ContextWindowExceeded => SavfoxErrorInfo::ContextWindowExceeded,
-            SavfoxError::UsageLimitReached(_)
-            | SavfoxError::QuotaExceeded
-            | SavfoxError::UsageNotIncluded => SavfoxErrorInfo::UsageLimitExceeded,
-            SavfoxError::ModelCap(err) => SavfoxErrorInfo::ModelCap {
+            Self::ContextWindowExceeded => SavfoxErrorInfo::ContextWindowExceeded,
+            Self::UsageLimitReached(_)
+            | Self::QuotaExceeded
+            | Self::UsageNotIncluded => SavfoxErrorInfo::UsageLimitExceeded,
+            Self::ModelCap(err) => SavfoxErrorInfo::ModelCap {
                 model: err.model.clone(),
                 reset_after_seconds: err.reset_after_seconds,
             },
-            SavfoxError::RetryLimit(_) => SavfoxErrorInfo::ResponseTooManyFailedAttempts {
+            Self::RetryLimit(_) => SavfoxErrorInfo::ResponseTooManyFailedAttempts {
                 http_status_code: self.http_status_code_value(),
             },
-            SavfoxError::ConnectionFailed(_) => SavfoxErrorInfo::HttpConnectionFailed {
+            Self::ConnectionFailed(_) => SavfoxErrorInfo::HttpConnectionFailed {
                 http_status_code: self.http_status_code_value(),
             },
-            SavfoxError::ResponseStreamFailed(_) => {
+            Self::ResponseStreamFailed(_) => {
                 SavfoxErrorInfo::ResponseStreamConnectionFailed {
                     http_status_code: self.http_status_code_value(),
                 }
             }
-            SavfoxError::RefreshTokenFailed(_) => SavfoxErrorInfo::Unauthorized,
-            SavfoxError::SessionConfiguredNotFirstEvent
-            | SavfoxError::InternalServerError
-            | SavfoxError::InternalAgentDied => SavfoxErrorInfo::InternalServerError,
-            SavfoxError::UnsupportedOperation(_)
-            | SavfoxError::SessionNotFound(_)
-            | SavfoxError::AgentLimitReached { .. } => SavfoxErrorInfo::BadRequest,
-            SavfoxError::Sandbox(_) => SavfoxErrorInfo::SandboxError,
+            Self::RefreshTokenFailed(_) => SavfoxErrorInfo::Unauthorized,
+            Self::SessionConfiguredNotFirstEvent
+            | Self::InternalServerError
+            | Self::InternalAgentDied => SavfoxErrorInfo::InternalServerError,
+            Self::UnsupportedOperation(_)
+            | Self::SessionNotFound(_)
+            | Self::AgentLimitReached { .. } => SavfoxErrorInfo::BadRequest,
+            Self::Sandbox(_) => SavfoxErrorInfo::SandboxError,
             _ => SavfoxErrorInfo::Other,
         }
     }
 
+    #[must_use] 
     pub fn to_error_event(&self, message_prefix: Option<String>) -> ErrorEvent {
         let error_message = self.to_string();
         let message: String = match message_prefix {
@@ -610,16 +613,17 @@ impl SavfoxError {
 
     pub fn http_status_code_value(&self) -> Option<u16> {
         let http_status_code = match self {
-            SavfoxError::RetryLimit(err) => Some(err.status),
-            SavfoxError::UnexpectedStatus(err) => Some(err.status),
-            SavfoxError::ConnectionFailed(err) => err.source.status(),
-            SavfoxError::ResponseStreamFailed(err) => err.source.status(),
+            Self::RetryLimit(err) => Some(err.status),
+            Self::UnexpectedStatus(err) => Some(err.status),
+            Self::ConnectionFailed(err) => err.source.status(),
+            Self::ResponseStreamFailed(err) => err.source.status(),
             _ => None,
         };
         http_status_code.as_ref().map(StatusCode::as_u16)
     }
 }
 
+#[must_use] 
 pub fn get_error_message_ui(e: &SavfoxError) -> String {
     let message = match e {
         SavfoxError::Sandbox(SandboxErr::Denied { output }) => {

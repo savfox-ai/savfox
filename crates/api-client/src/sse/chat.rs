@@ -103,7 +103,7 @@ pub async fn process_chat_sse<S>(
         let sse = match response {
             Ok(Some(Ok(sse))) => sse,
             Ok(Some(Err(e))) => {
-                eprintln!("[SSE ERROR] {}", e);
+                eprintln!("[SSE ERROR] {e}");
                 let _ = tx_event.send(Err(ApiError::Stream(e.to_string()))).await;
                 return;
             }
@@ -160,13 +160,13 @@ pub async fn process_chat_sse<S>(
                     .or_else(|| delta.get("reasoning_content"));
                 if let Some(reasoning) = reasoning_val {
                     if let Some(text) = reasoning.as_str() {
-                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string())
+                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned())
                             .await;
                     } else if let Some(text) = reasoning.get("text").and_then(|v| v.as_str()) {
-                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string())
+                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned())
                             .await;
                     } else if let Some(text) = reasoning.get("content").and_then(|v| v.as_str()) {
-                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string())
+                        append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned())
                             .await;
                     }
                 }
@@ -178,13 +178,13 @@ pub async fn process_chat_sse<S>(
                                 append_assistant_text(
                                     &tx_event,
                                     &mut assistant_item,
-                                    text.to_string(),
+                                    text.to_owned(),
                                 )
                                 .await;
                             }
                         }
                     } else if let Some(text) = content.as_str() {
-                        append_assistant_text(&tx_event, &mut assistant_item, text.to_string())
+                        append_assistant_text(&tx_event, &mut assistant_item, text.to_owned())
                             .await;
                     }
                 }
@@ -198,7 +198,7 @@ pub async fn process_chat_sse<S>(
 
                         let mut call_id_for_lookup = None;
                         if let Some(call_id) = tool_call.get("id").and_then(|i| i.as_str()) {
-                            call_id_for_lookup = Some(call_id.to_string());
+                            call_id_for_lookup = Some(call_id.to_owned());
                             if let Some(existing) = tool_call_index_by_id.get(call_id) {
                                 index = Some(*existing);
                             }
@@ -223,15 +223,15 @@ pub async fn process_chat_sse<S>(
                         }
 
                         if let Some(id) = tool_call.get("id").and_then(|i| i.as_str()) {
-                            call_state.id.get_or_insert_with(|| id.to_string());
-                            tool_call_index_by_id.entry(id.to_string()).or_insert(index);
+                            call_state.id.get_or_insert_with(|| id.to_owned());
+                            tool_call_index_by_id.entry(id.to_owned()).or_insert(index);
                         }
 
                         if let Some(func) = tool_call.get("function") {
                             if let Some(fname) = func.get("name").and_then(|n| n.as_str())
                                 && !fname.is_empty()
                             {
-                                call_state.name.get_or_insert_with(|| fname.to_string());
+                                call_state.name.get_or_insert_with(|| fname.to_owned());
                             }
                             if let Some(arguments) = func.get("arguments").and_then(|a| a.as_str())
                             {
@@ -250,11 +250,11 @@ pub async fn process_chat_sse<S>(
                     .or_else(|| message.get("reasoning_content"))
             {
                 if let Some(text) = reasoning.as_str() {
-                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string()).await;
+                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned()).await;
                 } else if let Some(text) = reasoning.get("text").and_then(|v| v.as_str()) {
-                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string()).await;
+                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned()).await;
                 } else if let Some(text) = reasoning.get("content").and_then(|v| v.as_str()) {
-                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_string()).await;
+                    append_reasoning_text(&tx_event, &mut reasoning_item, text.to_owned()).await;
                 }
             }
 
@@ -330,7 +330,7 @@ async fn append_assistant_text(
     if assistant_item.is_none() {
         let item = ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![],
             end_turn: None,
             phase: None,

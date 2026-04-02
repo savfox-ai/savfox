@@ -135,8 +135,7 @@ fn default_response_footer_enabled() -> bool {
 }
 
 fn default_response_footer_template() -> String {
-    "model: {model} | provider: {provider}{profile_segment}{tokens_segment}{cost_segment}"
-        .to_string()
+    "model: {model} | provider: {provider}{profile_segment}{tokens_segment}{cost_segment}".to_owned()
 }
 
 fn default_response_footer_max_length() -> usize {
@@ -146,25 +145,25 @@ fn default_response_footer_max_length() -> usize {
 fn default_response_footer_channel_templates() -> HashMap<String, String> {
     let mut map = HashMap::new();
     map.insert(
-        "discord".to_string(),
-        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_string(),
+        "discord".to_owned(),
+        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_owned(),
     );
     map.insert(
-        "telegram".to_string(),
-        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_string(),
+        "telegram".to_owned(),
+        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_owned(),
     );
     map.insert(
-        "slack".to_string(),
-        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_string(),
+        "slack".to_owned(),
+        "m:{model} | p:{provider}{tokens_segment}{cost_segment}".to_owned(),
     );
     map
 }
 
 fn default_response_footer_channel_max_length() -> HashMap<String, usize> {
     let mut map = HashMap::new();
-    map.insert("discord".to_string(), 180);
-    map.insert("telegram".to_string(), 220);
-    map.insert("slack".to_string(), 220);
+    map.insert("discord".to_owned(), 180);
+    map.insert("telegram".to_owned(), 220);
+    map.insert("slack".to_owned(), 220);
     map
 }
 

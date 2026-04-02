@@ -13,10 +13,10 @@ pub enum PasteImageError {
 impl std::fmt::Display for PasteImageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PasteImageError::ClipboardUnavailable(msg) => write!(f, "clipboard unavailable: {msg}"),
-            PasteImageError::NoImage(msg) => write!(f, "no image on clipboard: {msg}"),
-            PasteImageError::EncodeFailed(msg) => write!(f, "could not encode image: {msg}"),
-            PasteImageError::IoError(msg) => write!(f, "io error: {msg}"),
+            Self::ClipboardUnavailable(msg) => write!(f, "clipboard unavailable: {msg}"),
+            Self::NoImage(msg) => write!(f, "no image on clipboard: {msg}"),
+            Self::EncodeFailed(msg) => write!(f, "could not encode image: {msg}"),
+            Self::IoError(msg) => write!(f, "io error: {msg}"),
         }
     }
 }
@@ -32,9 +32,9 @@ pub enum EncodedImageFormat {
 impl EncodedImageFormat {
     pub fn label(self) -> &'static str {
         match self {
-            EncodedImageFormat::Png => "PNG",
-            EncodedImageFormat::Jpeg => "JPEG",
-            EncodedImageFormat::Other => "IMG",
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+            Self::Other => "IMG",
         }
     }
 }
@@ -362,7 +362,7 @@ pub fn pasted_image_format(path: &Path) -> EncodedImageFormat {
         .as_deref()
     {
         Some("png") => EncodedImageFormat::Png,
-        Some("jpg") | Some("jpeg") => EncodedImageFormat::Jpeg,
+        Some("jpg" | "jpeg") => EncodedImageFormat::Jpeg,
         _ => EncodedImageFormat::Other,
     }
 }

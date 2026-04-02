@@ -148,7 +148,7 @@ impl ExecPolicyManager {
             Decision::Prompt => {
                 if matches!(approval_policy, AskForApproval::Never) {
                     ExecApprovalRequirement::Forbidden {
-                        reason: PROMPT_CONFLICT_REASON.to_string(),
+                        reason: PROMPT_CONFLICT_REASON.to_owned(),
                     }
                 } else {
                     ExecApprovalRequirement::NeedsApproval {

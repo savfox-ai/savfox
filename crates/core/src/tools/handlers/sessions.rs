@@ -72,7 +72,7 @@ impl ToolHandler for SessionsHandler {
         };
 
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
         match tool_name.as_str() {
             "sessions_list" => self.handle_list(&arguments, &gateway_url).await,

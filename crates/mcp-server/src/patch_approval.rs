@@ -52,13 +52,13 @@ pub(crate) async fn handle_patch_approval_request(
     if let Some(r) = &reason {
         message_lines.push(r.clone());
     }
-    message_lines.push("Allow Savfox to apply proposed code changes?".to_string());
+    message_lines.push("Allow Savfox to apply proposed code changes?".to_owned());
 
     let params = PatchApprovalElicitRequestParams {
         message: message_lines.join("\n"),
         requested_schema: json!({"type":"object","properties":{}}),
         session_id,
-        savfox_elicitation: "patch-approval".to_string(),
+        savfox_elicitation: "patch-approval".to_owned(),
         savfox_mcp_tool_call_id: tool_call_id.clone(),
         savfox_event_id: event_id.clone(),
         savfox_call_id: call_id,

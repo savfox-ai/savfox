@@ -47,8 +47,7 @@ impl SavfoxMessageProcessor {
     fn external_auth_active_error(&self) -> JSONRPCErrorError {
         JSONRPCErrorError {
             code: INVALID_REQUEST_ERROR_CODE,
-            message: "External auth is active. Use account/login/start (chatgptAuthTokens) to update it or account/logout to clear it."
-                .to_string(),
+            message: "External auth is active. Use account/login/start (chatgptAuthTokens) to update it or account/logout to clear it.".to_owned(),
             data: None,
         }
     }
@@ -67,7 +66,7 @@ impl SavfoxMessageProcessor {
         ) {
             return Err(JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "API key login is disabled. Use ChatGPT login instead.".to_string(),
+                message: "API key login is disabled. Use ChatGPT login instead.".to_owned(),
                 data: None,
             });
         }
@@ -144,7 +143,7 @@ impl SavfoxMessageProcessor {
         if matches!(config.forced_login_method, Some(ForcedLoginMethod::Api)) {
             return Err(JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "ChatGPT login is disabled. Use API key login instead.".to_string(),
+                message: "ChatGPT login is disabled. Use API key login instead.".to_owned(),
                 data: None,
             });
         }
@@ -153,7 +152,7 @@ impl SavfoxMessageProcessor {
             open_browser: false,
             ..LoginServerOptions::new(
                 config.savfox_home.clone(),
-                CLIENT_ID.to_string(),
+                CLIENT_ID.to_owned(),
                 config.forced_chatgpt_workspace_id.clone(),
                 config.cli_auth_credentials_store_mode,
             )
@@ -195,7 +194,7 @@ impl SavfoxMessageProcessor {
                             Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
                             Err(_elapsed) => {
                                 shutdown_handle.shutdown();
-                                (false, Some("Login timed out".to_string()))
+                                (false, Some("Login timed out".to_owned()))
                             }
                         };
 
@@ -286,7 +285,7 @@ impl SavfoxMessageProcessor {
                             Ok(Err(err)) => {
                                 (false, Some(format!("Device code login error: {err}")))
                             }
-                            Err(_) => (false, Some("Device code login timed out".to_string())),
+                            Err(_) => (false, Some("Device code login timed out".to_owned())),
                         };
 
                         let payload_login_completed = AccountLoginCompletedNotification {
@@ -352,23 +351,20 @@ impl SavfoxMessageProcessor {
         params: CancelLoginAccountParams,
     ) {
         let login_id = params.login_id;
-        match Uuid::parse_str(&login_id) {
-            Ok(uuid) => {
-                let status = match self.cancel_login_chatgpt_common(uuid).await {
-                    Ok(()) => CancelLoginAccountStatus::Canceled,
-                    Err(CancelLoginError::NotFound) => CancelLoginAccountStatus::NotFound,
-                };
-                let response = CancelLoginAccountResponse { status };
-                self.outgoing.send_response(request_id, response).await;
-            }
-            Err(_) => {
-                let error = JSONRPCErrorError {
-                    code: INVALID_REQUEST_ERROR_CODE,
-                    message: format!("invalid login id: {login_id}"),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-            }
+        if let Ok(uuid) = Uuid::parse_str(&login_id) {
+            let status = match self.cancel_login_chatgpt_common(uuid).await {
+                Ok(()) => CancelLoginAccountStatus::Canceled,
+                Err(CancelLoginError::NotFound) => CancelLoginAccountStatus::NotFound,
+            };
+            let response = CancelLoginAccountResponse { status };
+            self.outgoing.send_response(request_id, response).await;
+        } else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: format!("invalid login id: {login_id}"),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
         }
     }
 
@@ -384,8 +380,7 @@ impl SavfoxMessageProcessor {
         ) {
             let error = JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "External ChatGPT auth is disabled. Use API key login instead."
-                    .to_string(),
+                message: "External ChatGPT auth is disabled. Use API key login instead.".to_owned(),
                 data: None,
             };
             self.outgoing.send_error(request_id, error).await;
@@ -542,19 +537,15 @@ impl SavfoxMessageProcessor {
                     let email = auth.get_account_email();
                     let plan_type = auth.account_plan_type();
 
-                    match (email, plan_type) {
-                        (Some(email), Some(plan_type)) => Account::Chatgpt { email, plan_type },
-                        _ => {
-                            let error = JSONRPCErrorError {
-                                code: INVALID_REQUEST_ERROR_CODE,
-                                message:
-                                    "email and plan type are required for chatgpt authentication"
-                                        .to_string(),
-                                data: None,
-                            };
-                            self.outgoing.send_error(request_id, error).await;
-                            return;
-                        }
+                    if let (Some(email), Some(plan_type)) = (email, plan_type) { Account::Chatgpt { email, plan_type } } else {
+                        let error = JSONRPCErrorError {
+                            code: INVALID_REQUEST_ERROR_CODE,
+                            message:
+                                "email and plan type are required for chatgpt authentication".to_owned(),
+                            data: None,
+                        };
+                        self.outgoing.send_error(request_id, error).await;
+                        return;
                     }
                 }
             }),
@@ -585,7 +576,7 @@ impl SavfoxMessageProcessor {
     async fn fetch_account_rate_limits(&self) -> Result<CoreRateLimitSnapshot, JSONRPCErrorError> {
         Err(JSONRPCErrorError {
             code: INVALID_REQUEST_ERROR_CODE,
-            message: "rate limit fetching is not available".to_string(),
+            message: "rate limit fetching is not available".to_owned(),
             data: None,
         })
     }

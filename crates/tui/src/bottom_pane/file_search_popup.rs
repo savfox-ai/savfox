@@ -66,7 +66,7 @@ impl FileSearchPopup {
             return; // stale
         }
 
-        self.display_query = query.to_string();
+        self.display_query = query.to_owned();
         self.matches = matches;
         self.waiting = false;
         let len = self.matches.len();

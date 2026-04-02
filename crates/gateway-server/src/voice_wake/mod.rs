@@ -27,7 +27,7 @@ pub struct VoiceWakeConfig {
 }
 
 fn default_keyword() -> String {
-    "hey savfox".to_string()
+    "hey savfox".to_owned()
 }
 
 fn default_sensitivity() -> f32 {
@@ -118,6 +118,7 @@ pub struct VoiceWakeService {
 }
 
 impl VoiceWakeService {
+    #[must_use] 
     pub fn new(savfox_home: PathBuf) -> Self {
         let (event_tx, _) = broadcast::channel(16);
         Self {
@@ -134,6 +135,7 @@ impl VoiceWakeService {
         }
     }
 
+    #[must_use] 
     pub fn subscribe(&self) -> broadcast::Receiver<WakeWordEvent> {
         self.event_tx.subscribe()
     }
@@ -146,7 +148,7 @@ impl VoiceWakeService {
 
         let config = self.config.lock().await.clone();
         if !config.enabled {
-            return Err("Voice wake is not enabled".to_string());
+            return Err("Voice wake is not enabled".to_owned());
         }
 
         *running = true;

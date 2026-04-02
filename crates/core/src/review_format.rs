@@ -18,6 +18,7 @@ const REVIEW_FALLBACK_MESSAGE: &str = "Reviewer failed to output a response.";
 ///   items and "[ ]" for unselected. Missing indices default to selected.
 /// - When `selection` is `None`, the marker is omitted and a simple bullet is rendered ("- Title —
 ///   path:start-end").
+#[must_use] 
 pub fn format_review_findings_block(
     findings: &[ReviewFinding],
     selection: Option<&[bool]>,
@@ -27,9 +28,9 @@ pub fn format_review_findings_block(
 
     // Header
     if findings.len() > 1 {
-        lines.push("Full review comments:".to_string());
+        lines.push("Full review comments:".to_owned());
     } else {
-        lines.push("Review comment:".to_string());
+        lines.push("Review comment:".to_owned());
     }
 
     for (idx, item) in findings.iter().enumerate() {
@@ -59,21 +60,22 @@ pub fn format_review_findings_block(
 ///
 /// Returns either the explanation, the formatted findings block, or both
 /// separated by a blank line. If neither is present, emits a fallback message.
+#[must_use] 
 pub fn render_review_output_text(output: &ReviewOutputEvent) -> String {
     let mut sections = Vec::new();
     let explanation = output.overall_explanation.trim();
     if !explanation.is_empty() {
-        sections.push(explanation.to_string());
+        sections.push(explanation.to_owned());
     }
     if !output.findings.is_empty() {
         let findings = format_review_findings_block(&output.findings, None);
         let trimmed = findings.trim();
         if !trimmed.is_empty() {
-            sections.push(trimmed.to_string());
+            sections.push(trimmed.to_owned());
         }
     }
     if sections.is_empty() {
-        REVIEW_FALLBACK_MESSAGE.to_string()
+        REVIEW_FALLBACK_MESSAGE.to_owned()
     } else {
         sections.join("\n\n")
     }

@@ -23,7 +23,7 @@ pub fn apply_rollout_item(
         RolloutItem::Compacted(_) => {}
     }
     if metadata.model_provider.is_empty() {
-        metadata.model_provider = default_provider.to_string();
+        metadata.model_provider = default_provider.to_owned();
     }
 }
 
@@ -36,7 +36,7 @@ fn apply_session_meta_from_item(metadata: &mut SessionMetadata, meta_line: &Sess
     metadata.id = meta_line.meta.id;
     metadata.source = enum_to_string(&meta_line.meta.source);
     if let Some(provider) = meta_line.meta.model_provider_id() {
-        metadata.model_provider = provider.to_string();
+        metadata.model_provider = provider.to_owned();
     }
     if !meta_line.meta.cwd.as_os_str().is_empty() {
         metadata.cwd = meta_line.meta.cwd.clone();
@@ -64,7 +64,7 @@ fn apply_event_msg(metadata: &mut SessionMetadata, event: &EventMsg) {
         EventMsg::UserMessage(user) => {
             metadata.has_user_event = true;
             if metadata.title.is_empty() {
-                metadata.title = strip_user_message_prefix(user.message.as_str()).to_string();
+                metadata.title = strip_user_message_prefix(user.message.as_str()).to_owned();
             }
         }
         _ => {}
@@ -101,8 +101,7 @@ fn extract_user_message_text(item: &ResponseItem) -> Option<String> {
     let joined = texts.join("\n");
     Some(
         strip_user_message_prefix(joined.as_str())
-            .trim()
-            .to_string(),
+            .trim().to_owned(),
     )
 }
 

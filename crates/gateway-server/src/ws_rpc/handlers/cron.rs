@@ -125,7 +125,7 @@ fn parse_optional_trimmed_string_field(
             if value.is_empty() {
                 Ok(Some(None))
             } else {
-                Ok(Some(Some(value.to_string())))
+                Ok(Some(Some(value.to_owned())))
             }
         }
         Some(_) => Err((
@@ -160,7 +160,7 @@ pub(crate) async fn handle_cron_add(params: &Value, cron_service: &Arc<CronServi
     } else {
         return Err((
             INVALID_REQUEST,
-            "missing 'schedule' or 'expression' parameter".to_string(),
+            "missing 'schedule' or 'expression' parameter".to_owned(),
         ));
     };
 
@@ -174,7 +174,7 @@ pub(crate) async fn handle_cron_add(params: &Value, cron_service: &Arc<CronServi
     } else {
         return Err((
             INVALID_REQUEST,
-            "missing 'payload' or 'command' parameter".to_string(),
+            "missing 'payload' or 'command' parameter".to_owned(),
         ));
     };
 
@@ -205,7 +205,7 @@ pub(crate) async fn handle_cron_update(
 ) -> RpcResult {
     let id = cron_param_job_id(params).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
 
     let name = params
@@ -247,7 +247,7 @@ pub(crate) async fn handle_cron_remove(
 ) -> RpcResult {
     let id = cron_param_job_id(params).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
     let removed = cron_service.remove_job(id).await;
     if removed {
@@ -264,7 +264,7 @@ pub(crate) async fn handle_cron_run(
 ) -> RpcResult {
     let id = cron_param_job_id(params).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
     match cron_service.run_job(id, channel).await {
         Ok(()) => Ok(json!({ "id": id, "status": "triggered" })),
@@ -275,7 +275,7 @@ pub(crate) async fn handle_cron_run(
 pub(crate) async fn handle_cron_runs(params: &Value, cron_service: &Arc<CronService>) -> RpcResult {
     let id = cron_param_job_id(params).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
     let limit = opt_u64(params, "limit", 20) as usize;
 

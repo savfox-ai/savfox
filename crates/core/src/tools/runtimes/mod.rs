@@ -26,7 +26,7 @@ pub(crate) fn build_command_spec(
 ) -> Result<CommandSpec, ToolError> {
     let (program, args) = command
         .split_first()
-        .ok_or_else(|| ToolError::Rejected("command args are empty".to_string()))?;
+        .ok_or_else(|| ToolError::Rejected("command args are empty".to_owned()))?;
     Ok(CommandSpec {
         program: program.clone(),
         args: args.to_vec(),
@@ -73,7 +73,7 @@ pub(crate) fn maybe_wrap_shell_lc_with_snapshot(
     let rewritten_script = format!(". \"{snapshot_path}\" && {}", command[2]);
 
     let mut rewritten = command.to_vec();
-    rewritten[1] = "-c".to_string();
+    rewritten[1] = "-c".to_owned();
     rewritten[2] = rewritten_script;
     rewritten
 }

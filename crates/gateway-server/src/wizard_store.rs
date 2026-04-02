@@ -78,7 +78,7 @@ pub(crate) async fn next(
 ) -> Result<Value, String> {
     let mut state = load_state(savfox_home)
         .await?
-        .ok_or_else(|| "wizard is not active".to_string())?;
+        .ok_or_else(|| "wizard is not active".to_owned())?;
     if state.wizard_id != wizard_id {
         return Err(format!("wizard_id mismatch: expected {}", state.wizard_id));
     }
@@ -116,7 +116,7 @@ pub(crate) async fn next(
 pub(crate) async fn cancel(savfox_home: &Path, wizard_id: Option<&str>) -> Result<Value, String> {
     let mut state = load_state(savfox_home)
         .await?
-        .ok_or_else(|| "wizard is not active".to_string())?;
+        .ok_or_else(|| "wizard is not active".to_owned())?;
     if let Some(id) = wizard_id
         && !id.is_empty()
         && id != state.wizard_id

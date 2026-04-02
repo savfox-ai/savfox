@@ -23,6 +23,7 @@ pub struct WeChatChannelConfig {
 }
 
 impl WeChatChannelConfig {
+    #[must_use] 
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -97,7 +98,7 @@ fn value_to_string(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         }
         Some(Value::Number(number)) => Some(number.to_string()),
@@ -110,7 +111,7 @@ fn extract_text(payload: &Value) -> Option<String> {
         if let Some(text) = payload.get(key).and_then(Value::as_str) {
             let trimmed = text.trim();
             if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+                return Some(trimmed.to_owned());
             }
         }
     }
@@ -123,14 +124,14 @@ fn normalize_prompt(text: &str, is_group: bool) -> Option<String> {
         return None;
     }
     if !is_group {
-        return Some(trimmed.to_string());
+        return Some(trimmed.to_owned());
     }
 
     for prefix in ["/savfox ", "!savfox ", "@savfox "] {
         if let Some(prompt) = trimmed.strip_prefix(prefix) {
             let prompt = prompt.trim();
             if !prompt.is_empty() {
-                return Some(prompt.to_string());
+                return Some(prompt.to_owned());
             }
         }
     }
@@ -138,6 +139,7 @@ fn normalize_prompt(text: &str, is_group: bool) -> Option<String> {
     None
 }
 
+#[must_use] 
 pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
     let room_id = value_to_string(
         payload
@@ -186,13 +188,14 @@ pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
                 .map(ToString::to_string)
         }),
         chat_type: Some(if room_id.is_some() {
-            "group".to_string()
+            "group".to_owned()
         } else {
-            "private".to_string()
+            "private".to_owned()
         }),
     }
 }
 
+#[must_use] 
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let meta = parse_start_meta(payload);
     let is_group = meta.room_id.is_some();

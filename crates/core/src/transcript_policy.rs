@@ -101,7 +101,7 @@ pub struct RedactionPolicy {
 }
 
 fn default_redaction_replacement() -> String {
-    "[REDACTED]".to_string()
+    "[REDACTED]".to_owned()
 }
 
 /// A custom redaction pattern.
@@ -168,8 +168,9 @@ impl Default for ExportPolicy {
 }
 
 /// Apply redaction policy to a text string.
+#[must_use] 
 pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
-    let mut result = text.to_string();
+    let mut result = text.to_owned();
 
     // Built-in API key pattern
     if policy.api_keys {

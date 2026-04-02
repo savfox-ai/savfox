@@ -34,7 +34,7 @@ pub(crate) fn create_env_for_mcp_server(
         .iter()
         .copied()
         .chain(env_vars.iter().map(String::as_str))
-        .filter_map(|var| env::var(var).ok().map(|value| (var.to_string(), value)))
+        .filter_map(|var| env::var(var).ok().map(|value| (var.to_owned(), value)))
         .chain(extra_env.unwrap_or_default())
         .collect()
 }

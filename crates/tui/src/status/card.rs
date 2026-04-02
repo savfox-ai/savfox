@@ -123,7 +123,7 @@ impl StatusHistoryCell {
     ) -> Self {
         let mut config_entries = vec![
             ("workdir", config.cwd.display().to_string()),
-            ("model", model_name.to_string()),
+            ("model", model_name.to_owned()),
             ("provider", config.model_provider_id.clone()),
             ("approval", config.approval_policy.value().to_string()),
             (
@@ -145,16 +145,16 @@ impl StatusHistoryCell {
             .iter()
             .find(|(k, _)| *k == "approval")
             .map(|(_, v)| v.clone())
-            .unwrap_or_else(|| "<unknown>".to_string());
+            .unwrap_or_else(|| "<unknown>".to_owned());
         let sandbox = match config.sandbox_policy.get() {
-            SandboxPolicy::DangerFullAccess => "danger-full-access".to_string(),
-            SandboxPolicy::ReadOnly => "read-only".to_string(),
-            SandboxPolicy::WorkspaceWrite { .. } => "workspace-write".to_string(),
+            SandboxPolicy::DangerFullAccess => "danger-full-access".to_owned(),
+            SandboxPolicy::ReadOnly => "read-only".to_owned(),
+            SandboxPolicy::WorkspaceWrite { .. } => "workspace-write".to_owned(),
             SandboxPolicy::ExternalSandbox { network_access } => {
                 if matches!(network_access, NetworkAccess::Enabled) {
-                    "external-sandbox (network access enabled)".to_string()
+                    "external-sandbox (network access enabled)".to_owned()
                 } else {
-                    "external-sandbox".to_string()
+                    "external-sandbox".to_owned()
                 }
             }
         };
@@ -360,10 +360,10 @@ impl HistoryCell for StatusHistoryCell {
                 (Some(email), Some(plan)) => format!("{email} ({plan})"),
                 (Some(email), None) => email.clone(),
                 (None, Some(plan)) => plan.clone(),
-                (None, None) => "ChatGPT".to_string(),
+                (None, None) => "ChatGPT".to_owned(),
             },
             StatusAccountDisplay::ApiKey => {
-                "API key configured (run savfox login to use ChatGPT)".to_string()
+                "API key configured (run savfox login to use ChatGPT)".to_owned()
             }
         });
 
@@ -499,7 +499,7 @@ fn format_model_provider(config: &Config) -> Option<String> {
 
     Some(match base_url {
         Some(base_url) => format!("{provider_name} - {base_url}"),
-        None => provider_name.to_string(),
+        None => provider_name.to_owned(),
     })
 }
 
@@ -516,5 +516,5 @@ fn sanitize_base_url(raw: &str) -> Option<String> {
     let _ = url.set_password(None);
     url.set_query(None);
     url.set_fragment(None);
-    Some(url.to_string().trim_end_matches('/').to_string()).filter(|value| !value.is_empty())
+    Some(url.to_string().trim_end_matches('/').to_owned()).filter(|value| !value.is_empty())
 }

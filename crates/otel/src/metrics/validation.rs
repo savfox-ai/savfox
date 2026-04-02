@@ -16,7 +16,7 @@ pub(crate) fn validate_metric_name(name: &str) -> Result<()> {
     }
     if !name.chars().all(is_metric_char) {
         return Err(MetricsError::InvalidMetricName {
-            name: name.to_string(),
+            name: name.to_owned(),
         });
     }
     Ok(())
@@ -34,13 +34,13 @@ pub(crate) fn validate_tag_value(value: &str) -> Result<()> {
 fn validate_tag_component(value: &str, label: &str) -> Result<()> {
     if value.is_empty() {
         return Err(MetricsError::EmptyTagComponent {
-            label: label.to_string(),
+            label: label.to_owned(),
         });
     }
     if !value.chars().all(is_tag_char) {
         return Err(MetricsError::InvalidTagComponent {
-            label: label.to_string(),
-            value: value.to_string(),
+            label: label.to_owned(),
+            value: value.to_owned(),
         });
     }
     Ok(())

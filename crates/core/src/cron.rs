@@ -31,6 +31,7 @@ pub enum CronSchedule {
 
 impl CronSchedule {
     /// Compute the next run time in epoch milliseconds, or None if expired.
+    #[must_use] 
     pub fn next_run_ms(&self, after_ms: u64) -> Option<u64> {
         match self {
             Self::At { at_ms } => {
@@ -103,7 +104,7 @@ pub struct CronDelivery {
 }
 
 fn default_delivery_mode() -> String {
-    "none".to_string()
+    "none".to_owned()
 }
 
 impl Default for CronDelivery {

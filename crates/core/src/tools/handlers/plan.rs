@@ -15,41 +15,40 @@ use crate::tools::spec::JsonSchema;
 
 pub static PLAN_TOOL: LazyLock<ToolSpec> = LazyLock::new(|| {
     let mut plan_item_props = BTreeMap::new();
-    plan_item_props.insert("step".to_string(), JsonSchema::String { description: None });
+    plan_item_props.insert("step".to_owned(), JsonSchema::String { description: None });
     plan_item_props.insert(
-        "status".to_string(),
+        "status".to_owned(),
         JsonSchema::String {
-            description: Some("One of: pending, in_progress, completed".to_string()),
+            description: Some("One of: pending, in_progress, completed".to_owned()),
         },
     );
 
     let plan_items_schema = JsonSchema::Array {
-        description: Some("The list of steps".to_string()),
+        description: Some("The list of steps".to_owned()),
         items: Box::new(JsonSchema::Object {
             properties: plan_item_props,
-            required: Some(vec!["step".to_string(), "status".to_string()]),
+            required: Some(vec!["step".to_owned(), "status".to_owned()]),
             additional_properties: Some(false.into()),
         }),
     };
 
     let mut properties = BTreeMap::new();
     properties.insert(
-        "explanation".to_string(),
+        "explanation".to_owned(),
         JsonSchema::String { description: None },
     );
-    properties.insert("plan".to_string(), plan_items_schema);
+    properties.insert("plan".to_owned(), plan_items_schema);
 
     ToolSpec::Function(ResponsesApiTool {
-        name: "update_plan".to_string(),
+        name: "update_plan".to_owned(),
         description: r#"Updates the task plan.
 Provide an optional explanation and a list of plan items, each with a step and status.
 At most one step can be in_progress at a time.
-"#
-        .to_string(),
+"#.to_owned(),
         strict: false,
         parameters: JsonSchema::Object {
             properties,
-            required: Some(vec!["plan".to_string()]),
+            required: Some(vec!["plan".to_owned()]),
             additional_properties: Some(false.into()),
         },
     })
@@ -113,7 +112,7 @@ pub(crate) async fn handle_update_plan(
     session
         .send_event(turn_context, EventMsg::PlanUpdate(args))
         .await;
-    Ok("Plan updated".to_string())
+    Ok("Plan updated".to_owned())
 }
 
 fn parse_update_plan_arguments(arguments: &str) -> Result<UpdatePlanArgs, FunctionCallError> {

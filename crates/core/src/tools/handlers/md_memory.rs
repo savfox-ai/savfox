@@ -65,8 +65,7 @@ fn resolve_dir(layer: MemoryLayer) -> Result<PathBuf, FunctionCallError> {
     let dirs = layer_dirs(&home, pr.as_deref(), "default");
     let Some(dir) = dirs.into_iter().find(|(l, _)| *l == layer).map(|(_, p)| p) else {
         return model_err(format!(
-            "layer '{}' directory not available (no project root?)",
-            layer
+            "layer '{layer}' directory not available (no project root?)"
         ));
     };
     Ok(dir)
@@ -82,11 +81,10 @@ fn find_entry_path(
     let dirs = layer_dirs(&home, pr.as_deref(), "default");
 
     for (layer, dir) in dirs {
-        if let Some(filter) = layer_filter {
-            if layer != filter {
+        if let Some(filter) = layer_filter
+            && layer != filter {
                 continue;
             }
-        }
         let path = dir.join(format!("{slug}.md"));
         if path.exists() {
             return Some((layer, path));
@@ -153,7 +151,7 @@ async fn handle_list(args: &MdMemoryArgs) -> Result<ToolOutput, FunctionCallErro
         .collect();
 
     Ok(ToolOutput::ok(
-        serde_json::to_string(&summary).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(&summary).unwrap_or_else(|_| "[]".to_owned()),
     ))
 }
 
@@ -212,7 +210,7 @@ async fn handle_create(args: &MdMemoryArgs) -> Result<ToolOutput, FunctionCallEr
     let fm = MemoryFrontmatter {
         tags: args.tags.clone().unwrap_or_default(),
         priority: args.priority.unwrap_or(5),
-        author: "agent".to_string(),
+        author: "agent".to_owned(),
         created_at: Some(now),
         updated_at: Some(now),
         ..Default::default()
@@ -318,7 +316,7 @@ async fn handle_search(args: &MdMemoryArgs) -> Result<ToolOutput, FunctionCallEr
         .collect();
 
     Ok(ToolOutput::ok(
-        serde_json::to_string(&summary).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(&summary).unwrap_or_else(|_| "[]".to_owned()),
     ))
 }
 

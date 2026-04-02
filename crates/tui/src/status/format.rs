@@ -87,7 +87,7 @@ pub(crate) fn push_label(labels: &mut Vec<String>, seen: &mut BTreeSet<String>, 
         return;
     }
 
-    let owned = label.to_string();
+    let owned = label.to_owned();
     seen.insert(owned.clone());
     labels.push(owned);
 }

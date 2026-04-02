@@ -11,12 +11,14 @@ pub struct SkillsApiState {
 }
 
 impl SkillsApiState {
+    #[must_use] 
     pub fn new(savfox_home: &std::path::Path) -> Self {
         Self {
             registry: Arc::new(SkillRegistry::new(savfox_home)),
         }
     }
 
+    #[must_use] 
     pub fn registry(&self) -> &SkillRegistry {
         &self.registry
     }
@@ -48,15 +50,12 @@ pub struct SkillInstallResponse {
 
 #[handler]
 pub async fn skills_list_handler(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     match state.registry.list_available(false).await {
@@ -99,15 +98,12 @@ pub async fn skills_search_handler(req: &mut Request, depot: &mut Depot, res: &m
         return;
     }
 
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     match state.registry.search(&query).await {
@@ -136,15 +132,12 @@ pub async fn skills_search_handler(req: &mut Request, depot: &mut Depot, res: &m
 
 #[handler]
 pub async fn skills_installed_handler(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     match state.registry.list_installed().await {
@@ -171,15 +164,12 @@ pub async fn skills_installed_handler(depot: &mut Depot, res: &mut Response) {
 
 #[handler]
 pub async fn skills_refresh_handler(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     match state.registry.sync_registry().await {
@@ -219,15 +209,12 @@ pub async fn skills_install_handler(req: &mut Request, depot: &mut Depot, res: &
         return;
     }
 
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     let packages = match state.registry.list_available(false).await {
@@ -303,15 +290,12 @@ pub async fn skills_uninstall_handler(req: &mut Request, depot: &mut Depot, res:
         return;
     }
 
-    let state = match depot.obtain::<SkillsApiState>() {
-        Ok(s) => s.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Text::Json(
-                json!({"error": "skills api not initialized"}).to_string(),
-            ));
-            return;
-        }
+    let state = if let Ok(s) = depot.obtain::<SkillsApiState>() { s.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        res.render(Text::Json(
+            json!({"error": "skills api not initialized"}).to_string(),
+        ));
+        return;
     };
 
     match state.registry.uninstall(&body.name).await {

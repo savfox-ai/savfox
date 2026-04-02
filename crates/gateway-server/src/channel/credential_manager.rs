@@ -210,7 +210,7 @@ impl GatewayChannel {
             return Some(pair);
         }
         let server =
-            std::env::var("MATTERMOST_URL").unwrap_or_else(|_| "http://localhost:8065".to_string());
+            std::env::var("MATTERMOST_URL").unwrap_or_else(|_| "http://localhost:8065".to_owned());
         let token = std::env::var("MATTERMOST_TOKEN").ok()?;
         Some((server, token))
     }
@@ -294,9 +294,9 @@ impl GatewayChannel {
 
         if let Some(access_token) = non_empty_trimmed(access_token) {
             let auth = if let Some(user_id) = non_empty_trimmed(user_id) {
-                MatrixAuth::new(access_token.to_string()).with_user_id(user_id.to_string())
+                MatrixAuth::new(access_token.to_owned()).with_user_id(user_id.to_owned())
             } else {
-                MatrixAuth::new(access_token.to_string())
+                MatrixAuth::new(access_token.to_owned())
             };
             let client = MatrixClient::new(homeserver_url, auth);
             let whoami = client
@@ -305,7 +305,7 @@ impl GatewayChannel {
                 .context("failed to resolve Matrix user via whoami")?;
 
             let mut resolved_auth =
-                MatrixAuth::new(access_token.to_string()).with_user_id(whoami.user_id.clone());
+                MatrixAuth::new(access_token.to_owned()).with_user_id(whoami.user_id.clone());
             if let Some(device_id) = whoami.device_id {
                 resolved_auth = resolved_auth.with_device_id(device_id);
             }
@@ -313,7 +313,7 @@ impl GatewayChannel {
 
             return Ok(ResolvedMatrixClient {
                 client,
-                access_token: access_token.to_string(),
+                access_token: access_token.to_owned(),
                 user_id: whoami.user_id,
             });
         }
@@ -327,7 +327,7 @@ impl GatewayChannel {
             .password_login(user_id, password, non_empty_trimmed(device_name))
             .await
             .context("Matrix password login failed")?;
-        let resolved_user_id = auth.user_id.clone().unwrap_or_else(|| user_id.to_string());
+        let resolved_user_id = auth.user_id.clone().unwrap_or_else(|| user_id.to_owned());
         let access_token = auth.access_token.clone();
 
         let mut resolved_auth =
@@ -365,7 +365,7 @@ impl GatewayChannel {
         if let Some(runtime_user_id) = crate::channels::matrix::matrix_runtime_state_for(&config.id)
             .and_then(|state| state.user_id)
             .and_then(|user_id| {
-                let user_id = user_id.trim().to_string();
+                let user_id = user_id.trim().to_owned();
                 if user_id.is_empty() {
                     None
                 } else {
@@ -377,7 +377,7 @@ impl GatewayChannel {
         }
 
         if let Some(config_user_id) = non_empty_trimmed(config.user_id.as_deref()) {
-            return Ok(Some(config_user_id.to_string()));
+            return Ok(Some(config_user_id.to_owned()));
         }
         if let Some(bot_user_id) = config.bot_user_id() {
             return Ok(Some(bot_user_id));
@@ -406,7 +406,7 @@ impl GatewayChannel {
         let homeserver_url = Url::parse(homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {homeserver}"))?;
         let auth = if let Some(uid) = non_empty_trimmed(user_id) {
-            MatrixAuth::new(access_token).with_user_id(uid.to_string())
+            MatrixAuth::new(access_token).with_user_id(uid.to_owned())
         } else {
             MatrixAuth::new(access_token)
         };
@@ -458,7 +458,7 @@ impl GatewayChannel {
             crate::channels::matrix::matrix_appservice_channel_for(&config.id)
         {
             appservice_channel.join_room(room_id).await?;
-            room_id.to_string()
+            room_id.to_owned()
         } else if let Some(runtime_state) = runtime_state.as_ref()
             && let Some(access_token) = runtime_state.access_token.as_deref()
         {
@@ -473,9 +473,9 @@ impl GatewayChannel {
                 )
             })?;
             let auth = if let Some(uid) = configured_user_id.as_deref() {
-                MatrixAuth::new(access_token.to_string()).with_user_id(uid.to_string())
+                MatrixAuth::new(access_token.to_owned()).with_user_id(uid.to_owned())
             } else {
-                MatrixAuth::new(access_token.to_string())
+                MatrixAuth::new(access_token.to_owned())
             };
             let client = MatrixClient::new(homeserver_url, auth);
             client
@@ -1008,7 +1008,7 @@ impl GatewayChannel {
                     (s, Some(t))
                 } else {
                     let s = std::env::var("MATTERMOST_URL")
-                        .unwrap_or_else(|_| "http://localhost:8065".to_string());
+                        .unwrap_or_else(|_| "http://localhost:8065".to_owned());
                     let t = std::env::var("MATTERMOST_TOKEN").ok();
                     (s, t)
                 };
@@ -1068,7 +1068,7 @@ impl GatewayChannel {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                 {
-                    Some(token.to_string())
+                    Some(token.to_owned())
                 } else if let (Some(app_id), Some(app_secret)) = (
                     config
                         .as_ref()
@@ -1157,7 +1157,7 @@ impl GatewayChannel {
             }
             "irc" => {
                 let channel_url = std::env::var("IRC_BRIDGE_URL")
-                    .unwrap_or_else(|_| "http://127.0.0.1:6667".to_string());
+                    .unwrap_or_else(|_| "http://127.0.0.1:6667".to_owned());
                 self.send_irc_message(&channel_url, channel_id, text)
                     .await?;
             }

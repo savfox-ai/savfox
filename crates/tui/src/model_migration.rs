@@ -328,7 +328,7 @@ impl ModelMigrationScreen {
         for (idx, option) in MigrationMenuOption::all().into_iter().enumerate() {
             column.push(selection_option_row(
                 idx,
-                option.label().to_string(),
+                option.label().to_owned(),
                 self.highlighted_option == option,
             ));
         }
@@ -371,7 +371,7 @@ impl Drop for AltScreenGuard<'_> {
 
 fn is_ctrl_exit_combo(key_event: KeyEvent) -> bool {
     key_event.modifiers.contains(KeyModifiers::CONTROL)
-        && matches!(key_event.code, KeyCode::Char('c') | KeyCode::Char('d'))
+        && matches!(key_event.code, KeyCode::Char('c' | 'd'))
 }
 
 fn fill_migration_markdown(template: &str, current_model: &str, target_model: &str) -> String {

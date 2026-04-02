@@ -27,6 +27,7 @@ pub struct EncodedImage {
 }
 
 impl EncodedImage {
+    #[must_use] 
     pub fn into_data_url(self) -> String {
         let encoded = BASE64_STANDARD.encode(&self.bytes);
         format!("data:{};base64,{}", self.mime, encoded)
@@ -157,8 +158,8 @@ fn encode_image(
 
 fn format_to_mime(format: ImageFormat) -> String {
     match format {
-        ImageFormat::Jpeg => "image/jpeg".to_string(),
-        _ => "image/png".to_string(),
+        ImageFormat::Jpeg => "image/jpeg".to_owned(),
+        _ => "image/png".to_owned(),
     }
 }
 

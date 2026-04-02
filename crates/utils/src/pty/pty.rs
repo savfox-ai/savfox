@@ -16,6 +16,7 @@ use super::process::{ChildTerminator, ProcessHandle, PtyHandles, SpawnedProcess}
 
 /// Returns true when ConPTY support is available (Windows only).
 #[cfg(windows)]
+#[must_use] 
 pub fn conpty_supported() -> bool {
     super::win::conpty_supported()
 }
@@ -68,7 +69,7 @@ pub async fn spawn_process(
         pixel_height: 0,
     })?;
 
-    let mut command_builder = CommandBuilder::new(arg0.as_ref().unwrap_or(&program.to_string()));
+    let mut command_builder = CommandBuilder::new(arg0.as_ref().unwrap_or(&program.to_owned()));
     command_builder.cwd(cwd);
     command_builder.env_clear();
     for arg in args {

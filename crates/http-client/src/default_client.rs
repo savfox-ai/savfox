@@ -16,6 +16,7 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
+    #[must_use] 
     pub fn new(inner: reqwest::Client) -> Self {
         Self { inner }
     }
@@ -38,7 +39,7 @@ impl HttpClient {
     where
         U: IntoUrl,
     {
-        let url_str = url.as_str().to_string();
+        let url_str = url.as_str().to_owned();
         RequestBuilder::new(self.inner.request(method.clone(), url), method, url_str)
     }
 }

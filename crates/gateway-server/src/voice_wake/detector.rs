@@ -16,6 +16,7 @@ pub struct WakeWordDetectorService {
 }
 
 impl WakeWordDetectorService {
+    #[must_use] 
     pub fn new(keyword: &str, sensitivity: f32) -> Self {
         let (event_tx, _) = broadcast::channel(64);
         let config = AudioConfig::default();
@@ -45,6 +46,7 @@ impl WakeWordDetectorService {
     }
 
     /// Subscribe to wake word events.
+    #[must_use] 
     pub fn subscribe(&self) -> broadcast::Receiver<WakeWordEvent> {
         self.event_tx.subscribe()
     }
@@ -186,23 +188,27 @@ pub struct WakeWordDetectorBuilder {
 }
 
 impl WakeWordDetectorBuilder {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
-            keyword: "hey savfox".to_string(),
+            keyword: "hey savfox".to_owned(),
             sensitivity: 0.5,
         }
     }
 
+    #[must_use] 
     pub fn keyword(mut self, keyword: &str) -> Self {
-        self.keyword = keyword.to_string();
+        self.keyword = keyword.to_owned();
         self
     }
 
+    #[must_use] 
     pub fn sensitivity(mut self, sensitivity: f32) -> Self {
         self.sensitivity = sensitivity;
         self
     }
 
+    #[must_use] 
     pub fn build(self) -> WakeWordDetectorService {
         WakeWordDetectorService::new(&self.keyword, self.sensitivity)
     }

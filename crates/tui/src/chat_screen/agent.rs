@@ -25,7 +25,7 @@ pub(crate) fn spawn_agent(
 
         if matches!(first_op, Op::Shutdown) {
             app_event_tx_clone.send(AppEvent::SavfoxEvent(Event {
-                id: "".to_string(),
+                id: "".to_owned(),
                 msg: EventMsg::ShutdownComplete,
             }));
             return;
@@ -41,7 +41,7 @@ pub(crate) fn spawn_agent(
                 let message = format!("Failed to initialize savfox: {err}");
                 tracing::error!("{message}");
                 app_event_tx_clone.send(AppEvent::SavfoxEvent(Event {
-                    id: "".to_string(),
+                    id: "".to_owned(),
                     msg: EventMsg::Error(err.to_error_event(None)),
                 }));
                 app_event_tx_clone.send(AppEvent::FatalExitRequest(message));
@@ -53,7 +53,7 @@ pub(crate) fn spawn_agent(
         // Forward the captured `SessionConfigured` event so it can be rendered in the UI.
         let ev = savfox_core::protocol::Event {
             // The `id` does not matter for rendering, so we can use a fake value.
-            id: "".to_string(),
+            id: "".to_owned(),
             msg: savfox_core::protocol::EventMsg::SessionConfigured(session_configured),
         };
         app_event_tx_clone.send(AppEvent::SavfoxEvent(ev));
@@ -94,7 +94,7 @@ pub(crate) fn spawn_agent_from_existing(
     tokio::spawn(async move {
         // Forward the captured `SessionConfigured` event so it can be rendered in the UI.
         let ev = savfox_core::protocol::Event {
-            id: "".to_string(),
+            id: "".to_owned(),
             msg: savfox_core::protocol::EventMsg::SessionConfigured(session_configured),
         };
         app_event_tx_clone.send(AppEvent::SavfoxEvent(ev));

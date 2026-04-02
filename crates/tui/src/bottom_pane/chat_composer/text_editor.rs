@@ -26,7 +26,7 @@ impl ChatComposer {
 
     /// Get the current composer text.
     pub(crate) fn current_text(&self) -> String {
-        self.textarea.text().to_string()
+        self.textarea.text().to_owned()
     }
 
     pub(crate) fn text_elements(&self) -> Vec<TextElement> {
@@ -34,7 +34,7 @@ impl ChatComposer {
     }
 
     pub(crate) fn current_text_with_pending(&self) -> String {
-        let mut text = self.textarea.text().to_string();
+        let mut text = self.textarea.text().to_owned();
         for (placeholder, actual) in &self.pending_pastes {
             if text.contains(placeholder) {
                 text = text.replace(placeholder, actual);
@@ -48,7 +48,7 @@ impl ChatComposer {
     }
 
     pub(crate) fn set_pending_pastes(&mut self, pending_pastes: Vec<(String, String)>) {
-        let text = self.textarea.text().to_string();
+        let text = self.textarea.text().to_owned();
         self.pending_pastes = pending_pastes
             .into_iter()
             .filter(|(placeholder, _)| text.contains(placeholder))
@@ -359,15 +359,8 @@ impl ChatComposer {
             // empty or when the cursor is at the correct position, to avoid
             // interfering with normal cursor movement.
             // -------------------------------------------------------------
-            KeyEvent {
-                code: KeyCode::Up | KeyCode::Down,
-                ..
-            }
-            | KeyEvent {
-                code: KeyCode::Char('p') | KeyCode::Char('n'),
-                modifiers: KeyModifiers::CONTROL,
-                ..
-            } => {
+            KeyEvent { code: KeyCode::Up | KeyCode::Down, .. } | KeyEvent {
+code: KeyCode::Char('p' | 'n'), modifiers: KeyModifiers::CONTROL, .. } => {
                 if self
                     .history
                     .should_handle_navigation(self.textarea.text(), self.textarea.cursor())
@@ -803,7 +796,7 @@ impl ChatComposer {
         let inserted = if needs_quotes && !path.contains('"') {
             format!("\"{path}\"")
         } else {
-            path.to_string()
+            path.to_owned()
         };
 
         // Replace the slice `[start_idx, end_idx)` with the chosen path and a trailing space.
@@ -841,7 +834,7 @@ impl ChatComposer {
             .unwrap_or(after_cursor.len());
         let end_idx = safe_cursor + end_rel_idx;
 
-        let inserted = insert_text.to_string();
+        let inserted = insert_text.to_owned();
 
         let mut new_text =
             String::with_capacity(text.len() - (end_idx - start_idx) + inserted.len() + 1);
@@ -860,7 +853,7 @@ impl ChatComposer {
         let Some(name) = Self::mention_name_from_insert_text(insert_text) else {
             return;
         };
-        self.mention_paths.insert(name, path.to_string());
+        self.mention_paths.insert(name, path.to_owned());
     }
 
     pub(super) fn mention_name_from_insert_text(insert_text: &str) -> Option<String> {
@@ -873,7 +866,7 @@ impl ChatComposer {
             .iter()
             .all(|byte| super::is_mention_name_char(*byte))
         {
-            Some(name.to_string())
+            Some(name.to_owned())
         } else {
             None
         }

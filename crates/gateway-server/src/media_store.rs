@@ -103,6 +103,7 @@ pub struct MediaStore {
 }
 
 impl MediaStore {
+    #[must_use] 
     pub fn new(base_dir: PathBuf, cfg: MediaStoreConfig, ssrf: SsrfConfig) -> Self {
         let _ = std::fs::create_dir_all(&base_dir);
         let staging_dir = base_dir.join("staging");
@@ -125,6 +126,7 @@ impl MediaStore {
         }
     }
 
+    #[must_use] 
     pub fn from_home(savfox_home: &Path) -> Self {
         Self::new(
             savfox_home.join("media"),
@@ -133,6 +135,7 @@ impl MediaStore {
         )
     }
 
+    #[must_use] 
     pub fn from_env_or_default() -> Self {
         let savfox_home = savfox_core::config::find_savfox_home().unwrap_or_else(|_| {
             std::env::var("SAVFOX_HOME")
@@ -180,7 +183,7 @@ impl MediaStore {
         let filename = filename_hint
             .map(ToOwned::to_owned)
             .or(url_name)
-            .unwrap_or_else(|| "download".to_string());
+            .unwrap_or_else(|| "download".to_owned());
         let detected_mime = detect_mime(
             &response.body,
             Some(&filename),
@@ -234,7 +237,7 @@ impl MediaStore {
         let entry = maybe_entry.ok_or_else(|| format!("media not found: {id}"))?;
         if is_expired(&entry) {
             self.delete(id).await;
-            return Err("media expired".to_string());
+            return Err("media expired".to_owned());
         }
 
         let path = self.validated_managed_path(&entry.path).await?;
@@ -290,7 +293,7 @@ impl MediaStore {
         }
         if is_expired(&entry) {
             self.delete(id).await;
-            return Err("media expired".to_string());
+            return Err("media expired".to_owned());
         }
 
         let source_path = self.validated_managed_path(&entry.path).await?;
@@ -429,7 +432,7 @@ impl MediaStore {
             id: id.clone(),
             filename: safe_name,
             path: file_path.to_string_lossy().to_string(),
-            mime_type: mime_type.to_string(),
+            mime_type: mime_type.to_owned(),
             stage,
             session_id,
             imported_path: None,
@@ -476,7 +479,7 @@ impl MediaStore {
         if canonical.starts_with(&base) {
             Ok(canonical)
         } else {
-            Err("blocked media path outside managed directory".to_string())
+            Err("blocked media path outside managed directory".to_owned())
         }
     }
 }
@@ -518,12 +521,13 @@ fn extension_for_mime(mime: &str) -> &'static str {
 fn with_mime_extension(filename: &str, mime: &str) -> String {
     let ext = extension_for_mime(mime);
     if filename.to_ascii_lowercase().ends_with(&format!(".{ext}")) {
-        filename.to_string()
+        filename.to_owned()
     } else {
         format!("{filename}.{ext}")
     }
 }
 
+#[must_use] 
 pub fn sanitize_filename(name: &str) -> String {
     let leaf = Path::new(name)
         .file_name()
@@ -534,9 +538,9 @@ pub fn sanitize_filename(name: &str) -> String {
         let keep = ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_');
         out.push(if keep { ch } else { '_' });
     }
-    let out = out.trim_matches('.').trim_matches('_').to_string();
+    let out = out.trim_matches('.').trim_matches('_').to_owned();
     if out.is_empty() {
-        "file".to_string()
+        "file".to_owned()
     } else {
         out
     }
@@ -547,7 +551,7 @@ fn normalize_mime_hint(mime: &str) -> Option<String> {
     if value.is_empty() {
         return None;
     }
-    let essence = value.split(';').next().unwrap_or("").trim().to_string();
+    let essence = value.split(';').next().unwrap_or("").trim().to_owned();
     if essence.is_empty() {
         None
     } else {
@@ -598,17 +602,16 @@ pub fn detect_mime(
     content_type_hint: Option<&str>,
 ) -> String {
     if let Some(mime) = magic_mime(data) {
-        return mime.to_string();
+        return mime.to_owned();
     }
     if let Some(hint) = content_type_hint.and_then(normalize_mime_hint) {
         return hint;
     }
-    if let Some(name) = filename_hint {
-        if let Some(mime) = mime_guess::from_path(name).first_raw() {
-            return mime.to_string();
+    if let Some(name) = filename_hint
+        && let Some(mime) = mime_guess::from_path(name).first_raw() {
+            return mime.to_owned();
         }
-    }
-    "application/octet-stream".to_string()
+    "application/octet-stream".to_owned()
 }
 
 fn mime_matches(expected: &str, detected: &str) -> bool {

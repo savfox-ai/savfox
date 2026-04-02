@@ -3,6 +3,7 @@ use savfox_core::channel::ChannelAction;
 use serde_json::Value;
 use tracing::debug;
 
+#[must_use] 
 pub fn parse_text_command(text: &str) -> Option<String> {
     let trimmed = text.trim();
     for prefix in ["/savfox", "!savfox"] {
@@ -18,7 +19,7 @@ pub fn parse_text_command(text: &str) -> Option<String> {
             return if prompt.is_empty() {
                 None
             } else {
-                Some(prompt.to_string())
+                Some(prompt.to_owned())
             };
         }
     }
@@ -26,7 +27,7 @@ pub fn parse_text_command(text: &str) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(trimmed.to_owned())
     }
 }
 
@@ -63,7 +64,7 @@ pub fn extract_channel_action(message_event: &FeishuMessageEvent) -> Option<Chan
     debug!(chat_id = %chat_id, prompt = %prompt, "Extracted valid channel action");
 
     Some(ChannelAction::StartThread {
-        channel: chat_id.to_string(),
+        channel: chat_id.to_owned(),
         prompt,
     })
 }

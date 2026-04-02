@@ -59,7 +59,7 @@ impl ChannelHealthMetrics {
 
     fn mark_probe(&mut self, status: &str, timestamp_ms: u64) {
         self.last_probe_time_ms = Some(timestamp_ms);
-        self.probe_status = Some(status.to_string());
+        self.probe_status = Some(status.to_owned());
     }
 }
 
@@ -86,7 +86,7 @@ pub(super) async fn record_channel_event(channel: &str) {
     let now = crate::json_store::now_ms();
     let platform = channel.split_once(':').map(|(p, _)| p).unwrap_or(channel);
     let mut lock = channel_health_store().lock().await;
-    for key in [platform.to_string(), "*".to_string()] {
+    for key in [platform.to_owned(), "*".to_owned()] {
         lock.entry(key).or_default().mark_event(now);
     }
 }
@@ -135,7 +135,7 @@ fn thread_tracking_key(
 async fn record_send_metrics(channel: &str, success: bool, latency_ms: u64) {
     let mut lock = send_metrics_store().lock().await;
     let platform = channel.split_once(':').map(|(p, _)| p).unwrap_or(channel);
-    for key in [platform.to_string(), "*".to_string()] {
+    for key in [platform.to_owned(), "*".to_owned()] {
         let metric = lock.entry(key).or_default();
         metric.attempts = metric.attempts.saturating_add(1);
         if success {
@@ -149,7 +149,7 @@ async fn record_send_metrics(channel: &str, success: bool, latency_ms: u64) {
 
     let now = crate::json_store::now_ms();
     let mut health = channel_health_store().lock().await;
-    for key in [platform.to_string(), "*".to_string()] {
+    for key in [platform.to_owned(), "*".to_owned()] {
         health.entry(key).or_default().mark_send(success, now);
     }
 }
@@ -212,7 +212,7 @@ pub(super) async fn send_with_retry(
         .map(|chunk| chunk.text)
         .collect()
     } else {
-        vec![text.to_string()]
+        vec![text.to_owned()]
     };
 
     let thread_key = thread_tracking_key(channel_id, thread_id, reply_target);

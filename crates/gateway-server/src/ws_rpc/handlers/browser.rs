@@ -53,7 +53,7 @@ impl Default for BrowserProfileSettings {
 }
 
 fn default_browser_profile_name() -> String {
-    "default".to_string()
+    "default".to_owned()
 }
 
 fn default_browser_profile_headless() -> bool {
@@ -139,7 +139,7 @@ async fn save_browser_profiles_config(
 fn validate_browser_profile_name(name: &str) -> Result<String, (i64, String)> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err((INVALID_PARAMS, "profile name cannot be empty".to_string()));
+        return Err((INVALID_PARAMS, "profile name cannot be empty".to_owned()));
     }
     if !trimmed
         .chars()
@@ -147,10 +147,10 @@ fn validate_browser_profile_name(name: &str) -> Result<String, (i64, String)> {
     {
         return Err((
             INVALID_PARAMS,
-            "profile name contains invalid characters".to_string(),
+            "profile name contains invalid characters".to_owned(),
         ));
     }
-    Ok(trimmed.to_string())
+    Ok(trimmed.to_owned())
 }
 
 fn browser_timeout_ms(params: &Value) -> u64 {
@@ -175,7 +175,7 @@ fn browser_profile_settings_from_params(
         next.user_data_dir = if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            Some(trimmed.to_owned())
         };
     }
     if let Some(path) = params.get("executable_path").and_then(|v| v.as_str()) {
@@ -183,7 +183,7 @@ fn browser_profile_settings_from_params(
         next.executable_path = if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            Some(trimmed.to_owned())
         };
     }
     if let Some(exts) = params.get("extensions").and_then(|v| v.as_array()) {
@@ -203,7 +203,7 @@ fn browser_profile_settings_from_params(
         next.proxy = if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            Some(trimmed.to_owned())
         };
     }
     if let Some(headless) = params.get("headless").and_then(|v| v.as_bool()) {
@@ -287,7 +287,7 @@ async fn ensure_browser_session_for_profile(
     );
 
     let mut store = browser_runtime_store().lock().await;
-    match store.sessions.entry(profile.to_string()) {
+    match store.sessions.entry(profile.to_owned()) {
         std::collections::hash_map::Entry::Vacant(entry) => {
             entry.insert(BrowserRuntimeSession {
                 browser,
@@ -357,7 +357,7 @@ async fn select_browser_page(
     let pages = with_browser_timeout(timeout_ms, "list browser tabs", browser.pages()).await?;
     if pages.is_empty() {
         let page = with_browser_timeout(timeout_ms, "open browser tab", browser.new_page()).await?;
-        set_active_browser_target(profile, Some(page.target_id().to_string())).await;
+        set_active_browser_target(profile, Some(page.target_id().to_owned())).await;
         return Ok(page);
     }
 
@@ -365,9 +365,9 @@ async fn select_browser_page(
     let mut iter = pages.into_iter();
     let mut selected = iter
         .next()
-        .ok_or_else(|| (INTERNAL_ERROR, "failed to select browser tab".to_string()))?;
-    if let Some(target_id) = preferred {
-        if selected.target_id() != target_id {
+        .ok_or_else(|| (INTERNAL_ERROR, "failed to select browser tab".to_owned()))?;
+    if let Some(target_id) = preferred
+        && selected.target_id() != target_id {
             let mut found = false;
             for page in iter {
                 if page.target_id() == target_id {
@@ -380,9 +380,8 @@ async fn select_browser_page(
                 return Err((INVALID_PARAMS, format!("tab '{target_id}' not found")));
             }
         }
-    }
 
-    set_active_browser_target(profile, Some(selected.target_id().to_string())).await;
+    set_active_browser_target(profile, Some(selected.target_id().to_owned())).await;
     Ok(selected)
 }
 
@@ -406,7 +405,7 @@ pub(crate) async fn handle_browser_request(
 ) -> RpcResult {
     let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
     if url.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'url' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'url' parameter".to_owned()));
     }
 
     let method_raw = opt_str(params, "method", "GET").to_ascii_uppercase();
@@ -478,8 +477,7 @@ pub(crate) async fn handle_browser_request(
             let body = browser_result
                 .get("body")
                 .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
+                .unwrap_or_default().to_owned();
             let truncated = body.chars().count() > 100_000;
             let body = if truncated {
                 body.chars().take(100_000).collect::<String>()
@@ -503,7 +501,7 @@ pub(crate) async fn handle_browser_request(
                 .get("error")
                 .and_then(|v| v.as_str())
                 .unwrap_or("browser request failed");
-            return Err((INTERNAL_ERROR, err.to_string()));
+            return Err((INTERNAL_ERROR, err.to_owned()));
         }
     }
 
@@ -565,7 +563,7 @@ pub(crate) async fn handle_browser_request_direct(params: &Value) -> RpcResult {
 
     if let Some(body) = params.get("body") {
         if let Some(text) = body.as_str() {
-            req = req.body(text.to_string());
+            req = req.body(text.to_owned());
         } else {
             req = req.json(body);
         }
@@ -782,7 +780,7 @@ pub(crate) async fn handle_memory_create(
     if layer == savfox_core::md_memory::MemoryLayer::Session {
         return Err((
             INVALID_REQUEST,
-            "session layer entries cannot be created on disk".to_string(),
+            "session layer entries cannot be created on disk".to_owned(),
         ));
     }
 
@@ -830,7 +828,7 @@ pub(crate) async fn handle_memory_create(
     let fm = savfox_core::md_memory::MemoryFrontmatter {
         tags,
         priority,
-        author: "user".to_string(),
+        author: "user".to_owned(),
         created_at: Some(now),
         updated_at: Some(now),
         ..Default::default()
@@ -989,7 +987,7 @@ pub(crate) async fn handle_memory_promote(
     if to_layer == savfox_core::md_memory::MemoryLayer::Session {
         return Err((
             INVALID_REQUEST,
-            "cannot promote to session layer".to_string(),
+            "cannot promote to session layer".to_owned(),
         ));
     }
 
@@ -1082,7 +1080,7 @@ pub(crate) async fn handle_webhooks_list(channel: &GatewayChannel) -> RpcResult 
 pub(crate) async fn handle_webhooks_get(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing id".to_owned()))?;
     let store = crate::webhooks::WebhookStore::new(&channel.config().savfox_home);
     store.load().await;
     match store.get(id).await {
@@ -1106,7 +1104,7 @@ pub(crate) async fn handle_webhooks_create(params: &Value, channel: &GatewayChan
 pub(crate) async fn handle_webhooks_update(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing id".to_owned()))?;
     let store = crate::webhooks::WebhookStore::new(&channel.config().savfox_home);
     store.load().await;
     store
@@ -1119,7 +1117,7 @@ pub(crate) async fn handle_webhooks_update(params: &Value, channel: &GatewayChan
 pub(crate) async fn handle_webhooks_delete(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing id".to_owned()))?;
     let store = crate::webhooks::WebhookStore::new(&channel.config().savfox_home);
     store.load().await;
     store.delete(id).await.map_err(|e| (INTERNAL_ERROR, e))?;
@@ -1129,7 +1127,7 @@ pub(crate) async fn handle_webhooks_delete(params: &Value, channel: &GatewayChan
 pub(crate) async fn handle_webhooks_test(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params["id"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing id".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing id".to_owned()))?;
     let store = crate::webhooks::WebhookStore::new(&channel.config().savfox_home);
     store.load().await;
     let execs = store.recent_executions(Some(id), 5).await;
@@ -1172,7 +1170,7 @@ pub(crate) async fn handle_skills_registry_install(
 ) -> RpcResult {
     let name = params["name"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing name".to_owned()))?;
     let registry = savfox_skill_registry::SkillRegistry::new(&channel.config().savfox_home);
     let packages = registry
         .search(name)
@@ -1193,7 +1191,7 @@ pub(crate) async fn handle_skills_registry_install(
     } else {
         Err((
             INTERNAL_ERROR,
-            result.error.unwrap_or_else(|| "install failed".to_string()),
+            result.error.unwrap_or_else(|| "install failed".to_owned()),
         ))
     }
 }
@@ -1204,7 +1202,7 @@ pub(crate) async fn handle_skills_registry_uninstall(
 ) -> RpcResult {
     let name = params["name"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing name".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing name".to_owned()))?;
     let registry = savfox_skill_registry::SkillRegistry::new(&channel.config().savfox_home);
     let removed = registry
         .uninstall(name)
@@ -1233,7 +1231,7 @@ pub(crate) async fn handle_dm_policy_set(params: &Value, channel: &GatewayChanne
     store.load().await;
     let policy: crate::dm_policy::ChannelDmPolicy =
         serde_json::from_value(params.clone()).unwrap_or_default();
-    store.set_policy(channel_id.to_string(), policy).await;
+    store.set_policy(channel_id.to_owned(), policy).await;
     store.save().await.map_err(|e| (INTERNAL_ERROR, e))?;
     Ok(json!({ "channel": channel_id, "status": "updated" }))
 }
@@ -1250,12 +1248,12 @@ pub(crate) async fn handle_dm_allowlist_set(params: &Value, channel: &GatewayCha
     let channel_id = params["channel"].as_str().unwrap_or("default");
     let entries = params["entries"]
         .as_array()
-        .ok_or((INVALID_PARAMS, "missing entries array".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing entries array".to_owned()))?;
     let store = crate::dm_policy::DmPolicyStore::new(&channel.config().savfox_home);
     store.load().await;
     for entry in entries {
         if let Some(sender) = entry.as_str() {
-            store.allow_sender(channel_id, sender.to_string()).await;
+            store.allow_sender(channel_id, sender.to_owned()).await;
         }
     }
     store.save().await.map_err(|e| (INTERNAL_ERROR, e))?;
@@ -1371,7 +1369,7 @@ static CANVAS_SERVICE: LazyLock<crate::canvas_host::CanvasHostService> =
     LazyLock::new(crate::canvas_host::CanvasHostService::new);
 
 pub(crate) async fn handle_canvas_create(params: &Value) -> RpcResult {
-    let surface_id = params["surface_id"].as_str().unwrap_or("main").to_string();
+    let surface_id = params["surface_id"].as_str().unwrap_or("main").to_owned();
 
     // Reset any existing state for this surface
     CANVAS_SERVICE.reset(&surface_id).await;
@@ -1470,7 +1468,7 @@ pub(crate) async fn handle_plugins_list(channel: &GatewayChannel) -> RpcResult {
 pub(crate) async fn handle_plugins_enable(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
 
     let mut registry = plugin_registry().lock().await;
@@ -1485,7 +1483,7 @@ pub(crate) async fn handle_plugins_enable(params: &Value, channel: &GatewayChann
 pub(crate) async fn handle_plugins_disable(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
 
     let mut registry = plugin_registry().lock().await;
@@ -1500,7 +1498,7 @@ pub(crate) async fn handle_plugins_disable(params: &Value, channel: &GatewayChan
 pub(crate) async fn handle_plugins_config(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
 
     let mut registry = plugin_registry().lock().await;
@@ -1544,7 +1542,7 @@ pub(crate) async fn handle_config_snapshot(channel: &GatewayChannel) -> RpcResul
 
     let content = tokio::fs::read_to_string(&config_path)
         .await
-        .unwrap_or_else(|_| "{}".to_string());
+        .unwrap_or_else(|_| "{}".to_owned());
 
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1603,7 +1601,7 @@ pub(crate) async fn handle_config_restore(params: &Value, channel: &GatewayChann
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if snapshot.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'snapshot' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'snapshot' parameter".to_owned()));
     }
 
     let backups_dir = channel.config().savfox_home.join("config-backups");
@@ -1669,7 +1667,7 @@ pub(crate) async fn handle_models_aliases_set(
 ) -> RpcResult {
     let aliases_val = params
         .get("aliases")
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'aliases' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'aliases' parameter".to_owned()))?;
 
     let aliases: HashMap<String, String> = serde_json::from_value(aliases_val.clone())
         .map_err(|e| (INVALID_PARAMS, format!("invalid aliases format: {e}")))?;
@@ -1684,14 +1682,14 @@ pub(crate) async fn handle_models_aliases_set(
 pub(crate) async fn handle_models_resolve(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let model = params.get("model").and_then(|v| v.as_str()).unwrap_or("");
     if model.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'model' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'model' parameter".to_owned()));
     }
 
     let aliases = load_model_aliases(channel).await;
     let resolved = aliases
         .get(model)
         .cloned()
-        .unwrap_or_else(|| model.to_string());
+        .unwrap_or_else(|| model.to_owned());
 
     Ok(json!({
         "input": model,
@@ -1717,7 +1715,7 @@ pub(crate) async fn handle_sessions_elevate(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'session_id'".to_string()));
+        return Err((INVALID_PARAMS, "missing 'session_id'".to_owned()));
     }
 
     let timeout_mins = opt_u64(params, "timeout_minutes", 30);
@@ -1757,7 +1755,7 @@ pub(crate) async fn handle_sessions_unelevate(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'session_id'".to_string()));
+        return Err((INVALID_PARAMS, "missing 'session_id'".to_owned()));
     }
 
     let result = session_store
@@ -1831,13 +1829,12 @@ pub(crate) async fn handle_browser_start(
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
-    if let Some(url) = params.get("url").and_then(|v| v.as_str()) {
-        if !url.trim().is_empty() {
+    if let Some(url) = params.get("url").and_then(|v| v.as_str())
+        && !url.trim().is_empty() {
             let page =
                 select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
             with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
         }
-    }
     let browser = browser_session_browser(&profile).await?;
     let tabs = browser_tab_summaries(&profile, timeout_ms).await?;
     Ok(json!({
@@ -1890,16 +1887,15 @@ pub(crate) async fn handle_browser_tabs_open(
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let browser = browser_session_browser(&profile).await?;
     let page = with_browser_timeout(timeout_ms, "open tab", browser.new_page()).await?;
-    let target_id = page.target_id().to_string();
-    if let Some(url) = params.get("url").and_then(|v| v.as_str()) {
-        if !url.trim().is_empty() {
+    let target_id = page.target_id().to_owned();
+    if let Some(url) = params.get("url").and_then(|v| v.as_str())
+        && !url.trim().is_empty() {
             let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
             crate::ssrf::validate_outbound_url(url, &ssrf_cfg)
                 .await
                 .map_err(|e| (INVALID_PARAMS, format!("blocked URL: {e}")))?;
             with_browser_timeout(timeout_ms, "navigate", page.goto(url)).await?;
         }
-    }
     set_active_browser_target(&profile, Some(target_id.clone())).await;
     let title = with_browser_timeout(timeout_ms, "read tab title", page.title())
         .await
@@ -1924,8 +1920,7 @@ pub(crate) async fn handle_browser_tabs_switch(
     let target_id = params
         .get("target_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'target_id' parameter".to_string()))?
-        .to_string();
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'target_id' parameter".to_owned()))?.to_owned();
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, Some(target_id)).await?;
@@ -1958,7 +1953,7 @@ pub(crate) async fn handle_browser_tabs_close(
     } else {
         return Err((
             INVALID_PARAMS,
-            "missing 'target_id' and no active tab".to_string(),
+            "missing 'target_id' and no active tab".to_owned(),
         ));
     };
     let page = select_browser_page(&profile, timeout_ms, Some(target_id.clone())).await?;
@@ -1967,7 +1962,7 @@ pub(crate) async fn handle_browser_tabs_close(
     let remaining = with_browser_timeout(timeout_ms, "list browser tabs", browser.pages())
         .await
         .unwrap_or_default();
-    let next_active = remaining.first().map(|p| p.target_id().to_string());
+    let next_active = remaining.first().map(|p| p.target_id().to_owned());
     set_active_browser_target(&profile, next_active.clone()).await;
     Ok(json!({
         "status": "ok",
@@ -1994,8 +1989,7 @@ pub(crate) async fn handle_browser_snapshot(
         )
         .await?
         .as_str()
-        .unwrap_or_default()
-        .to_string(),
+        .unwrap_or_default().to_owned(),
         _ => with_browser_timeout(timeout_ms, "snapshot dom", page.content()).await?,
     };
     let max_chars = opt_u64(params, "max_chars", 120_000) as usize;
@@ -2034,8 +2028,7 @@ pub(crate) async fn handle_browser_storage_get(
             )
             .await?
             .as_str()
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default().to_owned();
             if let Some(key) = key {
                 let needle = format!("{key}=");
                 json!(
@@ -2108,11 +2101,11 @@ pub(crate) async fn handle_browser_storage_set(
     let key = params
         .get("key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'key' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'key' parameter".to_owned()))?;
     let value = params
         .get("value")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'value' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'value' parameter".to_owned()))?;
     let key_json =
         serde_json::to_string(key).map_err(|e| (INTERNAL_ERROR, format!("invalid key: {e}")))?;
     let value_json = serde_json::to_string(value)
@@ -2182,14 +2175,14 @@ pub(crate) async fn handle_browser_download(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if selector.trim().is_empty() {
-        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_owned()));
     }
 
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
-    let target_id = page.target_id().to_string();
+    let target_id = page.target_id().to_owned();
 
     let download_dir = params
         .get("download_dir")
@@ -2243,7 +2236,7 @@ pub(crate) async fn handle_browser_network_capture(
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
-    let target_id = page.target_id().to_string();
+    let target_id = page.target_id().to_owned();
 
     let responses = with_browser_timeout(
         timeout_ms.saturating_add(duration_ms).saturating_add(500),
@@ -2311,7 +2304,7 @@ pub(crate) async fn handle_browser_profiles_create(
     let requested = params
         .get("profile")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_owned()))?;
     let profile = validate_browser_profile_name(requested)?;
     let mut cfg = load_browser_profiles_config(channel).await;
     let current = cfg.profiles.get(&profile).cloned().unwrap_or_default();
@@ -2354,7 +2347,7 @@ pub(crate) async fn handle_browser_profiles_delete(
     let requested = params
         .get("profile")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_owned()))?;
     let profile = validate_browser_profile_name(requested)?;
     let mut cfg = load_browser_profiles_config(channel).await;
     if cfg.profiles.remove(&profile).is_none() {
@@ -2397,7 +2390,7 @@ pub(crate) async fn handle_browser_profiles_default_set(
     let requested = params
         .get("profile")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "missing 'profile' parameter".to_owned()))?;
     let profile = validate_browser_profile_name(requested)?;
     let mut cfg = load_browser_profiles_config(channel).await;
     cfg.profiles.entry(profile.clone()).or_default();
@@ -2415,7 +2408,7 @@ pub(crate) async fn handle_browser_goto(
 ) -> RpcResult {
     let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
     if url.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'url' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'url' parameter".to_owned()));
     }
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2430,7 +2423,7 @@ pub(crate) async fn handle_browser_goto(
     let page = if open_new_tab {
         let browser = browser_session_browser(&profile).await?;
         let page = with_browser_timeout(timeout_ms, "open tab", browser.new_page()).await?;
-        set_active_browser_target(&profile, Some(page.target_id().to_string())).await;
+        set_active_browser_target(&profile, Some(page.target_id().to_owned())).await;
         page
     } else {
         select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?
@@ -2459,7 +2452,7 @@ pub(crate) async fn handle_browser_click(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if selector.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_owned()));
     }
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2511,14 +2504,14 @@ pub(crate) async fn handle_browser_type(
         .unwrap_or("");
     let text = opt_str(params, "text", "");
     if selector.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'selector' parameter".to_owned()));
     }
     let timeout_ms = browser_timeout_ms(params);
     let mode = opt_str(params, "mode", "type");
     if !matches!(mode, "type" | "fill" | "select") {
         return Err((
             INVALID_PARAMS,
-            "invalid 'mode' parameter (expected type/fill/select)".to_string(),
+            "invalid 'mode' parameter (expected type/fill/select)".to_owned(),
         ));
     }
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2542,7 +2535,7 @@ pub(crate) async fn handle_browser_type(
                 const selector = {selector_json};
                 const text = {text_json};
                 const mode = {mode_json};
-                const isXPath = {};
+                const isXPath = {is_xpath};
                 let el = null;
                 if (isXPath) {{
                     el = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -2561,8 +2554,7 @@ pub(crate) async fn handle_browser_type(
                 el.dispatchEvent(new Event("input", {{ bubbles: true }}));
                 el.dispatchEvent(new Event("change", {{ bubbles: true }}));
                 return {{ ok: true }};
-            }})()"#,
-            is_xpath
+            }})()"#
         );
         let result =
             with_browser_timeout(timeout_ms, "fill form field", page.evaluate(&expr)).await?;
@@ -2571,7 +2563,7 @@ pub(crate) async fn handle_browser_type(
                 .get("error")
                 .and_then(|v| v.as_str())
                 .unwrap_or("form update failed");
-            return Err((INTERNAL_ERROR, err.to_string()));
+            return Err((INTERNAL_ERROR, err.to_owned()));
         }
     }
 
@@ -2606,13 +2598,13 @@ pub(crate) async fn handle_browser_screenshot(
         _ => {
             return Err((
                 INVALID_PARAMS,
-                "invalid screenshot format (expected png/jpeg/webp)".to_string(),
+                "invalid screenshot format (expected png/jpeg/webp)".to_owned(),
             ));
         }
     });
     if let Some(quality) = params.get("quality").and_then(|v| v.as_u64()) {
         if quality > 100 {
-            return Err((INVALID_PARAMS, "quality must be 0-100".to_string()));
+            return Err((INVALID_PARAMS, "quality must be 0-100".to_owned()));
         }
         options = options.quality(quality as u8);
     }
@@ -2625,7 +2617,7 @@ pub(crate) async fn handle_browser_screenshot(
         let expr = format!(
             r#"(function() {{
                 const selector = {selector_json};
-                const isXPath = {};
+                const isXPath = {is_xpath};
                 let el = null;
                 if (isXPath) {{
                     el = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
@@ -2640,8 +2632,7 @@ pub(crate) async fn handle_browser_screenshot(
                     width: Math.max(1, r.width),
                     height: Math.max(1, r.height)
                 }};
-            }})()"#,
-            is_xpath
+            }})()"#
         );
         let rect =
             with_browser_timeout(timeout_ms, "resolve element rect", page.evaluate(&expr)).await?;
@@ -2677,7 +2668,7 @@ pub(crate) async fn handle_browser_screenshot(
         if width <= 0.0 || height <= 0.0 {
             return Err((
                 INVALID_PARAMS,
-                "clip.width/clip.height must be > 0".to_string(),
+                "clip.width/clip.height must be > 0".to_owned(),
             ));
         }
         options = options.clip(x, y, width, height);
@@ -2710,7 +2701,7 @@ pub(crate) async fn handle_browser_eval(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if expression.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'expression' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'expression' parameter".to_owned()));
     }
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2764,9 +2755,9 @@ pub(crate) async fn handle_browser_extension_relay_start(
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
     let timeout_ms = browser_timeout_ms(params);
-    let relay_channel = opt_str(params, "channel", "default").trim().to_string();
+    let relay_channel = opt_str(params, "channel", "default").trim().to_owned();
     if relay_channel.is_empty() {
-        return Err((INVALID_PARAMS, "relay channel cannot be empty".to_string()));
+        return Err((INVALID_PARAMS, "relay channel cannot be empty".to_owned()));
     }
 
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2780,7 +2771,7 @@ pub(crate) async fn handle_browser_extension_relay_start(
     if !ok {
         return Err((
             INTERNAL_ERROR,
-            "failed to start extension relay".to_string(),
+            "failed to start extension relay".to_owned(),
         ));
     }
 
@@ -2897,13 +2888,12 @@ pub(crate) async fn handle_browser_extension_relay_send(
     ensure_browser_session_for_profile(channel, &profile, &settings).await?;
     let page = select_browser_page(&profile, timeout_ms, requested_target_id(params)).await?;
 
-    let channel = opt_str(params, "channel", "default").to_string();
+    let channel = opt_str(params, "channel", "default").to_owned();
     let event_type = params
         .get("event_type")
         .or_else(|| params.get("type"))
         .and_then(|v| v.as_str())
-        .unwrap_or("message")
-        .to_string();
+        .unwrap_or("message").to_owned();
     let payload = params.get("payload").cloned().unwrap_or(Value::Null);
 
     let channel_json = serde_json::to_string(&channel)
@@ -2939,8 +2929,7 @@ pub(crate) async fn handle_browser_extension_relay_send(
             result
                 .get("reason")
                 .and_then(|v| v.as_str())
-                .unwrap_or("relay_not_started")
-                .to_string(),
+                .unwrap_or("relay_not_started").to_owned(),
         ));
     }
 
@@ -2959,7 +2948,7 @@ pub(crate) async fn handle_browser_content_script_inject(
 ) -> RpcResult {
     let script = params.get("script").and_then(|v| v.as_str()).unwrap_or("");
     if script.trim().is_empty() {
-        return Err((INVALID_PARAMS, "missing 'script' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'script' parameter".to_owned()));
     }
     let timeout_ms = browser_timeout_ms(params);
     let (profile, settings) = resolve_browser_profile(params, channel).await?;
@@ -2988,8 +2977,7 @@ pub(crate) async fn handle_browser_content_script_inject(
             result
                 .get("error")
                 .and_then(|v| v.as_str())
-                .unwrap_or("script injection failed")
-                .to_string(),
+                .unwrap_or("script injection failed").to_owned(),
         ));
     }
 

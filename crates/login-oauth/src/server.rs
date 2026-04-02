@@ -37,6 +37,7 @@ pub struct ServerOptions {
 }
 
 impl ServerOptions {
+    #[must_use] 
     pub fn new(
         savfox_home: PathBuf,
         client_id: String,
@@ -46,13 +47,13 @@ impl ServerOptions {
         Self {
             savfox_home,
             client_id,
-            issuer: DEFAULT_ISSUER.to_string(),
+            issuer: DEFAULT_ISSUER.to_owned(),
             port: DEFAULT_PORT,
             open_browser: true,
             force_state: None,
             forced_chatgpt_workspace_id,
             cli_auth_credentials_store_mode,
-            provider_name: "OpenAI".to_string(),
+            provider_name: "OpenAI".to_owned(),
         }
     }
 }
@@ -76,6 +77,7 @@ impl LoginServer {
         self.shutdown_handle.shutdown();
     }
 
+    #[must_use] 
     pub fn cancel_handle(&self) -> ShutdownHandle {
         self.shutdown_handle.clone()
     }
@@ -152,7 +154,7 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
                             break Err(io::Error::other("Login was not completed"));
                         };
 
-                        let url_raw = req.url().to_string();
+                        let url_raw = req.url().to_owned();
                         let response =
                             process_request(&url_raw, &opts, &redirect_uri, &pkce, actual_port, &state).await;
 
@@ -228,7 +230,7 @@ async fn process_request(
             );
         }
     };
-    let path = parsed_url.path().to_string();
+    let path = parsed_url.path().to_owned();
 
     match path.as_str() {
         "/auth/callback" => {
@@ -376,28 +378,28 @@ fn build_authorize_url(
     forced_chatgpt_workspace_id: Option<&str>,
 ) -> String {
     let mut query = vec![
-        ("response_type".to_string(), "code".to_string()),
-        ("client_id".to_string(), client_id.to_string()),
-        ("redirect_uri".to_string(), redirect_uri.to_string()),
+        ("response_type".to_owned(), "code".to_owned()),
+        ("client_id".to_owned(), client_id.to_owned()),
+        ("redirect_uri".to_owned(), redirect_uri.to_owned()),
         (
-            "scope".to_string(),
-            "openid profile email offline_access".to_string(),
+            "scope".to_owned(),
+            "openid profile email offline_access".to_owned(),
         ),
         (
-            "code_challenge".to_string(),
-            pkce.code_challenge.to_string(),
+            "code_challenge".to_owned(),
+            pkce.code_challenge.clone(),
         ),
-        ("code_challenge_method".to_string(), "S256".to_string()),
-        ("id_token_add_organizations".to_string(), "true".to_string()),
-        ("savfox_cli_simplified_flow".to_string(), "true".to_string()),
-        ("state".to_string(), state.to_string()),
+        ("code_challenge_method".to_owned(), "S256".to_owned()),
+        ("id_token_add_organizations".to_owned(), "true".to_owned()),
+        ("savfox_cli_simplified_flow".to_owned(), "true".to_owned()),
+        ("state".to_owned(), state.to_owned()),
         (
-            "originator".to_string(),
-            originator().value.as_str().to_string(),
+            "originator".to_owned(),
+            originator().value.as_str().to_owned(),
         ),
     ];
     if let Some(workspace_id) = forced_chatgpt_workspace_id {
-        query.push(("allowed_workspace_id".to_string(), workspace_id.to_string()));
+        query.push(("allowed_workspace_id".to_owned(), workspace_id.to_owned()));
     }
     let qs = query
         .into_iter()
@@ -546,7 +548,7 @@ pub(crate) async fn persist_tokens_async(
             .get("chatgpt_account_id")
             .and_then(|v| v.as_str())
         {
-            tokens.account_id = Some(acc.to_string());
+            tokens.account_id = Some(acc.to_owned());
         }
         let auth = AuthDotJson {
             auth_mode: Some(AuthMode::Chatgpt),
@@ -606,7 +608,7 @@ pub(crate) fn ensure_workspace_allowed(
 
     let claims = jwt_auth_claims(id_token);
     let Some(actual) = claims.get("chatgpt_account_id").and_then(JsonValue::as_str) else {
-        return Err("Login is restricted to a specific workspace, but the token did not include an chatgpt_account_id claim.".to_string());
+        return Err("Login is restricted to a specific workspace, but the token did not include an chatgpt_account_id claim.".to_owned());
     };
 
     if actual == expected {
@@ -628,7 +630,7 @@ fn login_error_response(message: &str) -> HandledRequest {
         body: message.as_bytes().to_vec(),
         result: Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            message.to_string(),
+            message.to_owned(),
         )),
     }
 }

@@ -20,10 +20,10 @@ pub enum PromptArgsError {
 impl PromptArgsError {
     fn describe(&self, command: &str) -> String {
         match self {
-            PromptArgsError::MissingAssignment { token } => format!(
+            Self::MissingAssignment { token } => format!(
                 "Could not parse {command}: expected key=value but found '{token}'. Wrap values in double quotes if they contain spaces."
             ),
-            PromptArgsError::MissingKey { token } => {
+            Self::MissingKey { token } => {
                 format!("Could not parse {command}: expected a name before '=' in '{token}'.")
             }
         }
@@ -45,8 +45,8 @@ pub enum PromptExpansionError {
 impl PromptExpansionError {
     pub fn user_message(&self) -> String {
         match self {
-            PromptExpansionError::Args { command, error } => error.describe(command),
-            PromptExpansionError::MissingArgs { command, missing } => {
+            Self::Args { command, error } => error.describe(command),
+            Self::MissingArgs { command, missing } => {
                 let list = missing.join(", ");
                 format!(
                     "Missing required args for {command}: {list}. Provide as key=value (quote values with spaces)."
@@ -119,7 +119,7 @@ pub fn prompt_argument_names(content: &str) -> Vec<String> {
         if name == "ARGUMENTS" {
             continue;
         }
-        let name = name.to_string();
+        let name = name.to_owned();
         if seen.insert(name.clone()) {
             names.push(name);
         }
@@ -171,9 +171,9 @@ pub fn parse_prompt_inputs(
             .filter_map(|elem| shift_text_element_left(elem, value_start))
             .collect();
         map.insert(
-            key.to_string(),
+            key.to_owned(),
             PromptArg {
-                text: value.to_string(),
+                text: value.to_owned(),
                 text_elements: value_elements,
             },
         );

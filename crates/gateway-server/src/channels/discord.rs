@@ -58,7 +58,7 @@ pub(crate) async fn oauth_callback_handler(req: &mut Request, res: &mut Response
     if let Some(err) = error {
         let description = req
             .query::<String>("error_description")
-            .unwrap_or_else(|| "Authorization was denied.".to_string());
+            .unwrap_or_else(|| "Authorization was denied.".to_owned());
         warn!(target: "discord::oauth", error = %err, description = %description, "OAuth callback error");
         res.render(Text::Html(callback_html(
             "Authorization Failed",

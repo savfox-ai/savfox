@@ -29,10 +29,10 @@ pub async fn append_session_name(
 
     let updated_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .unwrap_or_else(|_| "unknown".to_string());
+        .unwrap_or_else(|_| "unknown".to_owned());
     let entry = SessionIndexEntry {
         id: session_id,
-        session_name: name.to_string(),
+        session_name: name.to_owned(),
         updated_at,
     };
     append_session_index_entry(savfox_home, &entry).await
@@ -98,7 +98,7 @@ pub async fn find_session_names_by_ids(
         };
         let name = entry.session_name.trim();
         if !name.is_empty() && session_ids.contains(&entry.id) {
-            names.insert(entry.id, name.to_string());
+            names.insert(entry.id, name.to_owned());
         }
     }
 
@@ -117,7 +117,7 @@ pub async fn find_session_id_by_name(
     if !path.exists() {
         return Ok(None);
     }
-    let name = name.to_string();
+    let name = name.to_owned();
     let entry = tokio::task::spawn_blocking(move || scan_index_from_end_by_name(&path, &name))
         .await
         .map_err(std::io::Error::other)??;

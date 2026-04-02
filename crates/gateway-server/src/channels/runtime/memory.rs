@@ -22,7 +22,7 @@ fn compaction_service() -> &'static CompactionService {
                 if trimmed.is_empty() {
                     None
                 } else {
-                    Some(trimmed.to_string())
+                    Some(trimmed.to_owned())
                 }
             });
         CompactionService::new(CompactionConfig {
@@ -44,7 +44,7 @@ fn sanitize_session_id_for_path(session_id: &str) -> String {
         }
     }
     if out.is_empty() {
-        "session".to_string()
+        "session".to_owned()
     } else {
         out
     }

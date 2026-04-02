@@ -36,7 +36,7 @@ pub(crate) async fn get_git_diff() -> io::Result<(bool, String)> {
         Path::new("/dev/null")
     };
 
-    let null_path = null_device.to_str().unwrap_or("/dev/null").to_string();
+    let null_path = null_device.to_str().unwrap_or("/dev/null").to_owned();
     let mut join_set: tokio::task::JoinSet<io::Result<String>> = tokio::task::JoinSet::new();
     for file in untracked_output
         .split('\n')
@@ -44,7 +44,7 @@ pub(crate) async fn get_git_diff() -> io::Result<(bool, String)> {
         .filter(|s| !s.is_empty())
     {
         let null_path = null_path.clone();
-        let file = file.to_string();
+        let file = file.to_owned();
         join_set.spawn(async move {
             let args = ["diff", "--color", "--no-index", "--", &null_path, &file];
             run_git_capture_diff(&args).await

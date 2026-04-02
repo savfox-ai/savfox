@@ -27,6 +27,7 @@ pub struct PermissionPreset {
 ///
 /// These are the three options shown in the TUI permission popup and provide a
 /// quick, coarse-grained way for users to set permissions.
+#[must_use] 
 pub fn builtin_tui_presets() -> Vec<PermissionPreset> {
     vec![
         PermissionPreset {
@@ -79,6 +80,7 @@ pub fn builtin_tui_presets() -> Vec<PermissionPreset> {
 ///
 /// These provide fine-grained control over what each agent can do,
 /// automatically setting the appropriate sandbox and approval policies.
+#[must_use] 
 pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
     vec![
         PermissionPreset {
@@ -166,11 +168,13 @@ pub fn builtin_agent_presets() -> Vec<PermissionPreset> {
 }
 
 /// Look up an agent preset by its id.
+#[must_use] 
 pub fn find_agent_preset(id: &str) -> Option<PermissionPreset> {
     builtin_agent_presets().into_iter().find(|p| p.id == id)
 }
 
 /// Look up a TUI preset by its id.
+#[must_use] 
 pub fn find_tui_preset(id: &str) -> Option<PermissionPreset> {
     builtin_tui_presets().into_iter().find(|p| p.id == id)
 }

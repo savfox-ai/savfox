@@ -518,7 +518,7 @@ pub(crate) fn gateway_auth_manager(channel: &Arc<GatewayChannel>) -> Arc<AuthMan
 fn chatgpt_server_options(channel: &Arc<GatewayChannel>) -> ServerOptions {
     ServerOptions::new(
         channel.config().savfox_home.clone(),
-        CLIENT_ID.to_string(),
+        CLIENT_ID.to_owned(),
         channel.config().forced_chatgpt_workspace_id.clone(),
         channel.config().cli_auth_credentials_store_mode,
     )
@@ -536,10 +536,9 @@ async fn handle_account_login_start(params: &Value, channel: &Arc<GatewayChannel
                 .get("apiKey")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
-                .trim()
-                .to_string();
+                .trim().to_owned();
             if api_key.is_empty() {
-                return Err((INVALID_REQUEST, "missing 'apiKey' parameter".to_string()));
+                return Err((INVALID_REQUEST, "missing 'apiKey' parameter".to_owned()));
             }
 
             login_with_api_key(
@@ -632,8 +631,7 @@ async fn handle_account_login_start(params: &Value, channel: &Arc<GatewayChannel
         }
         _ => Err((
             INVALID_REQUEST,
-            "unsupported account login type; expected one of: chatgpt, deviceCode, apiKey"
-                .to_string(),
+            "unsupported account login type; expected one of: chatgpt, deviceCode, apiKey".to_owned(),
         )),
     }
 }
@@ -643,10 +641,9 @@ async fn handle_account_login_cancel(params: &Value) -> RpcResult {
         .get("loginId")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
-        .trim()
-        .to_string();
+        .trim().to_owned();
     if login_id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'loginId' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'loginId' parameter".to_owned()));
     }
 
     let removed = {
@@ -688,12 +685,12 @@ async fn handle_account_read(params: &Value, channel: &Arc<GatewayChannel>) -> R
         Some(SavfoxAuth::ApiKey(_)) => json!({ "type": "apiKey" }),
         Some(auth @ (SavfoxAuth::Chatgpt(_) | SavfoxAuth::ChatgptAuthTokens(_))) => {
             let mut payload = serde_json::Map::new();
-            payload.insert("type".to_string(), json!("chatgpt"));
+            payload.insert("type".to_owned(), json!("chatgpt"));
             if let Some(email) = auth.get_account_email() {
-                payload.insert("email".to_string(), json!(email));
+                payload.insert("email".to_owned(), json!(email));
             }
             if let Some(plan_type) = auth.account_plan_type() {
-                payload.insert("planType".to_string(), json!(plan_type));
+                payload.insert("planType".to_owned(), json!(plan_type));
             }
             Value::Object(payload)
         }
@@ -735,7 +732,7 @@ async fn handle_log_set_level(params: &Value) -> RpcResult {
     let filter = params
         .get("level")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| (INVALID_REQUEST, "missing 'level' parameter".to_string()))?;
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'level' parameter".to_owned()))?;
     crate::log_level::set_level(filter).map_err(|e| (INVALID_REQUEST, e))
 }
 

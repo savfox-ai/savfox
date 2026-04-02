@@ -47,7 +47,7 @@ fn split_discord_command(text: &str) -> Option<(String, String)> {
     if command.is_empty() {
         return None;
     }
-    Some((command, rest.to_string()))
+    Some((command, rest.to_owned()))
 }
 
 fn normalize_registry_command_with_resolver<F>(
@@ -78,7 +78,7 @@ where
         if prompt.is_empty() {
             return None;
         }
-        return Some(prompt.to_string());
+        return Some(prompt.to_owned());
     }
 
     normalize_registry_command_with_resolver(text, resolve_command_name)
@@ -96,7 +96,7 @@ where
     if prompt.is_empty() {
         None
     } else {
-        Some(prompt.to_string())
+        Some(prompt.to_owned())
     }
 }
 
@@ -122,15 +122,16 @@ fn replied_to_bot(payload: &Value, bot_user_id: &str) -> bool {
         .is_some_and(|value| value == bot_user_id)
 }
 
+#[must_use] 
 pub fn quote_discord_arg(value: &str) -> String {
     if value.is_empty() {
-        return "\"\"".to_string();
+        return "\"\"".to_owned();
     }
     if value
         .chars()
         .all(|ch| !ch.is_whitespace() && ch != '"' && ch != '\\')
     {
-        return value.to_string();
+        return value.to_owned();
     }
     let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
@@ -171,8 +172,7 @@ pub fn parse_savfox_prompt(data: &Value) -> Option<String> {
         .and_then(|opt| opt.get("value"))
         .and_then(Value::as_str)
         .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     if prompt.is_empty() {
         None
     } else {

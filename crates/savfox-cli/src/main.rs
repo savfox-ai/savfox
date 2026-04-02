@@ -598,7 +598,7 @@ fn main() -> anyhow::Result<()> {
 
 async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
     let MultitoolCli {
-        feature_toggles,
+        feature_toggles: _,
         mut interactive,
         subcommand,
     } = MultitoolCli::parse();
@@ -761,7 +761,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         }
         Some(Subcommand::Sessions(cmd)) => {
             let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+                .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
             let token = std::env::var("SAVFOX_GATEWAY_TOKEN").unwrap_or_default();
             sessions_cmd::run(cmd, &gateway_url, &token)
                 .await
@@ -769,7 +769,7 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
         }
         Some(Subcommand::Agents(cmd)) => {
             let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+                .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
             let token = std::env::var("SAVFOX_GATEWAY_TOKEN").unwrap_or_default();
             agents_cmd::run(cmd, &gateway_url, &token)
                 .await
@@ -851,8 +851,8 @@ async fn cli_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<(
                 // Honor `--search` via the canonical web_search mode.
                 if interactive.web_search {
                     cli_kv_overrides.push((
-                        "web_search".to_string(),
-                        toml::Value::String("live".to_string()),
+                        "web_search".to_owned(),
+                        toml::Value::String("live".to_owned()),
                     ));
                 }
 
@@ -906,7 +906,7 @@ async fn enable_feature_in_config(_interactive: &TuiCli, feature: &str) -> anyho
     Ok(())
 }
 
-async fn disable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyhow::Result<()> {
+async fn disable_feature_in_config(_interactive: &TuiCli, feature: &str) -> anyhow::Result<()> {
     FeatureToggles::validate_feature(feature)?;
     let savfox_home = find_savfox_home()?;
     ConfigEditsBuilder::new(&savfox_home)
@@ -919,7 +919,7 @@ async fn disable_feature_in_config(interactive: &TuiCli, feature: &str) -> anyho
 
 fn maybe_print_under_development_feature_warning(
     savfox_home: &std::path::Path,
-    interactive: &TuiCli,
+    _interactive: &TuiCli,
     feature: &str,
 ) {
     let Some(spec) = savfox_core::features::FEATURES

@@ -100,7 +100,7 @@ pub(super) async fn handle_model_migration_prompt_if_needed(
             return None;
         }
 
-        let target_model = target_model.to_string();
+        let target_model = target_model.clone();
         if !should_show_model_migration_prompt(
             model,
             &target_model,
@@ -135,7 +135,7 @@ pub(super) async fn handle_model_migration_prompt_if_needed(
         match run_model_migration_prompt(tui, prompt_copy).await {
             ModelMigrationOutcome::Accepted => {
                 app_event_tx.send(AppEvent::PersistModelMigrationPromptAcknowledged {
-                    from_model: model.to_string(),
+                    from_model: model.to_owned(),
                     to_model: target_model.clone(),
                 });
 
@@ -161,7 +161,7 @@ pub(super) async fn handle_model_migration_prompt_if_needed(
             }
             ModelMigrationOutcome::Rejected => {
                 app_event_tx.send(AppEvent::PersistModelMigrationPromptAcknowledged {
-                    from_model: model.to_string(),
+                    from_model: model.to_owned(),
                     to_model: target_model.clone(),
                 });
             }

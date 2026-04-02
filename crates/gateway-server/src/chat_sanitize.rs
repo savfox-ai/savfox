@@ -3,7 +3,7 @@
 /// Sanitize a chat message for safe display.
 /// Strips potentially dangerous content while preserving safe markdown.
 pub fn sanitize_message(input: &str) -> String {
-    let mut output = input.to_string();
+    let mut output = input.to_owned();
 
     // Strip HTML tags (keep content)
     output = strip_html_tags(&output);
@@ -36,7 +36,7 @@ fn strip_html_tags(input: &str) -> String {
 /// Neutralize dangerous URL schemes (javascript:, data:, vbscript:)
 fn neutralize_dangerous_urls(input: &str) -> String {
     let dangerous_schemes = ["javascript:", "vbscript:", "data:text/html"];
-    let mut output = input.to_string();
+    let mut output = input.to_owned();
 
     for scheme in &dangerous_schemes {
         // Case-insensitive replacement; re-lowercase after each replacement.

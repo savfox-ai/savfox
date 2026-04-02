@@ -26,7 +26,7 @@ fn default_version() -> u32 {
     1
 }
 fn default_auth_type() -> String {
-    "api_key".to_string()
+    "api_key".to_owned()
 }
 
 /// On-disk representation of `models/{account_id}.json` (v1).
@@ -87,8 +87,8 @@ fn provider_models_from_slugs(provider_id: &str, slugs: &[String]) -> Vec<Value>
             }
             Some(
                 savfox_core::parse_provider_prefixed_model(trimmed)
-                    .map(|(_, model_slug)| model_slug.to_string())
-                    .unwrap_or_else(|| trimmed.to_string()),
+                    .map(|(_, model_slug)| model_slug.to_owned())
+                    .unwrap_or_else(|| trimmed.to_owned()),
             )
         })
         .collect();
@@ -120,8 +120,8 @@ fn hydrate_provider_file_disabled_models(file: &mut ProviderFile) {
             }
             Some(
                 savfox_core::parse_provider_prefixed_model(trimmed)
-                    .map(|(_, model_slug)| model_slug.to_string())
-                    .unwrap_or_else(|| trimmed.to_string()),
+                    .map(|(_, model_slug)| model_slug.to_owned())
+                    .unwrap_or_else(|| trimmed.to_owned()),
             )
         })
         .collect();
@@ -133,9 +133,9 @@ fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str)
     }
 
     let provider_id = if file.provider_id.trim().is_empty() {
-        provider_id_hint.trim().to_string()
+        provider_id_hint.trim().to_owned()
     } else {
-        file.provider_id.trim().to_string()
+        file.provider_id.trim().to_owned()
     };
     if provider_id.is_empty() {
         return;
@@ -163,8 +163,8 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
     let Ok(data) = tokio::fs::read_to_string(&path).await else {
         return ProviderFile {
             version: 2,
-            id: account_id.to_string(),
-            provider_id: account_id.to_string(),
+            id: account_id.to_owned(),
+            provider_id: account_id.to_owned(),
             name: String::new(),
             slug: String::new(),
             auth: None,
@@ -177,7 +177,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
     if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
         // Populate id from filename when missing in JSON (backward compat).
         if file.id.trim().is_empty() {
-            file.id = account_id.to_string();
+            file.id = account_id.to_owned();
         }
         // Derive slug from name when missing (backward compat with pre-slug files).
         if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
@@ -190,8 +190,8 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
     if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
         return ProviderFile {
             version: 2,
-            id: account_id.to_string(),
-            provider_id: account_id.to_string(),
+            id: account_id.to_owned(),
+            provider_id: account_id.to_owned(),
             name: String::new(),
             slug: String::new(),
             auth: None,
@@ -202,8 +202,8 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
 
     ProviderFile {
         version: 2,
-        id: account_id.to_string(),
-        provider_id: account_id.to_string(),
+        id: account_id.to_owned(),
+        provider_id: account_id.to_owned(),
         name: String::new(),
         slug: String::new(),
         auth: None,
@@ -233,7 +233,7 @@ async fn save_provider_file(
         let _ = tokio::fs::remove_file(&path).await;
         // If the removed provider was the default, fall back to another one.
         let savfox_home = channel.config().savfox_home.clone();
-        let account = account_id.to_string();
+        let account = account_id.to_owned();
         tokio::task::spawn_blocking(move || {
             savfox_core::config::provider_store::fallback_default_provider_if_removed(
                 &savfox_home,
@@ -256,15 +256,14 @@ async fn save_provider_file(
 /// OpenAI whose built-in config has `env_key: None`). Also sets the
 /// override for the bare provider_id for backward compat when they differ.
 fn inject_provider_auth(file: &ProviderFile) {
-    if let Some(auth) = &file.auth {
-        if let Some(api_key) = &auth.api_key {
-            if !api_key.is_empty() {
+    if let Some(auth) = &file.auth
+        && let Some(api_key) = &auth.api_key
+            && !api_key.is_empty() {
                 // Set env-variable override (for providers that use env_key).
-                if let Some(env_key) = &auth.env_key {
-                    if !env_key.is_empty() {
+                if let Some(env_key) = &auth.env_key
+                    && !env_key.is_empty() {
                         savfox_core::set_env_override(env_key, api_key);
                     }
-                }
                 // Set bearer-token override keyed by account id.
                 let account_id = file.account_id();
                 if !account_id.is_empty() {
@@ -276,8 +275,6 @@ fn inject_provider_auth(file: &ProviderFile) {
                     savfox_core::set_bearer_token_override(provider_id, api_key);
                 }
             }
-        }
-    }
 }
 
 /// Read all `models/*.json` files and inject their auth into the runtime
@@ -295,8 +292,7 @@ pub(crate) async fn inject_all_provider_auth(channel: &GatewayChannel) {
         let account_id = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
         if account_id.is_empty() {
             continue;
         }
@@ -323,16 +319,16 @@ struct RemoteModelsHttpResponse {
 
 fn canonical_models_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
-        "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
-        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
-        "volc" | "volc-engine" | "ark" => "volcengine".to_string(),
-        "together" | "together-ai" => "togetherai".to_string(),
-        "gemini" => "google".to_string(),
-        "bedrock" => "amazon-bedrock".to_string(),
-        "qwen" => "alibaba".to_string(),
-        "googlevertex" | "google_vertex" => "google-vertex".to_string(),
-        "google_vertex_anthropic" => "google-vertex-anthropic".to_string(),
-        other => other.to_string(),
+        "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
+        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
+        "volc" | "volc-engine" | "ark" => "volcengine".to_owned(),
+        "together" | "together-ai" => "togetherai".to_owned(),
+        "gemini" => "google".to_owned(),
+        "bedrock" => "amazon-bedrock".to_owned(),
+        "qwen" => "alibaba".to_owned(),
+        "googlevertex" | "google_vertex" => "google-vertex".to_owned(),
+        "google_vertex_anthropic" => "google-vertex-anthropic".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -426,7 +422,7 @@ fn model_test_resolve_remote_request(
         .or_else(|| model_test_default_base_url(&provider))
         .ok_or((
             INVALID_PARAMS,
-            "missing 'base_url' parameter for model discovery".to_string(),
+            "missing 'base_url' parameter for model discovery".to_owned(),
         ))?;
     let api_key = model_test_nonempty_string(params.get("api_key"));
 
@@ -450,7 +446,7 @@ fn model_test_chatgpt_codex_base_url(channel: &Arc<GatewayChannel>) -> String {
         .trim()
         .trim_end_matches('/');
     if base.ends_with("/codex") {
-        base.to_string()
+        base.to_owned()
     } else {
         format!("{base}/codex")
     }
@@ -477,14 +473,14 @@ async fn model_test_apply_openai_auth_fallback(
     if let Ok(token) = auth.get_token() {
         let token = token.trim();
         if !token.is_empty() {
-            request.api_key = Some(token.to_string());
+            request.api_key = Some(token.to_owned());
         }
     }
 
     if let Some(account_id) = auth.get_account_id() {
         let account_id = account_id.trim();
         if !account_id.is_empty() {
-            request.account_id = Some(account_id.to_string());
+            request.account_id = Some(account_id.to_owned());
         }
     }
 
@@ -645,14 +641,14 @@ fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
         .map(|(provider_id, model_slug)| {
             (
                 canonical_models_provider_id(provider_id),
-                model_slug.trim().to_string(),
+                model_slug.trim().to_owned(),
             )
         });
 
     let provider_id = entry
         .get("provider")
         .and_then(|value| match value {
-            Value::String(provider) => Some(provider.to_string()),
+            Value::String(provider) => Some(provider.clone()),
             Value::Object(provider) => provider
                 .get("id")
                 .and_then(Value::as_str)
@@ -700,7 +696,7 @@ pub(crate) fn enrich_model_reasoning_metadata(entry: &mut Value) {
             .and_then(normalize_reasoning_effort_alias)
     {
         model.insert(
-            "default_reasoning_level".to_string(),
+            "default_reasoning_level".to_owned(),
             default_reasoning_level,
         );
     }
@@ -713,7 +709,7 @@ pub(crate) fn enrich_model_reasoning_metadata(entry: &mut Value) {
             .and_then(normalize_reasoning_level_aliases)
     {
         model.insert(
-            "supported_reasoning_levels".to_string(),
+            "supported_reasoning_levels".to_owned(),
             supported_reasoning_levels,
         );
     }
@@ -723,7 +719,7 @@ pub(crate) fn enrich_model_reasoning_metadata(entry: &mut Value) {
             && let Some(default_reasoning_level) = registry_model.default_reasoning_level
         {
             model.insert(
-                "default_reasoning_level".to_string(),
+                "default_reasoning_level".to_owned(),
                 serde_json::to_value(default_reasoning_level).unwrap_or(Value::Null),
             );
         }
@@ -734,7 +730,7 @@ pub(crate) fn enrich_model_reasoning_metadata(entry: &mut Value) {
             .is_some_and(|levels| !levels.is_empty());
         if !has_supported_levels && !registry_model.supported_reasoning_levels.is_empty() {
             model.insert(
-                "supported_reasoning_levels".to_string(),
+                "supported_reasoning_levels".to_owned(),
                 serde_json::to_value(registry_model.supported_reasoning_levels)
                     .unwrap_or(Value::Null),
             );
@@ -753,11 +749,11 @@ pub(crate) fn enrich_model_reasoning_metadata(entry: &mut Value) {
 
     if source_supports_reasoning || has_supported_levels || has_default_reasoning {
         if !has_default_reasoning {
-            model.insert("default_reasoning_level".to_string(), json!("medium"));
+            model.insert("default_reasoning_level".to_owned(), json!("medium"));
         }
         if !has_supported_levels {
             model.insert(
-                "supported_reasoning_levels".to_string(),
+                "supported_reasoning_levels".to_owned(),
                 binary_reasoning_levels_value(),
             );
         }
@@ -807,7 +803,7 @@ pub(crate) async fn handle_models_test(params: &Value, channel: &Arc<GatewayChan
 
     let mut request = model_test_resolve_remote_request(params)?.ok_or((
         INVALID_PARAMS,
-        "missing provider/base_url parameters for connection test".to_string(),
+        "missing provider/base_url parameters for connection test".to_owned(),
     ))?;
     model_test_apply_openai_auth_fallback(&mut request, channel).await;
     let response = model_test_fetch_remote_models(&request).await?;
@@ -819,7 +815,7 @@ pub(crate) async fn handle_models_test(params: &Value, channel: &Arc<GatewayChan
         let message = if let Some(count) = model_count {
             format!("Connection successful. Retrieved {count} model(s).")
         } else {
-            "Connection successful.".to_string()
+            "Connection successful.".to_owned()
         };
 
         return Ok(json!({
@@ -861,15 +857,14 @@ async fn load_all_provider_models(channel: &GatewayChannel) -> HashMap<String, V
         let account_id = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("").to_owned();
         if account_id.is_empty() {
             continue;
         }
         let file = load_provider_file(channel, &account_id).await;
         for model in file.models {
             if let Some(id) = model.get("id").and_then(|v| v.as_str()) {
-                out.insert(id.to_string(), model);
+                out.insert(id.to_owned(), model);
             }
         }
     }
@@ -929,15 +924,14 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
             let account_id = path
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
+                .unwrap_or("").to_owned();
             if account_id.is_empty() {
                 continue;
             }
             let file = load_provider_file(channel, &account_id).await;
-            let file_slug = file.slug.trim().to_string();
-            let file_provider_id = file.provider_id.trim().to_string();
-            let file_name = file.name.trim().to_string();
+            let file_slug = file.slug.trim().to_owned();
+            let file_provider_id = file.provider_id.trim().to_owned();
+            let file_name = file.name.trim().to_owned();
             let file_provider_name = if file_provider_id.is_empty() {
                 String::new()
             } else {
@@ -953,11 +947,10 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                         .or_else(|| model.get("model_slug"))
                         .and_then(Value::as_str)
                         .map(String::from);
-                    if let Some(slug) = slug {
-                        if let Value::Object(ref mut map) = model {
-                            map.insert("id".to_string(), json!(format!("{account_id}/{slug}")));
+                    if let Some(slug) = slug
+                        && let Value::Object(ref mut map) = model {
+                            map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
                         }
-                    }
                 }
 
                 // Normalise the id prefix and provider to the account_id
@@ -966,48 +959,44 @@ pub(crate) async fn handle_models_list(params: &Value, channel: &Arc<GatewayChan
                 if let Value::Object(ref mut map) = model {
                     if let Some(current_id) =
                         map.get("id").and_then(|v| v.as_str()).map(String::from)
-                    {
-                        if let Some((_, model_slug)) = current_id.split_once('/') {
-                            if !current_id.starts_with(&format!("{account_id}/")) {
+                        && let Some((_, model_slug)) = current_id.split_once('/')
+                            && !current_id.starts_with(&format!("{account_id}/")) {
                                 map.insert(
-                                    "id".to_string(),
+                                    "id".to_owned(),
                                     json!(format!("{account_id}/{model_slug}")),
                                 );
                             }
-                        }
-                    }
-                    map.insert("provider".to_string(), json!(account_id.as_str()));
+                    map.insert("provider".to_owned(), json!(account_id.as_str()));
                 }
 
                 let Some(id) = model.get("id").and_then(Value::as_str) else {
                     continue;
                 };
-                if !seen_ids.insert(id.to_string()) {
+                if !seen_ids.insert(id.to_owned()) {
                     continue;
                 }
                 let mut entry = model;
                 if let Value::Object(ref mut map) = entry {
-                    map.entry("builtin".to_string()).or_insert(json!(false));
+                    map.entry("builtin".to_owned()).or_insert(json!(false));
                     map.remove("api_key");
                     if has_distinct_account {
                         let slug = if file_slug.is_empty() {
                             account_id
                                 .strip_prefix(&file_provider_id)
                                 .and_then(|rest| rest.strip_prefix('-'))
-                                .unwrap_or(&account_id)
-                                .to_string()
+                                .unwrap_or(&account_id).to_owned()
                         } else {
                             file_slug.clone()
                         };
-                        map.entry("account_slug".to_string())
+                        map.entry("account_slug".to_owned())
                             .or_insert_with(|| json!(slug));
                     }
                     if !file_provider_name.is_empty() {
-                        map.entry("provider_name".to_string())
+                        map.entry("provider_name".to_owned())
                             .or_insert_with(|| json!(file_provider_name.clone()));
                     }
                     if !file_name.is_empty() {
-                        map.entry("account_name".to_string())
+                        map.entry("account_name".to_owned())
                             .or_insert_with(|| json!(file_name));
                     }
                 }
@@ -1027,7 +1016,7 @@ pub(crate) async fn handle_models_add(params: &Value, channel: &Arc<GatewayChann
     let id = params
         .get("id")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(|s| s.to_owned())
         .unwrap_or_else(|| format!("{provider}/{model_slug}"));
 
     let mut entry = json!({
@@ -1155,7 +1144,7 @@ pub(crate) async fn handle_models_setdefault(
     // Clear default on all entries in this provider
     for m in models.iter_mut() {
         if let Value::Object(map) = m {
-            map.insert("is_default".to_string(), json!(false));
+            map.insert("is_default".to_owned(), json!(false));
         }
     }
 
@@ -1184,10 +1173,10 @@ pub(crate) async fn handle_models_import(
 
     let models_arr = params.get("models").and_then(|v| v.as_array()).ok_or((
         INVALID_REQUEST,
-        "missing or invalid 'models' array".to_string(),
+        "missing or invalid 'models' array".to_owned(),
     ))?;
     if models_arr.is_empty() {
-        return Err((INVALID_REQUEST, "'models' array is empty".to_string()));
+        return Err((INVALID_REQUEST, "'models' array is empty".to_owned()));
     }
 
     // Build auth section from params
@@ -1211,16 +1200,14 @@ pub(crate) async fn handle_models_import(
         let mut entry = m.clone();
         if let Value::Object(ref mut map) = entry {
             // Re-prefix model id with account_id if it currently uses provider_id.
-            if let Some(id_val) = map.get("id").and_then(Value::as_str) {
-                if let Some((prefix, slug)) = savfox_core::parse_provider_prefixed_model(id_val) {
-                    if prefix != account_id {
-                        map.insert("id".to_string(), json!(format!("{account_id}/{slug}")));
+            if let Some(id_val) = map.get("id").and_then(Value::as_str)
+                && let Some((prefix, slug)) = savfox_core::parse_provider_prefixed_model(id_val)
+                    && prefix != account_id {
+                        map.insert("id".to_owned(), json!(format!("{account_id}/{slug}")));
                     }
-                }
-            }
-            map.entry("provider".to_string())
+            map.entry("provider".to_owned())
                 .or_insert_with(|| json!(account_id));
-            map.entry("builtin".to_string()).or_insert(json!(false));
+            map.entry("builtin".to_owned()).or_insert(json!(false));
         }
         entries.push(entry);
     }
@@ -1260,11 +1247,11 @@ pub(crate) async fn handle_models_import(
     if !base_url.is_empty() {
         config_edits.push(savfox_core::config::edit::ConfigEdit::SetPath {
             segments: vec![
-                "model_providers".to_string(),
+                "model_providers".to_owned(),
                 account_id.clone(),
-                "base_url".to_string(),
+                "base_url".to_owned(),
             ],
-            value: toml_edit::value(base_url.to_string()),
+            value: toml_edit::value(base_url.to_owned()),
         });
     }
 
@@ -1276,8 +1263,8 @@ pub(crate) async fn handle_models_import(
             .filter(|id| !id.is_empty())
             .and_then(|id| {
                 savfox_core::parse_provider_prefixed_model(id)
-                    .map(|(_, model_slug)| model_slug.to_string())
-                    .or_else(|| Some(id.to_string()))
+                    .map(|(_, model_slug)| model_slug.to_owned())
+                    .or_else(|| Some(id.to_owned()))
             })
             .or_else(|| {
                 default
@@ -1332,13 +1319,12 @@ pub(crate) async fn handle_tools_invoke(
 
     // Build a prompt that forces the agent to invoke the requested tool.
     let mut args = arguments.clone();
-    if let Some(act) = action {
-        if let Value::Object(ref mut map) = args {
+    if let Some(act) = action
+        && let Value::Object(ref mut map) = args {
             map.entry("action")
                 .or_insert_with(|| Value::String(act.to_owned()));
         }
-    }
-    let args_str = serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_string());
+    let args_str = serde_json::to_string_pretty(&args).unwrap_or_else(|_| "{}".to_owned());
     let prompt = format!(
         "Use the `{tool}` tool with exactly these arguments:\n\
          ```json\n{args_str}\n```\n\

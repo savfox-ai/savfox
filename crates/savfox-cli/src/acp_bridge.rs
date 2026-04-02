@@ -138,8 +138,7 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                     .or_else(|| params.get("message"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
-                    .trim()
-                    .to_string();
+                    .trim().to_owned();
                 if prompt.is_empty() {
                     let _ = write_json_line(
                         &stdout,
@@ -163,8 +162,7 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                 let agent = params
                     .get("agent")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("default")
-                    .to_string();
+                    .unwrap_or("default").to_owned();
 
                 let sink_task = Arc::clone(&sink);
                 let pending_task = Arc::clone(&pending);
@@ -288,8 +286,7 @@ pub async fn run(cmd: AcpCommand) -> anyhow::Result<()> {
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|v| !v.is_empty())
-                    .unwrap_or("")
-                    .to_string();
+                    .unwrap_or("").to_owned();
 
                 let mapped_session_id = acp_to_gateway
                     .read()
@@ -380,7 +377,7 @@ fn extract_response_id(value: &Value) -> Option<String> {
     }
     let id = value.get("id")?;
     if let Some(s) = id.as_str() {
-        Some(s.to_string())
+        Some(s.to_owned())
     } else if let Some(n) = id.as_u64() {
         Some(n.to_string())
     } else {
@@ -427,7 +424,7 @@ async fn rpc_call_with_id(
 
     match tokio::time::timeout(RPC_TIMEOUT, rx).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(_)) => Err("RPC response channel closed".to_string()),
+        Ok(Err(_)) => Err("RPC response channel closed".to_owned()),
         Err(_) => Err(format!(
             "timed out waiting for RPC response ({}s)",
             RPC_TIMEOUT.as_secs()
@@ -445,8 +442,7 @@ async fn forward_gateway_event(
     let event_name = frame
         .get("event")
         .and_then(|v| v.as_str())
-        .unwrap_or("event")
-        .to_string();
+        .unwrap_or("event").to_owned();
     let payload = frame.get("payload").cloned().unwrap_or(Value::Null);
 
     let request_id = payload
@@ -463,11 +459,10 @@ async fn forward_gateway_event(
     if let Some(req_id) = request_id.as_deref() {
         session_id = request_to_acp.read().await.get(req_id).cloned();
     }
-    if session_id.is_none() {
-        if let Some(sid) = gateway_session_id.as_deref() {
+    if session_id.is_none()
+        && let Some(sid) = gateway_session_id.as_deref() {
             session_id = gateway_to_acp.read().await.get(sid).cloned();
         }
-    }
     if let (Some(sid), Some(gateway_sid)) = (&session_id, &gateway_session_id) {
         acp_to_gateway
             .write()
@@ -482,9 +477,9 @@ async fn forward_gateway_event(
     let mut merged = payload;
     if let Value::Object(ref mut map) = merged {
         if let Some(sid) = gateway_session_id.or(session_id) {
-            map.insert("session_id".to_string(), json!(sid));
+            map.insert("session_id".to_owned(), json!(sid));
         }
-        map.insert("event".to_string(), json!(event_name.clone()));
+        map.insert("event".to_owned(), json!(event_name.clone()));
     }
 
     let method = match event_name.as_str() {

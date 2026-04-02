@@ -248,7 +248,7 @@ impl Session {
         if reason == TurnAbortReason::Interrupted {
             let marker = ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
                     text: format!(
                         "{TURN_ABORTED_OPEN_TAG}\n{TURN_ABORTED_INTERRUPTED_GUIDANCE}\n</turn_aborted>"

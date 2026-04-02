@@ -188,15 +188,12 @@ fn load_or_refresh_completion_cache(
     let source_fingerprints = source_fingerprints(savfox_home);
     let cache_path = completion_cache_path(savfox_home);
 
-    if !force_refresh {
-        if let Ok(raw) = fs::read_to_string(&cache_path) {
-            if let Ok(cache) = serde_json::from_str::<CompletionCache>(&raw) {
-                if cache.source_fingerprints == source_fingerprints {
+    if !force_refresh
+        && let Ok(raw) = fs::read_to_string(&cache_path)
+            && let Ok(cache) = serde_json::from_str::<CompletionCache>(&raw)
+                && cache.source_fingerprints == source_fingerprints {
                     return Ok(cache);
                 }
-            }
-        }
-    }
 
     let cache = CompletionCache {
         source_fingerprints,
@@ -219,19 +216,19 @@ fn load_or_refresh_completion_cache(
 fn source_fingerprints(savfox_home: &Path) -> BTreeMap<String, u64> {
     let mut map = BTreeMap::new();
     map.insert(
-        "config.toml".to_string(),
+        "config.toml".to_owned(),
         file_mtime_secs(&savfox_home.join("config.toml")),
     );
     map.insert(
-        "models.json".to_string(),
+        "models.json".to_owned(),
         file_mtime_secs(&savfox_home.join("models.json")),
     );
     map.insert(
-        "sessions.json".to_string(),
+        "sessions.json".to_owned(),
         file_mtime_secs(&savfox_home.join("sessions").join("sessions.json")),
     );
     map.insert(
-        "agents_dir".to_string(),
+        "agents_dir".to_owned(),
         directory_fingerprint(&savfox_home.join("agents")),
     );
     map
@@ -273,54 +270,47 @@ fn collect_models(savfox_home: &Path) -> Vec<String> {
     let mut values = BTreeSet::new();
 
     let models_path = savfox_home.join("models.json");
-    if let Ok(raw) = fs::read_to_string(models_path) {
-        if let Ok(value) = serde_json::from_str::<Value>(&raw) {
-            if let Some(obj) = value.as_object() {
+    if let Ok(raw) = fs::read_to_string(models_path)
+        && let Ok(value) = serde_json::from_str::<Value>(&raw)
+            && let Some(obj) = value.as_object() {
                 for (key, model) in obj {
                     if !key.trim().is_empty() {
-                        values.insert(key.to_string());
+                        values.insert(key.clone());
                     }
-                    if let Some(id) = model.get("id").and_then(Value::as_str) {
-                        if !id.trim().is_empty() {
-                            values.insert(id.trim().to_string());
+                    if let Some(id) = model.get("id").and_then(Value::as_str)
+                        && !id.trim().is_empty() {
+                            values.insert(id.trim().to_owned());
                         }
-                    }
                 }
             }
-        }
-    }
 
     let config_path = savfox_home.join("config.toml");
-    if let Ok(raw) = fs::read_to_string(config_path) {
-        if let Ok(value) = raw.parse::<toml::Value>() {
-            if let Some(model) = value.get("model").and_then(toml::Value::as_str) {
-                if !model.trim().is_empty() {
-                    values.insert(model.trim().to_string());
+    if let Ok(raw) = fs::read_to_string(config_path)
+        && let Ok(value) = raw.parse::<toml::Value>() {
+            if let Some(model) = value.get("model").and_then(toml::Value::as_str)
+                && !model.trim().is_empty() {
+                    values.insert(model.trim().to_owned());
                 }
-            }
             if let Some(models) = value.get("models").and_then(toml::Value::as_table) {
-                if let Some(primary) = models.get("primary").and_then(toml::Value::as_str) {
-                    if !primary.trim().is_empty() {
-                        values.insert(primary.trim().to_string());
+                if let Some(primary) = models.get("primary").and_then(toml::Value::as_str)
+                    && !primary.trim().is_empty() {
+                        values.insert(primary.trim().to_owned());
                     }
-                }
                 if let Some(fallbacks) = models.get("fallbacks").and_then(toml::Value::as_array) {
                     for fallback in fallbacks {
-                        if let Some(id) = fallback.as_str() {
-                            if !id.trim().is_empty() {
-                                values.insert(id.trim().to_string());
+                        if let Some(id) = fallback.as_str()
+                            && !id.trim().is_empty() {
+                                values.insert(id.trim().to_owned());
                             }
-                        }
                     }
                 }
                 for key in models.keys() {
                     if key != "primary" && key != "fallbacks" && !key.trim().is_empty() {
-                        values.insert(key.to_string());
+                        values.insert(key.clone());
                     }
                 }
             }
         }
-    }
 
     values.into_iter().collect()
 }
@@ -336,11 +326,10 @@ fn collect_agents(savfox_home: &Path) -> Vec<String> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
-            if !stem.trim().is_empty() {
-                values.insert(stem.to_string());
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str())
+            && !stem.trim().is_empty() {
+                values.insert(stem.to_owned());
             }
-        }
     }
     values.into_iter().collect()
 }
@@ -351,20 +340,18 @@ fn collect_sessions(savfox_home: &Path) -> Vec<String> {
     let Ok(raw) = fs::read_to_string(path) else {
         return Vec::new();
     };
-    if let Ok(value) = serde_json::from_str::<Value>(&raw) {
-        if let Some(entries) = value.as_object() {
+    if let Ok(value) = serde_json::from_str::<Value>(&raw)
+        && let Some(entries) = value.as_object() {
             for (key, entry) in entries {
                 if !key.trim().is_empty() {
-                    values.insert(key.to_string());
+                    values.insert(key.clone());
                 }
-                if let Some(session_id) = entry.get("session_id").and_then(Value::as_str) {
-                    if !session_id.trim().is_empty() {
-                        values.insert(session_id.trim().to_string());
+                if let Some(session_id) = entry.get("session_id").and_then(Value::as_str)
+                    && !session_id.trim().is_empty() {
+                        values.insert(session_id.trim().to_owned());
                     }
-                }
             }
         }
-    }
     values.into_iter().collect()
 }
 

@@ -22,6 +22,7 @@ use crate::util::resolve_path;
 /// `git worktree add` where the checkout lives outside the main repository
 /// directory. If you need Savfox to work from such a checkout simply pass the
 /// `--allow-no-git-exec` CLI flag that disables the repo requirement.
+#[must_use] 
 pub fn get_git_repo_root(base_dir: &Path) -> Option<PathBuf> {
     let mut dir = base_dir.to_path_buf();
 
@@ -82,7 +83,7 @@ pub async fn collect_git_info(cwd: &Path) -> Option<GitInfo> {
         && output.status.success()
         && let Ok(hash) = String::from_utf8(output.stdout)
     {
-        git_info.commit_hash = Some(hash.trim().to_string());
+        git_info.commit_hash = Some(hash.trim().to_owned());
     }
 
     // Process branch name
@@ -92,7 +93,7 @@ pub async fn collect_git_info(cwd: &Path) -> Option<GitInfo> {
     {
         let branch = branch.trim();
         if branch != "HEAD" {
-            git_info.branch = Some(branch.to_string());
+            git_info.branch = Some(branch.to_owned());
         }
     }
 
@@ -101,7 +102,7 @@ pub async fn collect_git_info(cwd: &Path) -> Option<GitInfo> {
         && output.status.success()
         && let Ok(url) = String::from_utf8(output.stdout)
     {
-        git_info.repository_url = Some(url.trim().to_string());
+        git_info.repository_url = Some(url.trim().to_owned());
     }
 
     Some(git_info)
@@ -143,7 +144,7 @@ pub async fn get_head_commit_hash(cwd: &Path) -> Option<String> {
     if hash.is_empty() {
         None
     } else {
-        Some(hash.to_string())
+        Some(hash.to_owned())
     }
 }
 
@@ -163,7 +164,7 @@ fn parse_git_remote_urls(stdout: &str) -> Option<BTreeMap<String, String>> {
 
         let url = url_part.trim_start();
         if !url.is_empty() {
-            remotes.insert(name.to_string(), url.to_string());
+            remotes.insert(name.to_owned(), url.to_owned());
         }
     }
 
@@ -198,9 +199,9 @@ pub async fn recent_commits(cwd: &Path, limit: usize) -> Vec<CommitLogEntry> {
 
     let fmt = "%H%x1f%ct%x1f%s"; // <sha> <US> <commit_time> <US> <subject>
     let limit_arg = (limit > 0).then(|| limit.to_string());
-    let mut args: Vec<String> = vec!["log".to_string()];
+    let mut args: Vec<String> = vec!["log".to_owned()];
     if let Some(n) = &limit_arg {
-        args.push("-n".to_string());
+        args.push("-n".to_owned());
         args.push(n.clone());
     }
     args.push(format!("--pretty=format:{fmt}"));
@@ -224,9 +225,9 @@ pub async fn recent_commits(cwd: &Path, limit: usize) -> Vec<CommitLogEntry> {
         }
         let timestamp = ts_s.parse::<i64>().unwrap_or(0);
         entries.push(CommitLogEntry {
-            sha: sha.to_string(),
+            sha: sha.to_owned(),
             timestamp,
-            subject: subject.to_string(),
+            subject: subject.to_owned(),
         });
     }
 
@@ -302,7 +303,7 @@ async fn get_default_branch(cwd: &Path) -> Option<String> {
         {
             let trimmed = sym.trim();
             if let Some((_, name)) = trimmed.rsplit_once('/') {
-                return Some(name.to_string());
+                return Some(name.to_owned());
             }
         }
 
@@ -317,7 +318,7 @@ async fn get_default_branch(cwd: &Path) -> Option<String> {
                 if let Some(rest) = line.strip_prefix("HEAD branch:") {
                     let name = rest.trim();
                     if !name.is_empty() {
-                        return Some(name.to_string());
+                        return Some(name.to_owned());
                     }
                 }
             }
@@ -353,7 +354,7 @@ async fn get_default_branch_local(cwd: &Path) -> Option<String> {
         .await
             && verify.status.success()
         {
-            return Some(candidate.to_string());
+            return Some(candidate.to_owned());
         }
     }
 
@@ -373,7 +374,7 @@ async fn branch_ancestry(cwd: &Path) -> Option<Vec<String>> {
                 None
             }
         })
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim().to_owned())
         .filter(|s| s != "HEAD");
 
     // Discover default branch
@@ -418,8 +419,8 @@ async fn branch_ancestry(cwd: &Path) -> Option<Vec<String>> {
                     && !stripped.is_empty()
                     && !seen.contains(stripped)
                 {
-                    seen.insert(stripped.to_string());
-                    ancestry.push(stripped.to_string());
+                    seen.insert(stripped.to_owned());
+                    ancestry.push(stripped.to_owned());
                 }
             }
         }
@@ -609,8 +610,7 @@ pub fn resolve_root_git_project_for_trust(cwd: &Path) -> Option<PathBuf> {
     }
     let git_dir_s = String::from_utf8(git_dir_out.stdout)
         .ok()?
-        .trim()
-        .to_string();
+        .trim().to_owned();
 
     let git_dir_path_raw = resolve_path(base, &PathBuf::from(&git_dir_s));
 
@@ -628,7 +628,7 @@ pub async fn local_git_branches(cwd: &Path) -> Vec<String> {
     {
         String::from_utf8_lossy(&out.stdout)
             .lines()
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
             .collect()
     } else {
@@ -655,7 +655,7 @@ pub async fn current_branch_name(cwd: &Path) -> Option<String> {
     }
     String::from_utf8(out.stdout)
         .ok()
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim().to_owned())
         .filter(|name| !name.is_empty())
 }
 

@@ -61,7 +61,7 @@ async fn plugin_route_within_limit(plugin_id: &str) -> bool {
     let mut store = plugin_route_rate_limit_store().lock().await;
     let now = Instant::now();
     let bucket = store
-        .entry(plugin_id.to_string())
+        .entry(plugin_id.to_owned())
         .or_insert(PluginRateLimitBucket {
             count: 0,
             window_start: now,
@@ -81,12 +81,9 @@ async fn plugin_route_within_limit(plugin_id: &str) -> bool {
 }
 
 async fn authenticate_plugin_route(req: &Request, depot: &mut Depot, res: &mut Response) -> bool {
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return false;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return false;
     };
 
     let token = req
@@ -147,9 +144,9 @@ pub(crate) fn build_router(
     let metrics = Arc::new(GatewayMetrics::new());
 
     let state_router = Router::new()
-        .hoop(affix_state::inject(auth.clone()))
-        .hoop(affix_state::inject(session_mgr.clone()))
-        .hoop(affix_state::inject(channel.clone()))
+        .hoop(affix_state::inject(auth))
+        .hoop(affix_state::inject(session_mgr))
+        .hoop(affix_state::inject(channel))
         .hoop(affix_state::inject(gateway_config))
         .hoop(affix_state::inject(session_store))
         .hoop(affix_state::inject(cron_service))
@@ -345,19 +342,13 @@ async fn health_handler(res: &mut Response) {
 /// `GET /api/status`  - Server status (connected clients, etc.).
 #[handler]
 async fn status_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = match depot.obtain::<Arc<GatewaySessionManager>>() {
-        Ok(mgr) => mgr.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() { mgr.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let count = session_mgr.session_count().await;
@@ -397,12 +388,9 @@ async fn logs_handler(req: &mut Request, res: &mut Response) {
 /// `GET /api/config`  - Gateway configuration (sanitized, no secrets).
 #[handler]
 async fn config_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = match depot.obtain::<Arc<GatewaySessionManager>>() {
-        Ok(mgr) => mgr.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() { mgr.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let count = session_mgr.session_count().await;
@@ -434,12 +422,9 @@ async fn config_handler(depot: &mut Depot, res: &mut Response) {
 /// `POST /api/token/validate`  - Validate a bearer token.
 #[handler]
 async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     // Accept token from Authorization header or JSON body.
@@ -448,7 +433,7 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).to_owned())
-        .or_else(|| {
+        .or({
             // Try reading from body as {"token": "..."}
             None
         });
@@ -461,21 +446,18 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
         return;
     };
 
-    match auth.validate(&token).await {
-        Some(info) => {
-            res.render(Text::Json(
-                json!({
-                    "valid": true,
-                    "label": info.label,
-                    "scopes": info.scopes,
-                })
-                .to_string(),
-            ));
-        }
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(json!({"valid": false}).to_string()));
-        }
+    if let Some(info) = auth.validate(&token).await {
+        res.render(Text::Json(
+            json!({
+                "valid": true,
+                "label": info.label,
+                "scopes": info.scopes,
+            })
+            .to_string(),
+        ));
+    } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(json!({"valid": false}).to_string()));
     }
 }
 
@@ -484,12 +466,9 @@ async fn token_validate_handler(req: &mut Request, depot: &mut Depot, res: &mut 
 /// Accepts JSON body: `{"channel": "discord:12345", "text": "Hello!"}`
 #[handler]
 async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<serde_json::Value>().await {
@@ -533,12 +512,9 @@ async fn message_handler(req: &mut Request, depot: &mut Depot, res: &mut Respons
 /// `GET /api/sessions`  - List active sessions.
 #[handler]
 async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
-    let session_mgr = match depot.obtain::<Arc<GatewaySessionManager>>() {
-        Ok(mgr) => mgr.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_mgr = if let Ok(mgr) = depot.obtain::<Arc<GatewaySessionManager>>() { mgr.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let session_ids = session_mgr.session_ids().await;
@@ -555,12 +531,9 @@ async fn sessions_handler(depot: &mut Depot, res: &mut Response) {
 /// `GET /api/channels`  - List configured channel integrations.
 #[handler]
 async fn channels_handler(depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let runtime = channel.runtime_channel_secrets().await;
@@ -797,7 +770,7 @@ fn expand_env_string(input: &str) -> Result<String, String> {
                                             "required environment variable '{var_name}' is missing"
                                         )
                                     } else {
-                                        err_msg.to_string()
+                                        err_msg.to_owned()
                                     };
                                     return Err(message);
                                 } else {
@@ -819,12 +792,9 @@ fn expand_env_string(input: &str) -> Result<String, String> {
                     end += 1;
                 }
                 let var_name: String = chars[start..end].iter().collect();
-                match std::env::var(&var_name) {
-                    Ok(val) => result.push_str(&val),
-                    Err(_) => {
-                        let orig: String = chars[i..end].iter().collect();
-                        result.push_str(&orig);
-                    }
+                if let Ok(val) = std::env::var(&var_name) { result.push_str(&val) } else {
+                    let orig: String = chars[i..end].iter().collect();
+                    result.push_str(&orig);
                 }
                 i = end;
                 continue;
@@ -953,12 +923,9 @@ fn count_runtime_secrets(secrets: &RuntimeBridgeSecrets) -> usize {
 /// `POST /api/config/patch`  - Merge-patch the gateway configuration.
 #[handler]
 async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(channel) => channel.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() { channel.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<serde_json::Value>().await {
@@ -1016,12 +983,9 @@ async fn config_patch_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 /// `POST /api/config/apply`  - Replace the gateway configuration entirely.
 #[handler]
 async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(channel) => channel.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() { channel.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<serde_json::Value>().await {
@@ -1122,19 +1086,13 @@ async fn restart_handler(req: &mut Request, res: &mut Response) {
 /// Body: `{"session_id": "...", "message": "...", "model": "...", "system": "..."}`
 #[handler]
 async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
-    let session_store = match depot.obtain::<Arc<SessionStore>>() {
-        Ok(store) => store.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<serde_json::Value>().await {
@@ -1174,7 +1132,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let run_id = uuid::Uuid::now_v7().to_string();
     upsert_agent_run(AgentRunRecord {
         run_id: run_id.clone(),
-        status: "running".to_string(),
+        status: "running".to_owned(),
         result: None,
         error: None,
         updated_at_ms: crate::json_store::now_ms(),
@@ -1215,7 +1173,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
                 let reply = result.reply;
                 upsert_agent_run(AgentRunRecord {
                     run_id: run_id_clone.clone(),
-                    status: "completed".to_string(),
+                    status: "completed".to_owned(),
                     result: Some(reply.clone()),
                     error: None,
                     updated_at_ms: crate::json_store::now_ms(),
@@ -1226,7 +1184,7 @@ async fn agent_handler(req: &mut Request, depot: &mut Depot, res: &mut Response)
             Err(err) => {
                 upsert_agent_run(AgentRunRecord {
                     run_id: run_id_clone.clone(),
-                    status: "failed".to_string(),
+                    status: "failed".to_owned(),
                     result: None,
                     error: Some(err.to_string()),
                     updated_at_ms: crate::json_store::now_ms(),
@@ -1332,20 +1290,14 @@ async fn session_history_handler(req: &mut Request, depot: &mut Depot, res: &mut
         return;
     }
 
-    let session_store = match depot.obtain::<Arc<SessionStore>>() {
-        Ok(store) => store.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(channel) => channel.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() { channel.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let payload = build_history_payload(&session_id, limit, None, &session_store, &channel).await;
@@ -1372,20 +1324,14 @@ async fn chat_abort_handler(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(channel) => channel.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() { channel.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let session_store = match depot.obtain::<Arc<SessionStore>>() {
-        Ok(store) => store.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let candidates =
@@ -1447,12 +1393,9 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         return;
     }
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let plugins = match plugin::discover_snapshot(&channel.config().savfox_home).await {
@@ -1498,7 +1441,7 @@ async fn plugin_route_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
         json!({
             "status": "ok",
             "plugin_id": plugin_id,
-            "route": if route_tail.is_empty() { "/".to_string() } else { format!("/{route_tail}") },
+            "route": if route_tail.is_empty() { "/".to_owned() } else { format!("/{route_tail}") },
             "request": payload,
         })
         .to_string(),

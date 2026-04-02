@@ -25,15 +25,15 @@ pub(crate) enum CwdPromptAction {
 impl CwdPromptAction {
     fn verb(self) -> &'static str {
         match self {
-            CwdPromptAction::Resume => "resume",
-            CwdPromptAction::Fork => "fork",
+            Self::Resume => "resume",
+            Self::Fork => "fork",
         }
     }
 
     fn past_participle(self) -> &'static str {
         match self {
-            CwdPromptAction::Resume => "resumed",
-            CwdPromptAction::Fork => "forked",
+            Self::Resume => "resumed",
+            Self::Fork => "forked",
         }
     }
 }
@@ -47,15 +47,15 @@ pub(crate) enum CwdSelection {
 impl CwdSelection {
     fn next(self) -> Self {
         match self {
-            CwdSelection::Current => CwdSelection::Session,
-            CwdSelection::Session => CwdSelection::Current,
+            Self::Current => Self::Session,
+            Self::Session => Self::Current,
         }
     }
 
     fn prev(self) -> Self {
         match self {
-            CwdSelection::Current => CwdSelection::Session,
-            CwdSelection::Session => CwdSelection::Current,
+            Self::Current => Self::Session,
+            Self::Session => Self::Current,
         }
     }
 }
@@ -129,7 +129,7 @@ impl CwdPromptScreen {
             return;
         }
         if key_event.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key_event.code, KeyCode::Char('c') | KeyCode::Char('d'))
+            && matches!(key_event.code, KeyCode::Char('c' | 'd'))
         {
             self.select(CwdSelection::Session);
             return;

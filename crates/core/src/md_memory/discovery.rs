@@ -6,6 +6,7 @@ use super::entry::{MAX_MEMORY_FILE_BYTES, MdMemoryEntry, MemoryLayer};
 use super::frontmatter::parse_md_file;
 
 /// Sanitize a slug: only allow `[a-z0-9_-]`, reject path separators.
+#[must_use] 
 pub fn is_valid_slug(slug: &str) -> bool {
     !slug.is_empty()
         && slug
@@ -16,6 +17,7 @@ pub fn is_valid_slug(slug: &str) -> bool {
 }
 
 /// Sanitize a user-provided slug by replacing invalid characters.
+#[must_use] 
 pub fn sanitize_slug(input: &str) -> String {
     let slug: String = input
         .to_lowercase()
@@ -29,11 +31,11 @@ pub fn sanitize_slug(input: &str) -> String {
         })
         .collect();
     // Remove leading dashes/underscores.
-    slug.trim_start_matches(|c: char| c == '-' || c == '_')
-        .to_string()
+    slug.trim_start_matches(['-', '_']).to_owned()
 }
 
 /// Resolve the directory paths for each memory layer.
+#[must_use] 
 pub fn layer_dirs(
     savfox_home: &Path,
     project_root: Option<&Path>,
@@ -110,15 +112,14 @@ pub async fn discover_md_memories(
             let (frontmatter, body) = parse_md_file(&content);
 
             // Skip expired entries.
-            if let Some(expires) = frontmatter.expires_at {
-                if expires < chrono::Utc::now() {
+            if let Some(expires) = frontmatter.expires_at
+                && expires < chrono::Utc::now() {
                     continue;
                 }
-            }
 
             let body_bytes = body.len();
             entries.push(MdMemoryEntry {
-                slug: slug.to_string(),
+                slug: slug.to_owned(),
                 layer: *layer,
                 frontmatter,
                 body,

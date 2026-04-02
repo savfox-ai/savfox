@@ -33,6 +33,7 @@ const LAYER_BUDGETS: &[LayerBudget] = &[
 /// 1. Pinned entries are always included first.
 /// 2. Remaining budget is split across layers by share.
 /// 3. Within each layer, entries are sorted by priority (desc), then updated_at (desc).
+#[must_use] 
 pub fn assemble_memory_prompt(entries: &[MdMemoryEntry], max_bytes: usize) -> String {
     if entries.is_empty() {
         return String::new();
@@ -110,8 +111,8 @@ pub fn assemble_memory_prompt(entries: &[MdMemoryEntry], max_bytes: usize) -> St
 
 fn format_entry(entry: &MdMemoryEntry) -> String {
     let layer_label = match entry.layer {
-        MemoryLayer::Agent => format!("agent"),
-        other => other.as_str().to_string(),
+        MemoryLayer::Agent => "agent".to_owned(),
+        other => other.as_str().to_owned(),
     };
     format!("\n## [{}] {}\n{}\n", layer_label, entry.slug, entry.body)
 }

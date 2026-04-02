@@ -91,6 +91,7 @@ impl SessionManager {
     #[cfg(any(test, feature = "test-support"))]
     /// Construct with a dummy AuthManager containing the provided SavfoxAuth.
     /// Used for integration tests: should not be used by ordinary business logic.
+    #[must_use] 
     pub fn with_models_provider(auth: SavfoxAuth, provider: ModelProviderInfo) -> Self {
         let temp_dir = tempfile::tempdir().unwrap_or_else(|err| panic!("temp savfox home: {err}"));
         let savfox_home = temp_dir.path().to_path_buf();
@@ -102,6 +103,7 @@ impl SessionManager {
     #[cfg(any(test, feature = "test-support"))]
     /// Construct with a dummy AuthManager containing the provided SavfoxAuth and savfox home.
     /// Used for integration tests: should not be used by ordinary business logic.
+    #[must_use] 
     pub fn with_models_provider_and_home(
         auth: SavfoxAuth,
         provider: ModelProviderInfo,
@@ -128,14 +130,17 @@ impl SessionManager {
         }
     }
 
+    #[must_use] 
     pub fn session_source(&self) -> SessionSource {
         self.state.session_source.clone()
     }
 
+    #[must_use] 
     pub fn skills_manager(&self) -> Arc<SkillsManager> {
         self.state.skills_manager.clone()
     }
 
+    #[must_use] 
     pub fn get_models_manager(&self) -> Arc<ModelsManager> {
         self.state.models_manager.clone()
     }
@@ -151,6 +156,7 @@ impl SessionManager {
             .await
     }
 
+    #[must_use] 
     pub fn list_collaboration_modes(&self) -> Vec<CollaborationModeMask> {
         self.state.models_manager.list_collaboration_modes()
     }
@@ -180,6 +186,7 @@ impl SessionManager {
         }
     }
 
+    #[must_use] 
     pub fn subscribe_session_created(&self) -> broadcast::Receiver<SessionId> {
         self.state.session_created_tx.subscribe()
     }
@@ -380,7 +387,7 @@ impl SessionManagerState {
         dynamic_tools: Vec<savfox_protocol::dynamic_tools::DynamicToolSpec>,
     ) -> SavfoxResult<NewSession> {
         let SessionSpawnResult {
-            handle, session_id, ..
+            handle, session_id, 
         } = SessionHandle::spawn(
             config,
             auth_manager,

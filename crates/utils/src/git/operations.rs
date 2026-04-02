@@ -151,7 +151,7 @@ where
 {
     let run = run_git(dir, args, env)?;
     String::from_utf8(run.output.stdout)
-        .map(|value| value.trim().to_string())
+        .map(|value| value.trim().to_owned())
         .map_err(|source| GitToolingError::GitOutputUtf8 {
             command: run.command,
             source,
@@ -205,7 +205,7 @@ where
     command.args(&args_vec);
     let output = command.output()?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(GitToolingError::GitCommand {
             command: command_string,
             status: output.status,
@@ -220,7 +220,7 @@ where
 
 fn build_command_string(args: &[OsString]) -> String {
     if args.is_empty() {
-        return "git".to_string();
+        return "git".to_owned();
     }
     let joined = args
         .iter()

@@ -43,14 +43,14 @@ pub(crate) async fn load_config_document(savfox_home: &Path) -> Result<ConfigFil
         };
 
         return Ok(ConfigFile {
-            format: format.to_string(),
+            format: format.to_owned(),
             path,
             value,
         });
     }
 
     Ok(ConfigFile {
-        format: "toml".to_string(),
+        format: "toml".to_owned(),
         path: config_toml_path(savfox_home),
         value: Value::Object(serde_json::Map::new()),
     })
@@ -142,7 +142,7 @@ pub async fn run_audit(savfox_home: &Path) -> SecurityAuditReport {
         }
         Err(err) => {
             checks.push(SecurityAuditCheck {
-                name: "config_integrity".to_string(),
+                name: "config_integrity".to_owned(),
                 status: SecurityCheckStatus::Fail,
                 details: err,
                 suggestion: Some(
@@ -172,17 +172,15 @@ fn parse_gateway_surface(config: &Value) -> GatewaySurfaceConfig {
         return parsed;
     };
 
-    if let Some(host) = gateway.get("host").and_then(|v| v.as_str()) {
-        if let Ok(ip) = host.parse::<IpAddr>() {
+    if let Some(host) = gateway.get("host").and_then(|v| v.as_str())
+        && let Ok(ip) = host.parse::<IpAddr>() {
             parsed.host = ip;
         }
-    }
 
-    if let Some(port) = gateway.get("port").and_then(|v| v.as_u64()) {
-        if (1..=u16::MAX as u64).contains(&port) {
+    if let Some(port) = gateway.get("port").and_then(|v| v.as_u64())
+        && (1..=u16::MAX as u64).contains(&port) {
             parsed.port = port as u16;
         }
-    }
 
     parsed.tls_cert = gateway
         .get("tls_cert")
@@ -228,20 +226,19 @@ async fn check_dm_policy(savfox_home: &Path) -> SecurityAuditCheck {
 
     if risky_channels.is_empty() {
         SecurityAuditCheck {
-            name: "dm_policy".to_string(),
+            name: "dm_policy".to_owned(),
             status: SecurityCheckStatus::Pass,
-            details: "No open DM policy without allowlist was detected.".to_string(),
+            details: "No open DM policy without allowlist was detected.".to_owned(),
             suggestion: None,
         }
     } else {
         let channels = risky_channels.join(", ");
         SecurityAuditCheck {
-            name: "dm_policy".to_string(),
+            name: "dm_policy".to_owned(),
             status: SecurityCheckStatus::Warn,
             details: format!("Open DM policy without allowlist on channel(s): {channels}"),
             suggestion: Some(
-                "Use `dm.policy.set` to switch to `pairing`/`closed` or configure an allowlist."
-                    .to_string(),
+                "Use `dm.policy.set` to switch to `pairing`/`closed` or configure an allowlist.".to_owned(),
             ),
         }
     }
@@ -250,20 +247,19 @@ async fn check_dm_policy(savfox_home: &Path) -> SecurityAuditCheck {
 fn check_hook_exposure(gateway: &GatewaySurfaceConfig) -> SecurityAuditCheck {
     if gateway.webhook_enabled && gateway.webhook_secret.is_none() {
         return SecurityAuditCheck {
-            name: "hooks_authentication".to_string(),
+            name: "hooks_authentication".to_owned(),
             status: SecurityCheckStatus::Warn,
-            details: "Generic webhook bridge is enabled without a signing secret.".to_string(),
+            details: "Generic webhook bridge is enabled without a signing secret.".to_owned(),
             suggestion: Some(
-                "Set `gateway.bridges.webhook.secret` (or WEBHOOK_SIGNING_SECRET).".to_string(),
+                "Set `gateway.bridges.webhook.secret` (or WEBHOOK_SIGNING_SECRET).".to_owned(),
             ),
         };
     }
 
     SecurityAuditCheck {
-        name: "hooks_authentication".to_string(),
+        name: "hooks_authentication".to_owned(),
         status: SecurityCheckStatus::Pass,
-        details: "Hook endpoints require bearer auth; webhook signing secret is configured or webhook bridge is disabled."
-            .to_string(),
+        details: "Hook endpoints require bearer auth; webhook signing secret is configured or webhook bridge is disabled.".to_owned(),
         suggestion: None,
     }
 }
@@ -274,9 +270,9 @@ fn check_credential_exposure(config: &Value) -> SecurityAuditCheck {
 
     if exposed.is_empty() {
         return SecurityAuditCheck {
-            name: "credentials".to_string(),
+            name: "credentials".to_owned(),
             status: SecurityCheckStatus::Pass,
-            details: "No obvious inline credentials were detected in config.".to_string(),
+            details: "No obvious inline credentials were detected in config.".to_owned(),
             suggestion: None,
         };
     }
@@ -295,12 +291,11 @@ fn check_credential_exposure(config: &Value) -> SecurityAuditCheck {
     };
 
     SecurityAuditCheck {
-        name: "credentials".to_string(),
+        name: "credentials".to_owned(),
         status: SecurityCheckStatus::Fail,
         details: format!("Inline secret-like values found at: {preview}{suffix}"),
         suggestion: Some(
-            "Move secrets to env vars and keep config values as env references. Use `savfox config export --redacted` before sharing."
-                .to_string(),
+            "Move secrets to env vars and keep config values as env references. Use `savfox config export --redacted` before sharing.".to_owned(),
         ),
     }
 }
@@ -312,35 +307,34 @@ fn check_tls_enforcement(gateway: &GatewaySurfaceConfig) -> SecurityAuditCheck {
 
     if partial_tls {
         return SecurityAuditCheck {
-            name: "tls".to_string(),
+            name: "tls".to_owned(),
             status: SecurityCheckStatus::Fail,
-            details: "TLS is partially configured (both tls_cert and tls_key are required)."
-                .to_string(),
-            suggestion: Some("Set both `gateway.tls_cert` and `gateway.tls_key`.".to_string()),
+            details: "TLS is partially configured (both tls_cert and tls_key are required).".to_owned(),
+            suggestion: Some("Set both `gateway.tls_cert` and `gateway.tls_key`.".to_owned()),
         };
     }
 
     if external && !tls_enabled {
         return SecurityAuditCheck {
-            name: "tls".to_string(),
+            name: "tls".to_owned(),
             status: SecurityCheckStatus::Fail,
             details: format!(
                 "Gateway is bound to external host {}:{} without TLS.",
                 gateway.host, gateway.port
             ),
             suggestion: Some(
-                "Enable TLS or bind gateway.host to loopback (127.0.0.1 / ::1).".to_string(),
+                "Enable TLS or bind gateway.host to loopback (127.0.0.1 / ::1).".to_owned(),
             ),
         };
     }
 
     SecurityAuditCheck {
-        name: "tls".to_string(),
+        name: "tls".to_owned(),
         status: SecurityCheckStatus::Pass,
         details: if tls_enabled {
-            "TLS is configured.".to_string()
+            "TLS is configured.".to_owned()
         } else {
-            "Gateway is loopback-only; plaintext transport is local-only.".to_string()
+            "Gateway is loopback-only; plaintext transport is local-only.".to_owned()
         },
         suggestion: None,
     }
@@ -351,7 +345,7 @@ fn check_open_port_exposure(gateway: &GatewaySurfaceConfig) -> SecurityAuditChec
 
     if gateway.host.is_unspecified() {
         return SecurityAuditCheck {
-            name: "open_ports".to_string(),
+            name: "open_ports".to_owned(),
             status: if tls_enabled {
                 SecurityCheckStatus::Warn
             } else {
@@ -362,15 +356,14 @@ fn check_open_port_exposure(gateway: &GatewaySurfaceConfig) -> SecurityAuditChec
                 gateway.host, gateway.port
             ),
             suggestion: Some(
-                "Restrict host to loopback when possible; otherwise enforce TLS and firewall rules."
-                    .to_string(),
+                "Restrict host to loopback when possible; otherwise enforce TLS and firewall rules.".to_owned(),
             ),
         };
     }
 
     if gateway.host.is_loopback() {
         return SecurityAuditCheck {
-            name: "open_ports".to_string(),
+            name: "open_ports".to_owned(),
             status: SecurityCheckStatus::Pass,
             details: format!(
                 "Gateway is bound to loopback only ({}:{}).",
@@ -381,13 +374,13 @@ fn check_open_port_exposure(gateway: &GatewaySurfaceConfig) -> SecurityAuditChec
     }
 
     SecurityAuditCheck {
-        name: "open_ports".to_string(),
+        name: "open_ports".to_owned(),
         status: SecurityCheckStatus::Warn,
         details: format!(
             "Gateway is externally reachable on {}:{}.",
             gateway.host, gateway.port
         ),
-        suggestion: Some("Review network ACLs and expose only required ports.".to_string()),
+        suggestion: Some("Review network ACLs and expose only required ports.".to_owned()),
     }
 }
 
@@ -451,7 +444,7 @@ fn collect_inline_secrets(
                 && is_secret_literal(raw)
                 && !path.to_ascii_lowercase().contains(".headers.")
             {
-                exposed.push(path.to_string());
+                exposed.push(path.to_owned());
             }
         }
         _ => {}

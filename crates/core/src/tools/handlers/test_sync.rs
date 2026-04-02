@@ -77,7 +77,7 @@ impl ToolHandler for TestSyncHandler {
             sleep(Duration::from_millis(delay)).await;
         }
 
-        Ok(ToolOutput::ok("ok".to_string()))
+        Ok(ToolOutput::ok("ok".to_owned()))
     }
 }
 
@@ -119,7 +119,7 @@ async fn wait_on_barrier(args: BarrierArgs) -> Result<(), FunctionCallError> {
     let wait_result = tokio::time::timeout(timeout, barrier.wait())
         .await
         .map_err(|_| {
-            FunctionCallError::RespondToModel("test_sync_tool barrier wait timed out".to_string())
+            FunctionCallError::RespondToModel("test_sync_tool barrier wait timed out".to_owned())
         })?;
 
     if wait_result.is_leader() {

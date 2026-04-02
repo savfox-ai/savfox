@@ -61,15 +61,14 @@ pub async fn run(cmd: DnsCommand) -> Result<(), Box<dyn std::error::Error>> {
 
             let mut current_ip = ip
                 .or_else(detect_primary_ip)
-                .ok_or_else(|| "failed to detect local IP; pass --ip explicitly".to_string())?;
+                .ok_or_else(|| "failed to detect local IP; pass --ip explicitly".to_owned())?;
 
             write_dns_bundle(&out_dir, &domain, &host, current_ip, port)?;
             print_dns_summary(&out_dir, &domain, &host, current_ip, port);
 
             if watch {
                 println!(
-                    "Watching for IP changes every {}s (Ctrl+C to stop)...",
-                    interval_secs
+                    "Watching for IP changes every {interval_secs}s (Ctrl+C to stop)..."
                 );
                 let poll = Duration::from_secs(interval_secs.max(2));
                 loop {
@@ -84,7 +83,7 @@ pub async fn run(cmd: DnsCommand) -> Result<(), Box<dyn std::error::Error>> {
                             {
                                 current_ip = latest_ip;
                                 write_dns_bundle(&out_dir, &domain, &host, current_ip, port)?;
-                                println!("IP changed, refreshed zone files: {}", current_ip);
+                                println!("IP changed, refreshed zone files: {current_ip}");
                             }
                         }
                     }

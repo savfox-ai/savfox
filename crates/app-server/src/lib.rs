@@ -126,7 +126,7 @@ fn project_config_warning(config: &Config) -> Option<ConfigWarningNotification> 
                     .disabled_reason
                     .as_ref()
                     .map(ToString::to_string)
-                    .unwrap_or_else(|| "config.toml is disabled.".to_string()),
+                    .unwrap_or_else(|| "config.toml is disabled.".to_owned()),
             ));
         }
     }
@@ -138,8 +138,7 @@ fn project_config_warning(config: &Config) -> Option<ConfigWarningNotification> 
     let mut message = concat!(
         "Project config.toml files are disabled in the following folders. ",
         "Settings in those files are ignored, but skills and exec policies still load.\n",
-    )
-    .to_string();
+    ).to_owned();
     for (index, (folder, reason)) in disabled_folders.iter().enumerate() {
         let display_index = index + 1;
         message.push_str(&format!("    {display_index}. {folder}\n"));
@@ -237,7 +236,7 @@ pub async fn run_main(
     {
         let (path, range) = exec_policy_warning_location(&err);
         let message = ConfigWarningNotification {
-            summary: "Error parsing rules; custom rules not applied.".to_string(),
+            summary: "Error parsing rules; custom rules not applied.".to_owned(),
             details: Some(err.to_string()),
             path,
             range,
@@ -286,10 +285,7 @@ pub async fn run_main(
         .with(otel_tracing_layer)
         .try_init();
     for warning in &config_warnings {
-        match &warning.details {
-            Some(details) => error!("{} {}", warning.summary, details),
-            None => error!("{}", warning.summary),
-        }
+        if let Some(details) = &warning.details { error!("{} {}", warning.summary, details) } else { error!("{}", warning.summary) }
     }
 
     // Task: process incoming messages.

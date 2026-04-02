@@ -72,6 +72,7 @@ pub enum InputModality {
 ///
 /// Legacy payloads predate modality metadata, so we conservatively assume both text and images are
 /// accepted unless a preset explicitly narrows support.
+#[must_use] 
 pub fn default_input_modalities() -> Vec<InputModality> {
     vec![InputModality::Text, InputModality::Image]
 }
@@ -186,6 +187,7 @@ pub struct TruncationPolicyConfig {
 }
 
 impl TruncationPolicyConfig {
+    #[must_use] 
     pub const fn bytes(limit: i64) -> Self {
         Self {
             mode: TruncationMode::Bytes,
@@ -193,6 +195,7 @@ impl TruncationPolicyConfig {
         }
     }
 
+    #[must_use] 
     pub const fn tokens(limit: i64) -> Self {
         Self {
             mode: TruncationMode::Tokens,
@@ -346,6 +349,7 @@ impl ModelInfo {
         }
     }
 
+    #[must_use] 
     pub fn auto_compact_token_limit(&self) -> Option<i64> {
         self.auto_compact_token_limit.or_else(|| {
             self.context_window
@@ -405,6 +409,7 @@ impl ModelMessages {
                 .is_some_and(ModelInstructionsVariables::is_complete)
     }
 
+    #[must_use] 
     pub fn get_personality_message(&self, personality: Option<Personality>) -> Option<String> {
         self.instructions_variables
             .as_ref()
@@ -420,12 +425,14 @@ pub struct ModelInstructionsVariables {
 }
 
 impl ModelInstructionsVariables {
+    #[must_use] 
     pub fn is_complete(&self) -> bool {
         self.personality_default.is_some()
             && self.personality_friendly.is_some()
             && self.personality_pragmatic.is_some()
     }
 
+    #[must_use] 
     pub fn get_personality_message(&self, personality: Option<Personality>) -> Option<String> {
         if let Some(personality) = personality {
             match personality {
@@ -446,7 +453,7 @@ pub struct ModelInfoUpgrade {
 
 impl From<&ModelUpgrade> for ModelInfoUpgrade {
     fn from(upgrade: &ModelUpgrade) -> Self {
-        ModelInfoUpgrade {
+        Self {
             model: upgrade.id.clone(),
             migration_markdown: upgrade.migration_markdown.clone().unwrap_or_default(),
         }
@@ -463,7 +470,7 @@ pub struct ModelsResponse {
 impl From<ModelInfo> for ModelPreset {
     fn from(info: ModelInfo) -> Self {
         let supports_personality = info.supports_personality();
-        ModelPreset {
+        Self {
             id: info.slug.clone(),
             slug: info.slug.clone(),
             name: info.name,
@@ -496,7 +503,8 @@ impl ModelPreset {
     /// Filter models based on authentication mode.
     ///
     /// In ChatGPT mode, all models are visible. Otherwise, only API-supported models are shown.
-    pub fn filter_by_auth(models: Vec<ModelPreset>, chatgpt_mode: bool) -> Vec<ModelPreset> {
+    #[must_use] 
+    pub fn filter_by_auth(models: Vec<Self>, chatgpt_mode: bool) -> Vec<Self> {
         models
             .into_iter()
             .filter(|model| chatgpt_mode || model.supported_in_api)
@@ -507,10 +515,11 @@ impl ModelPreset {
     ///
     /// Remote presets take precedence. Existing presets not in remote are appended with
     /// `is_default` set to false.
+    #[must_use] 
     pub fn merge(
-        remote_presets: Vec<ModelPreset>,
-        existing_presets: Vec<ModelPreset>,
-    ) -> Vec<ModelPreset> {
+        remote_presets: Vec<Self>,
+        existing_presets: Vec<Self>,
+    ) -> Vec<Self> {
         if remote_presets.is_empty() {
             return existing_presets;
         }

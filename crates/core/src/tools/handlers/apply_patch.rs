@@ -88,7 +88,7 @@ impl ToolHandler for ApplyPatchHandler {
         // Re-parse and verify the patch so we can compute changes and approval.
         // Avoid building temporary ExecParams/command vectors; derive directly from inputs.
         let cwd = turn.cwd.clone();
-        let command = vec!["apply_patch".to_string(), patch_input.clone()];
+        let command = vec!["apply_patch".to_owned(), patch_input.clone()];
         match savfox_apply_patch::maybe_parse_apply_patch_verified(&command, &cwd) {
             savfox_apply_patch::MaybeApplyPatchVerified::Body(changes) => {
                 match apply_patch::apply_patch(turn.as_ref(), changes).await {
@@ -124,7 +124,7 @@ impl ToolHandler for ApplyPatchHandler {
                             session: session.as_ref(),
                             turn: turn.as_ref(),
                             call_id: call_id.clone(),
-                            tool_name: tool_name.to_string(),
+                            tool_name: tool_name.clone(),
                         };
                         let out = orchestrator
                             .run(&mut runtime, &req, &tool_ctx, &turn, turn.approval_policy)
@@ -200,8 +200,8 @@ pub(crate) async fn intercept_apply_patch(
                     let tool_ctx = ToolCtx {
                         session,
                         turn,
-                        call_id: call_id.to_string(),
-                        tool_name: tool_name.to_string(),
+                        call_id: call_id.to_owned(),
+                        tool_name: tool_name.to_owned(),
                     };
                     let out = orchestrator
                         .run(&mut runtime, &req, &tool_ctx, turn, turn.approval_policy)
@@ -228,12 +228,12 @@ pub(crate) async fn intercept_apply_patch(
 /// https://platform.openai.com/docs/guides/function-calling#custom-tools
 pub(crate) fn create_apply_patch_freeform_tool() -> ToolSpec {
     ToolSpec::Freeform(FreeformTool {
-        name: "apply_patch".to_string(),
-        description: "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.".to_string(),
+        name: "apply_patch".to_owned(),
+        description: "Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.".to_owned(),
         format: FreeformToolFormat {
-            r#type: "grammar".to_string(),
-            syntax: "lark".to_string(),
-            definition: APPLY_PATCH_LARK_GRAMMAR.to_string(),
+            r#type: "grammar".to_owned(),
+            syntax: "lark".to_owned(),
+            definition: APPLY_PATCH_LARK_GRAMMAR.to_owned(),
         },
     })
 }
@@ -242,14 +242,14 @@ pub(crate) fn create_apply_patch_freeform_tool() -> ToolSpec {
 pub(crate) fn create_apply_patch_json_tool() -> ToolSpec {
     let mut properties = BTreeMap::new();
     properties.insert(
-        "input".to_string(),
+        "input".to_owned(),
         JsonSchema::String {
-            description: Some(r#"The entire contents of the apply_patch command"#.to_string()),
+            description: Some(r#"The entire contents of the apply_patch command"#.to_owned()),
         },
     );
 
     ToolSpec::Function(ResponsesApiTool {
-        name: "apply_patch".to_string(),
+        name: "apply_patch".to_owned(),
         description: r#"Use the `apply_patch` tool to edit files.
 Your patch language is a stripped‑down, file‑oriented diff format designed to be easy to parse and safe to apply. You can think of it as a high‑level envelope:
 
@@ -317,12 +317,11 @@ It is important to remember:
 - You must include a header with your intended action (Add/Delete/Update)
 - You must prefix new lines with `+` even when creating a new file
 - File references can only be relative, NEVER ABSOLUTE.
-"#
-            .to_string(),
+"#.to_owned(),
         strict: false,
         parameters: JsonSchema::Object {
             properties,
-            required: Some(vec!["input".to_string()]),
+            required: Some(vec!["input".to_owned()]),
             additional_properties: Some(false.into()),
         },
     })

@@ -5,15 +5,15 @@ use serde_json::Value;
 use tracing::warn;
 
 fn default_matrix_homeserver() -> String {
-    "https://matrix.org".to_string()
+    "https://matrix.org".to_owned()
 }
 
 fn default_appservice_user_prefix() -> String {
-    "_savfox_".to_string()
+    "_savfox_".to_owned()
 }
 
 fn default_appservice_alias_prefix() -> String {
-    "_savfox_".to_string()
+    "_savfox_".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -117,6 +117,7 @@ impl MatrixChannelConfig {
         })
     }
 
+    #[must_use] 
     pub fn has_auth(&self) -> bool {
         match self.mode {
             MatrixMode::User => {
@@ -130,6 +131,7 @@ impl MatrixChannelConfig {
         }
     }
 
+    #[must_use] 
     pub fn is_ready(&self) -> bool {
         self.validate_auth().is_ok()
     }
@@ -171,6 +173,7 @@ impl MatrixChannelConfig {
         Ok(())
     }
 
+    #[must_use] 
     pub fn matches_room(&self, room_id: &str) -> bool {
         let room_id = room_id.trim();
         !room_id.is_empty()
@@ -180,6 +183,7 @@ impl MatrixChannelConfig {
                 .any(|room| room.eq_ignore_ascii_case(room_id))
     }
 
+    #[must_use] 
     pub fn bot_user_id(&self) -> Option<String> {
         match self.mode {
             MatrixMode::User => self.user_id.clone(),
@@ -279,7 +283,7 @@ fn first_non_empty_config_string(
             if text.is_empty() {
                 None
             } else {
-                Some(text.to_string())
+                Some(text.to_owned())
             }
         })
     })

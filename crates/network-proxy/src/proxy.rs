@@ -24,16 +24,19 @@ pub struct NetworkProxyBuilder {
 }
 
 impl NetworkProxyBuilder {
+    #[must_use] 
     pub fn state(mut self, state: Arc<NetworkProxyState>) -> Self {
         self.state = Some(state);
         self
     }
 
+    #[must_use] 
     pub fn http_addr(mut self, addr: SocketAddr) -> Self {
         self.http_addr = Some(addr);
         self
     }
 
+    #[must_use] 
     pub fn admin_addr(mut self, addr: SocketAddr) -> Self {
         self.admin_addr = Some(addr);
         self
@@ -87,6 +90,7 @@ pub struct NetworkProxy {
 }
 
 impl NetworkProxy {
+    #[must_use] 
     pub fn builder() -> NetworkProxyBuilder {
         NetworkProxyBuilder::default()
     }

@@ -177,7 +177,7 @@ impl RmcpClient {
                 oauth_persistor,
             }
         } else {
-            let mut http_config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
+            let mut http_config = StreamableHttpClientTransportConfig::with_uri(url.to_owned());
             if let Some(bearer_token) = bearer_token.clone() {
                 http_config = http_config.auth_header(bearer_token);
             }
@@ -392,7 +392,7 @@ impl RmcpClient {
         let service: Arc<RunningService<RoleClient, LoggingClientHandler>> = self.service().await?;
         service
             .send_notification(ClientNotification::CustomNotification(CustomNotification {
-                method: method.to_string(),
+                method: method.to_owned(),
                 params,
                 extensions: Extensions::new(),
             }))
@@ -464,7 +464,7 @@ async fn create_oauth_transport_and_runtime(
 )> {
     let http_client =
         apply_default_headers(reqwest::Client::builder(), &default_headers).build()?;
-    let mut oauth_state = OAuthState::new(url.to_string(), Some(http_client.clone())).await?;
+    let mut oauth_state = OAuthState::new(url.to_owned(), Some(http_client.clone())).await?;
 
     oauth_state
         .set_credentials(
@@ -486,12 +486,12 @@ async fn create_oauth_transport_and_runtime(
 
     let transport = StreamableHttpClientTransport::with_client(
         auth_client,
-        StreamableHttpClientTransportConfig::with_uri(url.to_string()),
+        StreamableHttpClientTransportConfig::with_uri(url.to_owned()),
     );
 
     let runtime = OAuthPersistor::new(
-        server_name.to_string(),
-        url.to_string(),
+        server_name.to_owned(),
+        url.to_owned(),
         auth_manager,
         credentials_store,
         Some(initial_tokens),

@@ -45,7 +45,7 @@ impl OutgoingMessageSender {
 
         let outgoing_message = OutgoingMessage::Request(OutgoingRequest {
             id: outgoing_message_id,
-            method: method.to_string(),
+            method: method.to_owned(),
             params,
         });
         let _ = self.sender.send(outgoing_message);
@@ -109,7 +109,7 @@ impl OutgoingMessageSender {
         };
 
         self.send_notification(OutgoingNotification {
-            method: "savfox/event".to_string(),
+            method: "savfox/event".to_owned(),
             params: Some(params.clone()),
         })
         .await;
@@ -136,29 +136,29 @@ pub(crate) enum OutgoingMessage {
 
 impl From<OutgoingMessage> for OutgoingJsonRpcMessage {
     fn from(val: OutgoingMessage) -> Self {
-        use OutgoingMessage::*;
+        use OutgoingMessage::{Request, Notification, Response, Error};
         match val {
             Request(OutgoingRequest { id, method, params }) => {
-                JsonRpcMessage::Request(JsonRpcRequest {
+                Self::Request(JsonRpcRequest {
                     jsonrpc: JsonRpcVersion2_0,
                     id,
                     request: CustomRequest::new(method, params),
                 })
             }
             Notification(OutgoingNotification { method, params }) => {
-                JsonRpcMessage::Notification(JsonRpcNotification {
+                Self::Notification(JsonRpcNotification {
                     jsonrpc: JsonRpcVersion2_0,
                     notification: CustomNotification::new(method, params),
                 })
             }
             Response(OutgoingResponse { id, result }) => {
-                JsonRpcMessage::Response(JsonRpcResponse {
+                Self::Response(JsonRpcResponse {
                     jsonrpc: JsonRpcVersion2_0,
                     id,
                     result,
                 })
             }
-            Error(OutgoingError { id, error }) => JsonRpcMessage::Error(JsonRpcError {
+            Error(OutgoingError { id, error }) => Self::Error(JsonRpcError {
                 jsonrpc: JsonRpcVersion2_0,
                 id,
                 error,

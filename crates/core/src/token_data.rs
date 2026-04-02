@@ -35,6 +35,7 @@ pub struct IdTokenInfo {
 }
 
 impl IdTokenInfo {
+    #[must_use] 
     pub fn get_chatgpt_plan_type(&self) -> Option<String> {
         self.chatgpt_plan_type.as_ref().map(|t| match t {
             PlanType::Known(plan) => format!("{plan:?}"),
@@ -42,6 +43,7 @@ impl IdTokenInfo {
         })
     }
 
+    #[must_use] 
     pub fn is_workspace_account(&self) -> bool {
         matches!(
             self.chatgpt_plan_type,
@@ -127,14 +129,14 @@ pub fn parse_id_token(id_token: &str) -> Result<IdTokenInfo, IdTokenInfoError> {
     match claims.auth {
         Some(auth) => Ok(IdTokenInfo {
             email,
-            raw_jwt: id_token.to_string(),
+            raw_jwt: id_token.to_owned(),
             chatgpt_plan_type: auth.chatgpt_plan_type,
             chatgpt_user_id: auth.chatgpt_user_id.or(auth.user_id),
             chatgpt_account_id: auth.chatgpt_account_id,
         }),
         None => Ok(IdTokenInfo {
             email,
-            raw_jwt: id_token.to_string(),
+            raw_jwt: id_token.to_owned(),
             chatgpt_plan_type: None,
             chatgpt_user_id: None,
             chatgpt_account_id: None,

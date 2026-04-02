@@ -74,7 +74,7 @@ pub async fn run_savfox_tool_session(
 
     let session_configured_event = Event {
         // Use a fake id value for now.
-        id: "".to_string(),
+        id: "".to_owned(),
         msg: EventMsg::SessionConfigured(session_configured.clone()),
     };
     outgoing
@@ -273,7 +273,7 @@ async fn run_savfox_tool_session_inner(
                     EventMsg::TurnComplete(TurnCompleteEvent { last_agent_message }) => {
                         let text = match last_agent_message {
                             Some(msg) => msg,
-                            None => "".to_string(),
+                            None => "".to_owned(),
                         };
                         let result =
                             create_call_tool_result_with_session_id(session_id, text, None);

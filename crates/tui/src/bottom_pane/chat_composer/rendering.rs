@@ -463,15 +463,14 @@ impl ChatComposer {
         if self.textarea.text().is_empty() {
             let text = if self.input_enabled {
                 if self.is_session_mode {
-                    self.placeholder_text.as_str().to_string()
+                    self.placeholder_text.as_str().to_owned()
                 } else {
-                    STARTUP_PLACEHOLDER_TEXT.to_string()
+                    STARTUP_PLACEHOLDER_TEXT.to_owned()
                 }
             } else {
                 self.input_disabled_placeholder
                     .as_deref()
-                    .unwrap_or("Input disabled.")
-                    .to_string()
+                    .unwrap_or("Input disabled.").to_owned()
             };
             if !textarea_rect.is_empty() {
                 let placeholder = Span::from(text).dim();

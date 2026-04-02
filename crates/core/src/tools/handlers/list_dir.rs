@@ -185,7 +185,7 @@ async fn collect_entries(
 fn format_entry_name(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace("\\", "/");
     if normalized.len() > MAX_ENTRY_LENGTH {
-        take_bytes_at_char_boundary(&normalized, MAX_ENTRY_LENGTH).to_string()
+        take_bytes_at_char_boundary(&normalized, MAX_ENTRY_LENGTH).to_owned()
     } else {
         normalized
     }
@@ -194,7 +194,7 @@ fn format_entry_name(path: &Path) -> String {
 fn format_entry_component(name: &OsStr) -> String {
     let normalized = name.to_string_lossy();
     if normalized.len() > MAX_ENTRY_LENGTH {
-        take_bytes_at_char_boundary(&normalized, MAX_ENTRY_LENGTH).to_string()
+        take_bytes_at_char_boundary(&normalized, MAX_ENTRY_LENGTH).to_owned()
     } else {
         normalized.to_string()
     }
@@ -232,13 +232,13 @@ enum DirEntryKind {
 impl From<&FileType> for DirEntryKind {
     fn from(file_type: &FileType) -> Self {
         if file_type.is_symlink() {
-            DirEntryKind::Symlink
+            Self::Symlink
         } else if file_type.is_dir() {
-            DirEntryKind::Directory
+            Self::Directory
         } else if file_type.is_file() {
-            DirEntryKind::File
+            Self::File
         } else {
-            DirEntryKind::Other
+            Self::Other
         }
     }
 }

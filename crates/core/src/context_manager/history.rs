@@ -138,7 +138,7 @@ impl ContextManager {
                     return false;
                 };
                 let mut replaced = false;
-                let placeholder = placeholder.to_string();
+                let placeholder = placeholder.to_owned();
                 for item in content_items.iter_mut() {
                     if matches!(item, FunctionCallOutputContentItem::InputImage { .. }) {
                         *item = FunctionCallOutputContentItem::InputText {

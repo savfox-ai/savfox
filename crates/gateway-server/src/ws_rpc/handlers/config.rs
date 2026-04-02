@@ -39,7 +39,7 @@ fn non_empty_trimmed(text: &str) -> Option<String> {
     if trimmed.is_empty() {
         None
     } else {
-        Some(trimmed.to_string())
+        Some(trimmed.to_owned())
     }
 }
 
@@ -113,7 +113,7 @@ fn normalize_model_value(model_value: &mut Value) {
             let parsed_from_id = id
                 .as_deref()
                 .and_then(savfox_core::parse_provider_prefixed_model)
-                .map(|(provider_id, model_slug)| (provider_id.to_string(), model_slug.to_string()));
+                .map(|(provider_id, model_slug)| (provider_id.to_owned(), model_slug.to_owned()));
             let provider_base_url = model.get("provider").and_then(extract_provider_base_url);
 
             let provider_id = model
@@ -179,7 +179,7 @@ fn normalize_model_reasoning_key(config: &mut Value) {
     if model.get("reasoning_effort").is_none()
         && let Some(reasoning_level) = model.get("reasoning_level").cloned()
     {
-        model.insert("reasoning_effort".to_string(), reasoning_level);
+        model.insert("reasoning_effort".to_owned(), reasoning_level);
     }
     model.remove("reasoning_level");
 }
@@ -271,7 +271,7 @@ async fn persist_detached_matrix_channel_config(
         DetachedBridgeConfig::Upsert(_) => {
             return Err((
                 INVALID_PARAMS,
-                "gateway.channels.matrix must be an object or null".to_string(),
+                "gateway.channels.matrix must be an object or null".to_owned(),
             ));
         }
     }
@@ -429,7 +429,7 @@ fn preserve_toml_leading_comments_for_yaml(source_toml: &str, yaml: &str) -> Str
     for line in source_toml.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with('#') {
-            prefix_lines.push(line.to_string());
+            prefix_lines.push(line.to_owned());
             continue;
         }
         if trimmed.is_empty() {
@@ -442,7 +442,7 @@ fn preserve_toml_leading_comments_for_yaml(source_toml: &str, yaml: &str) -> Str
     }
 
     if prefix_lines.is_empty() {
-        return yaml.to_string();
+        return yaml.to_owned();
     }
 
     let mut result = prefix_lines.join("\n");
@@ -456,7 +456,7 @@ fn preserve_toml_leading_comments_for_yaml(source_toml: &str, yaml: &str) -> Str
 pub(crate) async fn handle_config_set(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
     let config = params.get("config");
     let Some(config_value) = config else {
-        return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'config' parameter".to_owned()));
     };
 
     let mut sanitized = config_value.clone();
@@ -474,7 +474,7 @@ pub(crate) async fn handle_config_apply(
 ) -> RpcResult {
     let config = params.get("config");
     let Some(config_value) = config else {
-        return Err((INVALID_REQUEST, "missing 'config' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'config' parameter".to_owned()));
     };
 
     let mut sanitized = config_value.clone();
@@ -506,7 +506,7 @@ pub(crate) async fn handle_config_patch(
 ) -> RpcResult {
     let patch = params.get("patch");
     let Some(patch_value) = patch else {
-        return Err((INVALID_REQUEST, "missing 'patch' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'patch' parameter".to_owned()));
     };
 
     let mut config = load_config_value_or_empty(channel).await;
@@ -553,7 +553,7 @@ pub(crate) async fn handle_hooks_list(channel: &GatewayChannel) -> RpcResult {
 pub(crate) async fn handle_hooks_enable(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let hook_id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if hook_id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
 
     let path = hooks_config_path(channel);
@@ -579,7 +579,7 @@ pub(crate) async fn handle_hooks_enable(params: &Value, channel: &GatewayChannel
 pub(crate) async fn handle_hooks_disable(params: &Value, channel: &GatewayChannel) -> RpcResult {
     let hook_id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if hook_id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
 
     let path = hooks_config_path(channel);
@@ -615,7 +615,7 @@ pub(crate) async fn handle_reactions_add(params: &Value, _channel: &GatewayChann
     if message_id.is_empty() || emoji.is_empty() {
         return Err((
             INVALID_PARAMS,
-            "missing 'message_id' or 'emoji'".to_string(),
+            "missing 'message_id' or 'emoji'".to_owned(),
         ));
     }
 
@@ -641,7 +641,7 @@ pub(crate) async fn handle_reactions_remove(
     if message_id.is_empty() || emoji.is_empty() {
         return Err((
             INVALID_PARAMS,
-            "missing 'message_id' or 'emoji'".to_string(),
+            "missing 'message_id' or 'emoji'".to_owned(),
         ));
     }
 
@@ -736,7 +736,7 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
     if from_format.is_empty() || to_format.is_empty() {
         return Err((
             INVALID_PARAMS,
-            "missing 'from_format' and/or 'to_format' parameter".to_string(),
+            "missing 'from_format' and/or 'to_format' parameter".to_owned(),
         ));
     }
 
@@ -762,7 +762,7 @@ pub(crate) async fn handle_config_convert(params: &Value, channel: &GatewayChann
 
     // Determine source: explicit `content` param or read from disk.
     let source_content = if let Some(content) = params.get("content").and_then(|v| v.as_str()) {
-        content.to_string()
+        content.to_owned()
     } else {
         let home = &channel.config().savfox_home;
         let ext = match from_format {

@@ -36,6 +36,7 @@ pub struct SessionOverrides {
 
 impl SessionOverrides {
     /// Returns `true` if all fields are `None`.
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.model.is_none()
             && self.thinking.is_none()
@@ -44,7 +45,7 @@ impl SessionOverrides {
     }
 
     /// Merge non-`None` fields from `other` into `self`.
-    pub fn merge(&mut self, other: &SessionOverrides) {
+    pub fn merge(&mut self, other: &Self) {
         if other.model.is_some() {
             self.model.clone_from(&other.model);
         }
@@ -225,6 +226,7 @@ pub struct SessionEntry {
 
 impl SessionEntry {
     /// Create a new session entry with defaults.
+    #[must_use] 
     pub fn new() -> Self {
         let now_ms = crate::json_store::now_ms();
         Self {
@@ -270,6 +272,7 @@ impl SessionEntry {
     }
 
     /// Check if this entry is stale (older than the given duration).
+    #[must_use] 
     pub fn is_stale(&self, max_age: Duration) -> bool {
         let now = crate::json_store::now_ms();
         let age_ms = now.saturating_sub(self.updated_at);
@@ -364,6 +367,7 @@ impl DmScope {
 }
 
 /// Build a deterministic routing id from message context components.
+#[must_use] 
 pub fn build_routing_id(
     agent_id: &str,
     channel: Option<&str>,
@@ -472,6 +476,7 @@ pub struct SessionStore {
 
 impl SessionStore {
     /// Create a new session store.
+    #[must_use] 
     pub fn new(config: SessionStoreConfig) -> Self {
         Self {
             config,
@@ -480,6 +485,7 @@ impl SessionStore {
     }
 
     /// Create a session store rooted at the given home directory.
+    #[must_use] 
     pub fn from_home(home: &Path) -> Self {
         let sessions_dir = home.join("sessions");
         Self::new(SessionStoreConfig {
@@ -626,14 +632,14 @@ impl SessionStore {
             let path = entry.path();
             match read_session_meta_line(&path).await {
                 Ok(meta_line) => {
-                    let session_id = uuid_str.to_string();
+                    let session_id = uuid_str.to_owned();
                     let meta_id = meta_line.meta.id.to_string();
                     let created_at = meta_line
                         .meta
                         .timestamp
                         .parse::<u64>()
                         .ok()
-                        .unwrap_or_else(|| crate::json_store::now_ms());
+                        .unwrap_or_else(crate::json_store::now_ms);
 
                     let rollout_entry = SessionEntry {
                         session_id: session_id.clone(),
@@ -644,7 +650,7 @@ impl SessionStore {
                         },
                         updated_at: created_at,
                         created_at,
-                        session_file: Some(uuid_str.to_string()),
+                        session_file: Some(uuid_str.to_owned()),
                         model: meta_line.meta.model_slug().map(str::to_string),
                         provider: meta_line.meta.model_provider_id().map(str::to_string),
                         from: Some(format!("{:?}", meta_line.meta.source)),
@@ -760,7 +766,7 @@ impl SessionStore {
             return Some(entry);
         }
         let mut entry = SessionEntry::new();
-        entry.session_id = session_id.to_string();
+        entry.session_id = session_id.to_owned();
         self.upsert(entry.clone()).await;
         Some(entry)
     }
@@ -771,7 +777,7 @@ impl SessionStore {
             return entry;
         }
         let mut entry = SessionEntry::new();
-        entry.routing_id = Some(routing_id.to_string());
+        entry.routing_id = Some(routing_id.to_owned());
         self.upsert(entry.clone()).await;
         entry
     }
@@ -791,8 +797,8 @@ impl SessionStore {
         {
             let mut cache = self.cache.write().await;
             if let Some(cache) = cache.as_mut() {
-                if let Some(existing) = cache.entries.get(&key) {
-                    if existing.version > entry.version {
+                if let Some(existing) = cache.entries.get(&key)
+                    && existing.version > entry.version {
                         warn!(
                             session_id = %key,
                             existing_version = existing.version,
@@ -801,7 +807,6 @@ impl SessionStore {
                         );
                         return;
                     }
-                }
                 cache.entries.insert(key.clone(), entry);
             } else {
                 let mut entries = HashMap::new();
@@ -865,7 +870,7 @@ impl SessionStore {
                 let path = self
                     .config
                     .sessions_dir
-                    .join(format!("{}.jsonl", session_file));
+                    .join(format!("{session_file}.jsonl"));
                 if let Err(err) = tokio::fs::remove_file(&path).await {
                     warn!(
                         path = %path.display(),
@@ -954,7 +959,7 @@ impl SessionStore {
                     let path = self
                         .config
                         .sessions_dir
-                        .join(format!("{}.jsonl", session_file));
+                        .join(format!("{session_file}.jsonl"));
                     if let Err(err) = tokio::fs::remove_file(&path).await {
                         warn!(
                             path = %path.display(),
@@ -1031,8 +1036,10 @@ mod tests {
 /// Session reset policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ResetPolicy {
     /// Never reset automatically.
+    #[default]
     Never,
     /// Reset daily at a specific hour (0-23, local time).
     Daily { hour: u8 },
@@ -1040,14 +1047,10 @@ pub enum ResetPolicy {
     Idle { timeout_secs: u64 },
 }
 
-impl Default for ResetPolicy {
-    fn default() -> Self {
-        Self::Never
-    }
-}
 
 impl ResetPolicy {
     /// Check if a session should be reset based on its last update time.
+    #[must_use] 
     pub fn should_reset(&self, last_updated_ms: u64) -> bool {
         let now = crate::json_store::now_ms();
         match self {

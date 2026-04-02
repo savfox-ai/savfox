@@ -31,7 +31,7 @@ impl FeishuChannel {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            return Ok(Some(token.to_string()));
+            return Ok(Some(token.to_owned()));
         }
 
         let app_id = self

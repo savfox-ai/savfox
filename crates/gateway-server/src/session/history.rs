@@ -134,7 +134,7 @@ fn attach_provenance(
                 }
                 if let Some(map) = message.as_object_mut() {
                     map.insert(
-                        "provenance".to_string(),
+                        "provenance".to_owned(),
                         serde_json::to_value(provenance).unwrap_or(Value::Null),
                     );
                 }
@@ -156,15 +156,14 @@ pub(crate) fn session_file_to_store_value(savfox_home: &Path, path: &Path) -> St
         let relative_str = relative.to_string_lossy().replace('\\', "/");
         relative_str
             .strip_suffix(".jsonl")
-            .unwrap_or(&relative_str)
-            .to_string()
+            .unwrap_or(&relative_str).to_owned()
     } else {
         // If the path is absolute and doesn't match the sessions root,
         // try to extract just the UUID filename
         path.file_name()
             .and_then(|name| name.to_str())
             .and_then(|name| name.strip_suffix(".jsonl"))
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .unwrap_or_else(|| path.to_string_lossy().to_string())
     }
 }
@@ -183,7 +182,7 @@ async fn resolve_rollout_path(
         } else {
             savfox_home
                 .join("sessions")
-                .join(format!("{}.jsonl", session_file))
+                .join(format!("{session_file}.jsonl"))
         };
         debug!(
             "Trying session_file from entry: path={}",
@@ -212,7 +211,7 @@ async fn resolve_rollout_path(
         if Uuid::parse_str(&candidate).is_ok() {
             let direct_path = savfox_home
                 .join("sessions")
-                .join(format!("{}.jsonl", candidate));
+                .join(format!("{candidate}.jsonl"));
             debug!("Trying direct UUID v7 path: {}", direct_path.display());
             if tokio::fs::try_exists(&direct_path).await.unwrap_or(false) {
                 debug!(
@@ -265,7 +264,7 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
             RolloutItem::Compacted(compacted) => {
                 from_responses.push((
                     index,
-                    "assistant".to_string(),
+                    "assistant".to_owned(),
                     compacted.message.clone(),
                     "compacted",
                 ));
@@ -285,14 +284,14 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
                 if !message.message.is_empty()
                     && !is_internal_session_message(message.message.as_str())
                 {
-                    from_events.push((index, "user".to_string(), message.message.clone(), "event"));
+                    from_events.push((index, "user".to_owned(), message.message.clone(), "event"));
                 }
             }
             RolloutItem::EventMsg(EventMsg::AgentMessage(message)) => {
                 if !message.message.is_empty() {
                     from_events.push((
                         index,
-                        "assistant".to_string(),
+                        "assistant".to_owned(),
                         message.message.clone(),
                         "event",
                     ));

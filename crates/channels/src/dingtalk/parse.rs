@@ -17,6 +17,7 @@ pub struct DingtalkParseResult {
     pub meta: DingtalkMessageMeta,
 }
 
+#[must_use] 
 pub fn parse_text_command(text: &str) -> Option<String> {
     let trimmed = text.trim();
     let stripped = trimmed
@@ -33,7 +34,7 @@ pub fn parse_text_command(text: &str) -> Option<String> {
     if prompt.is_empty() {
         None
     } else {
-        Some(prompt.to_string())
+        Some(prompt.to_owned())
     }
 }
 
@@ -43,30 +44,30 @@ pub fn extract_dingtalk_text(body: &Value) -> Option<String> {
         .and_then(|t| t.get("content"))
         .and_then(Value::as_str)
     {
-        return Some(text.to_string());
+        return Some(text.to_owned());
     }
     if let Some(text) = body
         .get("text")
         .and_then(|t| t.get("text"))
         .and_then(Value::as_str)
     {
-        return Some(text.to_string());
+        return Some(text.to_owned());
     }
     if let Some(text) = body.get("text").and_then(Value::as_str) {
-        return Some(text.to_string());
+        return Some(text.to_owned());
     }
     let content = body.get("content").and_then(Value::as_str)?;
     if let Ok(parsed) = serde_json::from_str::<Value>(content)
         && let Some(text) = parsed.get("text").and_then(Value::as_str)
     {
-        return Some(text.to_string());
+        return Some(text.to_owned());
     }
     if let Ok(parsed) = serde_json::from_str::<Value>(content)
         && let Some(text) = parsed.get("content").and_then(Value::as_str)
     {
-        return Some(text.to_string());
+        return Some(text.to_owned());
     }
-    Some(content.to_string())
+    Some(content.to_owned())
 }
 
 pub fn extract_dingtalk_channel(body: &Value) -> Option<String> {
@@ -121,7 +122,7 @@ fn extract_sender_name(body: &Value) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         })
     })
@@ -145,7 +146,7 @@ fn extract_sender_id(body: &Value) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         })
     })
@@ -167,20 +168,16 @@ fn extract_chat_type(body: &Value) -> Option<String> {
             None
         } else {
             Some(match normalized.as_str() {
-                "1" | "single" | "private" | "direct" => "dm".to_string(),
-                "2" | "group" | "chat" => "group".to_string(),
+                "1" | "single" | "private" | "direct" => "dm".to_owned(),
+                "2" | "group" | "chat" => "group".to_owned(),
                 _ => normalized,
             })
         }
-    } else if let Some(number) = raw.as_i64() {
-        Some(match number {
-            1 => "dm".to_string(),
-            2 => "group".to_string(),
+    } else { raw.as_i64().map(|number| match number {
+            1 => "dm".to_owned(),
+            2 => "group".to_owned(),
             _ => number.to_string(),
-        })
-    } else {
-        None
-    }
+        }) }
 }
 
 fn extract_thread_id(body: &Value) -> Option<String> {
@@ -197,7 +194,7 @@ fn extract_thread_id(body: &Value) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         })
     })
@@ -212,12 +209,13 @@ fn extract_message_id(body: &Value) -> Option<String> {
                 if trimmed.is_empty() {
                     None
                 } else {
-                    Some(trimmed.to_string())
+                    Some(trimmed.to_owned())
                 }
             })
         })
 }
 
+#[must_use] 
 pub fn parse_inbound_payload(body: &Value) -> DingtalkParseResult {
     let meta = DingtalkMessageMeta {
         sender_id: extract_sender_id(body),

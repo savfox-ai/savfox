@@ -119,7 +119,7 @@ async fn http_connect_accept(
             &app_state,
             host,
             client_addr(&req),
-            Some("CONNECT".to_string()),
+            Some("CONNECT".to_owned()),
             "http-connect",
         )
         .await);
@@ -130,7 +130,7 @@ async fn http_connect_accept(
         host: host.clone(),
         port: authority.port,
         client_addr: client.clone(),
-        method: Some("CONNECT".to_string()),
+        method: Some("CONNECT".to_owned()),
         command: None,
         exec_policy_hint: None,
     });
@@ -142,9 +142,9 @@ async fn http_connect_accept(
                     host: host.clone(),
                     reason: reason.clone(),
                     client: client.clone(),
-                    method: Some("CONNECT".to_string()),
+                    method: Some("CONNECT".to_owned()),
                     mode: None,
-                    protocol: "http-connect".to_string(),
+                    protocol: "http-connect".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -170,11 +170,11 @@ async fn http_connect_accept(
         let _ = app_state
             .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                 host: host.clone(),
-                reason: REASON_METHOD_NOT_ALLOWED.to_string(),
+                reason: REASON_METHOD_NOT_ALLOWED.to_owned(),
                 client: client.clone(),
-                method: Some("CONNECT".to_string()),
+                method: Some("CONNECT".to_owned()),
                 mode: Some(NetworkMode::Limited),
-                protocol: "http-connect".to_string(),
+                protocol: "http-connect".to_owned(),
             }))
             .await;
         let client = client.as_deref().unwrap_or_default();
@@ -200,22 +200,18 @@ async fn http_connect_proxy(upgraded: Upgraded) -> Result<(), Infallible> {
         return Ok(());
     }
 
-    let allow_upstream_proxy = match upgraded
+    let allow_upstream_proxy = if let Some(state) = upgraded
         .extensions()
         .get::<Arc<NetworkProxyState>>()
-        .cloned()
-    {
-        Some(state) => match state.allow_upstream_proxy().await {
-            Ok(allowed) => allowed,
-            Err(err) => {
-                error!("failed to read upstream proxy setting: {err}");
-                false
-            }
-        },
-        None => {
-            error!("missing app state");
+        .cloned() { match state.allow_upstream_proxy().await {
+        Ok(allowed) => allowed,
+        Err(err) => {
+            error!("failed to read upstream proxy setting: {err}");
             false
         }
+    } } else {
+        error!("missing app state");
+        false
     };
 
     let proxy = if allow_upstream_proxy {
@@ -277,12 +273,9 @@ async fn http_plain_proxy(
     policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
     req: Request,
 ) -> Result<Response, Infallible> {
-    let app_state = match req.extensions().get::<Arc<NetworkProxyState>>().cloned() {
-        Some(state) => state,
-        None => {
-            error!("missing app state");
-            return Ok(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
-        }
+    let app_state = if let Some(state) = req.extensions().get::<Arc<NetworkProxyState>>().cloned() { state } else {
+        error!("missing app state");
+        return Ok(text_response(StatusCode::INTERNAL_SERVER_ERROR, "error"));
     };
     let client = client_addr(&req);
 
@@ -299,15 +292,12 @@ async fn http_plain_proxy(
     // macOS-only + explicit allowlist, to avoid turning the proxy into a general local capability
     // escalation mechanism.
     if let Some(unix_socket_header) = req.headers().get("x-unix-socket") {
-        let socket_path = match unix_socket_header.to_str() {
-            Ok(value) => value.to_string(),
-            Err(_) => {
-                warn!("invalid x-unix-socket header value (non-UTF8)");
-                return Ok(text_response(
-                    StatusCode::BAD_REQUEST,
-                    "invalid x-unix-socket header",
-                ));
-            }
+        let socket_path = if let Ok(value) = unix_socket_header.to_str() { value.to_owned() } else {
+            warn!("invalid x-unix-socket header value (non-UTF8)");
+            return Ok(text_response(
+                StatusCode::BAD_REQUEST,
+                "invalid x-unix-socket header",
+            ));
         };
         let enabled = match app_state
             .enabled()
@@ -324,7 +314,7 @@ async fn http_plain_proxy(
                 &app_state,
                 socket_path,
                 client_addr(&req),
-                Some(req.method().as_str().to_string()),
+                Some(req.method().as_str().to_owned()),
                 "unix-socket",
             )
             .await);
@@ -398,7 +388,7 @@ async fn http_plain_proxy(
             &app_state,
             host,
             client_addr(&req),
-            Some(req.method().as_str().to_string()),
+            Some(req.method().as_str().to_owned()),
             "http",
         )
         .await);
@@ -409,7 +399,7 @@ async fn http_plain_proxy(
         host: host.clone(),
         port,
         client_addr: client.clone(),
-        method: Some(req.method().as_str().to_string()),
+        method: Some(req.method().as_str().to_owned()),
         command: None,
         exec_policy_hint: None,
     });
@@ -421,9 +411,9 @@ async fn http_plain_proxy(
                     host: host.clone(),
                     reason: reason.clone(),
                     client: client.clone(),
-                    method: Some(req.method().as_str().to_string()),
+                    method: Some(req.method().as_str().to_owned()),
                     mode: None,
-                    protocol: "http".to_string(),
+                    protocol: "http".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -441,11 +431,11 @@ async fn http_plain_proxy(
         let _ = app_state
             .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                 host: host.clone(),
-                reason: REASON_METHOD_NOT_ALLOWED.to_string(),
+                reason: REASON_METHOD_NOT_ALLOWED.to_owned(),
                 client: client.clone(),
-                method: Some(req.method().as_str().to_string()),
+                method: Some(req.method().as_str().to_owned()),
                 mode: Some(NetworkMode::Limited),
-                protocol: "http".to_string(),
+                protocol: "http".to_owned(),
             }))
             .await;
         let client = client.as_deref().unwrap_or_default();
@@ -546,11 +536,11 @@ async fn proxy_disabled_response(
     let _ = app_state
         .record_blocked(BlockedRequest::new(BlockedRequestArgs {
             host,
-            reason: REASON_PROXY_DISABLED.to_string(),
+            reason: REASON_PROXY_DISABLED.to_owned(),
             client,
             method,
             mode: None,
-            protocol: protocol.to_string(),
+            protocol: protocol.to_owned(),
         }))
         .await;
     text_response(StatusCode::SERVICE_UNAVAILABLE, "proxy disabled")
@@ -565,8 +555,8 @@ fn text_response(status: StatusCode, body: &str) -> Response {
     Response::builder()
         .status(status)
         .header("content-type", "text/plain")
-        .body(Body::from(body.to_string()))
-        .unwrap_or_else(|_| Response::new(Body::from(body.to_string())))
+        .body(Body::from(body.to_owned()))
+        .unwrap_or_else(|_| Response::new(Body::from(body.to_owned())))
 }
 
 #[derive(Serialize)]

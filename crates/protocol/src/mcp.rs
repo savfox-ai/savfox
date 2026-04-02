@@ -19,8 +19,8 @@ pub enum RequestId {
 impl std::fmt::Display for RequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RequestId::String(s) => f.write_str(s),
-            RequestId::Integer(i) => i.fmt(f),
+            Self::String(s) => f.write_str(s),
+            Self::Integer(i) => i.fmt(f),
         }
     }
 }

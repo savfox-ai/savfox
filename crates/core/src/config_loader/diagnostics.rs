@@ -50,10 +50,12 @@ pub struct ConfigLoadError {
 }
 
 impl ConfigLoadError {
+    #[must_use] 
     pub fn new(error: ConfigError, source: Option<toml::de::Error>) -> Self {
         Self { error, source }
     }
 
+    #[must_use] 
     pub fn config_error(&self) -> &ConfigError {
         &self.error
     }
@@ -196,6 +198,7 @@ fn text_range_from_span(contents: &str, span: std::ops::Range<usize>) -> TextRan
     TextRange { start, end }
 }
 
+#[must_use] 
 pub fn format_config_error(error: &ConfigError, contents: &str) -> String {
     let mut output = String::new();
     let start = error.range.start;
@@ -211,7 +214,7 @@ pub fn format_config_error(error: &ConfigError, contents: &str) -> String {
     let line_index = start.line.saturating_sub(1);
     let line = match contents.lines().nth(line_index) {
         Some(line) => line.trim_end_matches('\r'),
-        None => return output.trim_end().to_string(),
+        None => return output.trim_end().to_owned(),
     };
 
     let line_number = start.line;
@@ -229,9 +232,10 @@ pub fn format_config_error(error: &ConfigError, contents: &str) -> String {
     let spaces = " ".repeat(start.column.saturating_sub(1));
     let carets = "^".repeat(highlight_len.max(1));
     let _ = writeln!(output, "{:width$} | {spaces}{carets}", "", width = gutter);
-    output.trim_end().to_string()
+    output.trim_end().to_owned()
 }
 
+#[must_use] 
 pub fn format_config_error_with_source(error: &ConfigError) -> String {
     match std::fs::read_to_string(&error.path) {
         Ok(contents) => format_config_error(error, &contents),

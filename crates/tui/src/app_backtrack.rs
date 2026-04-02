@@ -188,7 +188,7 @@ impl App {
 
         if self.backtrack.pending_rollback.is_some() {
             self.chat_screen
-                .add_error_message("Backtrack rollback already in progress.".to_string());
+                .add_error_message("Backtrack rollback already in progress.".to_owned());
             return;
         }
 
@@ -349,7 +349,7 @@ impl App {
     /// source of truth for the active cell and its cache invalidation key, and because `App` owns
     /// overlay lifecycle and frame scheduling for animations.
     fn overlay_forward_event(&mut self, tui: &mut tui::Tui, event: TuiEvent) -> Result<()> {
-        if let TuiEvent::Draw = &event
+        if matches!(&event, TuiEvent::Draw)
             && let Some(Overlay::Transcript(t)) = &mut self.overlay
         {
             let active_key = self.chat_screen.active_cell_transcript_key();

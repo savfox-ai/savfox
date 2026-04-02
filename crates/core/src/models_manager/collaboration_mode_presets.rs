@@ -18,46 +18,47 @@ pub(super) fn builtin_collaboration_mode_presets() -> Vec<CollaborationModeMask>
 }
 
 #[cfg(any(test, feature = "test-support"))]
+#[must_use] 
 pub fn test_builtin_collaboration_mode_presets() -> Vec<CollaborationModeMask> {
     builtin_collaboration_mode_presets()
 }
 
 fn plan_preset() -> CollaborationModeMask {
     CollaborationModeMask {
-        name: "Plan".to_string(),
+        name: "Plan".to_owned(),
         mode: Some(ModeKind::Plan),
         model: None,
         reasoning_effort: Some(Some(ReasoningEffort::Medium)),
-        developer_instructions: Some(Some(COLLABORATION_MODE_PLAN.to_string())),
+        developer_instructions: Some(Some(COLLABORATION_MODE_PLAN.to_owned())),
     }
 }
 
 fn code_preset() -> CollaborationModeMask {
     CollaborationModeMask {
-        name: "Code".to_string(),
+        name: "Code".to_owned(),
         mode: Some(ModeKind::Code),
         model: None,
         reasoning_effort: None,
-        developer_instructions: Some(Some(COLLABORATION_MODE_CODE.to_string())),
+        developer_instructions: Some(Some(COLLABORATION_MODE_CODE.to_owned())),
     }
 }
 
 fn pair_programming_preset() -> CollaborationModeMask {
     CollaborationModeMask {
-        name: "Pair Programming".to_string(),
+        name: "Pair Programming".to_owned(),
         mode: Some(ModeKind::PairProgramming),
         model: None,
         reasoning_effort: Some(Some(ReasoningEffort::Medium)),
-        developer_instructions: Some(Some(COLLABORATION_MODE_PAIR_PROGRAMMING.to_string())),
+        developer_instructions: Some(Some(COLLABORATION_MODE_PAIR_PROGRAMMING.to_owned())),
     }
 }
 
 fn execute_preset() -> CollaborationModeMask {
     CollaborationModeMask {
-        name: "Execute".to_string(),
+        name: "Execute".to_owned(),
         mode: Some(ModeKind::Execute),
         model: None,
         reasoning_effort: Some(Some(ReasoningEffort::High)),
-        developer_instructions: Some(Some(COLLABORATION_MODE_EXECUTE.to_string())),
+        developer_instructions: Some(Some(COLLABORATION_MODE_EXECUTE.to_owned())),
     }
 }

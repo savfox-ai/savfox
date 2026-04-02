@@ -110,6 +110,7 @@ pub enum SsrfError {
     Http(String),
 }
 
+#[must_use] 
 pub fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
@@ -129,6 +130,7 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
     }
 }
 
+#[must_use] 
 pub fn is_metadata_hostname(host: &str) -> bool {
     let host = host.trim().trim_matches('.').to_ascii_lowercase();
     host == "metadata.google.internal" || host == "169.254.169.254"
@@ -233,7 +235,7 @@ pub async fn resolve_pinned_hostname(
     if out.is_empty() {
         return Err(SsrfError::DnsResolve {
             host,
-            reason: "no address records".to_string(),
+            reason: "no address records".to_owned(),
         });
     }
     Ok(out)
@@ -243,7 +245,7 @@ pub async fn validate_outbound_url(url: &str, cfg: &SsrfConfig) -> Result<(), Ss
     let parsed = Url::parse(url).map_err(|e| SsrfError::InvalidUrl(e.to_string()))?;
     match parsed.scheme() {
         "http" | "https" => {}
-        other => return Err(SsrfError::UnsupportedScheme(other.to_string())),
+        other => return Err(SsrfError::UnsupportedScheme(other.to_owned())),
     }
     let host = parsed.host_str().ok_or(SsrfError::MissingHost)?;
     let port = parsed
@@ -264,7 +266,7 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
     for _hop in 0..=cfg.max_redirects {
         match current.scheme() {
             "http" | "https" => {}
-            other => return Err(SsrfError::UnsupportedScheme(other.to_string())),
+            other => return Err(SsrfError::UnsupportedScheme(other.to_owned())),
         }
 
         let host = current.host_str().ok_or(SsrfError::MissingHost)?;
@@ -284,7 +286,7 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
         if response.status().is_redirection() {
             let Some(location) = response.headers().get(LOCATION) else {
                 return Err(SsrfError::Http(
-                    "redirect without location header".to_string(),
+                    "redirect without location header".to_owned(),
                 ));
             };
             let location = location
@@ -301,7 +303,7 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .map(|v| v.to_string());
+            .map(|v| v.to_owned());
         let body = tokio::time::timeout(timeout, response.bytes())
             .await
             .map_err(|_| SsrfError::Timeout(cfg.timeout_ms))?

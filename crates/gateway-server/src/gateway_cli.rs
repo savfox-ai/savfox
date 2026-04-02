@@ -153,7 +153,7 @@ fn log_entry_key(entry: &Value) -> String {
 fn entry_timestamp_str(entry: &Value) -> String {
     // New format: "timestamp" as ISO-8601 string
     if let Some(ts) = entry.get("timestamp").and_then(Value::as_str) {
-        return ts.to_string();
+        return ts.to_owned();
     }
     // Legacy format: "tsMs" or "ts_ms" as u64 milliseconds
     let ts_ms = entry
@@ -305,7 +305,7 @@ async fn run_devices(url: &str, action: Option<DevicesAction>) -> std::io::Resul
         Some(DevicesAction::Pair { name }) => {
             let pair_url = format!("{url}/api/devices/pair");
             let body = serde_json::json!({
-                "name": name.unwrap_or_else(|| "unnamed-device".to_string()),
+                "name": name.unwrap_or_else(|| "unnamed-device".to_owned()),
             });
             eprintln!("Creating pairing request...");
             match post_json(&pair_url, &body).await {
@@ -386,8 +386,7 @@ async fn run_start(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std::i
         }
         Err(err) => {
             eprintln!("Failed to start gateway daemon: {err}");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 err.to_string(),
             ));
         }
@@ -399,15 +398,12 @@ async fn run_start(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std::i
 async fn run_stop(pid_file: Option<PathBuf>) -> std::io::Result<()> {
     let pid_path = resolve_pid_file(pid_file)?;
 
-    let pid = match daemon::read_pid_file(&pid_path) {
-        Some(pid) => pid,
-        None => {
-            eprintln!(
-                "No PID file found at {}. Is the gateway running?",
-                pid_path.display()
-            );
-            return Ok(());
-        }
+    let pid = if let Some(pid) = daemon::read_pid_file(&pid_path) { pid } else {
+        eprintln!(
+            "No PID file found at {}. Is the gateway running?",
+            pid_path.display()
+        );
+        return Ok(());
     };
 
     if !daemon::is_process_running(pid) {
@@ -423,7 +419,7 @@ async fn run_stop(pid_file: Option<PathBuf>) -> std::io::Result<()> {
     // to avoid tying up the tokio runtime during the polling loop.
     let stop_result = tokio::task::spawn_blocking(move || daemon::stop_process(pid))
         .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     match stop_result {
         Ok(()) => {
@@ -432,8 +428,7 @@ async fn run_stop(pid_file: Option<PathBuf>) -> std::io::Result<()> {
         }
         Err(err) => {
             eprintln!("Failed to stop gateway daemon: {err}");
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 err.to_string(),
             ));
         }
@@ -451,7 +446,7 @@ async fn run_restart(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std:
             eprintln!("Stopping existing gateway daemon (PID {pid})...");
             let stop_result = tokio::task::spawn_blocking(move || daemon::stop_process(pid))
                 .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             if let Err(err) = stop_result {
                 eprintln!("Warning: failed to stop PID {pid}: {err}");
             }
@@ -475,7 +470,7 @@ fn run_install(name: &str, runtime: Option<&str>) -> std::io::Result<()> {
         }
     };
 
-    result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+    result.map_err(|e| std::io::Error::other(e.to_string()))
 }
 
 fn run_uninstall(name: &str, runtime: Option<&str>) -> std::io::Result<()> {
@@ -491,5 +486,5 @@ fn run_uninstall(name: &str, runtime: Option<&str>) -> std::io::Result<()> {
             return Ok(());
         }
     };
-    result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+    result.map_err(|e| std::io::Error::other(e.to_string()))
 }

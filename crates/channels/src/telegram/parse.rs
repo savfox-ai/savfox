@@ -28,7 +28,7 @@ fn split_telegram_command(text: &str) -> Option<(String, String)> {
     if command.is_empty() {
         return None;
     }
-    Some((command, rest.to_string()))
+    Some((command, rest.to_owned()))
 }
 
 fn normalize_registry_command_with_resolver<F>(
@@ -82,7 +82,7 @@ where
 
     if let Some((command, args)) = split_telegram_command(text) {
         if command == "savfox" {
-            let prompt = args.trim().to_string();
+            let prompt = args.trim().to_owned();
             if prompt.is_empty() {
                 return Ok(ChannelAction::Ignore);
             }
@@ -108,7 +108,7 @@ where
         if !prompt.is_empty() {
             return Ok(ChannelAction::StartThread {
                 channel: chat_id,
-                prompt: prompt.to_string(),
+                prompt: prompt.to_owned(),
             });
         }
     }
@@ -154,7 +154,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
         .filter(|value| !value.is_empty());
 
     if !first.is_empty() || !last.is_empty() {
-        let full = format!("{first} {last}").trim().to_string();
+        let full = format!("{first} {last}").trim().to_owned();
         if !full.is_empty() {
             return Some(full);
         }

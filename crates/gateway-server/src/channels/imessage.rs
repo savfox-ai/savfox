@@ -75,8 +75,8 @@ impl IMessageChannel {
             .get(&url)
             .query(&[
                 ("after", after.to_string()),
-                ("sort", "ASC".to_string()),
-                ("limit", "50".to_string()),
+                ("sort", "ASC".to_owned()),
+                ("limit", "50".to_owned()),
             ])
             .send()
             .await?;
@@ -169,8 +169,8 @@ impl IMessageChannel {
                     .get(&url)
                     .query(&[
                         ("after", after.to_string()),
-                        ("sort", "ASC".to_string()),
-                        ("limit", "50".to_string()),
+                        ("sort", "ASC".to_owned()),
+                        ("limit", "50".to_owned()),
                     ])
                     .send()
                     .await
@@ -324,15 +324,12 @@ impl Channel for IMessageChannel {
         // The payload wraps the message in a "data" field for new-message events.
         let event_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
-        match event_type {
-            "new-message" => {
-                let data = payload.get("data").unwrap_or(&Value::Null);
-                Self::parse_message(data)
-            }
-            _ => {
-                debug!(event_type = %event_type, "iMessage webhook: ignoring event");
-                Ok(ChannelAction::Ignore)
-            }
+        if event_type == "new-message" {
+            let data = payload.get("data").unwrap_or(&Value::Null);
+            Self::parse_message(data)
+        } else {
+            debug!(event_type = %event_type, "iMessage webhook: ignoring event");
+            Ok(ChannelAction::Ignore)
         }
     }
 }

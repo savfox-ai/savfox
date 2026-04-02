@@ -55,6 +55,7 @@ pub struct Polls {
 }
 
 impl Polls {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             polls: HashMap::new(),
@@ -65,20 +66,20 @@ impl Polls {
     }
 
     pub fn normalize(&self, input: PollInput) -> Result<NormalizedPollInput, String> {
-        let question = input.question.trim().to_string();
+        let question = input.question.trim().to_owned();
         if question.is_empty() {
-            return Err("Poll question is required".to_string());
+            return Err("Poll question is required".to_owned());
         }
 
         let options: Vec<String> = input
             .options
             .iter()
-            .map(|o| o.trim().to_string())
+            .map(|o| o.trim().to_owned())
             .filter(|o| !o.is_empty())
             .collect();
 
         if options.len() < 2 {
-            return Err("Poll requires at least 2 options".to_string());
+            return Err("Poll requires at least 2 options".to_owned());
         }
 
         if options.len() > self.max_options {
@@ -90,10 +91,10 @@ impl Polls {
 
         let max_selections = input.max_selections.unwrap_or(1);
         if max_selections < 1 {
-            return Err("max_selections must be at least 1".to_string());
+            return Err("max_selections must be at least 1".to_owned());
         }
         if max_selections > options.len() {
-            return Err("max_selections cannot exceed option count".to_string());
+            return Err("max_selections cannot exceed option count".to_owned());
         }
 
         let duration_hours = input
@@ -138,16 +139,15 @@ impl Polls {
         let poll = self
             .polls
             .get_mut(poll_id)
-            .ok_or_else(|| format!("Poll not found: {}", poll_id))?;
+            .ok_or_else(|| format!("Poll not found: {poll_id}"))?;
 
-        if let Some(ends_at) = poll.ends_at {
-            if chrono::Utc::now() > ends_at {
-                return Err("Poll has ended".to_string());
+        if let Some(ends_at) = poll.ends_at
+            && chrono::Utc::now() > ends_at {
+                return Err("Poll has ended".to_owned());
             }
-        }
 
         if poll.votes.contains_key(voter_id) {
-            return Err("Already voted".to_string());
+            return Err("Already voted".to_owned());
         }
 
         if option_indices.is_empty() || option_indices.len() > poll.poll.max_selections {
@@ -159,17 +159,18 @@ impl Polls {
 
         for &idx in &option_indices {
             if idx >= poll.poll.options.len() {
-                return Err(format!("Invalid option index: {}", idx));
+                return Err(format!("Invalid option index: {idx}"));
             }
         }
 
         poll.votes.insert(
-            voter_id.to_string(),
+            voter_id.to_owned(),
             option_indices.iter().map(|&i| i.to_string()).collect(),
         );
         Ok(())
     }
 
+    #[must_use] 
     pub fn get_result(&self, poll_id: &str) -> Option<PollResult> {
         let poll = self.polls.get(poll_id)?;
 
@@ -183,11 +184,10 @@ impl Polls {
 
         for votes in poll.votes.values() {
             for vote in votes {
-                if let Ok(idx) = vote.parse::<usize>() {
-                    if idx < option_counts.len() {
+                if let Ok(idx) = vote.parse::<usize>()
+                    && idx < option_counts.len() {
                         option_counts[idx] += 1;
                     }
-                }
             }
         }
 
@@ -212,7 +212,7 @@ impl Polls {
             .collect();
 
         Some(PollResult {
-            poll_id: poll_id.to_string(),
+            poll_id: poll_id.to_owned(),
             question: poll.poll.question.clone(),
             options,
             total_votes,
@@ -232,6 +232,7 @@ impl Polls {
         self.polls.remove(poll_id).is_some()
     }
 
+    #[must_use] 
     pub fn list_active(&self) -> Vec<&ActivePoll> {
         self.polls
             .values()

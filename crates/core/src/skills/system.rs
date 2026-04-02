@@ -121,12 +121,11 @@ fn ensure_default_registry_cloned(
 
     tracing::info!(url = %git_url, path = %registry_dir.display(), "cloning skill registry");
 
-    if let Some(parent) = registry_dir.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
+    if let Some(parent) = registry_dir.parent()
+        && let Err(err) = fs::create_dir_all(parent) {
             tracing::warn!(error = %err, "failed to create registry dir");
             return;
         }
-    }
 
     match std::process::Command::new("git")
         .args([
@@ -154,8 +153,7 @@ fn ensure_default_registry_cloned(
 fn read_marker(path: &AbsolutePathBuf) -> Result<String, SystemSkillsError> {
     Ok(fs::read_to_string(path.as_path())
         .map_err(|source| SystemSkillsError::io("read system skills marker", source))?
-        .trim()
-        .to_string())
+        .trim().to_owned())
 }
 
 fn embedded_system_skills_fingerprint() -> String {

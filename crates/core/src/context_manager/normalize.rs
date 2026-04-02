@@ -28,7 +28,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                         ResponseItem::FunctionCallOutput {
                             call_id: call_id.clone(),
                             output: FunctionCallOutputPayload {
-                                content: "aborted".to_string(),
+                                content: "aborted".to_owned(),
                                 ..Default::default()
                             },
                         },
@@ -51,7 +51,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                         idx,
                         ResponseItem::CustomToolCallOutput {
                             call_id: call_id.clone(),
-                            output: "aborted".to_string(),
+                            output: "aborted".to_owned(),
                         },
                     ));
                 }
@@ -75,7 +75,7 @@ pub(crate) fn ensure_call_outputs_present(items: &mut Vec<ResponseItem>) {
                             ResponseItem::FunctionCallOutput {
                                 call_id: call_id.clone(),
                                 output: FunctionCallOutputPayload {
-                                    content: "aborted".to_string(),
+                                    content: "aborted".to_owned(),
                                     ..Default::default()
                                 },
                             },

@@ -146,8 +146,8 @@ impl UnifiedExecProcess {
         let exit_code = self.exit_code().unwrap_or(-1);
         let exec_output = ExecToolCallOutput {
             exit_code,
-            stderr: StreamOutput::new(text.to_string()),
-            aggregated_output: StreamOutput::new(text.to_string()),
+            stderr: StreamOutput::new(text.to_owned()),
+            aggregated_output: StreamOutput::new(text.to_owned()),
             ..Default::default()
         };
         if is_likely_sandbox_denied(sandbox_type, &exec_output) {

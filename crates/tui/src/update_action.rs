@@ -11,15 +11,17 @@ pub enum UpdateAction {
 
 impl UpdateAction {
     /// Returns the list of command-line arguments for invoking the update.
+    #[must_use] 
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/savfox"]),
-            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/savfox"]),
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "savfox"]),
+            Self::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/savfox"]),
+            Self::BunGlobalLatest => ("bun", &["install", "-g", "@openai/savfox"]),
+            Self::BrewUpgrade => ("brew", &["upgrade", "--cask", "savfox"]),
         }
     }
 
     /// Returns string representation of the command-line arguments for invoking the update.
+    #[must_use] 
     pub fn command_str(self) -> String {
         let (command, args) = self.command_args();
         shlex::try_join(std::iter::once(command).chain(args.iter().copied()))

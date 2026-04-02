@@ -14,8 +14,10 @@ use tracing::{debug, info};
 /// How the compaction service decides when to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum CompactionMode {
     /// Compact automatically when the threshold is reached.
+    #[default]
     Auto,
     /// Only compact when explicitly requested via RPC.
     Manual,
@@ -23,11 +25,6 @@ pub enum CompactionMode {
     Disabled,
 }
 
-impl Default for CompactionMode {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 /// Knobs that control *how* and *when* compaction happens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,7 +223,7 @@ impl CompactionService {
         if !summary.is_empty() {
             kept.push(serde_json::json!({
                 "role": "system",
-                "content": summary.clone(),
+                "content": summary,
                 "metadata": { "compaction_summary": true },
             }));
         }

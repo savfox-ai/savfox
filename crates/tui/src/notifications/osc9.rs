@@ -9,7 +9,7 @@ pub struct Osc9Backend;
 
 impl Osc9Backend {
     pub fn notify(&mut self, message: &str) -> io::Result<()> {
-        execute!(stdout(), PostNotification(message.to_string()))
+        execute!(stdout(), PostNotification(message.to_owned()))
     }
 }
 

@@ -81,6 +81,7 @@ pub struct ProviderProfileConfig {
 
 impl AuthProfiles {
     /// Create from configuration.
+    #[must_use] 
     pub fn from_config(config: AuthProfilesConfig) -> Self {
         let profiles = config
             .providers
@@ -100,6 +101,7 @@ impl AuthProfiles {
     }
 
     /// Create empty profiles.
+    #[must_use] 
     pub fn empty() -> Self {
         Self {
             profiles: HashMap::new(),
@@ -107,6 +109,7 @@ impl AuthProfiles {
     }
 
     /// Get the next API key for a provider.
+    #[must_use] 
     pub fn get_key(&self, provider: &str) -> Option<&ApiKey> {
         let profile = self.profiles.get(provider)?;
         let enabled_keys: Vec<&ApiKey> = profile.keys.iter().filter(|k| k.enabled).collect();
@@ -141,23 +144,22 @@ impl AuthProfiles {
 
     /// Update rate limit info for a key after an API response.
     pub fn update_rate_limit(&mut self, provider: &str, key_id: &str, remaining: u32) {
-        if let Some(profile) = self.profiles.get_mut(provider) {
-            if let Some(key) = profile.keys.iter_mut().find(|k| k.id == key_id) {
+        if let Some(profile) = self.profiles.get_mut(provider)
+            && let Some(key) = profile.keys.iter_mut().find(|k| k.id == key_id) {
                 key.rate_limit_remaining = Some(remaining);
             }
-        }
     }
 
     /// Disable a key (e.g., if it's been revoked or quota exceeded).
     pub fn disable_key(&mut self, provider: &str, key_id: &str) {
-        if let Some(profile) = self.profiles.get_mut(provider) {
-            if let Some(key) = profile.keys.iter_mut().find(|k| k.id == key_id) {
+        if let Some(profile) = self.profiles.get_mut(provider)
+            && let Some(key) = profile.keys.iter_mut().find(|k| k.id == key_id) {
                 key.enabled = false;
             }
-        }
     }
 
     /// List all providers with key counts.
+    #[must_use] 
     pub fn list_providers(&self) -> Vec<(&str, usize, usize)> {
         self.profiles
             .iter()

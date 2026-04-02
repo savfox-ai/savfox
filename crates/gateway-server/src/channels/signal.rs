@@ -40,7 +40,7 @@ impl SignalChannel {
 
         if !text.is_empty() {
             return Ok(ChannelAction::StartThread {
-                channel: source.to_string(),
+                channel: source.to_owned(),
                 prompt: text.to_owned(),
             });
         }

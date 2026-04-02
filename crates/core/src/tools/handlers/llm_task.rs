@@ -56,7 +56,7 @@ impl ToolHandler for LlmTaskHandler {
 
         // Route through the gateway's OpenAI-compatible endpoint.
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
         let token = std::env::var("SAVFOX_GATEWAY_TOKEN").ok();
 
         let timeout_secs = args.timeout_secs.unwrap_or(REQUEST_TIMEOUT.as_secs());
@@ -121,17 +121,16 @@ impl ToolHandler for LlmTaskHandler {
 
         // Extract the assistant message content from the OpenAI response.
         let mut result_text = body_text.clone();
-        if let Ok(response_json) = serde_json::from_str::<serde_json::Value>(&body_text) {
-            if let Some(content) = response_json
+        if let Ok(response_json) = serde_json::from_str::<serde_json::Value>(&body_text)
+            && let Some(content) = response_json
                 .get("choices")
                 .and_then(|c| c.get(0))
                 .and_then(|c| c.get("message"))
                 .and_then(|m| m.get("content"))
                 .and_then(|c| c.as_str())
             {
-                result_text = content.to_string();
+                result_text = content.to_owned();
             }
-        }
 
         // If an output_schema was provided, validate the result is valid JSON.
         if args.output_schema.is_some() {

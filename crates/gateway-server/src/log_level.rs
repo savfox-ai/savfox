@@ -18,7 +18,7 @@ pub(crate) fn set_reload_handle(handle: ReloadHandle) {
 pub(crate) fn get_level() -> Result<Value, String> {
     let handle = RELOAD_HANDLE
         .get()
-        .ok_or_else(|| "log reload handle not initialized".to_string())?;
+        .ok_or_else(|| "log reload handle not initialized".to_owned())?;
     let current = handle
         .with_current(|filter| filter.to_string())
         .map_err(|e| e.to_string())?;
@@ -35,7 +35,7 @@ pub(crate) fn get_level() -> Result<Value, String> {
 pub(crate) fn set_level(filter: &str) -> Result<Value, String> {
     let handle = RELOAD_HANDLE
         .get()
-        .ok_or_else(|| "log reload handle not initialized".to_string())?;
+        .ok_or_else(|| "log reload handle not initialized".to_owned())?;
     let new_filter = filter
         .parse::<EnvFilter>()
         .map_err(|e| format!("invalid filter '{filter}': {e}"))?;

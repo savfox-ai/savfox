@@ -19,28 +19,31 @@ const EMPTY_PROVIDER_MODELS: &[ModelInfo] = &[];
 
 /// Build a `ModelInfo` using model-registry defaults, while requiring only the
 /// fields needed for provider model lists.
+#[must_use] 
 pub fn model_info_with_defaults(slug: &str, name: &str) -> ModelInfo {
     let mut model = find_model_info_for_slug(slug);
-    model.slug = slug.to_string();
-    model.name = name.to_string();
+    model.slug = slug.to_owned();
+    model.name = name.to_owned();
     model
 }
+#[must_use] 
 pub fn canonical_provider_id(provider_id: &str) -> String {
     match provider_id.trim().to_ascii_lowercase().as_str() {
-        "chatgpt" | "chat-gpt" => "openai".to_string(),
-        "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
-        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
-        "volc" | "volc-engine" | "ark" => "volcengine".to_string(),
-        "together" | "together-ai" => "togetherai".to_string(),
-        "gemini" => "google".to_string(),
-        "bedrock" => "amazon-bedrock".to_string(),
-        "qwen" => "alibaba".to_string(),
-        "googlevertex" | "google_vertex" => "google-vertex".to_string(),
-        "google_vertex_anthropic" => "google-vertex-anthropic".to_string(),
-        other => other.to_string(),
+        "chatgpt" | "chat-gpt" => "openai".to_owned(),
+        "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
+        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
+        "volc" | "volc-engine" | "ark" => "volcengine".to_owned(),
+        "together" | "together-ai" => "togetherai".to_owned(),
+        "gemini" => "google".to_owned(),
+        "bedrock" => "amazon-bedrock".to_owned(),
+        "qwen" => "alibaba".to_owned(),
+        "googlevertex" | "google_vertex" => "google-vertex".to_owned(),
+        "google_vertex_anthropic" => "google-vertex-anthropic".to_owned(),
+        other => other.to_owned(),
     }
 }
 
+#[must_use] 
 pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'static str>> {
     let canonical = canonical_provider_id(provider_id);
     match canonical.as_str() {
@@ -143,18 +146,22 @@ pub fn provider_default_base_url_entry(provider_id: &str) -> Option<Option<&'sta
     }
 }
 
+#[must_use] 
 pub fn provider_default_base_url(provider_id: &str) -> Option<&'static str> {
     provider_default_base_url_entry(provider_id).flatten()
 }
 
+#[must_use] 
 pub fn provider_default_models(_provider_id: &str) -> &'static [ModelInfo] {
     EMPTY_PROVIDER_MODELS
 }
 
+#[must_use] 
 pub fn provider_default_model_slug(_provider_id: &str) -> Option<&'static str> {
     None
 }
 
+#[must_use] 
 pub fn provider_registry(provider_id: &str) -> Option<Provider> {
     let base_url = provider_default_base_url_entry(provider_id)?;
     Some(Provider {
@@ -168,6 +175,7 @@ pub fn provider_registry(provider_id: &str) -> Option<Provider> {
 /// Returns `None` when the provider is unknown. For known providers that do not
 /// expose an explicit default model list yet, this falls back to generic model
 /// metadata derived from `model_slug`.
+#[must_use] 
 pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelInfo> {
     let slug = model_slug.trim();
     if slug.is_empty() {
@@ -191,13 +199,14 @@ pub fn provider_model_info(provider_id: &str, model_slug: &str) -> Option<ModelI
 ///
 /// Unknown providers are ignored. Duplicate slugs are removed while preserving
 /// the first occurrence order.
+#[must_use] 
 pub fn provider_models_from_slugs(provider_id: &str, model_slugs: &[String]) -> Vec<ModelInfo> {
     let mut seen = HashSet::new();
     model_slugs
         .iter()
         .filter_map(|slug| {
             let trimmed = slug.trim();
-            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            if trimmed.is_empty() || !seen.insert(trimmed.to_owned()) {
                 return None;
             }
             provider_model_info(provider_id, trimmed)

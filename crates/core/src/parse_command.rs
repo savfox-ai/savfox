@@ -8,10 +8,11 @@ use crate::powershell::extract_powershell_command;
 
 pub fn shlex_join(tokens: &[String]) -> String {
     shlex_try_join(tokens.iter().map(String::as_str))
-        .unwrap_or_else(|_| "<command included NUL byte>".to_string())
+        .unwrap_or_else(|_| "<command included NUL byte>".to_owned())
 }
 
 /// Extracts the shell and script from a command, regardless of platform
+#[must_use] 
 pub fn extract_shell_command(command: &[String]) -> Option<(&str, &str)> {
     extract_bash_command(command).or_else(|| extract_powershell_command(command))
 }
@@ -27,6 +28,7 @@ pub fn extract_shell_command(command: &[String]) -> Option<(&str, &str)> {
 /// The parsing is slightly lossy due to the ~infinite expressiveness of an arbitrary command.
 /// The goal of the parsed metadata is to be able to provide the user with a human readable gis
 /// of what it is doing.
+#[must_use] 
 pub fn parse_command(command: &[String]) -> Vec<ParsedCommand> {
     // Parse and then collapse consecutive duplicate commands to avoid redundant summaries.
     let parsed = parse_command_impl(command);
@@ -1333,6 +1335,7 @@ mod tests {
     }
 }
 
+#[must_use] 
 pub fn parse_command_impl(command: &[String]) -> Vec<ParsedCommand> {
     if let Some(commands) = parse_shell_lc_commands(command) {
         return commands;
@@ -1340,7 +1343,7 @@ pub fn parse_command_impl(command: &[String]) -> Vec<ParsedCommand> {
 
     if let Some((_, script)) = extract_powershell_command(command) {
         return vec![ParsedCommand::Unknown {
-            cmd: script.to_string(),
+            cmd: script.to_owned(),
         }];
     }
 
@@ -1589,7 +1592,7 @@ fn short_display_path(path: &str) -> String {
     parts
         .next()
         .map(str::to_string)
-        .unwrap_or_else(|| trimmed.to_string())
+        .unwrap_or_else(|| trimmed.to_owned())
 }
 
 // Skip values consumed by specific flags and ignore --flag=value style arguments.
@@ -1884,7 +1887,7 @@ fn parse_shell_lc_commands(original: &[String]) -> Option<Vec<ParsedCommand>> {
         && let Some(all_commands) = try_parse_word_only_commands_sequence(&tree, script)
         && !all_commands.is_empty()
     {
-        let script_tokens = shlex_split(script).unwrap_or_else(|| vec![script.to_string()]);
+        let script_tokens = shlex_split(script).unwrap_or_else(|| vec![script.to_owned()]);
         // Strip small formatting helpers (e.g., head/tail/awk/wc/etc) so we
         // bias toward the primary command when pipelines are present.
         // First, drop obvious small formatting helpers (e.g., wc/awk/etc).
@@ -1893,7 +1896,7 @@ fn parse_shell_lc_commands(original: &[String]) -> Option<Vec<ParsedCommand>> {
         let filtered_commands = drop_small_formatting_commands(all_commands);
         if filtered_commands.is_empty() {
             return Some(vec![ParsedCommand::Unknown {
-                cmd: script.to_string(),
+                cmd: script.to_owned(),
             }]);
         }
         // Build parsed commands, tracking `cd` segments to compute effective file paths.
@@ -1957,7 +1960,7 @@ fn parse_shell_lc_commands(original: &[String]) -> Option<Vec<ParsedCommand>> {
                             });
                             if has_pipe && has_sed_n {
                                 ParsedCommand::Read {
-                                    cmd: script.to_string(),
+                                    cmd: script.to_owned(),
                                     name,
                                     path,
                                 }
@@ -2002,7 +2005,7 @@ fn parse_shell_lc_commands(original: &[String]) -> Option<Vec<ParsedCommand>> {
         return Some(commands);
     }
     Some(vec![ParsedCommand::Unknown {
-        cmd: script.to_string(),
+        cmd: script.to_owned(),
     }])
 }
 
@@ -2575,10 +2578,10 @@ fn is_abs_like(path: &str) -> bool {
 
 fn join_paths(base: &str, rel: &str) -> String {
     if is_abs_like(rel) {
-        return rel.to_string();
+        return rel.to_owned();
     }
     if base.is_empty() {
-        return rel.to_string();
+        return rel.to_owned();
     }
     let mut buf = PathBuf::from(base);
     buf.push(rel);

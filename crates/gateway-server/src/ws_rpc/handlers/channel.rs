@@ -21,7 +21,7 @@ pub(crate) async fn handle_send(params: &Value, channel: &Arc<GatewayChannel>) -
     if channel_id.is_empty() || text.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'channel' or 'text' parameter".to_string(),
+            "missing 'channel' or 'text' parameter".to_owned(),
         ));
     }
 
@@ -99,8 +99,8 @@ pub(crate) struct SavedChannelState {
 
 pub(crate) fn canonical_channel_platform(platform: &str) -> String {
     match platform.trim().to_ascii_lowercase().as_str() {
-        "lark" => "feishu".to_string(),
-        other => other.to_string(),
+        "lark" => "feishu".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -118,7 +118,7 @@ fn first_non_empty_channel_config_string(
             if text.is_empty() {
                 None
             } else {
-                Some(text.to_string())
+                Some(text.to_owned())
             }
         })
     })
@@ -454,22 +454,21 @@ fn insert_saved_channel_metadata(
     platform: &str,
     saved_state: &SavedChannelState,
 ) {
-    info.insert("saved".to_string(), json!(saved_state.exists));
+    info.insert("saved".to_owned(), json!(saved_state.exists));
     if !saved_state.exists {
         return;
     }
 
-    info.insert("enabled".to_string(), json!(saved_state.enabled));
-    if let Some(ref cfg) = saved_state.config {
-        if !cfg.id.is_empty() {
-            info.insert("id".to_string(), json!(cfg.id));
+    info.insert("enabled".to_owned(), json!(saved_state.enabled));
+    if let Some(ref cfg) = saved_state.config
+        && !cfg.id.is_empty() {
+            info.insert("id".to_owned(), json!(cfg.id));
         }
-    }
     if let Some(name) = saved_state.channel_name.as_ref() {
-        info.insert("channel_name".to_string(), json!(name));
+        info.insert("channel_name".to_owned(), json!(name));
     }
     if let Some(slug) = saved_state.channel_slug.as_ref() {
-        info.insert("slug".to_string(), json!(slug));
+        info.insert("slug".to_owned(), json!(slug));
     }
 
     let Some(config_obj) = saved_state
@@ -492,12 +491,12 @@ fn insert_saved_channel_metadata(
                     "inboundMode",
                 ],
             )
-            .unwrap_or_else(|| "stream".to_string());
-            info.insert("mode".to_string(), json!(mode));
+            .unwrap_or_else(|| "stream".to_owned());
+            info.insert("mode".to_owned(), json!(mode));
             if let Some(guild_id) =
                 first_non_empty_channel_config_string(config_obj, &["guild_id", "guildId"])
             {
-                info.insert("guild_id".to_string(), json!(guild_id));
+                info.insert("guild_id".to_owned(), json!(guild_id));
             }
         }
         "telegram" => {
@@ -506,60 +505,60 @@ fn insert_saved_channel_metadata(
             } else {
                 "webhook"
             };
-            info.insert("mode".to_string(), json!(mode));
+            info.insert("mode".to_owned(), json!(mode));
         }
         "slack" => {
             if let Some(workspace_name) = first_non_empty_channel_config_string(
                 config_obj,
                 &["workspace_name", "workspace", "team_name", "team"],
             ) {
-                info.insert("workspace_name".to_string(), json!(workspace_name));
+                info.insert("workspace_name".to_owned(), json!(workspace_name));
             }
         }
         "matrix" => {
             if let Some(mode) = first_non_empty_channel_config_string(config_obj, &["mode"]) {
-                info.insert("mode".to_string(), json!(mode));
+                info.insert("mode".to_owned(), json!(mode));
             }
             if let Some(homeserver) = first_non_empty_channel_config_string(
                 config_obj,
                 &["homeserver", "homeserver_url", "server_url"],
             ) {
-                info.insert("homeserver".to_string(), json!(homeserver));
+                info.insert("homeserver".to_owned(), json!(homeserver));
             }
             if let Some(user_id) =
                 first_non_empty_channel_config_string(config_obj, &["userId", "user_id"])
             {
-                info.insert("user_id".to_string(), json!(user_id));
+                info.insert("user_id".to_owned(), json!(user_id));
             }
             if let Some(sender_localpart) = first_non_empty_channel_config_string(
                 config_obj,
                 &["senderLocalpart", "sender_localpart"],
             ) {
-                info.insert("sender_localpart".to_string(), json!(sender_localpart));
+                info.insert("sender_localpart".to_owned(), json!(sender_localpart));
             }
             if let Some(public_url) =
                 first_non_empty_channel_config_string(config_obj, &["publicUrl", "public_url"])
             {
-                info.insert("appservice_url".to_string(), json!(public_url));
+                info.insert("appservice_url".to_owned(), json!(public_url));
             }
         }
         "mattermost" => {
             if let Some(server_url) =
                 first_non_empty_channel_config_string(config_obj, &["server_url", "serverUrl"])
             {
-                info.insert("server_url".to_string(), json!(server_url));
+                info.insert("server_url".to_owned(), json!(server_url));
             }
             if let Some(team_name) =
                 first_non_empty_channel_config_string(config_obj, &["team_name", "teamName"])
             {
-                info.insert("team_name".to_string(), json!(team_name));
+                info.insert("team_name".to_owned(), json!(team_name));
             }
         }
         "feishu" => {
             if let Some(app_id) =
                 first_non_empty_channel_config_string(config_obj, &["appId", "app_id"])
             {
-                info.insert("app_id".to_string(), json!(app_id));
+                info.insert("app_id".to_owned(), json!(app_id));
             }
         }
         "webhook" => {
@@ -567,58 +566,58 @@ fn insert_saved_channel_metadata(
                 config_obj,
                 &["callback_url", "webhook_url", "url"],
             ) {
-                info.insert("callback_url".to_string(), json!(callback_url));
+                info.insert("callback_url".to_owned(), json!(callback_url));
             }
         }
         "dingtalk" => {
             if let Some(webhook_url) =
                 first_non_empty_channel_config_string(config_obj, &["webhook_url", "url"])
             {
-                info.insert("webhook_url".to_string(), json!(webhook_url));
+                info.insert("webhook_url".to_owned(), json!(webhook_url));
             }
         }
         "zalo" => {
             if let Some(app_id) =
                 first_non_empty_channel_config_string(config_obj, &["app_id", "appId"])
             {
-                info.insert("app_id".to_string(), json!(app_id));
+                info.insert("app_id".to_owned(), json!(app_id));
             }
         }
         "nextcloud" => {
             if let Some(server_url) =
                 first_non_empty_channel_config_string(config_obj, &["server_url", "serverUrl"])
             {
-                info.insert("server_url".to_string(), json!(server_url));
+                info.insert("server_url".to_owned(), json!(server_url));
             }
             if let Some(room_count) =
                 channel_config_collection_len(config_obj, &["rooms", "room_tokens"])
             {
-                info.insert("room_count".to_string(), json!(room_count));
+                info.insert("room_count".to_owned(), json!(room_count));
             }
         }
         "twitch" => {
             if let Some(bot_username) =
                 first_non_empty_channel_config_string(config_obj, &["bot_username", "botUsername"])
             {
-                info.insert("bot_username".to_string(), json!(bot_username));
+                info.insert("bot_username".to_owned(), json!(bot_username));
             }
             if let Some(channel_count) = channel_config_collection_len(config_obj, &["channels"]) {
-                info.insert("channel_count".to_string(), json!(channel_count));
+                info.insert("channel_count".to_owned(), json!(channel_count));
             }
         }
         "tlon" => {
             if let Some(ship_url) =
                 first_non_empty_channel_config_string(config_obj, &["ship_url", "shipUrl"])
             {
-                info.insert("ship_url".to_string(), json!(ship_url));
+                info.insert("ship_url".to_owned(), json!(ship_url));
             }
             if let Some(ship_name) =
                 first_non_empty_channel_config_string(config_obj, &["ship_name", "shipName"])
             {
-                info.insert("ship_name".to_string(), json!(ship_name));
+                info.insert("ship_name".to_owned(), json!(ship_name));
             }
             if let Some(channel_count) = channel_config_collection_len(config_obj, &["channels"]) {
-                info.insert("channel_count".to_string(), json!(channel_count));
+                info.insert("channel_count".to_owned(), json!(channel_count));
             }
         }
         _ => {}
@@ -879,7 +878,7 @@ pub(crate) async fn handle_channels_status(
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                     || saved_state.ready;
-                obj.insert("configured".to_string(), json!(configured));
+                obj.insert("configured".to_owned(), json!(configured));
                 insert_saved_channel_metadata(obj, &key, &saved_state);
             }
         }
@@ -889,18 +888,18 @@ pub(crate) async fn handle_channels_status(
                 .get_mut("discord")
                 .and_then(Value::as_object_mut)
         {
-            discord_entry.insert("running".to_string(), json!(discord_running));
-            discord_entry.insert("connected".to_string(), json!(discord_runtime.connected));
+            discord_entry.insert("running".to_owned(), json!(discord_running));
+            discord_entry.insert("connected".to_owned(), json!(discord_runtime.connected));
             if let Some(bot_user_id) = discord_runtime.bot_user_id.as_deref() {
-                discord_entry.insert("bot_user_id".to_string(), json!(bot_user_id));
+                discord_entry.insert("bot_user_id".to_owned(), json!(bot_user_id));
             }
             if let Some(bot_username) = discord_runtime.bot_username.as_deref() {
-                discord_entry.insert("bot_username".to_string(), json!(bot_username));
+                discord_entry.insert("bot_username".to_owned(), json!(bot_username));
             }
             if let Some(guild_count) = discord_runtime.guild_count {
-                discord_entry.insert("guild_count".to_string(), json!(guild_count));
+                discord_entry.insert("guild_count".to_owned(), json!(guild_count));
             }
-            discord_entry.insert("last_error".to_string(), json!(discord_runtime.last_error));
+            discord_entry.insert("last_error".to_owned(), json!(discord_runtime.last_error));
         }
 
         if let Some(matrix_runtime) = matrix_runtime.as_ref()
@@ -908,39 +907,39 @@ pub(crate) async fn handle_channels_status(
                 .get_mut("matrix")
                 .and_then(Value::as_object_mut)
         {
-            matrix_entry.insert("running".to_string(), json!(true));
-            matrix_entry.insert("connected".to_string(), json!(matrix_runtime.connected));
+            matrix_entry.insert("running".to_owned(), json!(true));
+            matrix_entry.insert("connected".to_owned(), json!(matrix_runtime.connected));
             if let Some(mode) = matrix_runtime.mode.as_deref() {
-                matrix_entry.insert("mode".to_string(), json!(mode));
+                matrix_entry.insert("mode".to_owned(), json!(mode));
             }
             if let Some(homeserver) = matrix_runtime.homeserver.as_deref() {
-                matrix_entry.insert("homeserver".to_string(), json!(homeserver));
+                matrix_entry.insert("homeserver".to_owned(), json!(homeserver));
             }
             if let Some(user_id) = matrix_runtime.user_id.as_deref() {
-                matrix_entry.insert("user_id".to_string(), json!(user_id));
+                matrix_entry.insert("user_id".to_owned(), json!(user_id));
             }
             if let Some(room_count) = matrix_runtime.room_count {
-                matrix_entry.insert("room_count".to_string(), json!(room_count));
+                matrix_entry.insert("room_count".to_owned(), json!(room_count));
             }
             if let Some(appservice_url) = matrix_runtime.appservice_url.as_deref() {
-                matrix_entry.insert("appservice_url".to_string(), json!(appservice_url));
+                matrix_entry.insert("appservice_url".to_owned(), json!(appservice_url));
             }
             if let Some(sender_localpart) = matrix_runtime.sender_localpart.as_deref() {
-                matrix_entry.insert("sender_localpart".to_string(), json!(sender_localpart));
+                matrix_entry.insert("sender_localpart".to_owned(), json!(sender_localpart));
             }
             if let Some(user_prefix) = matrix_runtime.user_prefix.as_deref() {
-                matrix_entry.insert("user_prefix".to_string(), json!(user_prefix));
+                matrix_entry.insert("user_prefix".to_owned(), json!(user_prefix));
             }
             if let Some(server_name) = matrix_runtime.server_name.as_deref() {
-                matrix_entry.insert("server_name".to_string(), json!(server_name));
+                matrix_entry.insert("server_name".to_owned(), json!(server_name));
             }
             if let Some(config_id) = matrix_runtime.config_id.as_deref() {
-                matrix_entry.insert("config_id".to_string(), json!(config_id));
+                matrix_entry.insert("config_id".to_owned(), json!(config_id));
             }
             if let Some(registration) = matrix_runtime.registration.as_ref() {
-                matrix_entry.insert("registration".to_string(), registration.clone());
+                matrix_entry.insert("registration".to_owned(), registration.clone());
             }
-            matrix_entry.insert("last_error".to_string(), json!(matrix_runtime.last_error));
+            matrix_entry.insert("last_error".to_owned(), json!(matrix_runtime.last_error));
         }
     }
 
@@ -979,17 +978,17 @@ pub(crate) async fn handle_channels_status(
                 .unwrap_or(false);
             let probe_status = if probe_requested {
                 if !configured {
-                    "not_configured".to_string()
+                    "not_configured".to_owned()
                 } else if connected {
-                    "ok".to_string()
+                    "ok".to_owned()
                 } else {
-                    "degraded".to_string()
+                    "degraded".to_owned()
                 }
             } else {
                 metrics
                     .probe_status
                     .clone()
-                    .unwrap_or_else(|| "unknown".to_string())
+                    .unwrap_or_else(|| "unknown".to_owned())
             };
             if probe_requested {
                 crate::channels::runtime::record_channel_probe(platform, &probe_status).await;
@@ -997,35 +996,35 @@ pub(crate) async fn handle_channels_status(
 
             if let Some(obj) = info.as_object_mut() {
                 obj.insert(
-                    "last_message_time".to_string(),
+                    "last_message_time".to_owned(),
                     json!(metrics.last_message_time_ms),
                 );
                 obj.insert(
-                    "last_event_time".to_string(),
+                    "last_event_time".to_owned(),
                     json!(metrics.last_event_time_ms),
                 );
                 obj.insert(
-                    "reconnect_attempt_count".to_string(),
+                    "reconnect_attempt_count".to_owned(),
                     json!(metrics.reconnect_attempt_count),
                 );
-                obj.insert("probe_status".to_string(), json!(probe_status));
+                obj.insert("probe_status".to_owned(), json!(probe_status));
                 obj.insert(
-                    "connection_uptime_ms".to_string(),
+                    "connection_uptime_ms".to_owned(),
                     json!(connection_uptime_ms),
                 );
-                obj.insert("error_rate".to_string(), json!(error_rate));
-                obj.insert("messages_total".to_string(), json!(send.attempts));
-                obj.insert("messages_failed".to_string(), json!(send.failed));
+                obj.insert("error_rate".to_owned(), json!(error_rate));
+                obj.insert("messages_total".to_owned(), json!(send.attempts));
+                obj.insert("messages_failed".to_owned(), json!(send.failed));
                 obj.insert(
-                    "last_activity".to_string(),
+                    "last_activity".to_owned(),
                     json!(last_activity_ms.map(|ts| ts as i64)),
                 );
                 obj.insert(
-                    "last_probe_at".to_string(),
+                    "last_probe_at".to_owned(),
                     json!(metrics.last_probe_time_ms.map(|ts| ts as i64)),
                 );
                 obj.insert(
-                    "probe".to_string(),
+                    "probe".to_owned(),
                     json!({
                         "ok": probe_status == "ok",
                         "status": probe_status,
@@ -1033,25 +1032,25 @@ pub(crate) async fn handle_channels_status(
                 );
 
                 obj.insert(
-                    "lastMessageTime".to_string(),
+                    "lastMessageTime".to_owned(),
                     to_rfc3339(metrics.last_message_time_ms),
                 );
                 obj.insert(
-                    "lastEventTime".to_string(),
+                    "lastEventTime".to_owned(),
                     to_rfc3339(metrics.last_event_time_ms),
                 );
                 obj.insert(
-                    "reconnectAttemptCount".to_string(),
+                    "reconnectAttemptCount".to_owned(),
                     json!(metrics.reconnect_attempt_count),
                 );
-                obj.insert("probeStatus".to_string(), json!(probe_status));
-                obj.insert("uptimeMs".to_string(), json!(connection_uptime_ms));
-                obj.insert("errorRate".to_string(), json!(error_rate));
+                obj.insert("probeStatus".to_owned(), json!(probe_status));
+                obj.insert("uptimeMs".to_owned(), json!(connection_uptime_ms));
+                obj.insert("errorRate".to_owned(), json!(error_rate));
                 obj.insert(
-                    "lastProbeAt".to_string(),
+                    "lastProbeAt".to_owned(),
                     to_rfc3339(metrics.last_probe_time_ms),
                 );
-                obj.insert("lastActivity".to_string(), to_rfc3339(last_activity_ms));
+                obj.insert("lastActivity".to_owned(), to_rfc3339(last_activity_ms));
             }
         }
     }
@@ -1065,7 +1064,7 @@ pub(crate) async fn handle_channels_status(
         if let Some(entry) = channels.get(channel) {
             let mut payload = entry.clone();
             if let Some(obj) = payload.as_object_mut() {
-                obj.insert("platform".to_string(), Value::String(channel.to_string()));
+                obj.insert("platform".to_owned(), Value::String(channel.to_owned()));
             }
             return Ok(payload);
         }
@@ -1087,7 +1086,7 @@ pub(crate) async fn handle_channels_login(
         .map(canonical_channel_platform)
         .unwrap_or_default();
     if platform.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_owned()));
     }
 
     let runtime = channel.runtime_channel_secrets().await;
@@ -1167,17 +1166,17 @@ pub(crate) async fn handle_channels_login(
         } else if webhook_mode > 0 {
             (
                 "webhook_mode",
-                "Discord is configured in webhook mode; no gateway stream was started".to_string(),
+                "Discord is configured in webhook mode; no gateway stream was started".to_owned(),
             )
         } else if ready_configs > 0 {
             (
                 "configured",
-                "Discord is configured, but no enabled stream channel was found".to_string(),
+                "Discord is configured, but no enabled stream channel was found".to_owned(),
             )
         } else {
             (
                 "already_configured",
-                "Discord credentials are configured via environment/runtime settings".to_string(),
+                "Discord credentials are configured via environment/runtime settings".to_owned(),
             )
         };
 
@@ -1247,12 +1246,12 @@ pub(crate) async fn handle_channels_login(
         } else if ready_configs > 0 {
             (
                 "configured",
-                "Matrix is configured, but no enabled channel was started".to_string(),
+                "Matrix is configured, but no enabled channel was started".to_owned(),
             )
         } else {
             (
                 "already_configured",
-                "Matrix credentials are configured via environment/runtime settings".to_string(),
+                "Matrix credentials are configured via environment/runtime settings".to_owned(),
             )
         };
 
@@ -1325,12 +1324,12 @@ pub(crate) async fn handle_channels_login(
         } else if stream_disabled > 0 {
             (
                 "webhook_mode",
-                "Feishu is configured in webhook mode; no stream channel was started".to_string(),
+                "Feishu is configured in webhook mode; no stream channel was started".to_owned(),
             )
         } else {
             (
                 "configured",
-                "Feishu is configured, but no enabled stream channel was found".to_string(),
+                "Feishu is configured, but no enabled stream channel was found".to_owned(),
             )
         };
 
@@ -1403,13 +1402,12 @@ pub(crate) async fn handle_channels_login(
         } else if polling_disabled > 0 {
             (
                 "webhook_mode",
-                "Telegram is configured in webhook mode; no polling channel was started"
-                    .to_string(),
+                "Telegram is configured in webhook mode; no polling channel was started".to_owned(),
             )
         } else {
             (
                 "configured",
-                "Telegram is configured, but no enabled polling channel was found".to_string(),
+                "Telegram is configured, but no enabled polling channel was found".to_owned(),
             )
         };
 
@@ -1428,9 +1426,9 @@ pub(crate) async fn handle_channels_login(
         "status": if is_configured { "already_configured" } else { "needs_config" },
         "configured": is_configured,
         "message": if is_configured {
-            format!("{} is already configured", platform)
+            format!("{platform} is already configured")
         } else {
-            format!("Please configure {} in the channel settings", platform)
+            format!("Please configure {platform} in the channel settings")
         }
     }))
 }
@@ -1446,7 +1444,7 @@ pub(crate) async fn handle_channels_logout(
         .map(canonical_channel_platform)
         .unwrap_or_default();
     if platform.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_owned()));
     }
 
     let mut secrets = channel.runtime_channel_secrets().await;
@@ -1541,7 +1539,7 @@ pub(crate) async fn handle_channels_test(
         .map(canonical_channel_platform)
         .unwrap_or_default();
     if platform.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_owned()));
     }
 
     let runtime = channel.runtime_channel_secrets().await;
@@ -1578,10 +1576,10 @@ pub(crate) async fn handle_channels_account_update(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
     if platform.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'platform' parameter".to_owned()));
     }
     if account.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'account' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'account' parameter".to_owned()));
     }
 
     let path = channel
@@ -1603,7 +1601,7 @@ pub(crate) async fn handle_channels_account_update(
     });
 
     let _ = crate::json_store::ensure_parent_dir(&path).await;
-    let payload = serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
+    let payload = serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_owned());
     if let Err(err) = tokio::fs::write(&path, payload).await {
         return Err((
             INTERNAL_ERROR,
@@ -1661,7 +1659,7 @@ fn parse_directory_channels(params: &Value) -> Result<Vec<String>, (i64, String)
     if channels.is_empty() {
         return Ok(DIRECTORY_SUPPORTED_CHANNELS
             .iter()
-            .map(|v| (*v).to_string())
+            .map(|v| (*v).to_owned())
             .collect());
     }
 
@@ -1724,7 +1722,7 @@ fn session_channel_id(entry: &SessionEntry) -> Option<String> {
         if trimmed.is_empty() {
             None
         } else {
-            Some(trimmed.to_string())
+            Some(trimmed.to_owned())
         }
     } else {
         None
@@ -1738,7 +1736,7 @@ fn session_group_id(entry: &SessionEntry) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return Some(group_id.to_string());
+        return Some(group_id.to_owned());
     }
 
     if matches!(entry.chat_type.as_deref(), Some("group" | "channel")) {
@@ -1802,7 +1800,7 @@ async fn load_channel_accounts(channel: &GatewayChannel) -> Value {
     let path = channel_accounts_path(channel);
     let content = tokio::fs::read_to_string(path)
         .await
-        .unwrap_or_else(|_| "{}".to_string());
+        .unwrap_or_else(|_| "{}".to_owned());
     serde_json::from_str::<Value>(&content)
         .ok()
         .filter(|value| value.is_object())
@@ -1849,7 +1847,7 @@ pub(crate) async fn handle_directory_self(
                     .get("enabled")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
-                if seen_accounts.insert(account_id.to_string()) {
+                if seen_accounts.insert(account_id.to_owned()) {
                     accounts.push(json!({
                         "channel": channel,
                         "account_id": account_id,
@@ -1873,7 +1871,7 @@ pub(crate) async fn handle_directory_self(
             else {
                 continue;
             };
-            if seen_accounts.insert(account_id.to_string()) {
+            if seen_accounts.insert(account_id.to_owned()) {
                 accounts.push(json!({
                     "channel": channel,
                     "account_id": account_id,
@@ -1887,8 +1885,8 @@ pub(crate) async fn handle_directory_self(
         if seen_accounts.is_empty() {
             let fallback_account = match channel.as_str() {
                 "whatsapp" => std::env::var("WHATSAPP_PHONE_NUMBER_ID")
-                    .unwrap_or_else(|_| "default".to_string()),
-                _ => "default".to_string(),
+                    .unwrap_or_else(|_| "default".to_owned()),
+                _ => "default".to_owned(),
             };
             accounts.push(json!({
                 "channel": channel,
@@ -1934,7 +1932,7 @@ pub(crate) async fn handle_directory_peers_list(
         };
         let name = session_display_name(&entry).unwrap_or_else(|| peer_id.clone());
         let identity = entry.identity.clone().unwrap_or_default();
-        let chat_type = entry.chat_type.clone().unwrap_or_else(|| "dm".to_string());
+        let chat_type = entry.chat_type.clone().unwrap_or_else(|| "dm".to_owned());
 
         if !directory_query_match(
             query.as_deref(),
@@ -2108,10 +2106,9 @@ pub(crate) async fn handle_directory_groups_members(
         .or_else(|| params.get("id"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .trim()
-        .to_string();
+        .trim().to_owned();
     if group_id.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'group_id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'group_id' parameter".to_owned()));
     }
 
     let channels = parse_directory_channels(params)?;
@@ -2165,11 +2162,11 @@ pub(crate) async fn handle_directory_groups_members(
                 .entry(key)
                 .or_insert_with(|| DirectoryMemberAccumulator {
                     channel: channel.clone(),
-                    user_id: user_id.to_string(),
+                    user_id: user_id.to_owned(),
                     name: if name.is_empty() {
-                        user_id.to_string()
+                        user_id.to_owned()
                     } else {
-                        name.to_string()
+                        name.to_owned()
                     },
                     sessions: 0,
                     last_seen_ms: entry.updated_at.max(provenance.timestamp),
@@ -2181,7 +2178,7 @@ pub(crate) async fn handle_directory_groups_members(
                 .max(entry.updated_at)
                 .max(provenance.timestamp);
             if member.name == member.user_id && !name.is_empty() {
-                member.name = name.to_string();
+                member.name = name.to_owned();
             }
         }
     }

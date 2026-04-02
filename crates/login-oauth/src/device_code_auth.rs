@@ -67,7 +67,7 @@ async fn request_user_code(
 ) -> std::io::Result<UserCodeResp> {
     let url = format!("{auth_base_url}/deviceauth/usercode");
     let body = serde_json::to_string(&UserCodeReq {
-        client_id: client_id.to_string(),
+        client_id: client_id.to_owned(),
     })
     .map_err(std::io::Error::other)?;
     let resp = client
@@ -110,8 +110,8 @@ async fn poll_for_token(
 
     loop {
         let body = serde_json::to_string(&TokenPollReq {
-            device_auth_id: device_auth_id.to_string(),
-            user_code: user_code.to_string(),
+            device_auth_id: device_auth_id.to_owned(),
+            user_code: user_code.to_owned(),
         })
         .map_err(std::io::Error::other)?;
         let resp = client

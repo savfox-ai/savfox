@@ -76,7 +76,7 @@ impl Page {
 
         loop {
             if start.elapsed() > timeout {
-                return Err(anyhow!("Timeout waiting for selector: {}", selector));
+                return Err(anyhow!("Timeout waiting for selector: {selector}"));
             }
 
             match self.query_selector(selector).await {
@@ -115,11 +115,11 @@ impl Page {
         let node_id = result
             .get("nodeId")
             .and_then(|n| n.as_u64())
-            .ok_or_else(|| anyhow!("Element not found: {}", selector))?;
+            .ok_or_else(|| anyhow!("Element not found: {selector}"))?;
 
         Ok(Element::new(
             node_id,
-            selector.to_string(),
+            selector.to_owned(),
             self.session_id.clone(),
             self.cdp.clone(),
         ))
@@ -160,7 +160,7 @@ impl Page {
             .map(|node_id| {
                 Element::new(
                     node_id,
-                    selector.to_string(),
+                    selector.to_owned(),
                     self.session_id.clone(),
                     self.cdp.clone(),
                 )
@@ -185,7 +185,7 @@ impl Page {
             .await?;
 
         if let Some(exception) = result.get("exceptionDetails") {
-            return Err(anyhow!("JavaScript error: {:?}", exception));
+            return Err(anyhow!("JavaScript error: {exception:?}"));
         }
 
         Ok(result
@@ -278,8 +278,7 @@ impl Page {
                 let state = params
                     .get("state")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
+                    .unwrap_or_default().to_owned();
                 if state != "completed" && state != "canceled" {
                     return;
                 }
@@ -341,7 +340,7 @@ impl Page {
         let result = self.evaluate("document.title").await?;
         result
             .as_str()
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .ok_or_else(|| anyhow!("Failed to get page title"))
     }
 
@@ -349,7 +348,7 @@ impl Page {
         let result = self.evaluate("window.location.href").await?;
         result
             .as_str()
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .ok_or_else(|| anyhow!("Failed to get page URL"))
     }
 
@@ -377,7 +376,7 @@ impl Page {
         outer_html
             .get("outerHTML")
             .and_then(|h| h.as_str())
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .ok_or_else(|| anyhow!("Failed to get page content"))
     }
 
@@ -431,10 +430,12 @@ impl Page {
         Ok(())
     }
 
+    #[must_use] 
     pub fn target_id(&self) -> &str {
         &self.target_id
     }
 
+    #[must_use] 
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
@@ -444,8 +445,8 @@ fn parse_network_response_event(params: &Value) -> Option<NetworkResponseEvent> 
     let response = params.get("response")?;
     let status = response.get("status")?.as_f64()?;
     Some(NetworkResponseEvent {
-        request_id: params.get("requestId")?.as_str()?.to_string(),
-        url: response.get("url")?.as_str()?.to_string(),
+        request_id: params.get("requestId")?.as_str()?.to_owned(),
+        url: response.get("url")?.as_str()?.to_owned(),
         status: status.round() as u16,
         mime_type: response
             .get("mimeType")

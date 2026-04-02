@@ -95,7 +95,7 @@ pub(crate) fn load_oauth_tokens(
         OAuthCredentialsStoreMode::File => load_oauth_tokens_from_file(server_name, url),
         OAuthCredentialsStoreMode::Keyring => {
             load_oauth_tokens_from_keyring(&keyring_store, server_name, url)
-                .with_context(|| "failed to read OAuth tokens from keyring".to_string())
+                .with_context(|| "failed to read OAuth tokens from keyring".to_owned())
         }
     }
 }
@@ -296,45 +296,42 @@ impl OAuthPersistor {
             guard.get_credentials().await
         }?;
 
-        match maybe_credentials {
-            Some(credentials) => {
-                let mut last_credentials = self.inner.last_credentials.lock().await;
-                let new_token_response = WrappedOAuthTokenResponse(credentials.clone());
-                let same_token = last_credentials
-                    .as_ref()
-                    .map(|prev| prev.token_response == new_token_response)
-                    .unwrap_or(false);
-                let expires_at = if same_token {
-                    last_credentials.as_ref().and_then(|prev| prev.expires_at)
-                } else {
-                    compute_expires_at_millis(&credentials)
-                };
-                let stored = StoredOAuthTokens {
-                    server_name: self.inner.server_name.clone(),
-                    url: self.inner.url.clone(),
-                    client_id,
-                    token_response: new_token_response,
-                    expires_at,
-                };
-                if last_credentials.as_ref() != Some(&stored) {
-                    save_oauth_tokens(&self.inner.server_name, &stored, self.inner.store_mode)?;
-                    *last_credentials = Some(stored);
-                }
+        if let Some(credentials) = maybe_credentials {
+            let mut last_credentials = self.inner.last_credentials.lock().await;
+            let new_token_response = WrappedOAuthTokenResponse(credentials.clone());
+            let same_token = last_credentials
+                .as_ref()
+                .map(|prev| prev.token_response == new_token_response)
+                .unwrap_or(false);
+            let expires_at = if same_token {
+                last_credentials.as_ref().and_then(|prev| prev.expires_at)
+            } else {
+                compute_expires_at_millis(&credentials)
+            };
+            let stored = StoredOAuthTokens {
+                server_name: self.inner.server_name.clone(),
+                url: self.inner.url.clone(),
+                client_id,
+                token_response: new_token_response,
+                expires_at,
+            };
+            if last_credentials.as_ref() != Some(&stored) {
+                save_oauth_tokens(&self.inner.server_name, &stored, self.inner.store_mode)?;
+                *last_credentials = Some(stored);
             }
-            None => {
-                let mut last_serialized = self.inner.last_credentials.lock().await;
-                if last_serialized.take().is_some()
-                    && let Err(error) = delete_oauth_tokens(
-                        &self.inner.server_name,
-                        &self.inner.url,
-                        self.inner.store_mode,
-                    )
-                {
-                    warn!(
-                        "failed to remove OAuth tokens for server {}: {error}",
-                        self.inner.server_name
-                    );
-                }
+        } else {
+            let mut last_serialized = self.inner.last_credentials.lock().await;
+            if last_serialized.take().is_some()
+                && let Err(error) = delete_oauth_tokens(
+                    &self.inner.server_name,
+                    &self.inner.url,
+                    self.inner.store_mode,
+                )
+            {
+                warn!(
+                    "failed to remove OAuth tokens for server {}: {error}",
+                    self.inner.server_name
+                );
             }
         }
 
@@ -438,7 +435,7 @@ fn save_oauth_tokens_to_file(tokens: &StoredOAuthTokens) -> Result<()> {
         .or_else(|| compute_expires_at_millis(token_response));
     let refresh_token = token_response
         .refresh_token()
-        .map(|token| token.secret().to_string());
+        .map(|token| token.secret().clone());
     let scopes = token_response
         .scopes()
         .map(|s| s.iter().map(|s| s.to_string()).collect())
@@ -447,7 +444,7 @@ fn save_oauth_tokens_to_file(tokens: &StoredOAuthTokens) -> Result<()> {
         server_name: tokens.server_name.clone(),
         server_url: tokens.url.clone(),
         client_id: tokens.client_id.clone(),
-        access_token: token_response.access_token().secret().to_string(),
+        access_token: token_response.access_token().secret().clone(),
         expires_at,
         refresh_token,
         scopes,
@@ -515,11 +512,11 @@ fn token_needs_refresh(expires_at: Option<u64>) -> bool {
 fn compute_store_key(server_name: &str, server_url: &str) -> Result<String> {
     let mut payload = JsonMap::new();
     payload.insert(
-        "type".to_string(),
-        Value::String(MCP_SERVER_TYPE.to_string()),
+        "type".to_owned(),
+        Value::String(MCP_SERVER_TYPE.to_owned()),
     );
-    payload.insert("url".to_string(), Value::String(server_url.to_string()));
-    payload.insert("headers".to_string(), Value::Object(JsonMap::new()));
+    payload.insert("url".to_owned(), Value::String(server_url.to_owned()));
+    payload.insert("headers".to_owned(), Value::Object(JsonMap::new()));
 
     let truncated = sha_256_prefix(&Value::Object(payload))?;
     Ok(format!("{server_name}|{truncated}"))
@@ -616,7 +613,7 @@ fn sha_256_prefix(value: &Value) -> Result<String> {
     let digest = hasher.finalize();
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let truncated = &hex[..16];
-    Ok(truncated.to_string())
+    Ok(truncated.to_owned())
 }
 
 #[cfg(test)]

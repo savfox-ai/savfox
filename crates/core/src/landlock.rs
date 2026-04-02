@@ -48,21 +48,20 @@ pub(crate) fn create_linux_sandbox_command_args(
     #[expect(clippy::expect_used)]
     let sandbox_policy_cwd = sandbox_policy_cwd
         .to_str()
-        .expect("cwd must be valid UTF-8")
-        .to_string();
+        .expect("cwd must be valid UTF-8").to_owned();
 
     #[expect(clippy::expect_used)]
     let sandbox_policy_json =
         serde_json::to_string(sandbox_policy).expect("Failed to serialize SandboxPolicy to JSON");
 
     let mut linux_cmd: Vec<String> = vec![
-        "--sandbox-policy-cwd".to_string(),
+        "--sandbox-policy-cwd".to_owned(),
         sandbox_policy_cwd,
-        "--sandbox-policy".to_string(),
+        "--sandbox-policy".to_owned(),
         sandbox_policy_json,
         // Separator so that command arguments starting with `-` are not parsed as
         // options of the helper itself.
-        "--".to_string(),
+        "--".to_owned(),
     ];
 
     // Append the original tool command.

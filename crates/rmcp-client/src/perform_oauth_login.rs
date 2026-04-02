@@ -96,7 +96,7 @@ pub async fn perform_oauth_login_return_url(
 fn spawn_callback_server(server: Arc<Server>, tx: oneshot::Sender<(String, String)>) {
     tokio::task::spawn_blocking(move || {
         while let Ok(request) = server.recv() {
-            let path = request.url().to_string();
+            let path = request.url().to_owned();
             match parse_oauth_callback(&path) {
                 CallbackOutcome::Success(OauthCallbackResult { code, state }) => {
                     let response = Response::from_string(
@@ -192,10 +192,12 @@ impl OauthLoginHandle {
         }
     }
 
+    #[must_use] 
     pub fn authorization_url(&self) -> &str {
         &self.authorization_url
     }
 
+    #[must_use] 
     pub fn into_parts(self) -> (String, oneshot::Receiver<Result<()>>) {
         (self.authorization_url, self.completion)
     }
@@ -249,7 +251,7 @@ impl OauthLoginFlow {
         let callback_port = resolve_callback_port(callback_port)?;
         let bind_addr = match callback_port {
             Some(port) => format!("127.0.0.1:{port}"),
-            None => "127.0.0.1:0".to_string(),
+            None => "127.0.0.1:0".to_owned(),
         };
 
         let server = Arc::new(Server::http(&bind_addr).map_err(|err| anyhow!(err))?);
@@ -296,8 +298,8 @@ impl OauthLoginFlow {
             oauth_state,
             rx,
             guard,
-            server_name: server_name.to_string(),
-            server_url: server_url.to_string(),
+            server_name: server_name.to_owned(),
+            server_url: server_url.to_owned(),
             store_mode,
             launch_browser,
             timeout,

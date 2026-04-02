@@ -206,7 +206,7 @@ pub(crate) async fn spawn_review_session(
     );
 
     let review_turn_context = TurnContext {
-        sub_id: sub_id.to_string(),
+        sub_id: sub_id.clone(),
         client,
         tools_config,
         ghost_snapshot: parent_turn_context.ghost_snapshot.clone(),
@@ -623,7 +623,7 @@ pub(super) mod handlers {
         sess.spawn_task(
             Arc::clone(&turn_context),
             vec![UserInput::Text {
-                text: turn_context.compact_prompt().to_string(),
+                text: turn_context.compact_prompt().to_owned(),
                 // Compaction prompt is synthesized; no UI element ranges to preserve.
                 text_elements: Vec::new(),
             }],
@@ -637,7 +637,7 @@ pub(super) mod handlers {
             sess.send_event_raw(Event {
                 id: sub_id,
                 msg: EventMsg::Error(ErrorEvent {
-                    message: "num_turns must be >= 1".to_string(),
+                    message: "num_turns must be >= 1".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::SessionRollbackFailed),
                 }),
             })
@@ -650,7 +650,7 @@ pub(super) mod handlers {
             sess.send_event_raw(Event {
                 id: sub_id,
                 msg: EventMsg::Error(ErrorEvent {
-                    message: "Cannot rollback while a turn is in progress.".to_string(),
+                    message: "Cannot rollback while a turn is in progress.".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::SessionRollbackFailed),
                 }),
             })
@@ -682,7 +682,7 @@ pub(super) mod handlers {
             let event = Event {
                 id: sub_id,
                 msg: EventMsg::Error(ErrorEvent {
-                    message: "Session name cannot be empty.".to_string(),
+                    message: "Session name cannot be empty.".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::BadRequest),
                 }),
             };
@@ -698,7 +698,7 @@ pub(super) mod handlers {
             let event = Event {
                 id: sub_id,
                 msg: EventMsg::Error(ErrorEvent {
-                    message: "Session persistence is disabled; cannot rename session.".to_string(),
+                    message: "Session persistence is disabled; cannot rename session.".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::Other),
                 }),
             };
@@ -768,7 +768,7 @@ pub(super) mod handlers {
             let event = Event {
                 id: sub_id.clone(),
                 msg: EventMsg::Error(ErrorEvent {
-                    message: "Failed to shutdown rollout recorder".to_string(),
+                    message: "Failed to shutdown rollout recorder".to_owned(),
                     savfox_error_info: Some(SavfoxErrorInfo::Other),
                 }),
             };

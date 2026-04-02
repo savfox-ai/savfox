@@ -48,11 +48,11 @@ impl Default for AutoReplyConfig {
         Self {
             enabled: true,
             greeting_message: Some(
-                "Hello! I'm ready to help. Type /help for commands.".to_string(),
+                "Hello! I'm ready to help. Type /help for commands.".to_owned(),
             ),
             status_format: None,
             allow_commands: true,
-            command_prefix: "/".to_string(),
+            command_prefix: "/".to_owned(),
             command_allowlist: Vec::new(),
             command_denylist: Vec::new(),
             group_keywords: Vec::new(),

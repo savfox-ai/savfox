@@ -20,8 +20,8 @@ impl Default for TtsState {
     fn default() -> Self {
         Self {
             enabled: false,
-            provider: "edge".to_string(),
-            voice: "en-US-AriaNeural".to_string(),
+            provider: "edge".to_owned(),
+            voice: "en-US-AriaNeural".to_owned(),
             rate: 1.0,
             max_chars: 500,
             summarize: true,
@@ -43,35 +43,35 @@ struct TtsProvider {
 fn get_providers() -> Vec<TtsProvider> {
     vec![
         TtsProvider {
-            id: "edge".to_string(),
-            name: "Microsoft Edge TTS".to_string(),
+            id: "edge".to_owned(),
+            name: "Microsoft Edge TTS".to_owned(),
             voices: vec![
-                "en-US-AriaNeural".to_string(),
-                "en-US-GuyNeural".to_string(),
-                "en-GB-SoniaNeural".to_string(),
-                "en-AU-NatashaNeural".to_string(),
+                "en-US-AriaNeural".to_owned(),
+                "en-US-GuyNeural".to_owned(),
+                "en-GB-SoniaNeural".to_owned(),
+                "en-AU-NatashaNeural".to_owned(),
             ],
         },
         TtsProvider {
-            id: "openai".to_string(),
-            name: "OpenAI TTS".to_string(),
+            id: "openai".to_owned(),
+            name: "OpenAI TTS".to_owned(),
             voices: vec![
-                "alloy".to_string(),
-                "echo".to_string(),
-                "fable".to_string(),
-                "onyx".to_string(),
-                "nova".to_string(),
-                "shimmer".to_string(),
+                "alloy".to_owned(),
+                "echo".to_owned(),
+                "fable".to_owned(),
+                "onyx".to_owned(),
+                "nova".to_owned(),
+                "shimmer".to_owned(),
             ],
         },
         TtsProvider {
-            id: "elevenlabs".to_string(),
-            name: "ElevenLabs".to_string(),
+            id: "elevenlabs".to_owned(),
+            name: "ElevenLabs".to_owned(),
             voices: vec![
-                "rachel".to_string(),
-                "domi".to_string(),
-                "bella".to_string(),
-                "adam".to_string(),
+                "rachel".to_owned(),
+                "domi".to_owned(),
+                "bella".to_owned(),
+                "adam".to_owned(),
             ],
         },
     ]
@@ -142,9 +142,9 @@ pub async fn tts_set_provider_handler(req: &mut Request, res: &mut Response) {
     }
 
     let mut state = tts_state().write().await;
-    state.provider = provider.to_string();
+    state.provider = provider.to_owned();
     if let Some(v) = voice {
-        state.voice = v.to_string();
+        state.voice = v.to_owned();
     }
 
     res.render(Text::Json(

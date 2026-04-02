@@ -46,7 +46,7 @@ impl ToolHandler for ViewImageHandler {
         let content: Vec<ContentItem> =
             local_image_content_items_with_label_number(&abs_path, None);
         let input = ResponseInputItem::Message {
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content,
         };
 
@@ -56,7 +56,7 @@ impl ToolHandler for ViewImageHandler {
             .await
             .map_err(|_| {
                 FunctionCallError::RespondToModel(
-                    "unable to attach image (no active task)".to_string(),
+                    "unable to attach image (no active task)".to_owned(),
                 )
             })?;
 
@@ -71,6 +71,6 @@ impl ToolHandler for ViewImageHandler {
             )
             .await;
 
-        Ok(ToolOutput::ok("attached local image path".to_string()))
+        Ok(ToolOutput::ok("attached local image path".to_owned()))
     }
 }

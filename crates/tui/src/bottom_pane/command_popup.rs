@@ -50,7 +50,7 @@ impl CommandPopup {
             flags.windows_degraded_sandbox_active,
         );
         // Exclude prompts that collide with builtin command names and sort by name.
-        let exclude: HashSet<String> = builtins.iter().map(|(n, _)| (*n).to_string()).collect();
+        let exclude: HashSet<String> = builtins.iter().map(|(n, _)| (*n).to_owned()).collect();
         prompts.retain(|p| !exclude.contains(&p.name));
         prompts.sort_by(|a, b| a.name.cmp(&b.name));
         Self {
@@ -65,7 +65,7 @@ impl CommandPopup {
         let exclude: HashSet<String> = self
             .builtins
             .iter()
-            .map(|(n, _)| (*n).to_string())
+            .map(|(n, _)| (*n).to_owned())
             .collect();
         prompts.retain(|p| !exclude.contains(&p.name));
         prompts.sort_by(|a, b| a.name.cmp(&b.name));
@@ -92,7 +92,7 @@ impl CommandPopup {
 
             // Update the filter keeping the original case (commands are all
             // lower-case for now but this may change in the future).
-            self.command_filter = cmd_token.to_string();
+            self.command_filter = cmd_token.to_owned();
         } else {
             // The composer no longer starts with '/'. Reset the filter so the
             // popup shows the *full* command list if it is still displayed
@@ -199,14 +199,14 @@ impl CommandPopup {
             .map(|(item, indices)| {
                 let (name, description) = match item {
                     CommandItem::Builtin(cmd) => {
-                        (format!("/{}", cmd.command()), cmd.description().to_string())
+                        (format!("/{}", cmd.command()), cmd.description().to_owned())
                     }
                     CommandItem::UserPrompt(i) => {
                         let prompt = &self.prompts[i];
                         let description = prompt
                             .description
                             .clone()
-                            .unwrap_or_else(|| "send saved prompt".to_string());
+                            .unwrap_or_else(|| "send saved prompt".to_owned());
                         (
                             format!("/{PROMPTS_CMD_PREFIX}:{}", prompt.name),
                             description,

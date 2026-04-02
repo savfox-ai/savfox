@@ -17,14 +17,14 @@ pub(super) fn function_tool(decl: FunctionToolDecl<'_>) -> ToolSpec {
         Some(
             decl.required
                 .iter()
-                .map(|name| (*name).to_string())
+                .map(|name| (*name).to_owned())
                 .collect(),
         )
     };
 
     ToolSpec::Function(ResponsesApiTool {
-        name: decl.name.to_string(),
-        description: decl.description.to_string(),
+        name: decl.name.to_owned(),
+        description: decl.description.to_owned(),
         strict: false,
         parameters: JsonSchema::Object {
             properties: decl.properties,

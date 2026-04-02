@@ -337,7 +337,7 @@ fn print_tools_table(result: &serde_json::Value) {
         .unwrap_or("?");
     let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
 
-    println!("Tools for agent: {} ({} tools)\n", agent_id, count);
+    println!("Tools for agent: {agent_id} ({count} tools)\n");
 
     if let Some(tools) = result.get("tools").and_then(|v| v.as_array()) {
         println!(
@@ -362,8 +362,7 @@ fn print_tools_table(result: &serde_json::Value) {
             let approval_str = if approval { "Required" } else { "Auto" };
 
             println!(
-                "{:<25} {:<12} {:<10} {:<10}",
-                name, category, allowed_str, approval_str
+                "{name:<25} {category:<12} {allowed_str:<10} {approval_str:<10}"
             );
         }
     }

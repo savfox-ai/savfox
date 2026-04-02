@@ -65,7 +65,7 @@ pub(crate) async fn emit_exec_command_begin(
         .send_event(
             ctx.turn,
             EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-                call_id: ctx.call_id.to_string(),
+                call_id: ctx.call_id.to_owned(),
                 process_id: process_id.map(str::to_owned),
                 turn_id: ctx.turn.sub_id.clone(),
                 command: command.to_vec(),
@@ -174,7 +174,7 @@ impl ToolEmitter {
                     .send_event(
                         ctx.turn,
                         EventMsg::PatchApplyBegin(PatchApplyBeginEvent {
-                            call_id: ctx.call_id.to_string(),
+                            call_id: ctx.call_id.to_owned(),
                             turn_id: ctx.turn.sub_id.clone(),
                             auto_approved: *auto_approved,
                             changes: changes.clone(),
@@ -279,8 +279,8 @@ impl ToolEmitter {
                 };
                 (event, result)
             }
-            Err(ToolError::Savfox(SavfoxError::Sandbox(SandboxErr::Timeout { output })))
-            | Err(ToolError::Savfox(SavfoxError::Sandbox(SandboxErr::Denied { output }))) => {
+            Err(ToolError::Savfox(SavfoxError::Sandbox(SandboxErr::Timeout { output } |
+SandboxErr::Denied { output }))) => {
                 let response = self.format_exec_output_for_model(&output, ctx);
                 let event = ToolEventStage::Failure(ToolEventFailure::Output(*output));
                 let result = Err(FunctionCallError::RespondToModel(response));
@@ -298,9 +298,9 @@ impl ToolEmitter {
                 let normalized = if msg == "rejected by user" {
                     match self {
                         Self::Shell { .. } | Self::UnifiedExec { .. } => {
-                            "exec command rejected by user".to_string()
+                            "exec command rejected by user".to_owned()
                         }
-                        Self::ApplyPatch { .. } => "patch rejected by user".to_string(),
+                        Self::ApplyPatch { .. } => "patch rejected by user".to_owned(),
                     }
                 } else {
                     msg
@@ -384,7 +384,7 @@ async fn emit_exec_stage(
             emit_exec_end(ctx, exec_input, exec_result).await;
         }
         ToolEventStage::Failure(ToolEventFailure::Message(message)) => {
-            let text = message.to_string();
+            let text = message.clone();
             let exec_result = ExecCommandResult {
                 stdout: String::new(),
                 stderr: text.clone(),
@@ -407,7 +407,7 @@ async fn emit_exec_end(
         .send_event(
             ctx.turn,
             EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-                call_id: ctx.call_id.to_string(),
+                call_id: ctx.call_id.to_owned(),
                 process_id: exec_input.process_id.map(str::to_owned),
                 turn_id: ctx.turn.sub_id.clone(),
                 command: exec_input.command.to_vec(),
@@ -437,7 +437,7 @@ async fn emit_patch_end(
         .send_event(
             ctx.turn,
             EventMsg::PatchApplyEnd(PatchApplyEndEvent {
-                call_id: ctx.call_id.to_string(),
+                call_id: ctx.call_id.to_owned(),
                 turn_id: ctx.turn.sub_id.clone(),
                 stdout,
                 stderr,

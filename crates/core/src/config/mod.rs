@@ -62,13 +62,14 @@ pub(crate) const DEFAULT_AGENT_MAX_THREADS: Option<usize> = Some(6);
 
 /// Normalize a skill config path so UI state and persisted config entries
 /// compare the same canonical location.
+#[must_use] 
 pub fn normalize_skill_config_path(path: &Path) -> PathBuf {
     dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 fn merge_provider_store_model_providers(
@@ -197,7 +198,7 @@ fn merge_provider_store_model_providers(
 
         let wire_api = base_provider
             .as_ref()
-            .map(|p| p.wire_api.clone())
+            .map(|p| p.wire_api)
             .unwrap_or(crate::WireApi::Chat);
         let supports_websockets = base_provider
             .as_ref()
@@ -516,31 +517,37 @@ pub struct ConfigBuilder {
 }
 
 impl ConfigBuilder {
+    #[must_use] 
     pub fn savfox_home(mut self, savfox_home: PathBuf) -> Self {
         self.savfox_home = Some(savfox_home);
         self
     }
 
+    #[must_use] 
     pub fn cli_overrides(mut self, cli_overrides: Vec<(String, TomlValue)>) -> Self {
         self.cli_overrides = Some(cli_overrides);
         self
     }
 
+    #[must_use] 
     pub fn harness_overrides(mut self, harness_overrides: ConfigOverrides) -> Self {
         self.harness_overrides = Some(harness_overrides);
         self
     }
 
+    #[must_use] 
     pub fn loader_overrides(mut self, loader_overrides: LoaderOverrides) -> Self {
         self.loader_overrides = Some(loader_overrides);
         self
     }
 
+    #[must_use] 
     pub fn cloud_requirements(mut self, cloud_requirements: CloudRequirementsLoader) -> Self {
         self.cloud_requirements = cloud_requirements;
         self
     }
 
+    #[must_use] 
     pub fn fallback_cwd(mut self, fallback_cwd: Option<PathBuf>) -> Self {
         self.fallback_cwd = fallback_cwd;
         self
@@ -885,7 +892,7 @@ pub fn set_default_oss_provider(savfox_home: &Path, provider: &str) -> std::io::
     use toml_edit::value;
 
     let edits = [ConfigEdit::SetPath {
-        segments: vec!["oss_provider".to_string()],
+        segments: vec!["oss_provider".to_owned()],
         value: value(provider),
     }];
 
@@ -909,10 +916,12 @@ pub struct SelectedModel {
 }
 
 impl SelectedModel {
+    #[must_use] 
     pub fn normalized_slug(&self) -> Option<String> {
         trim_nonempty(self.slug.as_str())
     }
 
+    #[must_use] 
     pub fn normalized_provider(&self) -> Option<String> {
         trim_nonempty(self.provider.as_str())
     }
@@ -920,6 +929,7 @@ impl SelectedModel {
     /// Returns the full model identifier in "provider/slug" format.
     /// If the slug already contains a provider prefix, returns it as-is.
     /// Otherwise, formats as "provider/slug".
+    #[must_use] 
     pub fn to_model_id(&self) -> Option<String> {
         let slug = self.normalized_slug()?;
         // If slug already has a provider prefix (e.g., "provider/model"), use it as-is
@@ -927,7 +937,7 @@ impl SelectedModel {
             Some(slug)
         } else {
             let provider = self.normalized_provider()?;
-            Some(format!("{}/{}", provider, slug))
+            Some(format!("{provider}/{slug}"))
         }
     }
 }
@@ -1171,10 +1181,12 @@ pub struct ProjectConfig {
 }
 
 impl ProjectConfig {
+    #[must_use] 
     pub fn is_trusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Trusted))
     }
 
+    #[must_use] 
     pub fn is_untrusted(&self) -> bool {
         matches!(self.trust_level, Some(TrustLevel::Untrusted))
     }
@@ -1288,6 +1300,7 @@ impl ConfigToml {
 
     /// Resolves the cwd to an existing project, or returns None if ConfigToml
     /// does not contain a project corresponding to cwd or a git repo for cwd
+    #[must_use] 
     pub fn get_active_project(&self, resolved_cwd: &Path) -> Option<ProjectConfig> {
         let projects = self.projects.clone().unwrap_or_default();
 
@@ -1333,13 +1346,14 @@ pub struct ConfigOverrides {
 
 /// Resolves the OSS provider from CLI override or global config.
 /// Returns `None` if no provider is configured.
+#[must_use] 
 pub fn resolve_oss_provider(
     explicit_provider: Option<&str>,
     config_toml: &ConfigToml,
 ) -> Option<String> {
     if let Some(provider) = explicit_provider {
         // Explicit provider specified (e.g., via --local-provider)
-        Some(provider.to_string())
+        Some(provider.to_owned())
     } else {
         config_toml.oss_provider.clone()
     }
@@ -1540,7 +1554,7 @@ impl Config {
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    "No model providers configured".to_string(),
+                    "No model providers configured".to_owned(),
                 )
             })?;
         let model_provider = model_providers
@@ -1598,7 +1612,7 @@ impl Config {
                 if trimmed.is_empty() {
                     None
                 } else {
-                    Some(trimmed.to_string())
+                    Some(trimmed.to_owned())
                 }
             });
 
@@ -1609,7 +1623,7 @@ impl Config {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         });
 
@@ -1698,7 +1712,7 @@ impl Config {
                     if trimmed.is_empty() {
                         None
                     } else {
-                        Some(trimmed.to_string())
+                        Some(trimmed.to_owned())
                     }
                 })
                 .collect(),
@@ -1722,7 +1736,7 @@ impl Config {
             model_verbosity: cfg.model_verbosity,
             chatgpt_base_url: cfg
                 .chatgpt_base_url
-                .unwrap_or("https://chatgpt.com/backend-api/".to_string()),
+                .unwrap_or("https://chatgpt.com/backend-api/".to_owned()),
             forced_chatgpt_workspace_id,
             forced_login_method,
             include_apply_patch_tool: include_apply_patch_tool_flag,
@@ -1767,7 +1781,7 @@ impl Config {
                 let log_user_prompt = t.log_user_prompt.unwrap_or(false);
                 let environment = t
                     .environment
-                    .unwrap_or(DEFAULT_OTEL_ENVIRONMENT.to_string());
+                    .unwrap_or(DEFAULT_OTEL_ENVIRONMENT.to_owned());
                 let exporter = t.exporter.unwrap_or(OtelExporterKind::None);
                 let trace_exporter = t.trace_exporter.unwrap_or_else(|| exporter.clone());
                 OtelConfig {
@@ -1790,7 +1804,7 @@ impl Config {
             if let Ok(contents) = std::fs::read_to_string(&path) {
                 let trimmed = contents.trim();
                 if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
+                    return Some(trimmed.to_owned());
                 }
             }
         }
@@ -1815,7 +1829,7 @@ impl Config {
             )
         })?;
 
-        let s = contents.trim().to_string();
+        let s = contents.trim().to_owned();
         if s.is_empty() {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,

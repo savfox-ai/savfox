@@ -48,6 +48,7 @@ pub struct MockAudioCapture {
 }
 
 impl MockAudioCapture {
+    #[must_use] 
     pub fn new(config: AudioConfig) -> Self {
         let (frame_tx, _) = broadcast::channel(64);
         Self {
@@ -102,6 +103,7 @@ pub struct AudioLevelDetector {
 }
 
 impl AudioLevelDetector {
+    #[must_use] 
     pub fn new(threshold: f32, sample_rate: u32) -> Self {
         Self {
             threshold,
@@ -110,6 +112,7 @@ impl AudioLevelDetector {
     }
 
     /// Calculate RMS level of audio samples.
+    #[must_use] 
     pub fn calculate_level(&self, samples: &[i16]) -> f32 {
         if samples.is_empty() {
             return 0.0;
@@ -124,6 +127,7 @@ impl AudioLevelDetector {
     }
 
     /// Check if audio level exceeds threshold (voice activity detected).
+    #[must_use] 
     pub fn is_voice_active(&self, samples: &[i16]) -> bool {
         self.calculate_level(samples) >= self.threshold
     }
@@ -134,12 +138,14 @@ impl AudioLevelDetector {
     }
 
     /// Get the current threshold.
+    #[must_use] 
     pub fn threshold(&self) -> f32 {
         self.threshold
     }
 }
 
 /// Convert bytes to i16 samples (little-endian).
+#[must_use] 
 pub fn bytes_to_samples(bytes: &[u8]) -> Vec<i16> {
     bytes
         .chunks_exact(2)
@@ -148,6 +154,7 @@ pub fn bytes_to_samples(bytes: &[u8]) -> Vec<i16> {
 }
 
 /// Convert i16 samples to bytes (little-endian).
+#[must_use] 
 pub fn samples_to_bytes(samples: &[i16]) -> Vec<u8> {
     samples.iter().flat_map(|&s| s.to_le_bytes()).collect()
 }

@@ -102,12 +102,14 @@ impl A2AMessage {
     }
 
     /// Set a per-message timeout.
+    #[must_use] 
     pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
         self.timeout_ms = Some(timeout_ms);
         self
     }
 
     /// Append an agent to the delegation chain.
+    #[must_use] 
     pub fn with_delegation(mut self, chain: Vec<String>) -> Self {
         self.delegation_chain = chain;
         self
@@ -206,6 +208,7 @@ pub async fn remove_delegation(child_agent: &str) -> bool {
 }
 
 /// Get the current timestamp in milliseconds.
+#[must_use] 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -133,7 +133,7 @@ impl AgentControl {
     fn upgrade(&self) -> SavfoxResult<Arc<SessionManagerState>> {
         self.manager
             .upgrade()
-            .ok_or_else(|| SavfoxError::UnsupportedOperation("session manager dropped".to_string()))
+            .ok_or_else(|| SavfoxError::UnsupportedOperation("session manager dropped".to_owned()))
     }
 }
 

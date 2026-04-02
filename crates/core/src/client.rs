@@ -106,6 +106,7 @@ impl ModelClient {
         )
     }
 
+    #[must_use] 
     pub fn new(
         config: Arc<Config>,
         auth_manager: Option<Arc<AuthManager>>,
@@ -135,6 +136,7 @@ impl ModelClient {
         }
     }
 
+    #[must_use] 
     pub fn new_session(&self, turn_metadata_cwd: Option<PathBuf>) -> ModelClientSession {
         self.prewarm_turn_metadata_header(turn_metadata_cwd);
         ModelClientSession {
@@ -180,6 +182,7 @@ impl ModelClient {
 }
 
 impl ModelClient {
+    #[must_use] 
     pub fn get_model_context_window(&self) -> Option<i64> {
         let model_info = &self.state.model_info;
         let effective_context_window_percent = model_info.effective_context_window_percent;
@@ -188,22 +191,27 @@ impl ModelClient {
         })
     }
 
+    #[must_use] 
     pub fn config(&self) -> Arc<Config> {
         Arc::clone(&self.state.config)
     }
 
+    #[must_use] 
     pub fn provider(&self) -> &ModelProviderInfo {
         &self.state.provider
     }
 
+    #[must_use] 
     pub fn get_provider(&self) -> ModelProviderInfo {
         self.state.provider.clone()
     }
 
+    #[must_use] 
     pub fn get_otel_manager(&self) -> OtelManager {
         self.state.otel_manager.clone()
     }
 
+    #[must_use] 
     pub fn get_session_source(&self) -> SessionSource {
         self.state.session_source.clone()
     }
@@ -213,24 +221,29 @@ impl ModelClient {
     }
 
     /// Returns the currently configured model slug.
+    #[must_use] 
     pub fn get_model(&self) -> String {
         self.state.model_info.slug.clone()
     }
 
+    #[must_use] 
     pub fn get_model_info(&self) -> ModelInfo {
         self.state.model_info.clone()
     }
 
     /// Returns the current reasoning effort setting.
+    #[must_use] 
     pub fn get_reasoning_effort(&self) -> Option<ReasoningEffortConfig> {
         self.state.effort
     }
 
     /// Returns the current reasoning summary setting.
+    #[must_use] 
     pub fn get_reasoning_summary(&self) -> ReasoningSummaryConfig {
         self.state.summary
     }
 
+    #[must_use] 
     pub fn get_auth_manager(&self) -> Option<Arc<AuthManager>> {
         self.state.auth_manager.clone()
     }
@@ -274,9 +287,9 @@ impl ModelClient {
         let mut extra_headers = ApiHeaderMap::new();
         if let SessionSource::SubAgent(sub) = &self.state.session_source {
             let subagent = match sub {
-                crate::protocol::SubAgentSource::Review => "review".to_string(),
-                crate::protocol::SubAgentSource::Compact => "compact".to_string(),
-                crate::protocol::SubAgentSource::SessionSpawn { .. } => "collab_spawn".to_string(),
+                crate::protocol::SubAgentSource::Review => "review".to_owned(),
+                crate::protocol::SubAgentSource::Compact => "compact".to_owned(),
+                crate::protocol::SubAgentSource::SessionSpawn { .. } => "collab_spawn".to_owned(),
                 crate::protocol::SubAgentSource::Other(label) => label.clone(),
             };
             if let Ok(val) = HeaderValue::from_str(&subagent) {
@@ -510,7 +523,7 @@ impl ModelClientSession {
         };
 
         let include = if reasoning.is_some() {
-            vec!["reasoning.encrypted_content".to_string()]
+            vec!["reasoning.encrypted_content".to_owned()]
         } else {
             Vec::new()
         };
@@ -620,7 +633,7 @@ impl ModelClientSession {
             instructions: api_prompt.instructions.clone(),
             input: api_prompt.input.clone(),
             tools: api_prompt.tools.clone(),
-            tool_choice: "auto".to_string(),
+            tool_choice: "auto".to_owned(),
             parallel_tool_calls: api_prompt.parallel_tool_calls,
             reasoning: reasoning.clone(),
             store,
@@ -714,7 +727,7 @@ impl ModelClientSession {
         }
 
         self.connection.as_ref().ok_or(ApiError::Stream(
-            "websocket connection is unavailable".to_string(),
+            "websocket connection is unavailable".to_owned(),
         ))
     }
 
@@ -740,7 +753,7 @@ impl ModelClientSession {
     ) -> Result<ApiResponseStream> {
         if prompt.output_schema.is_some() {
             return Err(SavfoxError::UnsupportedOperation(
-                "output_schema is not supported for Chat Completions API".to_string(),
+                "output_schema is not supported for Chat Completions API".to_owned(),
             ));
         }
 
@@ -804,7 +817,7 @@ impl ModelClientSession {
     async fn stream_anthropic_messages(&self, prompt: &Prompt) -> Result<ApiResponseStream> {
         if prompt.output_schema.is_some() {
             return Err(SavfoxError::UnsupportedOperation(
-                "output_schema is not supported for Anthropic Messages API".to_string(),
+                "output_schema is not supported for Anthropic Messages API".to_owned(),
             ));
         }
 

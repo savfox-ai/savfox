@@ -16,6 +16,7 @@ pub struct CustomHttpEmbeddingProvider {
 }
 
 impl CustomHttpEmbeddingProvider {
+    #[must_use] 
     pub fn new(
         endpoint: String,
         model: String,
@@ -76,8 +77,7 @@ impl EmbeddingProvider for CustomHttpEmbeddingProvider {
             let header_name = self
                 .api_key_header
                 .as_deref()
-                .unwrap_or("Authorization")
-                .to_string();
+                .unwrap_or("Authorization").to_owned();
             let header_value = if header_name.eq_ignore_ascii_case("Authorization") {
                 format!("Bearer {key}")
             } else {
@@ -96,7 +96,7 @@ impl EmbeddingProvider for CustomHttpEmbeddingProvider {
                 });
             }
             return Err(EmbeddingError::ApiError {
-                message: format!("HTTP {}: {}", status, body),
+                message: format!("HTTP {status}: {body}"),
             });
         }
 

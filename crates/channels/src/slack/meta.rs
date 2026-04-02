@@ -15,11 +15,11 @@ pub struct SlackStartMeta {
 
 fn append_string_values(value: &Value, out: &mut Vec<String>) {
     match value {
-        Value::String(s) => out.push(s.to_string()),
+        Value::String(s) => out.push(s.clone()),
         Value::Array(items) => {
             for item in items {
                 if let Some(s) = item.as_str() {
-                    out.push(s.to_string());
+                    out.push(s.to_owned());
                 }
             }
         }
@@ -77,19 +77,19 @@ pub fn parse_start_meta(payload: &Value) -> SlackStartMeta {
         .as_deref()
         .map(|channel| {
             if channel.starts_with('D') {
-                "dm".to_string()
+                "dm".to_owned()
             } else {
-                "group".to_string()
+                "group".to_owned()
             }
         })
-        .or_else(|| Some("group".to_string()));
+        .or_else(|| Some("group".to_owned()));
 
     SlackStartMeta {
         peer_id,
         channel_id,
         team_id,
         account_id,
-        thread_id: thread_id.clone(),
+        thread_id,
         reply_target,
         parent_sender_id,
         slack_groups,

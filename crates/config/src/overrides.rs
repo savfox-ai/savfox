@@ -1,9 +1,11 @@
 use toml::Value as TomlValue;
 
+#[must_use] 
 pub fn default_empty_table() -> TomlValue {
     TomlValue::Table(Default::default())
 }
 
+#[must_use] 
 pub fn build_cli_overrides_layer(cli_overrides: &[(String, TomlValue)]) -> TomlValue {
     let mut root = default_empty_table();
     for (path, value) in cli_overrides {
@@ -23,32 +25,26 @@ fn apply_toml_override(root: &mut TomlValue, path: &str, value: TomlValue) {
         let is_last = segments_iter.peek().is_none();
 
         if is_last {
-            match current {
-                TomlValue::Table(table) => {
-                    table.insert(segment.to_string(), value);
-                }
-                _ => {
-                    let mut table = Table::new();
-                    table.insert(segment.to_string(), value);
-                    *current = TomlValue::Table(table);
-                }
+            if let TomlValue::Table(table) = current {
+                table.insert(segment.to_owned(), value);
+            } else {
+                let mut table = Table::new();
+                table.insert(segment.to_owned(), value);
+                *current = TomlValue::Table(table);
             }
             return;
         }
 
-        match current {
-            TomlValue::Table(table) => {
-                current = table
-                    .entry(segment.to_string())
+        if let TomlValue::Table(table) = current {
+            current = table
+                .entry(segment.to_owned())
+                .or_insert_with(|| TomlValue::Table(Table::new()));
+        } else {
+            *current = TomlValue::Table(Table::new());
+            if let TomlValue::Table(tbl) = current {
+                current = tbl
+                    .entry(segment.to_owned())
                     .or_insert_with(|| TomlValue::Table(Table::new()));
-            }
-            _ => {
-                *current = TomlValue::Table(Table::new());
-                if let TomlValue::Table(tbl) = current {
-                    current = tbl
-                        .entry(segment.to_string())
-                        .or_insert_with(|| TomlValue::Table(Table::new()));
-                }
             }
         }
     }

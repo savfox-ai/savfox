@@ -96,23 +96,19 @@ impl SavfoxMessageProcessor {
             return;
         };
 
-        let (url, http_headers, env_http_headers) = match &server.transport {
-            McpServerTransportConfig::StreamableHttp {
+        let (url, http_headers, env_http_headers) = if let McpServerTransportConfig::StreamableHttp {
                 url,
                 http_headers,
                 env_http_headers,
                 ..
-            } => (url.clone(), http_headers.clone(), env_http_headers.clone()),
-            _ => {
-                let error = JSONRPCErrorError {
-                    code: INVALID_REQUEST_ERROR_CODE,
-                    message: "OAuth login is only supported for streamable HTTP servers."
-                        .to_string(),
-                    data: None,
-                };
-                self.outgoing.send_error(request_id, error).await;
-                return;
-            }
+            } = &server.transport { (url.clone(), http_headers.clone(), env_http_headers.clone()) } else {
+            let error = JSONRPCErrorError {
+                code: INVALID_REQUEST_ERROR_CODE,
+                message: "OAuth login is only supported for streamable HTTP servers.".to_owned(),
+                data: None,
+            };
+            self.outgoing.send_error(request_id, error).await;
+            return;
         };
 
         let scopes = scopes.or_else(|| server.scopes.clone());
@@ -130,7 +126,7 @@ impl SavfoxMessageProcessor {
         .await
         {
             Ok(handle) => {
-                let authorization_url = handle.authorization_url().to_string();
+                let authorization_url = handle.authorization_url().to_owned();
                 let notification_name = name.clone();
                 let outgoing = Arc::clone(&self.outgoing);
 
@@ -208,17 +204,14 @@ impl SavfoxMessageProcessor {
         let limit = params.limit.unwrap_or(total as u32).max(1) as usize;
         let effective_limit = limit.min(total);
         let start = match params.cursor {
-            Some(cursor) => match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => {
-                    let error = JSONRPCErrorError {
-                        code: INVALID_REQUEST_ERROR_CODE,
-                        message: format!("invalid cursor: {cursor}"),
-                        data: None,
-                    };
-                    outgoing.send_error(request_id, error).await;
-                    return;
-                }
+            Some(cursor) => if let Ok(idx) = cursor.parse::<usize>() { idx } else {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid cursor: {cursor}"),
+                    data: None,
+                };
+                outgoing.send_error(request_id, error).await;
+                return;
             },
             None => 0,
         };

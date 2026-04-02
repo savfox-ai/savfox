@@ -119,7 +119,7 @@ impl AttachmentStore {
                 .as_secs();
             if now > expires {
                 self.delete(id).await;
-                return Err("Attachment expired".to_string());
+                return Err("Attachment expired".to_owned());
             }
         }
 

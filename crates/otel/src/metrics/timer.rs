@@ -22,7 +22,7 @@ impl Drop for Timer {
 impl Timer {
     pub(crate) fn new(name: &str, tags: &[(&str, &str)], client: &MetricsClient) -> Self {
         Self {
-            name: name.to_string(),
+            name: name.to_owned(),
             tags: tags
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))

@@ -11,6 +11,7 @@ pub struct Row {
 }
 
 impl Row {
+    #[must_use] 
     pub fn width(&self) -> usize {
         self.text.width()
     }
@@ -26,6 +27,7 @@ pub struct RowBuilder {
 }
 
 impl RowBuilder {
+    #[must_use] 
     pub fn new(target_width: usize) -> Self {
         Self {
             target_width: target_width.max(1),
@@ -34,6 +36,7 @@ impl RowBuilder {
         }
     }
 
+    #[must_use] 
     pub fn width(&self) -> usize {
         self.target_width
     }
@@ -86,11 +89,13 @@ impl RowBuilder {
     }
 
     /// Return a snapshot of produced rows (non-draining).
+    #[must_use] 
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
 
     /// Rows suitable for display, including the current partial line if any.
+    #[must_use] 
     pub fn display_rows(&self) -> Vec<Row> {
         let mut out = self.rows.clone();
         if !self.current_line.is_empty() {
@@ -176,7 +181,7 @@ impl RowBuilder {
                     text: prefix,
                     explicit_break: false,
                 });
-                self.current_line = suffix.to_string();
+                self.current_line = suffix.to_owned();
             }
         }
     }
@@ -184,6 +189,7 @@ impl RowBuilder {
 
 /// Take a prefix of `text` whose visible width is at most `max_cols`.
 /// Returns (prefix, suffix, prefix_width).
+#[must_use] 
 pub fn take_prefix_by_width(text: &str, max_cols: usize) -> (String, &str, usize) {
     if max_cols == 0 || text.is_empty() {
         return (String::new(), text, 0);

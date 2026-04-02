@@ -81,10 +81,10 @@ pub fn build_provider(
     let runtime_metrics = config.features.enabled(Feature::RuntimeMetrics);
 
     OtelProvider::from(&OtelSettings {
-        service_name: service_name.to_string(),
-        service_version: service_version.to_string(),
+        service_name: service_name.to_owned(),
+        service_version: service_version.to_owned(),
         savfox_home: config.savfox_home.clone(),
-        environment: config.otel.environment.to_string(),
+        environment: config.otel.environment.clone(),
         exporter,
         trace_exporter,
         metrics_exporter,
@@ -94,6 +94,7 @@ pub fn build_provider(
 
 /// Filter predicate for exporting only Savfox-owned events via OTEL.
 /// Keeps events that originated from savfox_otel module
+#[must_use] 
 pub fn savfox_export_filter(meta: &tracing::Metadata<'_>) -> bool {
     meta.target().starts_with("savfox_otel")
 }

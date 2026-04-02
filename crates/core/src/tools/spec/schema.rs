@@ -22,7 +22,7 @@ pub(super) fn mcp_tool_to_openai_tool(
         && obj.get("properties").is_none_or(serde_json::Value::is_null)
     {
         obj.insert(
-            "properties".to_string(),
+            "properties".to_owned(),
             serde_json::Value::Object(serde_json::Map::new()),
         );
     }
@@ -98,7 +98,7 @@ fn sanitize_json_schema(value: &mut JsonValue) {
                             "object" | "array" | "string" | "number" | "integer" | "boolean"
                         )
                     {
-                        ty = Some(tt.to_string());
+                        ty = Some(tt.to_owned());
                         break;
                     }
                 }
@@ -109,31 +109,31 @@ fn sanitize_json_schema(value: &mut JsonValue) {
                     || map.contains_key("required")
                     || map.contains_key("additionalProperties")
                 {
-                    ty = Some("object".to_string());
+                    ty = Some("object".to_owned());
                 } else if map.contains_key("items") || map.contains_key("prefixItems") {
-                    ty = Some("array".to_string());
+                    ty = Some("array".to_owned());
                 } else if map.contains_key("enum")
                     || map.contains_key("const")
                     || map.contains_key("format")
                 {
-                    ty = Some("string".to_string());
+                    ty = Some("string".to_owned());
                 } else if map.contains_key("minimum")
                     || map.contains_key("maximum")
                     || map.contains_key("exclusiveMinimum")
                     || map.contains_key("exclusiveMaximum")
                     || map.contains_key("multipleOf")
                 {
-                    ty = Some("number".to_string());
+                    ty = Some("number".to_owned());
                 }
             }
 
-            let ty = ty.unwrap_or_else(|| "string".to_string());
-            map.insert("type".to_string(), JsonValue::String(ty.clone()));
+            let ty = ty.unwrap_or_else(|| "string".to_owned());
+            map.insert("type".to_owned(), JsonValue::String(ty.clone()));
 
             if ty == "object" {
                 if !map.contains_key("properties") {
                     map.insert(
-                        "properties".to_string(),
+                        "properties".to_owned(),
                         JsonValue::Object(serde_json::Map::new()),
                     );
                 }
@@ -145,7 +145,7 @@ fn sanitize_json_schema(value: &mut JsonValue) {
             }
 
             if ty == "array" && !map.contains_key("items") {
-                map.insert("items".to_string(), json!({ "type": "string" }));
+                map.insert("items".to_owned(), json!({ "type": "string" }));
             }
         }
         _ => {}

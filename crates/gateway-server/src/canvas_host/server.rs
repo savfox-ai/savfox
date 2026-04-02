@@ -14,6 +14,7 @@ pub struct CanvasHostService {
 }
 
 impl CanvasHostService {
+    #[must_use] 
     pub fn new() -> Self {
         let (action_tx, _) = broadcast::channel(64);
         let (update_tx, _) = broadcast::channel(64);
@@ -31,7 +32,7 @@ impl CanvasHostService {
         {
             let mut states = self.states.write().await;
             let state = states
-                .entry(surface_id.to_string())
+                .entry(surface_id.to_owned())
                 .or_insert_with(|| A2UIState::new(surface_id));
             state.set_root(component);
         }
@@ -63,10 +64,12 @@ impl CanvasHostService {
         states.get(surface_id).cloned()
     }
 
+    #[must_use] 
     pub fn subscribe_updates(&self) -> broadcast::Receiver<CanvasMessage> {
         self.update_tx.subscribe()
     }
 
+    #[must_use] 
     pub fn subscribe_actions(&self) -> broadcast::Receiver<A2UIAction> {
         self.action_tx.subscribe()
     }
@@ -79,6 +82,7 @@ impl CanvasHostService {
         let _ = self.action_tx.send(action);
     }
 
+    #[must_use] 
     pub fn render_index_html() -> String {
         r#"<!DOCTYPE html>
 <html>
@@ -261,7 +265,7 @@ impl CanvasHostService {
         connect();
     </script>
 </body>
-</html>"#.to_string()
+</html>"#.to_owned()
     }
 }
 

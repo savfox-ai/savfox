@@ -9,7 +9,7 @@ const CHANNELS_SUBDIR: &str = "channels";
 const DEFAULT_CHANNEL_KIND: &str = "channel";
 
 fn default_router_agent_id() -> String {
-    "default".to_string()
+    "default".to_owned()
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,7 +83,7 @@ impl Router {
             None
         } else {
             Some(Self::AgentId {
-                agent_id: agent_id.to_string(),
+                agent_id: agent_id.to_owned(),
             })
         }
     }
@@ -104,7 +104,7 @@ impl Router {
 }
 
 fn default_wildcard_channel() -> String {
-    "*".to_string()
+    "*".to_owned()
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -199,7 +199,7 @@ fn migrate_legacy_nested_enabled_field(raw: &mut Value) {
     else {
         return;
     };
-    obj.insert("enabled".to_string(), Value::Bool(enabled));
+    obj.insert("enabled".to_owned(), Value::Bool(enabled));
 }
 
 fn migrate_legacy_router_fields(raw: &mut Value) {
@@ -221,9 +221,9 @@ fn migrate_legacy_router_fields(raw: &mut Value) {
     };
 
     obj.insert(
-        "router".to_string(),
+        "router".to_owned(),
         serde_json::to_value(Router::AgentId {
-            agent_id: agent_id.to_string(),
+            agent_id: agent_id.to_owned(),
         })
         .unwrap_or(Value::Null),
     );
@@ -235,7 +235,7 @@ fn normalize_channel_name(raw: &str) -> Option<String> {
     if compact.is_empty() {
         None
     } else {
-        Some(compact.to_string())
+        Some(compact.to_owned())
     }
 }
 
@@ -251,15 +251,15 @@ fn kind_from_id_candidate(raw: &str) -> Option<String> {
 fn resolve_kind(raw_kind: &str, fallback: Option<&str>) -> String {
     normalize_slug(raw_kind)
         .or_else(|| fallback.and_then(kind_from_id_candidate))
-        .unwrap_or_else(|| DEFAULT_CHANNEL_KIND.to_string())
+        .unwrap_or_else(|| DEFAULT_CHANNEL_KIND.to_owned())
 }
 
 fn resolve_name(raw_name: &str) -> String {
-    normalize_channel_name(raw_name).unwrap_or_else(|| "Default".to_string())
+    normalize_channel_name(raw_name).unwrap_or_else(|| "Default".to_owned())
 }
 
 fn resolve_slug(name: &str) -> String {
-    normalize_slug(name).unwrap_or_else(|| "default".to_string())
+    normalize_slug(name).unwrap_or_else(|| "default".to_owned())
 }
 
 fn resolve_id(slug: &str, kind: &str) -> String {
@@ -551,9 +551,9 @@ pub async fn merge_channel_config(
     }
 
     if let Some(name) = patch.get("name").and_then(|v| v.as_str()) {
-        config.name = name.to_string();
+        config.name = name.to_owned();
     } else if config.name.trim().is_empty() {
-        config.name = channel_name.to_string();
+        config.name = channel_name.to_owned();
     }
     if let Some(enabled) = patch.get("enabled").and_then(|v| v.as_bool()) {
         config.enabled = enabled;
@@ -622,10 +622,12 @@ pub async fn merge_channel_config(
     Ok(config)
 }
 
+#[must_use] 
 pub fn channel_config_to_json(config: &ChannelConfig) -> Value {
     serde_json::to_value(config).unwrap_or(Value::Null)
 }
 
+#[must_use] 
 pub fn channel_configs_to_json(configs: &[ChannelConfig]) -> Value {
     serde_json::to_value(configs).unwrap_or(Value::Null)
 }

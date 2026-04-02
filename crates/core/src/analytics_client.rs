@@ -188,11 +188,11 @@ async fn send_track_skill_invocations(auth_manager: &AuthManager, job: TrackEven
             skill_name: invocation.skill_name.clone(),
             event_params: TrackEventParams {
                 session_id: Some(tracking.session_id.clone()),
-                invoke_type: Some("explicit".to_string()),
+                invoke_type: Some("explicit".to_owned()),
                 model_slug: Some(tracking.model_slug.clone()),
                 product_client_id: Some(crate::default_client::originator().value),
                 repo_url,
-                skill_scope: Some(skill_scope.to_string()),
+                skill_scope: Some(skill_scope.to_owned()),
             },
         });
     }
@@ -234,7 +234,7 @@ fn skill_id_for_local_skill(
     let prefix = if let Some(url) = repo_url {
         format!("repo_{url}")
     } else {
-        "personal".to_string()
+        "personal".to_owned()
     };
     let raw_id = format!("{prefix}_{path}_{skill_name}");
     let mut hasher = Sha1::new();

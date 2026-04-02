@@ -142,7 +142,7 @@ async fn process_chunk(
     while let Some(prefix) = split_valid_utf8_prefix(pending) {
         {
             let mut guard = transcript.lock().await;
-            guard.push_chunk(prefix.to_vec());
+            guard.push_chunk(prefix.clone());
         }
 
         if *emitted_deltas >= MAX_EXEC_OUTPUT_DELTAS_PER_CALL {
@@ -150,7 +150,7 @@ async fn process_chunk(
         }
 
         let event = ExecCommandOutputDeltaEvent {
-            call_id: call_id.to_string(),
+            call_id: call_id.to_owned(),
             stream: ExecOutputStream::Stdout,
             chunk: prefix,
         };

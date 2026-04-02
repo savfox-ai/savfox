@@ -36,7 +36,7 @@ pub async fn ensure_oss_ready(config: &Config) -> std::io::Result<()> {
     // Load the model in the background
     tokio::spawn({
         let client = lmstudio_client.clone();
-        let model = model.to_string();
+        let model = model.to_owned();
         async move {
             if let Err(e) = client.load_model(&model).await {
                 tracing::warn!("Failed to load model {}: {}", model, e);

@@ -80,7 +80,7 @@ impl MetricsClientInner {
         validate_metric_name(name)?;
         if inc < 0 {
             return Err(MetricsError::NegativeCounterIncrement {
-                name: name.to_string(),
+                name: name.to_owned(),
                 inc,
             });
         }
@@ -91,8 +91,8 @@ impl MetricsClientInner {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let counter = counters
-            .entry(name.to_string())
-            .or_insert_with(|| self.meter.u64_counter(name.to_string()).build());
+            .entry(name.to_owned())
+            .or_insert_with(|| self.meter.u64_counter(name.to_owned()).build());
         counter.add(inc as u64, &attributes);
         Ok(())
     }
@@ -106,8 +106,8 @@ impl MetricsClientInner {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let histogram = histograms
-            .entry(name.to_string())
-            .or_insert_with(|| self.meter.f64_histogram(name.to_string()).build());
+            .entry(name.to_owned())
+            .or_insert_with(|| self.meter.f64_histogram(name.to_owned()).build());
         histogram.record(value as f64, &attributes);
         Ok(())
     }
@@ -120,9 +120,9 @@ impl MetricsClientInner {
             .duration_histograms
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let histogram = histograms.entry(name.to_string()).or_insert_with(|| {
+        let histogram = histograms.entry(name.to_owned()).or_insert_with(|| {
             self.meter
-                .f64_histogram(name.to_string())
+                .f64_histogram(name.to_owned())
                 .with_unit(DURATION_UNIT)
                 .with_description(DURATION_DESCRIPTION)
                 .build()
@@ -144,7 +144,7 @@ impl MetricsClientInner {
         for (key, value) in tags {
             validate_tag_key(key)?;
             validate_tag_value(value)?;
-            merged.insert((*key).to_string(), (*value).to_string());
+            merged.insert((*key).to_owned(), (*value).to_owned());
         }
 
         Ok(merged

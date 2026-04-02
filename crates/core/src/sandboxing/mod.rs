@@ -67,6 +67,7 @@ pub(crate) enum SandboxTransformError {
 pub struct SandboxManager;
 
 impl SandboxManager {
+    #[must_use] 
     pub fn new() -> Self {
         Self
     }
@@ -111,8 +112,8 @@ impl SandboxManager {
         let mut env = spec.env;
         if !policy.has_full_network_access() {
             env.insert(
-                SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR.to_string(),
-                "1".to_string(),
+                SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR.to_owned(),
+                "1".to_owned(),
             );
         }
 
@@ -146,7 +147,7 @@ impl SandboxManager {
                 (
                     full_command,
                     HashMap::new(),
-                    Some("savfox-linux-sandbox".to_string()),
+                    Some("savfox-linux-sandbox".to_owned()),
                 )
             }
             // On Windows, the restricted token sandbox executes in-process via the
@@ -174,6 +175,7 @@ impl SandboxManager {
         })
     }
 
+    #[must_use] 
     pub fn denied(&self, sandbox: SandboxType, out: &ExecToolCallOutput) -> bool {
         crate::exec::is_likely_sandbox_denied(sandbox, out)
     }

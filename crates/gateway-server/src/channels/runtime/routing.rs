@@ -41,7 +41,7 @@ fn extract_agent_from_routing_id(routing_id: &str) -> Option<String> {
     if head.is_empty() {
         None
     } else {
-        Some(head.to_string())
+        Some(head.to_owned())
     }
 }
 
@@ -55,7 +55,7 @@ fn dedupe_values_case_insensitive(values: Vec<String>) -> Vec<String> {
         }
         let key = trimmed.to_ascii_lowercase();
         if seen.insert(key) {
-            out.push(trimmed.to_string());
+            out.push(trimmed.to_owned());
         }
     }
     out
@@ -66,7 +66,7 @@ async fn resolve_parent_thread_agent(
     parent_thread_id: Option<&str>,
 ) -> Option<String> {
     const MAX_PARENT_DEPTH: usize = 8;
-    let mut current = parent_thread_id?.to_string();
+    let mut current = parent_thread_id?.to_owned();
     let mut by_thread = HashMap::new();
     for entry in session_store.list().await {
         if let Some(thread_id) = entry.thread_id.clone() {
@@ -89,7 +89,7 @@ async fn resolve_parent_thread_agent(
         if next == current {
             return None;
         }
-        current = next.to_string();
+        current = next.to_owned();
     }
     None
 }
@@ -252,7 +252,7 @@ pub(super) async fn resolve_routed_agent(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return forced_agent_id.to_string();
+        return forced_agent_id.to_owned();
     }
 
     let mut role_values = Vec::new();
@@ -266,8 +266,8 @@ pub(super) async fn resolve_routed_agent(
     role_values = dedupe_values_case_insensitive(role_values);
 
     let routing_ctx = RoutingContext {
-        channel: platform.to_string(),
-        channel_id: Some(channel_id.to_string()),
+        channel: platform.to_owned(),
+        channel_id: Some(channel_id.to_owned()),
         sender_id: meta
             .peer_id
             .clone()
@@ -295,7 +295,7 @@ pub(super) async fn resolve_routed_agent(
             Router::AgentId { agent_id } => {
                 let agent_id = agent_id.trim();
                 if !agent_id.is_empty() {
-                    return agent_id.to_string();
+                    return agent_id.to_owned();
                 }
             }
             Router::RouteRules {
@@ -324,5 +324,5 @@ pub(super) async fn resolve_routed_agent(
         return parent_agent;
     }
 
-    "default".to_string()
+    "default".to_owned()
 }

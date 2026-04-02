@@ -154,7 +154,7 @@ pub(crate) struct ApprovalForwardingConfig {
 
 mod defaults {
     pub fn mode() -> String {
-        "targets".to_string()
+        "targets".to_owned()
     }
 }
 
@@ -221,22 +221,18 @@ pub(crate) async fn forward_approval_to_chat(
     }
 
     // Check agent filter.
-    if !config.agent_filter.is_empty() {
-        if let Some(agent_id) = &request.agent_id {
-            if !config.agent_filter.iter().any(|f| agent_id.contains(f)) {
+    if !config.agent_filter.is_empty()
+        && let Some(agent_id) = &request.agent_id
+            && !config.agent_filter.iter().any(|f| agent_id.contains(f)) {
                 return;
             }
-        }
-    }
 
     // Check session filter.
-    if !config.session_filter.is_empty() {
-        if let Some(session_id) = &request.session_id {
-            if !config.session_filter.iter().any(|f| session_id.contains(f)) {
+    if !config.session_filter.is_empty()
+        && let Some(session_id) = &request.session_id
+            && !config.session_filter.iter().any(|f| session_id.contains(f)) {
                 return;
             }
-        }
-    }
 
     let message = format_approval_message(request);
 
@@ -330,20 +326,14 @@ pub(crate) async fn approval_request_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let session_mgr = match depot.obtain::<Arc<GatewaySessionManager>>() {
-        Ok(m) => m.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() { m.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<Value>().await {
@@ -403,20 +393,14 @@ pub(crate) async fn approval_resolve_handler(
     depot: &mut Depot,
     res: &mut Response,
 ) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let session_mgr = match depot.obtain::<Arc<GatewaySessionManager>>() {
-        Ok(m) => m.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_mgr = if let Ok(m) = depot.obtain::<Arc<GatewaySessionManager>>() { m.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let body = match req.parse_json::<Value>().await {
@@ -468,12 +452,9 @@ pub(crate) async fn approval_resolve_handler(
 /// `GET /api/exec/approvals`  - List pending approval requests.
 #[handler]
 pub(crate) async fn approvals_list_handler(depot: &mut Depot, res: &mut Response) {
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     match list_pending_approvals(&channel.config().savfox_home).await {
@@ -497,18 +478,18 @@ fn load_forwarding_config() -> ApprovalForwardingConfig {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let mode = std::env::var("SAVFOX_APPROVAL_MODE").unwrap_or_else(|_| "targets".to_string());
+    let mode = std::env::var("SAVFOX_APPROVAL_MODE").unwrap_or_else(|_| "targets".to_owned());
 
     let targets = std::env::var("SAVFOX_APPROVAL_TARGETS")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     let agent_filter = std::env::var("SAVFOX_APPROVAL_AGENT_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     let session_filter = std::env::var("SAVFOX_APPROVAL_SESSION_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     ApprovalForwardingConfig {

@@ -25,6 +25,7 @@ pub struct ConfigReloadService {
 }
 
 impl ConfigReloadService {
+    #[must_use] 
     pub fn new(config_path: PathBuf) -> Self {
         let (change_tx, _) = broadcast::channel(16);
         Self {
@@ -147,7 +148,7 @@ fn diff_keys(prefix: &str, old: &Value, new: &Value) -> Vec<String> {
         }
         _ => {
             if old != new && !prefix.is_empty() {
-                changed.push(prefix.to_string());
+                changed.push(prefix.to_owned());
             }
         }
     }

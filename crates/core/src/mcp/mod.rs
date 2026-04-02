@@ -26,10 +26,10 @@ const SAVFOX_CONNECTORS_TOKEN_ENV_VAR: &str = "SAVFOX_CONNECTORS_TOKEN";
 
 fn savfox_apps_mcp_bearer_token_env_var() -> Option<String> {
     match env::var(SAVFOX_CONNECTORS_TOKEN_ENV_VAR) {
-        Ok(value) if !value.trim().is_empty() => Some(SAVFOX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
+        Ok(value) if !value.trim().is_empty() => Some(SAVFOX_CONNECTORS_TOKEN_ENV_VAR.to_owned()),
         Ok(_) => None,
         Err(env::VarError::NotPresent) => None,
-        Err(env::VarError::NotUnicode(_)) => Some(SAVFOX_CONNECTORS_TOKEN_ENV_VAR.to_string()),
+        Err(env::VarError::NotUnicode(_)) => Some(SAVFOX_CONNECTORS_TOKEN_ENV_VAR.to_owned()),
     }
 }
 
@@ -39,17 +39,17 @@ fn savfox_apps_mcp_bearer_token(auth: Option<&SavfoxAuth>) -> Option<String> {
     if token.is_empty() {
         None
     } else {
-        Some(token.to_string())
+        Some(token.to_owned())
     }
 }
 
 fn savfox_apps_mcp_http_headers(auth: Option<&SavfoxAuth>) -> Option<HashMap<String, String>> {
     let mut headers = HashMap::new();
     if let Some(token) = savfox_apps_mcp_bearer_token(auth) {
-        headers.insert("Authorization".to_string(), format!("Bearer {token}"));
+        headers.insert("Authorization".to_owned(), format!("Bearer {token}"));
     }
     if let Some(account_id) = auth.and_then(SavfoxAuth::get_account_id) {
-        headers.insert("ChatGPT-Account-ID".to_string(), account_id);
+        headers.insert("ChatGPT-Account-ID".to_owned(), account_id);
     }
     if headers.is_empty() {
         None
@@ -59,7 +59,7 @@ fn savfox_apps_mcp_http_headers(auth: Option<&SavfoxAuth>) -> Option<HashMap<Str
 }
 
 fn savfox_apps_mcp_url(base_url: &str) -> String {
-    let mut base_url = base_url.trim_end_matches('/').to_string();
+    let mut base_url = base_url.trim_end_matches('/').to_owned();
     if (base_url.starts_with("https://savfox.ai")
         || base_url.starts_with("https://chat.openai.com"))
         && !base_url.contains("/backend-api")
@@ -109,7 +109,7 @@ pub(crate) fn with_savfox_apps_mcp(
 ) -> HashMap<String, McpServerConfig> {
     if connectors_enabled {
         servers.insert(
-            SAVFOX_APPS_MCP_SERVER_NAME.to_string(),
+            SAVFOX_APPS_MCP_SERVER_NAME.to_owned(),
             apps_mcp_server_config(config, auth),
         );
     } else {
@@ -181,6 +181,7 @@ pub async fn collect_mcp_snapshot(config: &Config) -> McpListToolsResponseEvent 
     snapshot
 }
 
+#[must_use] 
 pub fn split_qualified_tool_name(qualified_name: &str) -> Option<(String, String)> {
     let mut parts = qualified_name.split(MCP_TOOL_NAME_DELIMITER);
     let prefix = parts.next()?;
@@ -192,7 +193,7 @@ pub fn split_qualified_tool_name(qualified_name: &str) -> Option<(String, String
     if tool_name.is_empty() {
         return None;
     }
-    Some((server_name.to_string(), tool_name))
+    Some((server_name.to_owned(), tool_name))
 }
 
 pub fn group_tools_by_server(

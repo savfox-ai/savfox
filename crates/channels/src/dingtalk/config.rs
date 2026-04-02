@@ -32,6 +32,7 @@ pub struct DingtalkOutboundConfig {
 }
 
 impl DingtalkChannelConfig {
+    #[must_use] 
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -107,7 +108,7 @@ impl DingtalkChannelConfig {
                 raw,
                 &["openapiHost", "openapi_host", "baseUrl", "base_url"],
             )
-            .unwrap_or_else(|| "https://api.dingtalk.com".to_string()),
+            .unwrap_or_else(|| "https://api.dingtalk.com".to_owned()),
             webhook_url,
             access_token,
             secret,
@@ -120,6 +121,7 @@ impl DingtalkChannelConfig {
         })
     }
 
+    #[must_use] 
     pub fn stream_enabled(&self) -> bool {
         self.inbound_mode == DingtalkInboundMode::Stream
             && self
@@ -190,7 +192,7 @@ fn first_non_empty_config_string(
             if text.is_empty() {
                 None
             } else {
-                Some(text.to_string())
+                Some(text.to_owned())
             }
         })
     })
@@ -219,9 +221,7 @@ pub async fn resolve_dingtalk_outbound_config(
         .await
         .context("failed to load channel configs")?;
     Ok(all_configs
-        .iter()
-        .filter_map(DingtalkOutboundConfig::from_channel_config)
-        .next())
+        .iter().find_map(DingtalkOutboundConfig::from_channel_config))
 }
 
 pub async fn load_dingtalk_channel_config(
@@ -231,9 +231,7 @@ pub async fn load_dingtalk_channel_config(
         .await
         .context("failed to load channel configs")?;
     Ok(all_configs
-        .iter()
-        .filter_map(DingtalkChannelConfig::from_channel_config)
-        .next())
+        .iter().find_map(DingtalkChannelConfig::from_channel_config))
 }
 
 #[cfg(test)]

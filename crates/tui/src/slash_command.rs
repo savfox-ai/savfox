@@ -46,35 +46,35 @@ impl SlashCommand {
     /// User-visible description shown in the popup.
     pub fn description(self) -> &'static str {
         match self {
-            SlashCommand::Feedback => "send logs to maintainers",
-            SlashCommand::New => "start a new chat during a conversation",
-            SlashCommand::Init => "create an AGENTS.md file with instructions for Savfox",
-            SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
-            SlashCommand::Review => "review my current changes and find issues",
-            SlashCommand::Rename => "rename the current session",
-            SlashCommand::Resume => "resume a saved chat",
-            SlashCommand::Fork => "fork the current chat",
+            Self::Feedback => "send logs to maintainers",
+            Self::New => "start a new chat during a conversation",
+            Self::Init => "create an AGENTS.md file with instructions for Savfox",
+            Self::Compact => "summarize conversation to prevent hitting the context limit",
+            Self::Review => "review my current changes and find issues",
+            Self::Rename => "rename the current session",
+            Self::Resume => "resume a saved chat",
+            Self::Fork => "fork the current chat",
             // SlashCommand::Undo => "ask Savfox to undo a turn",
-            SlashCommand::Quit | SlashCommand::Exit => "exit Savfox",
-            SlashCommand::Diff => "show git diff (including untracked files)",
-            SlashCommand::Mention => "mention a file",
-            SlashCommand::Skills => "use skills to improve how Savfox performs specific tasks",
-            SlashCommand::Status => "show current session configuration and token usage",
-            SlashCommand::Ps => "list background terminals",
-            SlashCommand::Model => "choose what model and reasoning effort to use",
-            SlashCommand::Connect => "connect a model provider and import its models",
-            SlashCommand::Personality => "choose a communication style for Savfox",
-            SlashCommand::Plan => "switch to Plan mode",
-            SlashCommand::Collab => "change collaboration mode (experimental)",
-            SlashCommand::Agent => "switch the active agent session",
-            SlashCommand::Approvals => "choose what Savfox can do without approval",
-            SlashCommand::Permissions => "choose what Savfox is allowed to do",
-            SlashCommand::ElevateSandbox => "set up elevated agent sandbox",
-            SlashCommand::Experimental => "toggle experimental features",
-            SlashCommand::Mcp => "list configured MCP tools",
-            SlashCommand::Apps => "manage apps",
-            SlashCommand::Rollout => "print the rollout file path",
-            SlashCommand::TestApproval => "test approval request",
+            Self::Quit | Self::Exit => "exit Savfox",
+            Self::Diff => "show git diff (including untracked files)",
+            Self::Mention => "mention a file",
+            Self::Skills => "use skills to improve how Savfox performs specific tasks",
+            Self::Status => "show current session configuration and token usage",
+            Self::Ps => "list background terminals",
+            Self::Model => "choose what model and reasoning effort to use",
+            Self::Connect => "connect a model provider and import its models",
+            Self::Personality => "choose a communication style for Savfox",
+            Self::Plan => "switch to Plan mode",
+            Self::Collab => "change collaboration mode (experimental)",
+            Self::Agent => "switch the active agent session",
+            Self::Approvals => "choose what Savfox can do without approval",
+            Self::Permissions => "choose what Savfox is allowed to do",
+            Self::ElevateSandbox => "set up elevated agent sandbox",
+            Self::Experimental => "toggle experimental features",
+            Self::Mcp => "list configured MCP tools",
+            Self::Apps => "manage apps",
+            Self::Rollout => "print the rollout file path",
+            Self::TestApproval => "test approval request",
         }
     }
 
@@ -88,49 +88,49 @@ impl SlashCommand {
     pub fn supports_inline_args(self) -> bool {
         matches!(
             self,
-            SlashCommand::Review | SlashCommand::Rename | SlashCommand::Plan
+            Self::Review | Self::Rename | Self::Plan
         )
     }
 
     /// Whether this command can be run while a task is in progress.
     pub fn available_during_task(self) -> bool {
         match self {
-            SlashCommand::New
-            | SlashCommand::Resume
-            | SlashCommand::Fork
-            | SlashCommand::Init
-            | SlashCommand::Compact
+            Self::New
+            | Self::Resume
+            | Self::Fork
+            | Self::Init
+            | Self::Compact
             // | SlashCommand::Undo
-            | SlashCommand::Model
-            | SlashCommand::Connect
-            | SlashCommand::Personality
-            | SlashCommand::Approvals
-            | SlashCommand::Permissions
-            | SlashCommand::ElevateSandbox
-            | SlashCommand::Experimental
-            | SlashCommand::Review
-            | SlashCommand::Plan => false,
-            SlashCommand::Diff
-            | SlashCommand::Rename
-            | SlashCommand::Mention
-            | SlashCommand::Skills
-            | SlashCommand::Status
-            | SlashCommand::Ps
-            | SlashCommand::Mcp
-            | SlashCommand::Apps
-            | SlashCommand::Feedback
-            | SlashCommand::Quit
-            | SlashCommand::Exit => true,
-            SlashCommand::Rollout => true,
-            SlashCommand::TestApproval => true,
-            SlashCommand::Collab => true,
-            SlashCommand::Agent => true,
+            | Self::Model
+            | Self::Connect
+            | Self::Personality
+            | Self::Approvals
+            | Self::Permissions
+            | Self::ElevateSandbox
+            | Self::Experimental
+            | Self::Review
+            | Self::Plan => false,
+            Self::Diff
+            | Self::Rename
+            | Self::Mention
+            | Self::Skills
+            | Self::Status
+            | Self::Ps
+            | Self::Mcp
+            | Self::Apps
+            | Self::Feedback
+            | Self::Quit
+            | Self::Exit => true,
+            Self::Rollout => true,
+            Self::TestApproval => true,
+            Self::Collab => true,
+            Self::Agent => true,
         }
     }
 
     fn is_visible(self) -> bool {
         match self {
-            SlashCommand::Rollout | SlashCommand::TestApproval => cfg!(debug_assertions),
+            Self::Rollout | Self::TestApproval => cfg!(debug_assertions),
             _ => true,
         }
     }

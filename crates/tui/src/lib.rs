@@ -136,7 +136,7 @@ struct EffectiveModelSelection {
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 fn model_id_from_store_item(item: &Value, provider_id: &str) -> Option<String> {
@@ -287,7 +287,7 @@ fn effective_model_selection(
     };
 
     let provider_from_model = parse_provider_prefixed_model(&configured_model)
-        .map(|(provider_id, _)| provider_id.to_string());
+        .map(|(provider_id, _)| provider_id.to_owned());
     let configured_provider = provider_from_model.or_else(|| {
         config_toml
             .model
@@ -439,7 +439,7 @@ pub async fn run_main(
     // we load config.toml here to determine project state.
     #[allow(clippy::print_stderr)]
     let savfox_home = match find_savfox_home() {
-        Ok(savfox_home) => savfox_home.to_path_buf(),
+        Ok(savfox_home) => savfox_home.clone(),
         Err(err) => {
             eprintln!("Error finding savfox home: {err}");
             std::process::exit(1);
@@ -617,14 +617,11 @@ pub async fn run_main(
     if cli.oss && model_provider_override.is_some() {
         // We're in the oss section, so provider_id should be Some
         // Let's handle None case gracefully though just in case
-        let provider_id = match model_provider_override.as_ref() {
-            Some(id) => id,
-            None => {
-                error!("OSS provider unexpectedly not set when oss flag is used");
-                return Err(std::io::Error::other(
-                    "OSS provider not set but oss flag was used",
-                ));
-            }
+        let provider_id = if let Some(id) = model_provider_override.as_ref() { id } else {
+            error!("OSS provider unexpectedly not set when oss flag is used");
+            return Err(std::io::Error::other(
+                "OSS provider not set but oss flag was used",
+            ));
         };
         ensure_oss_provider_ready(provider_id, &config).await?;
     }

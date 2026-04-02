@@ -120,7 +120,7 @@ impl ConfigRequirementsWithSources {
     }
 
     pub fn into_toml(self) -> ConfigRequirementsToml {
-        let ConfigRequirementsWithSources {
+        let Self {
             allowed_approval_policies,
             allowed_sandbox_modes,
             mcp_servers,
@@ -157,9 +157,9 @@ pub enum SandboxModeRequirement {
 impl From<SandboxMode> for SandboxModeRequirement {
     fn from(mode: SandboxMode) -> Self {
         match mode {
-            SandboxMode::ReadOnly => SandboxModeRequirement::ReadOnly,
-            SandboxMode::WorkspaceWrite => SandboxModeRequirement::WorkspaceWrite,
-            SandboxMode::DangerFullAccess => SandboxModeRequirement::DangerFullAccess,
+            SandboxMode::ReadOnly => Self::ReadOnly,
+            SandboxMode::WorkspaceWrite => Self::WorkspaceWrite,
+            SandboxMode::DangerFullAccess => Self::DangerFullAccess,
         }
     }
 }
@@ -171,6 +171,7 @@ pub enum ResidencyRequirement {
 }
 
 impl ConfigRequirementsToml {
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.allowed_approval_policies.is_none()
             && self.allowed_sandbox_modes.is_none()
@@ -234,7 +235,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
                     return Err(ConstraintError::InvalidValue {
                         field_name: "allowed_sandbox_modes",
                         candidate: format!("{modes:?}"),
-                        allowed: "must include 'read-only' to allow any SandboxPolicy".to_string(),
+                        allowed: "must include 'read-only' to allow any SandboxPolicy".to_owned(),
                         requirement_source,
                     });
                 };
@@ -298,7 +299,7 @@ impl TryFrom<ConfigRequirementsWithSources> for ConfigRequirements {
             }
             None => Constrained::allow_any(None),
         };
-        Ok(ConfigRequirements {
+        Ok(Self {
             approval_policy,
             sandbox_policy,
             mcp_servers,

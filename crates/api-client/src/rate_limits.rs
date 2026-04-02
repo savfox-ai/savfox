@@ -15,6 +15,7 @@ impl Display for RateLimitError {
 }
 
 /// Parses the bespoke Savfox rate-limit headers into a `RateLimitSnapshot`.
+#[must_use] 
 pub fn parse_rate_limit(headers: &HeaderMap) -> Option<RateLimitSnapshot> {
     let primary = parse_rate_limit_window(
         headers,

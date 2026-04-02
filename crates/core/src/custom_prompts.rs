@@ -6,6 +6,7 @@ use tokio::fs;
 
 /// Return the default prompts directory: `$SAVFOX_HOME/prompts`.
 /// If `SAVFOX_HOME` cannot be resolved, returns `None`.
+#[must_use] 
 pub fn default_prompts_dir() -> Option<PathBuf> {
     crate::config::find_savfox_home()
         .ok()
@@ -87,7 +88,7 @@ fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>, String) 
     };
     let first_line = first_segment.trim_end_matches(['\r', '\n']);
     if first_line.trim() != "---" {
-        return (None, None, content.to_string());
+        return (None, None, content.to_owned());
     }
 
     let mut desc: Option<String> = None;
@@ -112,7 +113,7 @@ fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>, String) 
 
         if let Some((k, v)) = trimmed.split_once(':') {
             let key = k.trim().to_ascii_lowercase();
-            let mut val = v.trim().to_string();
+            let mut val = v.trim().to_owned();
             if val.len() >= 2 {
                 let bytes = val.as_bytes();
                 let first = bytes[0];
@@ -133,7 +134,7 @@ fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>, String) 
 
     if !frontmatter_closed {
         // Unterminated frontmatter: treat input as-is.
-        return (None, None, content.to_string());
+        return (None, None, content.to_owned());
     }
 
     let body = if consumed >= content.len() {

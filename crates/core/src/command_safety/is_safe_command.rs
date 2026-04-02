@@ -6,12 +6,13 @@ use crate::command_safety::is_dangerous_command::find_git_subcommand;
 use crate::command_safety::is_dangerous_command::git_global_option_requires_prompt;
 use crate::command_safety::windows_safe_commands::is_safe_command_windows;
 
+#[must_use] 
 pub fn is_known_safe_command(command: &[String]) -> bool {
     let command: Vec<String> = command
         .iter()
         .map(|s| {
             if s == "zsh" {
-                "bash".to_string()
+                "bash".to_owned()
             } else {
                 s.clone()
             }

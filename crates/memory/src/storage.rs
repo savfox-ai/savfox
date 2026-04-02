@@ -14,7 +14,7 @@ pub struct VectorStorage {
 impl VectorStorage {
     pub async fn new(path: &Path, vector_dims: usize) -> Result<Self, sqlx::Error> {
         let db_url = if path.to_str() == Some(":memory:") {
-            "sqlite::memory:".to_string()
+            "sqlite::memory:".to_owned()
         } else {
             format!("sqlite:{}", path.to_string_lossy())
         };
@@ -211,7 +211,7 @@ impl VectorStorage {
         query: &str,
         limit: usize,
     ) -> Result<Vec<(MemoryChunk, f32)>, sqlx::Error> {
-        let pattern = format!("%{}%", query);
+        let pattern = format!("%{query}%");
 
         let rows = sqlx::query_as::<_, ChunkRow>(
             r#"

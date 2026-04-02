@@ -70,7 +70,7 @@ fn matrix_event_count(body: &Value) -> usize {
 
 fn matrix_event_preview(body: &Value) -> String {
     let Some(events) = body.get("events").and_then(Value::as_array) else {
-        return "none".to_string();
+        return "none".to_owned();
     };
 
     let mut parts = Vec::new();
@@ -90,7 +90,7 @@ fn matrix_event_preview(body: &Value) -> String {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        let mut part = event_type.to_string();
+        let mut part = event_type.to_owned();
         if let Some(sender) = sender {
             part.push_str(&format!(" sender={sender}"));
         }
@@ -123,13 +123,13 @@ pub(crate) fn matrix_runtime_state_for(config_id: &str) -> Option<MatrixRuntimeS
 
 fn set_matrix_runtime_state(config_id: &str, state: MatrixRuntimeState) {
     if let Ok(mut store) = matrix_runtime_state_store().lock() {
-        store.insert(config_id.to_string(), state);
+        store.insert(config_id.to_owned(), state);
     }
 }
 
 fn update_matrix_runtime_state(config_id: &str, apply: impl FnOnce(&mut MatrixRuntimeState)) {
     if let Ok(mut store) = matrix_runtime_state_store().lock() {
-        apply(store.entry(config_id.to_string()).or_default());
+        apply(store.entry(config_id.to_owned()).or_default());
     }
 }
 
@@ -148,7 +148,7 @@ pub(crate) fn matrix_appservice_channel_for(config_id: &str) -> Option<MatrixApp
 
 fn set_matrix_appservice_channel(config_id: &str, channel: MatrixAppserviceChannel) {
     if let Ok(mut store) = matrix_appservice_store().lock() {
-        store.insert(config_id.to_string(), channel);
+        store.insert(config_id.to_owned(), channel);
     }
 }
 
@@ -296,7 +296,7 @@ impl Channel for MatrixChannel {
         set_matrix_runtime_state(
             &self.config_id,
             MatrixRuntimeState {
-                mode: Some("user".to_string()),
+                mode: Some("user".to_owned()),
                 homeserver: Some(self.homeserver.clone()),
                 user_id: Some(resolved.user_id.clone()),
                 access_token: Some(resolved.access_token.clone()),
@@ -413,46 +413,40 @@ impl MatrixAppserviceChannel {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires serverName")?
-            .to_string();
+            .context("Matrix appservice mode requires serverName")?.to_owned();
         let public_url = config
             .public_url
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires publicUrl")?
-            .to_string();
+            .context("Matrix appservice mode requires publicUrl")?.to_owned();
         let appservice_id = config
             .appservice_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires appserviceId")?
-            .to_string();
+            .context("Matrix appservice mode requires appserviceId")?.to_owned();
         let appservice_token = config
             .appservice_token
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires appserviceToken")?
-            .to_string();
+            .context("Matrix appservice mode requires appserviceToken")?.to_owned();
         let homeserver_token = config
             .homeserver_token
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires homeserverToken")?
-            .to_string();
+            .context("Matrix appservice mode requires homeserverToken")?.to_owned();
         let sender_localpart = config
             .sender_localpart
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .context("Matrix appservice mode requires senderLocalpart")?
-            .to_string();
+            .context("Matrix appservice mode requires senderLocalpart")?.to_owned();
         let homeserver_url = url::Url::parse(&config.homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {}", config.homeserver))?;
-        let bot_user_id = format!("@{}:{}", sender_localpart, server_name);
+        let bot_user_id = format!("@{sender_localpart}:{server_name}");
         let auth = MatrixAuth::new(appservice_token.clone()).with_user_id(bot_user_id.clone());
         let client = MatrixClient::new(homeserver_url, auth);
 
@@ -498,7 +492,7 @@ impl MatrixAppserviceChannel {
     }
 
     pub(crate) fn appservice_url(&self) -> String {
-        self.inner.public_url.trim_end_matches('/').to_string()
+        self.inner.public_url.trim_end_matches('/').to_owned()
     }
 
     pub(crate) fn user_prefix(&self) -> &str {
@@ -581,7 +575,7 @@ impl MatrixAppserviceChannel {
         let homeserver_url = url::Url::parse(&self.inner.homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {}", self.inner.homeserver))?;
         let auth =
-            MatrixAuth::new(self.inner.appservice_token.clone()).with_user_id(user_id.to_string());
+            MatrixAuth::new(self.inner.appservice_token.clone()).with_user_id(user_id.to_owned());
         Ok(MatrixClient::new(homeserver_url, auth))
     }
 
@@ -651,7 +645,7 @@ impl MatrixAppserviceChannel {
             return;
         }
         let previous_user_id = if let Ok(mut room_users) = self.inner.room_users.lock() {
-            room_users.insert(room_id.to_string(), user_id.to_string())
+            room_users.insert(room_id.to_owned(), user_id.to_owned())
         } else {
             None
         };
@@ -706,7 +700,7 @@ impl MatrixAppserviceChannel {
         if agent_id.is_empty() {
             None
         } else {
-            Some(agent_id.to_string())
+            Some(agent_id.to_owned())
         }
     }
 
@@ -778,7 +772,7 @@ impl MatrixAppserviceChannel {
                 .map(|expected| expected.eq_ignore_ascii_case(user_id))
                 .unwrap_or(true),
         ));
-        Some((room_id.to_string(), user_id.to_string()))
+        Some((room_id.to_owned(), user_id.to_owned()))
     }
 
     async fn refresh_room_count(&self) {
@@ -1090,7 +1084,7 @@ impl MatrixAppserviceChannel {
                         peer_id: Some(command.sender),
                         forced_agent_id,
                         group_id: Some(command.room_id),
-                        chat_type: Some("group".to_string()),
+                        chat_type: Some("group".to_owned()),
                         saved_channel_config_id: Some(config_id),
                         ..runtime::StartThreadMeta::default()
                     }),
@@ -1136,7 +1130,7 @@ impl MatrixAppserviceChannel {
         set_matrix_runtime_state(
             &self.inner.config_id,
             MatrixRuntimeState {
-                mode: Some("appservice".to_string()),
+                mode: Some("appservice".to_owned()),
                 homeserver: Some(self.inner.homeserver.clone()),
                 user_id: Some(self.inner.bot_user_id.clone()),
                 access_token: None,
@@ -1156,7 +1150,7 @@ impl MatrixAppserviceChannel {
             self.inner.config_id,
             room_count
                 .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string()),
+                .unwrap_or_else(|| "unknown".to_owned()),
             self.appservice_url(),
         ));
         Ok(())
@@ -1320,7 +1314,7 @@ async fn dispatch_matrix_commands(task: &MatrixSyncTask, commands: Vec<MatrixCom
                 Some(runtime::StartThreadMeta {
                     peer_id: Some(command.sender),
                     group_id: Some(command.room_id),
-                    chat_type: Some("group".to_string()),
+                    chat_type: Some("group".to_owned()),
                     saved_channel_config_id: Some(config_id),
                     ..runtime::StartThreadMeta::default()
                 }),
@@ -1443,8 +1437,7 @@ fn resolve_appservice_by_token(
         Ok(store) => store,
         Err(err) => {
             debug_matrix_appservice(format!(
-                "direct route auth failed reason='appservice_store_lock_failed' error='{}'",
-                err
+                "direct route auth failed reason='appservice_store_lock_failed' error='{err}'"
             ));
             render_error(
                 res,
@@ -1683,25 +1676,22 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         .and_then(|command| command.dedupe_key.clone());
 
     if !parsed.rooms_to_auto_join.is_empty() {
-        match depot.obtain::<Arc<GatewayChannel>>() {
-            Ok(channel) => {
-                let channel = channel.clone();
-                for (room_id, invited_user_id) in &parsed.rooms_to_auto_join {
-                    if let Err(err) = channel
-                        .auto_join_matrix_invited_room(room_id, invited_user_id.as_deref())
-                        .await
-                    {
-                        warn!(
-                            room_id,
-                            invited_user_id = invited_user_id.as_deref().unwrap_or(""),
-                            error = %err,
-                            "Matrix invite auto-join failed"
-                        );
-                    }
+        if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
+            let channel = channel.clone();
+            for (room_id, invited_user_id) in &parsed.rooms_to_auto_join {
+                if let Err(err) = channel
+                    .auto_join_matrix_invited_room(room_id, invited_user_id.as_deref())
+                    .await
+                {
+                    warn!(
+                        room_id,
+                        invited_user_id = invited_user_id.as_deref().unwrap_or(""),
+                        error = %err,
+                        "Matrix invite auto-join failed"
+                    );
                 }
             }
-            Err(_) => warn!("Matrix invite received but gateway channel state is unavailable"),
-        }
+        } else { warn!("Matrix invite received but gateway channel state is unavailable") }
     }
 
     if runtime::should_drop_duplicate(dedupe_key).await {
@@ -1731,7 +1721,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 Some(runtime::StartThreadMeta {
                     peer_id: Some(command.sender),
                     group_id: Some(command.room_id),
-                    chat_type: Some("group".to_string()),
+                    chat_type: Some("group".to_owned()),
                     saved_channel_config_id,
                     ..runtime::StartThreadMeta::default()
                 }),

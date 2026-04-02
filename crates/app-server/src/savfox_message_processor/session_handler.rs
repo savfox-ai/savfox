@@ -129,7 +129,7 @@ impl SavfoxMessageProcessor {
                     session_id,
                     session,
                     session_configured,
-                    ..
+                    
                 } = new_conv;
                 let config_snapshot = session.config_snapshot().await;
                 let fallback_provider = self.config.model_provider_id.as_str();
@@ -263,7 +263,7 @@ impl SavfoxMessageProcessor {
         let Some(name) = savfox_core::util::normalize_session_name(&name) else {
             self.send_invalid_request_error(
                 request_id,
-                "session name must not be empty".to_string(),
+                "session name must not be empty".to_owned(),
             )
             .await;
             return;
@@ -476,7 +476,7 @@ impl SavfoxMessageProcessor {
         } = params;
 
         if num_turns == 0 {
-            self.send_invalid_request_error(request_id, "numTurns must be >= 1".to_string())
+            self.send_invalid_request_error(request_id, "numTurns must be >= 1".to_owned())
                 .await;
             return;
         }
@@ -494,7 +494,7 @@ impl SavfoxMessageProcessor {
             if map.contains_key(&session_id) {
                 self.send_invalid_request_error(
                     request_id,
-                    "rollback already in progress for this session".to_string(),
+                    "rollback already in progress for this session".to_owned(),
                 )
                 .await;
                 return;
@@ -582,17 +582,14 @@ impl SavfoxMessageProcessor {
         let total = data.len();
         let start = match cursor {
             Some(cursor) => {
-                let cursor = match SessionId::from_string(&cursor) {
-                    Ok(id) => id.to_string(),
-                    Err(_) => {
-                        let error = JSONRPCErrorError {
-                            code: INVALID_REQUEST_ERROR_CODE,
-                            message: format!("invalid cursor: {cursor}"),
-                            data: None,
-                        };
-                        self.outgoing.send_error(request_id, error).await;
-                        return;
-                    }
+                let cursor = if let Ok(id) = SessionId::from_string(&cursor) { id.to_string() } else {
+                    let error = JSONRPCErrorError {
+                        code: INVALID_REQUEST_ERROR_CODE,
+                        message: format!("invalid cursor: {cursor}"),
+                        data: None,
+                    };
+                    self.outgoing.send_error(request_id, error).await;
+                    return;
                 };
                 match data.binary_search(&cursor) {
                     Ok(idx) => idx + 1,
@@ -674,7 +671,7 @@ impl SavfoxMessageProcessor {
             if include_turns {
                 self.send_invalid_request_error(
                     request_id,
-                    "ephemeral sessions do not support includeTurns".to_string(),
+                    "ephemeral sessions do not support includeTurns".to_owned(),
                 )
                 .await;
                 return;
@@ -751,7 +748,7 @@ impl SavfoxMessageProcessor {
             if history.is_empty() {
                 self.send_invalid_request_error(
                     request_id,
-                    "history must not be empty".to_string(),
+                    "history must not be empty".to_owned(),
                 )
                 .await;
                 return;
@@ -1009,7 +1006,7 @@ impl SavfoxMessageProcessor {
         let mut cli_overrides = cli_overrides.unwrap_or_default();
         if cfg!(windows) && self.config.features.enabled(Feature::WindowsSandbox) {
             cli_overrides.insert(
-                "features.experimental_windows_sandbox".to_string(),
+                "features.experimental_windows_sandbox".to_owned(),
                 serde_json::json!(true),
             );
         }
@@ -1484,7 +1481,7 @@ impl SavfoxMessageProcessor {
                             }
                         };
                         params.insert(
-                            "conversationId".to_string(),
+                            "conversationId".to_owned(),
                             conversation_id.to_string().into(),
                         );
 

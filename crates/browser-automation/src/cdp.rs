@@ -44,7 +44,7 @@ impl CdpClient {
                                 let mut pending = pending_clone.lock().await;
                                 if let Some(tx) = pending.remove(&id) {
                                     let result = if let Some(error) = response.error {
-                                        Err(anyhow!("CDP error: {:?}", error))
+                                        Err(anyhow!("CDP error: {error:?}"))
                                     } else {
                                         Ok(response.result.unwrap_or(Value::Null))
                                     };
@@ -85,7 +85,7 @@ impl CdpClient {
 
         let request = CdpRequest {
             id: Some(id),
-            method: method.to_string(),
+            method: method.to_owned(),
             params: Some(params),
             session_id: None,
         };
@@ -113,9 +113,9 @@ impl CdpClient {
 
         let request = CdpRequest {
             id: Some(id),
-            method: method.to_string(),
+            method: method.to_owned(),
             params: Some(params),
-            session_id: Some(session_id.to_string()),
+            session_id: Some(session_id.to_owned()),
         };
 
         let (tx, rx) = oneshot::channel();
@@ -137,7 +137,7 @@ impl CdpClient {
     {
         let mut handlers = self.event_handlers.write().await;
         handlers
-            .entry(event_name.to_string())
+            .entry(event_name.to_owned())
             .or_insert_with(Vec::new)
             .push(Box::new(handler));
     }
@@ -180,14 +180,14 @@ struct CdpError {
 
 pub async fn discover_websocket_url(port: u16) -> Result<String> {
     let http = HttpClient::new();
-    let url = format!("http://127.0.0.1:{}/json/version", port);
+    let url = format!("http://127.0.0.1:{port}/json/version");
 
     let response = http.get(&url).send().await?;
     let json: Value = response.json::<Value>().await?;
 
     json.get("webSocketDebuggerUrl")
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .map(|s| s.to_owned())
         .ok_or_else(|| anyhow!("Failed to get WebSocket debugger URL"))
 }
 

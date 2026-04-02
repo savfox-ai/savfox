@@ -109,7 +109,7 @@ pub fn create_fake_rollout_with_text_elements(
     let dir = file_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("missing rollout parent directory"))?;
-    fs::create_dir_all(&dir)?;
+    fs::create_dir_all(dir)?;
 
     let parsed_text_elements: Vec<TextElement> = text_elements
         .into_iter()

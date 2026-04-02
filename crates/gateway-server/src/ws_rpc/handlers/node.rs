@@ -100,7 +100,7 @@ pub(crate) async fn handle_node_list() -> RpcResult {
         let status = serde_json::to_value(&record.status)
             .ok()
             .and_then(|v| v.as_str().map(ToOwned::to_owned))
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| "unknown".to_owned());
         nodes.push(json!({
             "node_id": node_id,
             "name": record.device_name.clone().unwrap_or_else(|| record.node_id.clone()),
@@ -130,10 +130,10 @@ pub(crate) async fn handle_node_describe(params: &Value) -> RpcResult {
         let status = serde_json::to_value(&record.status)
             .ok()
             .and_then(|v| v.as_str().map(ToOwned::to_owned))
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or_else(|| "unknown".to_owned());
         return Ok(json!({
             "node_id": node_id,
-            "name": record.device_name.clone().unwrap_or_else(|| node_id.to_string()),
+            "name": record.device_name.clone().unwrap_or_else(|| node_id.to_owned()),
             "capabilities": node_capability_catalog(),
             "paired": true,
             "approved": matches!(record.status, crate::pairing_store::PairingStatus::Approved),
@@ -167,30 +167,30 @@ pub(crate) async fn handle_node_tool_alias(
     let node_id = require_str(params, "node_id")?.to_owned();
 
     let mut merged = serde_json::Map::new();
-    merged.insert("node_id".to_string(), Value::String(node_id));
-    merged.insert("method".to_string(), Value::String(method.to_string()));
+    merged.insert("node_id".to_owned(), Value::String(node_id));
+    merged.insert("method".to_owned(), Value::String(method.to_owned()));
 
     if let Some(extra_params) = params.get("params") {
-        merged.insert("params".to_string(), extra_params.clone());
+        merged.insert("params".to_owned(), extra_params.clone());
     } else {
         let mut passthrough = serde_json::Map::new();
         if let Some(duration_ms) = params.get("duration_ms") {
-            passthrough.insert("duration_ms".to_string(), duration_ms.clone());
+            passthrough.insert("duration_ms".to_owned(), duration_ms.clone());
         }
         if let Some(display) = params.get("display") {
-            passthrough.insert("display".to_string(), display.clone());
+            passthrough.insert("display".to_owned(), display.clone());
         }
         if let Some(device) = params.get("device") {
-            passthrough.insert("device".to_string(), device.clone());
+            passthrough.insert("device".to_owned(), device.clone());
         }
         if let Some(title) = params.get("title") {
-            passthrough.insert("title".to_string(), title.clone());
+            passthrough.insert("title".to_owned(), title.clone());
         }
         if let Some(body) = params.get("body") {
-            passthrough.insert("body".to_string(), body.clone());
+            passthrough.insert("body".to_owned(), body.clone());
         }
         if !passthrough.is_empty() {
-            merged.insert("params".to_string(), Value::Object(passthrough));
+            merged.insert("params".to_owned(), Value::Object(passthrough));
         }
     }
 
@@ -214,12 +214,11 @@ pub(crate) async fn handle_node_invoke(params: &Value, channel: &Arc<GatewayChan
         .get("params")
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
-    if let Some(mode) = default_mode {
-        if let Value::Object(ref mut map) = invoke_params {
-            map.entry("mode".to_string())
-                .or_insert_with(|| Value::String(mode.to_string()));
+    if let Some(mode) = default_mode
+        && let Value::Object(ref mut map) = invoke_params {
+            map.entry("mode".to_owned())
+                .or_insert_with(|| Value::String(mode.to_owned()));
         }
-    }
 
     let requires_pairing = matches!(
         method,
@@ -246,7 +245,7 @@ pub(crate) async fn handle_node_invoke(params: &Value, channel: &Arc<GatewayChan
         }
     }
 
-    let params_json = serde_json::to_string(&invoke_params).unwrap_or_else(|_| "{}".to_string());
+    let params_json = serde_json::to_string(&invoke_params).unwrap_or_else(|_| "{}".to_owned());
     let prompt = format!("[node:{node_id}] {method} {params_json}");
     let request_id = uuid::Uuid::now_v7().to_string();
     match channel.invoke_agent_text(&prompt, "default").await {
@@ -255,7 +254,7 @@ pub(crate) async fn handle_node_invoke(params: &Value, channel: &Arc<GatewayChan
                 request_id: request_id.clone(),
                 node_id: node_id.to_owned(),
                 method: method.to_owned(),
-                status: "completed".to_string(),
+                status: "completed".to_owned(),
                 result: json!({
                     "reply": reply,
                     "params": invoke_params,

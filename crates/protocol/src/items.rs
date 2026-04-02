@@ -67,6 +67,7 @@ pub struct ContextCompactionItem {
 }
 
 impl ContextCompactionItem {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -81,6 +82,7 @@ impl Default for ContextCompactionItem {
 }
 
 impl UserMessageItem {
+    #[must_use] 
     pub fn new(content: &[UserInput]) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -88,6 +90,7 @@ impl UserMessageItem {
         }
     }
 
+    #[must_use] 
     pub fn as_legacy_event(&self) -> EventMsg {
         // Legacy user-message events flatten only text inputs into `message` and
         // rebase text element ranges onto that concatenated text.
@@ -99,6 +102,7 @@ impl UserMessageItem {
         })
     }
 
+    #[must_use] 
     pub fn message(&self) -> String {
         self.content
             .iter()
@@ -137,6 +141,7 @@ impl UserMessageItem {
         out
     }
 
+    #[must_use] 
     pub fn image_urls(&self) -> Vec<String> {
         self.content
             .iter()
@@ -147,6 +152,7 @@ impl UserMessageItem {
             .collect()
     }
 
+    #[must_use] 
     pub fn local_image_paths(&self) -> Vec<std::path::PathBuf> {
         self.content
             .iter()
@@ -159,6 +165,7 @@ impl UserMessageItem {
 }
 
 impl AgentMessageItem {
+    #[must_use] 
     pub fn new(content: &[AgentMessageContent]) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -166,6 +173,7 @@ impl AgentMessageItem {
         }
     }
 
+    #[must_use] 
     pub fn as_legacy_events(&self) -> Vec<EventMsg> {
         self.content
             .iter()
@@ -179,6 +187,7 @@ impl AgentMessageItem {
 }
 
 impl ReasoningItem {
+    #[must_use] 
     pub fn as_legacy_events(&self, show_raw_agent_reasoning: bool) -> Vec<EventMsg> {
         let mut events = Vec::new();
         for summary in &self.summary_text {
@@ -202,6 +211,7 @@ impl ReasoningItem {
 }
 
 impl WebSearchItem {
+    #[must_use] 
     pub fn as_legacy_event(&self) -> EventMsg {
         EventMsg::WebSearchEnd(WebSearchEndEvent {
             call_id: self.id.clone(),
@@ -212,25 +222,27 @@ impl WebSearchItem {
 }
 
 impl TurnItem {
+    #[must_use] 
     pub fn id(&self) -> String {
         match self {
-            TurnItem::UserMessage(item) => item.id.clone(),
-            TurnItem::AgentMessage(item) => item.id.clone(),
-            TurnItem::Plan(item) => item.id.clone(),
-            TurnItem::Reasoning(item) => item.id.clone(),
-            TurnItem::WebSearch(item) => item.id.clone(),
-            TurnItem::ContextCompaction(item) => item.id.clone(),
+            Self::UserMessage(item) => item.id.clone(),
+            Self::AgentMessage(item) => item.id.clone(),
+            Self::Plan(item) => item.id.clone(),
+            Self::Reasoning(item) => item.id.clone(),
+            Self::WebSearch(item) => item.id.clone(),
+            Self::ContextCompaction(item) => item.id.clone(),
         }
     }
 
+    #[must_use] 
     pub fn as_legacy_events(&self, show_raw_agent_reasoning: bool) -> Vec<EventMsg> {
         match self {
-            TurnItem::UserMessage(item) => vec![item.as_legacy_event()],
-            TurnItem::AgentMessage(item) => item.as_legacy_events(),
-            TurnItem::Plan(_) => Vec::new(),
-            TurnItem::WebSearch(item) => vec![item.as_legacy_event()],
-            TurnItem::Reasoning(item) => item.as_legacy_events(show_raw_agent_reasoning),
-            TurnItem::ContextCompaction(_) => Vec::new(),
+            Self::UserMessage(item) => vec![item.as_legacy_event()],
+            Self::AgentMessage(item) => item.as_legacy_events(),
+            Self::Plan(_) => Vec::new(),
+            Self::WebSearch(item) => vec![item.as_legacy_event()],
+            Self::Reasoning(item) => item.as_legacy_events(show_raw_agent_reasoning),
+            Self::ContextCompaction(_) => Vec::new(),
         }
     }
 }

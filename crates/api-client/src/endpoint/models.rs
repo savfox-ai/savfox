@@ -106,7 +106,7 @@ fn normalize_missing_model_names(payload: &mut Value) {
         if !model.contains_key("name")
             && let Some(slug) = slug
         {
-            model.insert("name".to_string(), Value::String(slug));
+            model.insert("name".to_owned(), Value::String(slug));
         }
     }
 }

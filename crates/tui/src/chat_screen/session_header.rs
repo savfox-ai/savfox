@@ -10,7 +10,7 @@ impl SessionHeader {
     /// Updates the header's model text.
     pub(crate) fn set_model(&mut self, model: &str) {
         if self.model != model {
-            self.model = model.to_string();
+            self.model = model.to_owned();
         }
     }
 }

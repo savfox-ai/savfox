@@ -1,13 +1,13 @@
 pub(crate) fn is_light(bg: (u8, u8, u8)) -> bool {
     let (r, g, b) = bg;
-    let y = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+    let y = 0.114f32.mul_add(b as f32, 0.299f32.mul_add(r as f32, 0.587 * g as f32));
     y > 128.0
 }
 
 pub(crate) fn blend(fg: (u8, u8, u8), bg: (u8, u8, u8), alpha: f32) -> (u8, u8, u8) {
-    let r = (fg.0 as f32 * alpha + bg.0 as f32 * (1.0 - alpha)) as u8;
-    let g = (fg.1 as f32 * alpha + bg.1 as f32 * (1.0 - alpha)) as u8;
-    let b = (fg.2 as f32 * alpha + bg.2 as f32 * (1.0 - alpha)) as u8;
+    let r = (fg.0 as f32).mul_add(alpha, bg.0 as f32 * (1.0 - alpha)) as u8;
+    let g = (fg.1 as f32).mul_add(alpha, bg.1 as f32 * (1.0 - alpha)) as u8;
+    let b = (fg.2 as f32).mul_add(alpha, bg.2 as f32 * (1.0 - alpha)) as u8;
     (r, g, b)
 }
 
@@ -30,9 +30,9 @@ pub(crate) fn perceptual_distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
         let g = srgb_to_linear(g);
         let b = srgb_to_linear(b);
 
-        let x = r * 0.4124 + g * 0.3576 + b * 0.1805;
-        let y = r * 0.2126 + g * 0.7152 + b * 0.0722;
-        let z = r * 0.0193 + g * 0.1192 + b * 0.9505;
+        let x = b.mul_add(0.1805, r.mul_add(0.4124, g * 0.3576));
+        let y = b.mul_add(0.0722, r.mul_add(0.2126, g * 0.7152));
+        let z = b.mul_add(0.9505, r.mul_add(0.0193, g * 0.1192));
         (x, y, z)
     }
 
@@ -45,9 +45,9 @@ pub(crate) fn perceptual_distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
 
         fn f(t: f32) -> f32 {
             if t > 0.008856 {
-                t.powf(1.0 / 3.0)
+                t.cbrt()
             } else {
-                7.787 * t + 16.0 / 116.0
+                7.787f32.mul_add(t, 16.0 / 116.0)
             }
         }
 
@@ -55,7 +55,7 @@ pub(crate) fn perceptual_distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
         let fy = f(yr);
         let fz = f(zr);
 
-        let l = 116.0 * fy - 16.0;
+        let l = 116.0f32.mul_add(fy, -16.0);
         let a = 500.0 * (fx - fy);
         let b = 200.0 * (fy - fz);
         (l, a, b)
@@ -71,5 +71,5 @@ pub(crate) fn perceptual_distance(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
     let da = a1 - a2;
     let db = b1 - b2;
 
-    (dl * dl + da * da + db * db).sqrt()
+    db.mul_add(db, dl.mul_add(dl, da * da)).sqrt()
 }

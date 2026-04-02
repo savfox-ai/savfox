@@ -48,10 +48,10 @@ pub enum ToolPayload {
 impl ToolPayload {
     pub fn log_payload(&self) -> Cow<'_, str> {
         match self {
-            ToolPayload::Function { arguments } => Cow::Borrowed(arguments),
-            ToolPayload::Custom { input } => Cow::Borrowed(input),
-            ToolPayload::LocalShell { params } => Cow::Owned(params.command.join(" ")),
-            ToolPayload::Mcp { raw_arguments, .. } => Cow::Borrowed(raw_arguments),
+            Self::Function { arguments } => Cow::Borrowed(arguments),
+            Self::Custom { input } => Cow::Borrowed(input),
+            Self::LocalShell { params } => Cow::Owned(params.command.join(" ")),
+            Self::Mcp { raw_arguments, .. } => Cow::Borrowed(raw_arguments),
         }
     }
 }
@@ -92,33 +92,33 @@ impl ToolOutput {
 
     pub fn log_preview(&self) -> String {
         match self {
-            ToolOutput::Function { content, .. } => telemetry_preview(content),
-            ToolOutput::Mcp { result } => format!("{result:?}"),
+            Self::Function { content, .. } => telemetry_preview(content),
+            Self::Mcp { result } => format!("{result:?}"),
         }
     }
 
     pub fn success_for_logging(&self) -> bool {
         match self {
-            ToolOutput::Function { success, .. } => success.unwrap_or(true),
-            ToolOutput::Mcp { result } => result.is_ok(),
+            Self::Function { success, .. } => success.unwrap_or(true),
+            Self::Mcp { result } => result.is_ok(),
         }
     }
 
     pub fn into_response(self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
         match self {
-            ToolOutput::Function {
+            Self::Function {
                 content,
                 content_items,
                 success,
             } => {
                 if matches!(payload, ToolPayload::Custom { .. }) {
                     ResponseInputItem::CustomToolCallOutput {
-                        call_id: call_id.to_string(),
+                        call_id: call_id.to_owned(),
                         output: content,
                     }
                 } else {
                     ResponseInputItem::FunctionCallOutput {
-                        call_id: call_id.to_string(),
+                        call_id: call_id.to_owned(),
                         output: FunctionCallOutputPayload {
                             content,
                             content_items,
@@ -127,8 +127,8 @@ impl ToolOutput {
                     }
                 }
             }
-            ToolOutput::Mcp { result } => ResponseInputItem::McpToolCallOutput {
-                call_id: call_id.to_string(),
+            Self::Mcp { result } => ResponseInputItem::McpToolCallOutput {
+                call_id: call_id.to_owned(),
                 result,
             },
         }
@@ -155,7 +155,7 @@ fn telemetry_preview(content: &str) -> String {
     let truncated_by_lines = lines_iter.next().is_some();
 
     if !truncated_by_bytes && !truncated_by_lines {
-        return content.to_string();
+        return content.to_owned();
     }
 
     if preview.len() < truncated_slice.len()

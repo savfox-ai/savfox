@@ -23,6 +23,7 @@ pub struct QQChannelConfig {
 }
 
 impl QQChannelConfig {
+    #[must_use] 
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
@@ -99,7 +100,7 @@ fn value_to_string(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         }
         Some(Value::Number(number)) => Some(number.to_string()),
@@ -114,7 +115,7 @@ fn extract_text(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         }
         Some(Value::Array(items)) => {
@@ -141,7 +142,7 @@ fn extract_text(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(trimmed.to_string())
+                Some(trimmed.to_owned())
             }
         }
         _ => None,
@@ -154,14 +155,14 @@ fn normalize_prompt(text: &str, is_group: bool) -> Option<String> {
         return None;
     }
     if !is_group {
-        return Some(trimmed.to_string());
+        return Some(trimmed.to_owned());
     }
 
     for prefix in ["/savfox ", "!savfox ", "@savfox "] {
         if let Some(prompt) = trimmed.strip_prefix(prefix) {
             let prompt = prompt.trim();
             if !prompt.is_empty() {
-                return Some(prompt.to_string());
+                return Some(prompt.to_owned());
             }
         }
     }
@@ -186,9 +187,9 @@ pub fn parse_start_meta(payload: &Value) -> QQStartMeta {
         .map(ToString::to_string)
         .or_else(|| {
             if group_id.is_some() || channel_id.is_some() || guild_id.is_some() {
-                Some("group".to_string())
+                Some("group".to_owned())
             } else {
-                Some("private".to_string())
+                Some("private".to_owned())
             }
         });
 
@@ -206,6 +207,7 @@ pub fn parse_start_meta(payload: &Value) -> QQStartMeta {
     }
 }
 
+#[must_use] 
 pub fn parse_webhook_payload(payload: &Value) -> ChannelAction {
     let meta = parse_start_meta(payload);
     let is_group = matches!(meta.chat_type.as_deref(), Some("group" | "channel"))

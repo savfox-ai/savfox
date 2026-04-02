@@ -187,10 +187,10 @@ fn build_user_message_lines_with_elements(
                 && line_text.is_char_boundary(rel_cursor)
                 && let Some(segment) = line_text.get(rel_cursor..rel_start)
             {
-                spans.push(Span::from(segment.to_string()));
+                spans.push(Span::from(segment.to_owned()));
             }
             if let Some(segment) = line_text.get(rel_start..rel_end) {
-                spans.push(Span::styled(segment.to_string(), element_style));
+                spans.push(Span::styled(segment.to_owned(), element_style));
                 cursor = end;
             }
         }
@@ -199,10 +199,10 @@ fn build_user_message_lines_with_elements(
             && line_text.is_char_boundary(rel_cursor)
             && let Some(segment) = line_text.get(rel_cursor..)
         {
-            spans.push(Span::from(segment.to_string()));
+            spans.push(Span::from(segment.to_owned()));
         }
         let line = if spans.is_empty() {
-            Line::from(line_text.to_string()).style(style)
+            Line::from(line_text.to_owned()).style(style)
         } else {
             Line::from(spans).style(style)
         };
@@ -511,7 +511,7 @@ impl HistoryCell for UnifiedExecInteractionCell {
         } else {
             self.stdin
                 .lines()
-                .map(|line| Line::from(line.to_string()))
+                .map(|line| Line::from(line.to_owned()))
                 .collect()
         };
 
@@ -591,7 +591,7 @@ impl HistoryCell for UnifiedExecProcessesCell {
                 if let Some((byte_index, _)) = graphemes.nth(max_graphemes) {
                     (first_line[..byte_index].to_string(), true)
                 } else {
-                    (first_line.to_string(), has_more_lines)
+                    (first_line.to_owned(), has_more_lines)
                 }
             };
             if wrap_width <= prefix_width {
@@ -675,7 +675,7 @@ pub(crate) fn new_unified_exec_processes_output(
 fn truncate_exec_snippet(full_cmd: &str) -> String {
     let mut snippet = match full_cmd.split_once('\n') {
         Some((first, _)) => format!("{first} ..."),
-        None => full_cmd.to_string(),
+        None => full_cmd.to_owned(),
     };
     snippet = truncate_text(&snippet, 80);
     snippet
@@ -690,7 +690,7 @@ pub fn new_approval_decision_cell(
     command: Vec<String>,
     decision: savfox_core::protocol::ReviewDecision,
 ) -> Box<dyn HistoryCell> {
-    use savfox_core::protocol::ReviewDecision::*;
+    use savfox_core::protocol::ReviewDecision::{Approved, ApprovedExecpolicyAmendment, ApprovedForSession, Denied, Abort};
 
     let (symbol, summary): (Span<'static>, Vec<Span<'static>>) = match decision {
         Approved => {
@@ -1054,7 +1054,7 @@ impl McpToolCallCell {
     pub(crate) fn mark_failed(&mut self) {
         let elapsed = self.start_time.elapsed();
         self.duration = Some(elapsed);
-        self.result = Some(Err("interrupted".to_string()));
+        self.result = Some(Err("interrupted".to_owned()));
     }
 
     fn render_content_block(block: &serde_json::Value, width: usize) -> String {
@@ -1073,8 +1073,8 @@ impl McpToolCallCell {
             rmcp::model::RawContent::Text(text) => {
                 format_and_truncate_tool_result(&text.text, TOOL_CALL_MAX_LINES, width)
             }
-            rmcp::model::RawContent::Image(_) => "<image content>".to_string(),
-            rmcp::model::RawContent::Audio(_) => "<audio content>".to_string(),
+            rmcp::model::RawContent::Image(_) => "<image content>".to_owned(),
+            rmcp::model::RawContent::Audio(_) => "<audio content>".to_owned(),
             rmcp::model::RawContent::Resource(resource) => {
                 let uri = match resource.resource {
                     rmcp::model::ResourceContents::TextResourceContents { uri, .. } => uri,
@@ -1137,7 +1137,7 @@ impl HistoryCell for McpToolCallCell {
                         for block in content {
                             let text = Self::render_content_block(block, detail_wrap_width);
                             for segment in text.split('\n') {
-                                let line = Line::from(segment.to_string().dim());
+                                let line = Line::from(segment.to_owned().dim());
                                 let wrapped = word_wrap_line(
                                     &line,
                                     RtOptions::new(detail_wrap_width)
@@ -1720,7 +1720,7 @@ fn split_request_user_input_answer(
     let mut note = None;
     for entry in &answer.answers {
         if let Some(note_text) = entry.strip_prefix("user_note: ") {
-            note = Some(note_text.to_string());
+            note = Some(note_text.to_owned());
         } else {
             options.push(entry.clone());
         }
@@ -1800,8 +1800,8 @@ pub(crate) fn new_reasoning_summary_block(full_reasoning_buffer: String) -> Box<
         }
     }
     Box::new(ReasoningSummaryCell::new(
-        "".to_string(),
-        full_reasoning_buffer.to_string(),
+        "".to_owned(),
+        full_reasoning_buffer.to_owned(),
         true,
     ))
 }

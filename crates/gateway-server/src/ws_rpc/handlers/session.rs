@@ -42,7 +42,7 @@ fn format_model_footer(model: &str, provider: &str, profile: Option<&str>) -> St
 fn append_footer(reply: &str, footer: &str) -> String {
     let reply = reply.trim_end();
     if reply.is_empty() {
-        footer.to_string()
+        footer.to_owned()
     } else {
         format!("{reply}\n\n---\n{footer}")
     }
@@ -212,26 +212,25 @@ pub(crate) async fn handle_chat_send(
             .map_err(|message| (INVALID_PARAMS, message))?;
 
     if message.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'message' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'message' parameter".to_owned()));
     }
 
     let parsed = parse_directives(message);
     let prompt = if parsed.directives.is_empty() {
-        message.trim().to_string()
+        message.trim().to_owned()
     } else {
-        parsed.cleaned_text.trim().to_string()
+        parsed.cleaned_text.trim().to_owned()
     };
 
     // Strip "[user]:" prefix if present (some clients add this prefix)
     let prompt = prompt
         .strip_prefix("[user]:")
         .map(|s| s.trim())
-        .unwrap_or(&prompt)
-        .to_string();
+        .unwrap_or(&prompt).to_owned();
     if prompt.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "message is empty after parsing directives".to_string(),
+            "message is empty after parsing directives".to_owned(),
         ));
     }
 
@@ -239,11 +238,11 @@ pub(crate) async fn handle_chat_send(
     // Enabled only when the caller explicitly passes `mock_response`.
     if let Some(mock_response) = params.get("mock_response") {
         let raw_response = if let Some(text) = mock_response.as_str() {
-            text.to_string()
+            text.to_owned()
         } else if mock_response.as_bool().unwrap_or(false) {
             format!("echo: {prompt}")
         } else {
-            "(mock response)".to_string()
+            "(mock response)".to_owned()
         };
         let model = "mock/echo";
         let provider = "mock";
@@ -328,7 +327,7 @@ pub(crate) async fn handle_chat_send(
             .unwrap_or(parsed_target.model);
         (resolved, parsed_target.profile)
     } else {
-        (agent.to_string(), None)
+        (agent.to_owned(), None)
     };
 
     let provider = provider_from_model(&effective_model);
@@ -380,7 +379,7 @@ pub(crate) async fn handle_chat_send(
 
     let thread = channel
         .session_manager()
-        .get_session(session_id_obj.clone())
+        .get_session(session_id_obj)
         .await
         .map_err(|err| (INTERNAL_ERROR, format!("failed to load thread: {err}")))?;
     let rollout_path = thread.rollout_path();
@@ -855,7 +854,7 @@ pub(crate) async fn handle_chat_send(
     }
 
     if reply.is_empty() {
-        reply = "(no response from agent)".to_string();
+        reply = "(no response from agent)".to_owned();
     }
 
     let footer = format_model_footer(&effective_model, &provider, model_profile.as_deref());
@@ -929,7 +928,7 @@ pub(crate) async fn handle_chat_history(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
 
@@ -975,10 +974,10 @@ pub(crate) async fn handle_chat_inject(
 ) -> RpcResult {
     let session_id = params["session_id"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing session_id".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing session_id".to_owned()))?;
     let content = params["content"]
         .as_str()
-        .ok_or((INVALID_PARAMS, "missing content".to_string()))?;
+        .ok_or((INVALID_PARAMS, "missing content".to_owned()))?;
     let role = params["role"].as_str().unwrap_or("system");
 
     // Validate role
@@ -1079,7 +1078,7 @@ pub(crate) async fn handle_sessions_preview(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
     let links = load_identity_links(&channel.config().savfox_home).await;
@@ -1123,7 +1122,7 @@ pub(crate) async fn handle_sessions_patch(
     let session_id = if requested_session_id.trim().is_empty() {
         uuid::Uuid::now_v7().to_string()
     } else {
-        requested_session_id.to_string()
+        requested_session_id.to_owned()
     };
     let patch = params
         .get("patch")
@@ -1132,7 +1131,7 @@ pub(crate) async fn handle_sessions_patch(
 
     let mut updated = session_store.get_or_create(&session_id).await.ok_or((
         INVALID_REQUEST,
-        "invalid 'session_id' parameter (UUID v7 required)".to_string(),
+        "invalid 'session_id' parameter (UUID v7 required)".to_owned(),
     ))?;
 
     // Apply known patch fields.
@@ -1168,11 +1167,10 @@ pub(crate) async fn handle_sessions_patch(
 
     // Apply overrides from the patch object or from the top-level params.
     let overrides_value = patch.get("overrides").or_else(|| params.get("overrides"));
-    if let Some(ov) = overrides_value {
-        if let Ok(incoming) = serde_json::from_value::<SessionOverrides>(ov.clone()) {
+    if let Some(ov) = overrides_value
+        && let Ok(incoming) = serde_json::from_value::<SessionOverrides>(ov.clone()) {
             updated.patch_overrides(incoming);
         }
-    }
     updated.touch();
     session_store.upsert(updated.clone()).await;
 
@@ -1199,13 +1197,13 @@ pub(crate) async fn handle_sessions_reset(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
     let session_id_obj = SessionId::from_string(session_id).map_err(|_| {
         (
             INVALID_REQUEST,
-            "invalid 'session_id' parameter".to_string(),
+            "invalid 'session_id' parameter".to_owned(),
         )
     })?;
     // Remove from WS session manager.
@@ -1235,13 +1233,13 @@ pub(crate) async fn handle_sessions_delete(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
     let session_id_obj = SessionId::from_string(session_id).map_err(|_| {
         (
             INVALID_REQUEST,
-            "invalid 'session_id' parameter".to_string(),
+            "invalid 'session_id' parameter".to_owned(),
         )
     })?;
     session_mgr.remove_session(&session_id_obj).await;
@@ -1298,7 +1296,7 @@ pub(crate) async fn handle_sessions_overrides_get(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
 
@@ -1327,7 +1325,7 @@ pub(crate) async fn handle_sessions_overrides_set(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
 
@@ -1340,7 +1338,7 @@ pub(crate) async fn handle_sessions_overrides_set(
 
     let mut updated = session_store.get_or_create(session_id).await.ok_or((
         INVALID_REQUEST,
-        "invalid 'session_id' parameter (UUID v7 required)".to_string(),
+        "invalid 'session_id' parameter (UUID v7 required)".to_owned(),
     ))?;
     updated.patch_overrides(incoming);
     session_store.upsert(updated.clone()).await;
@@ -1392,7 +1390,7 @@ pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChanne
         .unwrap_or("")
         .trim();
     if canonical.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'canonical' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'canonical' parameter".to_owned()));
     }
 
     let mut peers: Vec<String> = params
@@ -1407,18 +1405,18 @@ pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChanne
         })
         .unwrap_or_default();
     if let Some(single) = params.get("id").and_then(|v| v.as_str()) {
-        peers.push(single.to_string());
+        peers.push(single.to_owned());
     }
     if peers.is_empty() {
         return Err((
             INVALID_PARAMS,
-            "missing 'ids' (or 'id') parameter".to_string(),
+            "missing 'ids' (or 'id') parameter".to_owned(),
         ));
     }
 
     let mut links = load_identity_links(&channel.config().savfox_home).await;
     let summary = upsert_link(&mut links, canonical, &peers)
-        .ok_or_else(|| (INVALID_PARAMS, "invalid canonical or ids".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "invalid canonical or ids".to_owned()))?;
     save_identity_links(&channel.config().savfox_home, &links)
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;
@@ -1460,7 +1458,7 @@ fn agent_from_routing_id(routing_id: &str) -> Option<String> {
     if agent.is_empty() {
         None
     } else {
-        Some(agent.to_string())
+        Some(agent.to_owned())
     }
 }
 
@@ -1502,7 +1500,7 @@ pub(crate) async fn handle_dm_scope_migrate(
     session_store: &Arc<SessionStore>,
 ) -> RpcResult {
     let target_scope = parse_dm_scope(params.get("scope").and_then(|v| v.as_str()))
-        .ok_or_else(|| (INVALID_PARAMS, "invalid or missing 'scope'".to_string()))?;
+        .ok_or_else(|| (INVALID_PARAMS, "invalid or missing 'scope'".to_owned()))?;
     let dry_run = params
         .get("dry_run")
         .and_then(|v| v.as_bool())
@@ -1620,7 +1618,7 @@ pub(crate) async fn handle_sessions_usage(
     if session_id.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'session_id' parameter".to_string(),
+            "missing 'session_id' parameter".to_owned(),
         ));
     }
 
@@ -1689,7 +1687,7 @@ pub(crate) async fn handle_media_staging_import(
 ) -> RpcResult {
     let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
     if id.trim().is_empty() {
-        return Err((INVALID_PARAMS, "missing 'id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'id' parameter".to_owned()));
     }
     let workspace_dir = params
         .get("workspace_dir")
@@ -1698,11 +1696,11 @@ pub(crate) async fn handle_media_staging_import(
         .ok_or_else(|| {
             (
                 INVALID_PARAMS,
-                "missing 'workspace_dir' parameter".to_string(),
+                "missing 'workspace_dir' parameter".to_owned(),
             )
         })?;
     if workspace_dir.trim().is_empty() {
-        return Err((INVALID_PARAMS, "workspace_dir cannot be empty".to_string()));
+        return Err((INVALID_PARAMS, "workspace_dir cannot be empty".to_owned()));
     }
 
     let store = MediaStore::from_home(&channel.config().savfox_home);
@@ -1727,7 +1725,7 @@ pub(crate) async fn handle_media_staging_cleanup(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if session_id.trim().is_empty() {
-        return Err((INVALID_PARAMS, "missing 'session_id' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'session_id' parameter".to_owned()));
     }
 
     let store = MediaStore::from_home(&channel.config().savfox_home);
@@ -1832,7 +1830,7 @@ pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(|s| s.to_owned()))
                 .collect()
         })
         .unwrap_or_default();
@@ -1840,7 +1838,7 @@ pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
     if events.is_empty() {
         return Err((
             INVALID_PARAMS,
-            "missing 'events' array parameter".to_string(),
+            "missing 'events' array parameter".to_owned(),
         ));
     }
 
@@ -1868,7 +1866,7 @@ pub(crate) async fn handle_events_unsubscribe(params: &Value) -> RpcResult {
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(|s| s.to_owned()))
                 .collect()
         })
         .unwrap_or_default();

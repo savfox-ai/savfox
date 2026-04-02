@@ -71,6 +71,7 @@ pub struct CronService {
 
 impl CronService {
     /// Create a new cron service rooted at the given directory.
+    #[must_use] 
     pub fn new(data_dir: PathBuf) -> Self {
         Self {
             data_dir,
@@ -81,6 +82,7 @@ impl CronService {
     }
 
     /// Create from SAVFOX_HOME.
+    #[must_use] 
     pub fn from_home(home: &Path) -> Self {
         Self::new(home.join("cron"))
     }
@@ -228,10 +230,10 @@ impl CronService {
         let finish_ms = crate::json_store::now_ms();
 
         let (status, error_msg, result_preview) = match result {
-            Ok(Ok(preview)) => ("ok".to_string(), None, preview),
-            Ok(Err(err)) => ("error".to_string(), Some(err.clone()), None),
+            Ok(Ok(preview)) => ("ok".to_owned(), None, preview),
+            Ok(Err(err)) => ("error".to_owned(), Some(err), None),
             Err(_) => (
-                "timeout".to_string(),
+                "timeout".to_owned(),
                 Some(format!("job timed out ({timeout_secs}s)")),
                 None,
             ),
@@ -318,18 +320,17 @@ impl CronService {
                 format!(
                     "Cron job `{}` failed: {}",
                     job.name,
-                    error_msg.unwrap_or_else(|| "unknown error".to_string())
+                    error_msg.unwrap_or_else(|| "unknown error".to_owned())
                 )
             };
 
-            if let Some(channel_id) = &job.delivery.channel {
-                if let Err(err) = channel
+            if let Some(channel_id) = &job.delivery.channel
+                && let Err(err) = channel
                     .send_platform_message(channel_id, &message, None, None, None)
                     .await
                 {
                     warn!(job_id = %job.id, "failed to deliver cron result: {err}");
                 }
-            }
         }
     }
 

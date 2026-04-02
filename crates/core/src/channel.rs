@@ -36,6 +36,7 @@ pub struct CodeBlock {
 
 impl RichMessage {
     /// Format as plain text with fenced code blocks appended.
+    #[must_use] 
     pub fn to_plain_text(&self) -> String {
         let mut text = self.text.clone();
         for block in &self.code_blocks {

@@ -130,7 +130,7 @@ pub(crate) async fn start_funnel(port: u16) -> anyhow::Result<String> {
     let url = if let (Some(hostname), Some(tailnet)) = (&status.hostname, &status.tailnet) {
         format!("https://{hostname}.{tailnet}")
     } else {
-        "https://<unknown>.ts.net".to_string()
+        "https://<unknown>.ts.net".to_owned()
     };
 
     info!("Tailscale Funnel active at {url}");
@@ -174,14 +174,12 @@ pub(crate) async fn whois(remote_addr: &str) -> anyhow::Result<TailscaleIdentity
     Ok(TailscaleIdentity {
         login_name: user_profile["LoginName"]
             .as_str()
-            .unwrap_or("unknown")
-            .to_string(),
+            .unwrap_or("unknown").to_owned(),
         name: user_profile["DisplayName"]
             .as_str()
-            .unwrap_or("Unknown")
-            .to_string(),
-        node_name: node["Name"].as_str().unwrap_or("unknown").to_string(),
-        node_ip: remote_addr.to_string(),
+            .unwrap_or("Unknown").to_owned(),
+        node_name: node["Name"].as_str().unwrap_or("unknown").to_owned(),
+        node_ip: remote_addr.to_owned(),
     })
 }
 

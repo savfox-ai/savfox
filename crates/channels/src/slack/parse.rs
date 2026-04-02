@@ -45,7 +45,7 @@ where
         }
         return Some(
             normalize_command_prompt_with_resolver(text, resolve_command_name)
-                .unwrap_or_else(|| text.to_string()),
+                .unwrap_or_else(|| text.to_owned()),
         );
     }
 
@@ -121,7 +121,7 @@ where
                     } else {
                         Ok(ChannelAction::StartThread {
                             channel,
-                            prompt: prompt.to_string(),
+                            prompt: prompt.to_owned(),
                         })
                     }
                 }

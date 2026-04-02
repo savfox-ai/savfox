@@ -29,6 +29,7 @@ pub struct ReqwestTransport {
 }
 
 impl ReqwestTransport {
+    #[must_use] 
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client: HttpClient::new(client),
@@ -58,8 +59,7 @@ impl ReqwestTransport {
             if compression != RequestCompression::None {
                 if headers.contains_key(http::header::CONTENT_ENCODING) {
                     return Err(TransportError::Build(
-                        "request compression was requested but content-encoding is already set"
-                            .to_string(),
+                        "request compression was requested but content-encoding is already set".to_owned(),
                     ));
                 }
 

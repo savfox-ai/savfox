@@ -114,6 +114,7 @@ pub struct AuditEvent {
 }
 
 impl AuditEvent {
+    #[must_use] 
     pub fn new(event_type: AuditEventType, severity: AuditSeverity) -> Self {
         Self {
             id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
@@ -241,6 +242,7 @@ impl AuditEvent {
         self
     }
 
+    #[must_use] 
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }

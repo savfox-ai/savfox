@@ -93,29 +93,26 @@ impl LlmHook {
         // Try to extract a JSON object from the response.
         let parsed: Option<LlmResponse> = extract_json_response(llm_response);
 
-        match parsed {
-            Some(resp) => {
-                let confidence = resp.confidence.unwrap_or(1.0).clamp(0.0, 1.0);
-                debug!(
-                    fire = resp.fire,
-                    confidence = confidence,
-                    threshold = self.threshold,
-                    "llm hook evaluation"
-                );
+        if let Some(resp) = parsed {
+            let confidence = resp.confidence.unwrap_or(1.0).clamp(0.0, 1.0);
+            debug!(
+                fire = resp.fire,
+                confidence = confidence,
+                threshold = self.threshold,
+                "llm hook evaluation"
+            );
 
-                if resp.fire && confidence >= self.threshold {
-                    let reason = resp
-                        .reason
-                        .unwrap_or_else(|| "LLM hook triggered".to_owned());
-                    HookDecision::Fire(reason)
-                } else {
-                    HookDecision::Skip
-                }
+            if resp.fire && confidence >= self.threshold {
+                let reason = resp
+                    .reason
+                    .unwrap_or_else(|| "LLM hook triggered".to_owned());
+                HookDecision::Fire(reason)
+            } else {
+                HookDecision::Skip
             }
-            None => {
-                warn!("llm hook: unable to parse LLM response as decision JSON");
-                HookDecision::Defer
-            }
+        } else {
+            warn!("llm hook: unable to parse LLM response as decision JSON");
+            HookDecision::Defer
         }
     }
 }

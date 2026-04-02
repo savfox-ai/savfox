@@ -20,7 +20,7 @@ pub(crate) async fn handle_agent(params: &Value, channel: &Arc<GatewayChannel>) 
         .unwrap_or("default");
 
     if message.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'message' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'message' parameter".to_owned()));
     }
 
     match channel.invoke_agent_text(message, agent).await {
@@ -45,7 +45,7 @@ pub(crate) async fn handle_agent_wait(params: &Value, channel: &Arc<GatewayChann
         .unwrap_or("default");
 
     if message.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'message' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'message' parameter".to_owned()));
     }
 
     match channel.invoke_agent_text(message, agent).await {
@@ -98,15 +98,15 @@ pub(crate) async fn handle_agent_capabilities(
         .unwrap_or_else(|| {
             // Default agent has access to standard tool set.
             vec![
-                "shell".to_string(),
-                "read_file".to_string(),
-                "write_file".to_string(),
-                "list_dir".to_string(),
-                "grep_files".to_string(),
-                "web_search".to_string(),
-                "web_fetch".to_string(),
-                "sessions_send_a2a".to_string(),
-                "agent_step".to_string(),
+                "shell".to_owned(),
+                "read_file".to_owned(),
+                "write_file".to_owned(),
+                "list_dir".to_owned(),
+                "grep_files".to_owned(),
+                "web_search".to_owned(),
+                "web_fetch".to_owned(),
+                "sessions_send_a2a".to_owned(),
+                "agent_step".to_owned(),
             ]
         });
 
@@ -149,7 +149,7 @@ pub(crate) async fn handle_agent_capabilities(
             "nostr",
         ] {
             if channel_is_configured(platform, &runtime, &saved_configs, nostr_configured) {
-                ch.push(platform.to_string());
+                ch.push(platform.to_owned());
             }
         }
         ch.sort();
@@ -228,7 +228,7 @@ pub(crate) async fn handle_agent_delegation_chain(params: &Value) -> RpcResult {
         .unwrap_or("");
 
     if agent_id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_owned()));
     }
 
     let chain = savfox_core::a2a::delegation_chain_for(agent_id).await;
@@ -269,17 +269,17 @@ pub(crate) async fn handle_agent_delegation_record(params: &Value) -> RpcResult 
     if parent.is_empty() || child.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'parent_agent' or 'child_agent' parameter".to_string(),
+            "missing 'parent_agent' or 'child_agent' parameter".to_owned(),
         ));
     }
 
     let spawned_at = savfox_core::a2a::now_ms();
 
     savfox_core::a2a::record_delegation(savfox_core::a2a::DelegationEntry {
-        parent_agent: parent.to_string(),
-        child_agent: child.to_string(),
+        parent_agent: parent.to_owned(),
+        child_agent: child.to_owned(),
         spawned_at,
-        purpose: purpose.to_string(),
+        purpose: purpose.to_owned(),
     })
     .await;
 
@@ -303,7 +303,7 @@ pub(crate) async fn handle_agent_delegation_remove(params: &Value) -> RpcResult 
     if child.is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'child_agent' parameter".to_string(),
+            "missing 'child_agent' parameter".to_owned(),
         ));
     }
 
@@ -351,7 +351,7 @@ fn sanitize_agent_file_stem(raw: &str) -> Option<String> {
         out.push(mapped);
     }
 
-    let out = out.trim_matches([' ', '.']).to_string();
+    let out = out.trim_matches([' ', '.']).to_owned();
     if out.is_empty() || out == "." || out == ".." {
         None
     } else {
@@ -375,7 +375,7 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
         })
-        .unwrap_or_else(|| fallback.to_string())
+        .unwrap_or_else(|| fallback.to_owned())
 }
 
 fn default_agent_stub() -> Value {
@@ -463,7 +463,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
             && fallback_id.eq_ignore_ascii_case("default")
             && default_name == fallback_id
         {
-            "Savvy fox".to_string()
+            "Savvy fox".to_owned()
         } else {
             default_name
         };
@@ -525,11 +525,10 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
             "danger-full-access" => Some(SandboxPolicy::DangerFullAccess),
             _ => None,
         };
-        if let Some(sb) = sandbox {
-            if let Err(e) = config.sandbox_policy.set(sb) {
+        if let Some(sb) = sandbox
+            && let Err(e) = config.sandbox_policy.set(sb) {
                 tracing::warn!("agent permission policy sandbox rejected by constraints: {e}");
             }
-        }
     }
 
     // Apply approval policy.
@@ -542,20 +541,18 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
             "never" => Some(AskForApproval::Never),
             _ => None,
         };
-        if let Some(ap) = approval {
-            if let Err(e) = config.approval_policy.set(ap) {
+        if let Some(ap) = approval
+            && let Err(e) = config.approval_policy.set(ap) {
                 tracing::warn!("agent permission policy approval rejected by constraints: {e}");
             }
-        }
     }
 
     // Apply tool access policy.
-    if let Some(tool_access_val) = policy_val.get("tool_access") {
-        if let Ok(tool_access) = serde_json::from_value::<ToolAccessPolicy>(tool_access_val.clone())
+    if let Some(tool_access_val) = policy_val.get("tool_access")
+        && let Ok(tool_access) = serde_json::from_value::<ToolAccessPolicy>(tool_access_val.clone())
         {
             config.tool_access_policy = Some(tool_access);
         }
-    }
 }
 
 pub(crate) fn default_agent_config_from_source(config: &Value) -> Value {
@@ -581,7 +578,7 @@ async fn clear_default_agent_markers(
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "json") {
+        if path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
 
@@ -634,7 +631,7 @@ async fn find_agent_name_conflict(
         let default_config = load_default_agent_config(channel).await;
         let default_name = default_agent_name_from_config(&default_config, "default");
         if normalized_agent_name_key(&default_name).as_deref() == Some(wanted.as_str()) {
-            return Some("default".to_string());
+            return Some("default".to_owned());
         }
     }
 
@@ -642,7 +639,7 @@ async fn find_agent_name_conflict(
     let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "json") {
+        if path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
 
@@ -690,13 +687,13 @@ async fn resolve_agent_file_stem(channel: &GatewayChannel, agent_ref: &str) -> O
     let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "json") {
+        if path.extension().is_none_or(|ext| ext != "json") {
             continue;
         }
         let Some(stem) = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
         else {
             continue;
         };
@@ -746,7 +743,7 @@ async fn resolve_agent_file_stem(channel: &GatewayChannel, agent_ref: &str) -> O
 
 async fn resolve_agent_files_dir(channel: &GatewayChannel, agent_ref: &str) -> PathBuf {
     let base = agents_dir(channel);
-    let safe_ref = sanitize_agent_file_stem(agent_ref).unwrap_or_else(|| "default".to_string());
+    let safe_ref = sanitize_agent_file_stem(agent_ref).unwrap_or_else(|| "default".to_owned());
     let by_ref = base.join(&safe_ref);
     if by_ref.exists() {
         return by_ref;
@@ -774,7 +771,7 @@ pub(crate) async fn handle_agents_list(channel: &Arc<GatewayChannel>) -> RpcResu
                 let Some(file_stem) = path
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .map(|s| s.to_string())
+                    .map(|s| s.to_owned())
                 else {
                     continue;
                 };
@@ -832,7 +829,7 @@ pub(crate) async fn handle_agents_get(params: &Value, channel: &Arc<GatewayChann
     if agent_ref.trim().is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'name' or 'id' parameter".to_string(),
+            "missing 'name' or 'id' parameter".to_owned(),
         ));
     }
 
@@ -866,25 +863,24 @@ pub(crate) async fn handle_agents_create(
         .map(str::trim)
         .unwrap_or("");
     if raw_id.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
     let id = sanitize_agent_file_stem(raw_id).ok_or_else(|| {
         (
             INVALID_REQUEST,
-            "invalid 'id' parameter (empty after sanitization)".to_string(),
+            "invalid 'id' parameter (empty after sanitization)".to_owned(),
         )
     })?;
     if id != raw_id {
         return Err((
             INVALID_REQUEST,
-            "invalid 'id' parameter: use letters, numbers, '-', '_' without path/special characters"
-                .to_string(),
+            "invalid 'id' parameter: use letters, numbers, '-', '_' without path/special characters".to_owned(),
         ));
     }
     if id.eq_ignore_ascii_case("default") {
         return Err((
             INVALID_REQUEST,
-            "the default agent already exists; edit it instead".to_string(),
+            "the default agent already exists; edit it instead".to_owned(),
         ));
     }
     if resolve_agent_file_stem(channel, &id).await.is_some() {
@@ -899,7 +895,7 @@ pub(crate) async fn handle_agents_create(
         .map(str::to_string)
         .unwrap_or_default();
     if name.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'name' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'name' parameter".to_owned()));
     }
     if find_agent_name_conflict(channel, &name, None)
         .await
@@ -999,7 +995,7 @@ pub(crate) async fn handle_agents_update(
     if agent_ref.trim().is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'id' or 'name' parameter".to_string(),
+            "missing 'id' or 'name' parameter".to_owned(),
         ));
     }
 
@@ -1137,7 +1133,7 @@ pub(crate) async fn handle_agents_delete(
     if agent_ref.trim().is_empty() {
         return Err((
             INVALID_REQUEST,
-            "missing 'id' or 'name' parameter".to_string(),
+            "missing 'id' or 'name' parameter".to_owned(),
         ));
     }
 
@@ -1153,7 +1149,7 @@ pub(crate) async fn handle_agents_delete(
     if resolved_id.eq_ignore_ascii_case("default") {
         return Err((
             INVALID_REQUEST,
-            "cannot delete the default agent".to_string(),
+            "cannot delete the default agent".to_owned(),
         ));
     }
 
@@ -1188,7 +1184,7 @@ pub(crate) async fn handle_agents_reset(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if agent_ref.trim().is_empty() {
-        return Err((INVALID_REQUEST, "missing 'id' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'id' parameter".to_owned()));
     }
 
     let dir = agents_dir(channel);
@@ -1213,8 +1209,7 @@ pub(crate) async fn handle_agents_reset(
         let name = existing
             .as_ref()
             .and_then(|c| c.get("name").and_then(|v| v.as_str()))
-            .unwrap_or(agent_ref)
-            .to_string();
+            .unwrap_or(agent_ref).to_owned();
         json!({
             "id": resolved_id,
             "name": name,
@@ -1252,15 +1247,14 @@ pub(crate) async fn handle_agents_files_list(
     if let Ok(mut entries) = tokio::fs::read_dir(&dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if path.is_file()
+                && let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     let size = tokio::fs::metadata(&path)
                         .await
                         .map(|m| m.len())
                         .unwrap_or(0);
                     files.push(json!({ "name": name, "size": size }));
                 }
-            }
         }
     }
 
@@ -1277,7 +1271,7 @@ pub(crate) async fn handle_agents_files_get(
         .unwrap_or("default");
     let file_path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
     if file_path.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'path' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
     // Sanitize path to prevent directory traversal.
@@ -1305,7 +1299,7 @@ pub(crate) async fn handle_agents_files_set(
     let file_path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
     let content = params.get("content").and_then(|v| v.as_str()).unwrap_or("");
     if file_path.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'path' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
     // Sanitize path to prevent directory traversal.
@@ -1335,7 +1329,7 @@ pub(crate) async fn handle_agents_files_delete(
         .unwrap_or("default");
     let file_path = params.get("path").and_then(|v| v.as_str()).unwrap_or("");
     if file_path.is_empty() {
-        return Err((INVALID_REQUEST, "missing 'path' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
     // Sanitize path to prevent directory traversal.
@@ -1370,7 +1364,7 @@ pub(crate) async fn handle_agents_skills_get(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if agent_ref.trim().is_empty() {
-        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_owned()));
     }
 
     let config = if agent_ref.trim().eq_ignore_ascii_case("default") {
@@ -1405,12 +1399,12 @@ pub(crate) async fn handle_agents_skills_set(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if agent_ref.trim().is_empty() {
-        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_owned()));
     }
 
     let skill_name = params.get("skill").and_then(|v| v.as_str()).unwrap_or("");
     if skill_name.trim().is_empty() {
-        return Err((INVALID_REQUEST, "missing 'skill' parameter".to_string()));
+        return Err((INVALID_REQUEST, "missing 'skill' parameter".to_owned()));
     }
 
     let enabled = params
@@ -1446,7 +1440,7 @@ pub(crate) async fn handle_agents_skills_set(
 
     if enabled {
         if !skills.iter().any(|s| s == skill_name) {
-            skills.push(skill_name.to_string());
+            skills.push(skill_name.to_owned());
         }
     } else {
         skills.retain(|s| s != skill_name);
@@ -1478,7 +1472,7 @@ pub(crate) async fn handle_agent_avatar_set(params: &Value, channel: &GatewayCha
         .unwrap_or("default");
     let avatar = params.get("avatar").and_then(|v| v.as_str()).unwrap_or("");
     if avatar.is_empty() {
-        return Err((INVALID_PARAMS, "missing 'avatar' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'avatar' parameter".to_owned()));
     }
 
     let dir = agents_dir(channel);

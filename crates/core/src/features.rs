@@ -38,25 +38,28 @@ pub enum Stage {
 }
 
 impl Stage {
+    #[must_use] 
     pub fn experimental_menu_name(self) -> Option<&'static str> {
         match self {
-            Stage::Experimental { name, .. } => Some(name),
+            Self::Experimental { name, .. } => Some(name),
             _ => None,
         }
     }
 
+    #[must_use] 
     pub fn experimental_menu_description(self) -> Option<&'static str> {
         match self {
-            Stage::Experimental {
+            Self::Experimental {
                 menu_description, ..
             } => Some(menu_description),
             _ => None,
         }
     }
 
+    #[must_use] 
     pub fn experimental_announcement(self) -> Option<&'static str> {
         match self {
-            Stage::Experimental { announcement, .. } => Some(announcement),
+            Self::Experimental { announcement, .. } => Some(announcement),
             _ => None,
         }
     }
@@ -124,14 +127,17 @@ pub enum Feature {
 }
 
 impl Feature {
+    #[must_use] 
     pub fn key(self) -> &'static str {
         self.info().key
     }
 
+    #[must_use] 
     pub fn stage(self) -> Stage {
         self.info().stage
     }
 
+    #[must_use] 
     pub fn default_enabled(self) -> bool {
         self.info().default_enabled
     }
@@ -178,6 +184,7 @@ impl FeatureOverrides {
 
 impl Features {
     /// Starts with built-in defaults.
+    #[must_use] 
     pub fn with_defaults() -> Self {
         let mut set = BTreeSet::new();
         for spec in FEATURES {
@@ -191,6 +198,7 @@ impl Features {
         }
     }
 
+    #[must_use] 
     pub fn enabled(&self, f: Feature) -> bool {
         self.enabled.contains(&f)
     }
@@ -208,7 +216,7 @@ impl Features {
     pub fn record_legacy_usage_force(&mut self, alias: &str, feature: Feature) {
         let (summary, details) = legacy_usage_notice(alias, feature);
         self.legacy_usages.insert(LegacyFeatureUsage {
-            alias: alias.to_string(),
+            alias: alias.to_owned(),
             feature,
             summary,
             details,
@@ -277,8 +285,9 @@ impl Features {
         }
     }
 
+    #[must_use] 
     pub fn from_config(cfg: &ConfigToml, overrides: FeatureOverrides) -> Self {
-        let mut features = Features::with_defaults();
+        let mut features = Self::with_defaults();
 
         let base_legacy = LegacyFeatureToggles {
             experimental_use_freeform_apply_patch: cfg.experimental_use_freeform_apply_patch,
@@ -297,6 +306,7 @@ impl Features {
         features
     }
 
+    #[must_use] 
     pub fn enabled_features(&self) -> Vec<Feature> {
         self.enabled.iter().copied().collect()
     }
@@ -318,7 +328,7 @@ fn legacy_usage_notice(alias: &str, feature: Feature) -> (String, Option<String>
                 _ => alias,
             };
             let summary = format!("`{label}` is deprecated. Use `web_search` instead.");
-            (summary, Some(web_search_details().to_string()))
+            (summary, Some(web_search_details().to_owned()))
         }
         _ => {
             let summary = format!("`{alias}` is deprecated. Use `[features].{canonical}` instead.");
@@ -349,6 +359,7 @@ fn feature_for_key(key: &str) -> Option<Feature> {
 }
 
 /// Returns `true` if the provided string matches a known feature toggle key.
+#[must_use] 
 pub fn is_known_feature_key(key: &str) -> bool {
     feature_for_key(key).is_some()
 }
@@ -583,7 +594,7 @@ pub fn maybe_push_unstable_features_warning(
                 continue;
             }
             if matches!(spec.stage, Stage::UnderDevelopment) {
-                under_development_feature_keys.push(spec.key.to_string());
+                under_development_feature_keys.push(spec.key.to_owned());
             }
         }
     }

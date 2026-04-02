@@ -49,7 +49,7 @@ impl WidgetRef for &TrustDirectoryWidget {
         };
 
         column.push(
-            Paragraph::new(guidance.to_string())
+            Paragraph::new(guidance.to_owned())
                 .wrap(Wrap { trim: true })
                 .inset(Insets::tlbr(0, 2, 0, 0)),
         );
@@ -88,7 +88,7 @@ impl WidgetRef for &TrustDirectoryWidget {
 
         if let Some(error) = &self.error {
             column.push(
-                Paragraph::new(error.to_string())
+                Paragraph::new(error.clone())
                     .red()
                     .wrap(Wrap { trim: true })
                     .inset(Insets::tlbr(0, 2, 0, 0)),
@@ -122,8 +122,8 @@ impl KeyboardHandler for TrustDirectoryWidget {
             KeyCode::Down | KeyCode::Char('j') => {
                 self.highlighted = TrustDirectorySelection::DontTrust;
             }
-            KeyCode::Char('1') | KeyCode::Char('y') => self.handle_trust(),
-            KeyCode::Char('2') | KeyCode::Char('n') => self.handle_dont_trust(),
+            KeyCode::Char('1' | 'y') => self.handle_trust(),
+            KeyCode::Char('2' | 'n') => self.handle_dont_trust(),
             KeyCode::Enter => match self.highlighted {
                 TrustDirectorySelection::Trust => self.handle_trust(),
                 TrustDirectorySelection::DontTrust => self.handle_dont_trust(),

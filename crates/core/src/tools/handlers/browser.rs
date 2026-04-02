@@ -76,7 +76,7 @@ impl ToolHandler for BrowserHandler {
         };
         let args: BrowserArgs = parse_arguments(&arguments)?;
         let browser_url =
-            std::env::var("SAVFOX_BROWSER_URL").unwrap_or_else(|_| DEFAULT_BROWSER_URL.to_string());
+            std::env::var("SAVFOX_BROWSER_URL").unwrap_or_else(|_| DEFAULT_BROWSER_URL.to_owned());
 
         let timeout = if args.action == "screenshot" || args.action == "pdf" {
             SCREENSHOT_TIMEOUT
@@ -95,7 +95,7 @@ impl ToolHandler for BrowserHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(profile) = &args.profile {
                     body.insert(
-                        "profile".to_string(),
+                        "profile".to_owned(),
                         serde_json::Value::String(profile.clone()),
                     );
                 }
@@ -121,7 +121,7 @@ impl ToolHandler for BrowserHandler {
             "open" => {
                 let mut body = serde_json::Map::new();
                 if let Some(url) = &args.target_url {
-                    body.insert("url".to_string(), serde_json::Value::String(url.clone()));
+                    body.insert("url".to_owned(), serde_json::Value::String(url.clone()));
                 }
                 send_post(
                     &client,
@@ -173,23 +173,23 @@ impl ToolHandler for BrowserHandler {
             "screenshot" => {
                 let mut body = serde_json::Map::new();
                 if let Some(full_page) = args.full_page {
-                    body.insert("fullPage".to_string(), serde_json::Value::Bool(full_page));
+                    body.insert("fullPage".to_owned(), serde_json::Value::Bool(full_page));
                 }
                 if let Some(image_type) = &args.image_type {
                     body.insert(
-                        "imageType".to_string(),
+                        "imageType".to_owned(),
                         serde_json::Value::String(image_type.clone()),
                     );
                 }
                 if let Some(selector) = &args.selector {
                     body.insert(
-                        "selector".to_string(),
+                        "selector".to_owned(),
                         serde_json::Value::String(selector.clone()),
                     );
                 }
                 if let Some(target_id) = &args.target_id {
                     body.insert(
-                        "targetId".to_string(),
+                        "targetId".to_owned(),
                         serde_json::Value::String(target_id.clone()),
                     );
                 }
@@ -205,12 +205,12 @@ impl ToolHandler for BrowserHandler {
                 let url = require_field(&args.target_url, "target_url")?;
                 let mut body = serde_json::Map::new();
                 body.insert(
-                    "url".to_string(),
-                    serde_json::Value::String(url.to_string()),
+                    "url".to_owned(),
+                    serde_json::Value::String(url.to_owned()),
                 );
                 if let Some(target_id) = &args.target_id {
                     body.insert(
-                        "targetId".to_string(),
+                        "targetId".to_owned(),
                         serde_json::Value::String(target_id.clone()),
                     );
                 }
@@ -241,7 +241,7 @@ impl ToolHandler for BrowserHandler {
                 let mut body = serde_json::Map::new();
                 if let Some(target_id) = &args.target_id {
                     body.insert(
-                        "targetId".to_string(),
+                        "targetId".to_owned(),
                         serde_json::Value::String(target_id.clone()),
                     );
                 }
@@ -263,11 +263,11 @@ impl ToolHandler for BrowserHandler {
             "dialog" => {
                 let mut body = serde_json::Map::new();
                 if let Some(accept) = args.accept {
-                    body.insert("accept".to_string(), serde_json::Value::Bool(accept));
+                    body.insert("accept".to_owned(), serde_json::Value::Bool(accept));
                 }
                 if let Some(text) = &args.prompt_text {
                     body.insert(
-                        "promptText".to_string(),
+                        "promptText".to_owned(),
                         serde_json::Value::String(text.clone()),
                     );
                 }

@@ -75,10 +75,10 @@ pub enum SavfoxToolCallApprovalPolicy {
 impl From<SavfoxToolCallApprovalPolicy> for AskForApproval {
     fn from(value: SavfoxToolCallApprovalPolicy) -> Self {
         match value {
-            SavfoxToolCallApprovalPolicy::Untrusted => AskForApproval::UnlessTrusted,
-            SavfoxToolCallApprovalPolicy::OnFailure => AskForApproval::OnFailure,
-            SavfoxToolCallApprovalPolicy::OnRequest => AskForApproval::OnRequest,
-            SavfoxToolCallApprovalPolicy::Never => AskForApproval::Never,
+            SavfoxToolCallApprovalPolicy::Untrusted => Self::UnlessTrusted,
+            SavfoxToolCallApprovalPolicy::OnFailure => Self::OnFailure,
+            SavfoxToolCallApprovalPolicy::OnRequest => Self::OnRequest,
+            SavfoxToolCallApprovalPolicy::Never => Self::Never,
         }
     }
 }
@@ -96,9 +96,9 @@ pub enum SavfoxToolCallSandboxMode {
 impl From<SavfoxToolCallSandboxMode> for SandboxMode {
     fn from(value: SavfoxToolCallSandboxMode) -> Self {
         match value {
-            SavfoxToolCallSandboxMode::ReadOnly => SandboxMode::ReadOnly,
-            SavfoxToolCallSandboxMode::WorkspaceWrite => SandboxMode::WorkspaceWrite,
-            SavfoxToolCallSandboxMode::DangerFullAccess => SandboxMode::DangerFullAccess,
+            SavfoxToolCallSandboxMode::ReadOnly => Self::ReadOnly,
+            SavfoxToolCallSandboxMode::WorkspaceWrite => Self::WorkspaceWrite,
+            SavfoxToolCallSandboxMode::DangerFullAccess => Self::DangerFullAccess,
         }
     }
 }
@@ -238,7 +238,7 @@ fn create_tool_input_schema(schema: schemars::Schema, panic_message: &str) -> Ar
     let mut input_schema = JsonObject::new();
     for key in ["properties", "required", "type", "$defs", "definitions"] {
         if let Some(value) = schema_object.remove(key) {
-            input_schema.insert(key.to_string(), value);
+            input_schema.insert(key.to_owned(), value);
         }
     }
 

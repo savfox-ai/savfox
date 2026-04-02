@@ -53,7 +53,7 @@ pub enum ParseError {
     #[error("invalid hunk at line {line_number}, {message}")]
     InvalidHunkError { message: String, line_number: usize },
 }
-use ParseError::*;
+use ParseError::{InvalidPatchError, InvalidHunkError};
 
 #[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -76,16 +76,17 @@ pub enum Hunk {
 }
 
 impl Hunk {
+    #[must_use] 
     pub fn resolve_path(&self, cwd: &Path) -> PathBuf {
         match self {
-            Hunk::AddFile { path, .. } => cwd.join(path),
-            Hunk::DeleteFile { path } => cwd.join(path),
-            Hunk::UpdateFile { path, .. } => cwd.join(path),
+            Self::AddFile { path, .. } => cwd.join(path),
+            Self::DeleteFile { path } => cwd.join(path),
+            Self::UpdateFile { path, .. } => cwd.join(path),
         }
     }
 }
 
-use Hunk::*;
+use Hunk::{AddFile, DeleteFile, UpdateFile};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct UpdateFileChunk {
@@ -347,7 +348,7 @@ fn parse_update_file_chunk(
 ) -> Result<(UpdateFileChunk, usize), ParseError> {
     if lines.is_empty() {
         return Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
+            message: "Update hunk does not contain any lines".to_owned(),
             line_number,
         });
     }
@@ -356,7 +357,7 @@ fn parse_update_file_chunk(
     let (change_context, start_index) = if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER {
         (None, 1)
     } else if let Some(context) = lines[0].strip_prefix(CHANGE_CONTEXT_MARKER) {
-        (Some(context.to_string()), 1)
+        (Some(context.to_owned()), 1)
     } else {
         if !allow_missing_context {
             return Err(InvalidHunkError {
@@ -371,7 +372,7 @@ fn parse_update_file_chunk(
     };
     if start_index >= lines.len() {
         return Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
+            message: "Update hunk does not contain any lines".to_owned(),
             line_number: line_number + 1,
         });
     }
@@ -387,7 +388,7 @@ fn parse_update_file_chunk(
             EOF_MARKER => {
                 if parsed_lines == 0 {
                     return Err(InvalidHunkError {
-                        message: "Update hunk does not contain any lines".to_string(),
+                        message: "Update hunk does not contain any lines".to_owned(),
                         line_number: line_number + 1,
                     });
                 }

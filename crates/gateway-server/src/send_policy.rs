@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 /// Delivery mode for replies
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DeliveryMode {
     /// Reply to the same channel/thread the message came from
+    #[default]
     SameChannel,
     /// Reply via DM to the sender
     DirectMessage,
@@ -19,29 +21,21 @@ pub enum DeliveryMode {
     Broadcast,
 }
 
-impl Default for DeliveryMode {
-    fn default() -> Self {
-        Self::SameChannel
-    }
-}
 
 /// Streaming behavior for responses
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum StreamingMode {
     /// Stream response tokens as they arrive
     Streaming,
     /// Wait for complete response, then send
+    #[default]
     Batch,
     /// Stream but edit the same message (for platforms that support it)
     EditInPlace,
 }
 
-impl Default for StreamingMode {
-    fn default() -> Self {
-        Self::Batch
-    }
-}
 
 /// Full send policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +75,7 @@ impl Default for SendPolicy {
 
 impl SendPolicy {
     /// Create a policy for DM replies
+    #[must_use] 
     pub fn dm() -> Self {
         Self {
             delivery: DeliveryMode::DirectMessage,
@@ -89,6 +84,7 @@ impl SendPolicy {
     }
 
     /// Create a policy for streaming replies
+    #[must_use] 
     pub fn streaming() -> Self {
         Self {
             streaming: StreamingMode::Streaming,
@@ -97,6 +93,7 @@ impl SendPolicy {
     }
 
     /// Create a broadcast policy
+    #[must_use] 
     pub fn broadcast() -> Self {
         Self {
             delivery: DeliveryMode::Broadcast,
@@ -191,11 +188,10 @@ impl SendPolicyConfig {
         if let Some(exact) = self.channels.get(channel) {
             return exact.clone();
         }
-        if let Some((platform, _)) = channel.split_once(':') {
-            if let Some(platform_override) = self.channels.get(platform) {
+        if let Some((platform, _)) = channel.split_once(':')
+            && let Some(platform_override) = self.channels.get(platform) {
                 return platform_override.clone();
             }
-        }
         if let Some(wildcard) = self.channels.get("*") {
             return wildcard.clone();
         }

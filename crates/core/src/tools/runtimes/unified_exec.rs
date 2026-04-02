@@ -102,7 +102,7 @@ impl Approvable<UnifiedExecRequest> for UnifiedExecRuntime<'_> {
         let keys = self.approval_keys(req);
         let session = ctx.session;
         let turn = ctx.turn;
-        let call_id = ctx.call_id.to_string();
+        let call_id = ctx.call_id.to_owned();
         let command = req.command.clone();
         let cwd = req.cwd.clone();
         let reason = ctx
@@ -178,7 +178,7 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecProcess> for UnifiedExecRunt
             req.sandbox_permissions,
             req.justification.clone(),
         )
-        .map_err(|_| ToolError::Rejected("missing command line for PTY".to_string()))?;
+        .map_err(|_| ToolError::Rejected("missing command line for PTY".to_owned()))?;
         let exec_env = attempt
             .env_for(spec)
             .map_err(|err| ToolError::Savfox(err.into()))?;

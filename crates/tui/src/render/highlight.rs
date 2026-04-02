@@ -92,8 +92,8 @@ fn push_segment(lines: &mut Vec<Line<'static>>, segment: &str, style: Option<Sty
             continue;
         }
         let span = match style {
-            Some(style) => Span::styled(part.to_string(), style),
-            None => part.to_string().into(),
+            Some(style) => Span::styled(part.to_owned(), style),
+            None => part.to_owned().into(),
         };
         if let Some(last) = lines.last_mut() {
             last.spans.push(span);
@@ -109,7 +109,7 @@ pub(crate) fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
     let iterator =
         match highlighter.highlight(highlight_config(), script.as_bytes(), None, |_| None) {
             Ok(iter) => iter,
-            Err(_) => return vec![script.to_string().into()],
+            Err(_) => return vec![script.to_owned().into()],
         };
 
     let mut lines: Vec<Line<'static>> = vec![Line::from("")];
@@ -128,7 +128,7 @@ pub(crate) fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
                 let style = highlight_stack.last().map(|h| highlight_for(*h).style());
                 push_segment(&mut lines, &script[start..end], style);
             }
-            Err(_) => return vec![script.to_string().into()],
+            Err(_) => return vec![script.to_owned().into()],
         }
     }
 

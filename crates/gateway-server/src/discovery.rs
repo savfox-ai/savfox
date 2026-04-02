@@ -30,6 +30,7 @@ pub(crate) struct ServiceInfo {
 
 /// Discovery configuration.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub(crate) struct DiscoveryConfig {
     /// Enable mDNS advertisement.
     pub(crate) enabled: bool,
@@ -37,14 +38,6 @@ pub(crate) struct DiscoveryConfig {
     pub(crate) instance_name: Option<String>,
 }
 
-impl Default for DiscoveryConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            instance_name: None,
-        }
-    }
-}
 
 /// Advertise the gateway on the local network using mDNS.
 ///
@@ -75,7 +68,7 @@ impl ServiceAdvertiser {
             .config
             .instance_name
             .clone()
-            .unwrap_or_else(|| "Savfox Gateway".to_string());
+            .unwrap_or_else(|| "Savfox Gateway".to_owned());
 
         info!(
             name = %instance_name,

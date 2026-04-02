@@ -57,11 +57,10 @@ pub fn detect_conflicts(zip_bytes: &[u8], skills_dir: &Path) -> anyhow::Result<V
                 continue;
             };
             let name = name.replace('\\', "/");
-            if let Some(top) = name.split('/').next() {
-                if !top.is_empty() && seen.insert(top.to_string()) {
-                    fld.push(top.to_string());
+            if let Some(top) = name.split('/').next()
+                && !top.is_empty() && seen.insert(top.to_owned()) {
+                    fld.push(top.to_owned());
                 }
-            }
         }
         fld
     };
@@ -165,14 +164,13 @@ fn install_zip_sync(
                     std::fs::create_dir_all(parent).ok();
                 }
                 let mut buf = Vec::new();
-                if file.read_to_end(&mut buf).is_ok() {
-                    if let Err(err) = std::fs::write(&out_path, &buf) {
+                if file.read_to_end(&mut buf).is_ok()
+                    && let Err(err) = std::fs::write(&out_path, &buf) {
                         result
                             .errors
                             .push((skill_name.clone(), format!("write error: {err}")));
                         continue;
                     }
-                }
             }
             extracted = true;
         }
@@ -196,11 +194,10 @@ fn collect_top_level_folders(archive: &ZipArchive<Cursor<&[u8]>>) -> Vec<String>
             continue;
         };
         let name = name.replace('\\', "/");
-        if let Some(top) = name.split('/').next() {
-            if !top.is_empty() && seen.insert(top.to_string()) {
-                folders.push(top.to_string());
+        if let Some(top) = name.split('/').next()
+            && !top.is_empty() && seen.insert(top.to_owned()) {
+                folders.push(top.to_owned());
             }
-        }
     }
     folders
 }

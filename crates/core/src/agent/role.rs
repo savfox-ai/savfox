@@ -72,12 +72,12 @@ impl AgentRole {
     /// Returns the hard-coded profile for this role.
     pub fn profile(self) -> AgentProfile {
         match self {
-            AgentRole::Default => AgentProfile::default(),
-            AgentRole::Orchestrator => AgentProfile {
+            Self::Default => AgentProfile::default(),
+            Self::Orchestrator => AgentProfile {
                 base_instructions: Some(ORCHESTRATOR_PROMPT),
                 ..Default::default()
             },
-            AgentRole::Worker => AgentProfile {
+            Self::Worker => AgentProfile {
                 // base_instructions: Some(WORKER_PROMPT),
                 // model: Some(WORKER_MODEL),
                 description: r#"Use for execution and production work.
@@ -90,7 +90,7 @@ Rules:
 - Always tell workers they are **not alone in the codebase**, and they should ignore edits made by others without touching them"#,
                 ..Default::default()
             },
-            AgentRole::Explorer => AgentProfile {
+            Self::Explorer => AgentProfile {
                 model: Some(EXPLORER_MODEL),
                 reasoning_effort: Some(ReasoningEffort::Medium),
                 description: r#"Use `explorer` for all codebase questions.
@@ -112,10 +112,10 @@ Rules:
     pub fn apply_to_config(self, config: &mut Config) -> Result<(), String> {
         let profile = self.profile();
         if let Some(base_instructions) = profile.base_instructions {
-            config.base_instructions = Some(base_instructions.to_string());
+            config.base_instructions = Some(base_instructions.to_owned());
         }
         if let Some(model) = profile.model {
-            config.model = Some(model.to_string());
+            config.model = Some(model.to_owned());
         }
         if let Some(reasoning_effort) = profile.reasoning_effort {
             config.model_reasoning_effort = Some(reasoning_effort)

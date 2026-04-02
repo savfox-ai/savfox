@@ -24,6 +24,7 @@ pub struct VectorStore {
 }
 
 impl VectorStore {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -36,8 +37,8 @@ impl VectorStore {
         } else {
             let idx = self.entries.len();
             self.entries.push(StoredEmbedding {
-                slug: slug.to_string(),
-                layer: layer.to_string(),
+                slug: slug.to_owned(),
+                layer: layer.to_owned(),
                 vector,
             });
             self.index.insert(key, idx);
@@ -62,16 +63,19 @@ impl VectorStore {
     }
 
     /// Return the number of stored embeddings.
+    #[must_use] 
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Check if the store is empty.
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// Find the top-k most similar entries to the query vector.
+    #[must_use] 
     pub fn search(&self, query: &[f32], top_k: usize) -> Vec<SimilarityResult> {
         let mut scored: Vec<SimilarityResult> = self
             .entries
@@ -92,6 +96,7 @@ impl VectorStore {
     }
 
     /// Find entries above a similarity threshold.
+    #[must_use] 
     pub fn search_with_threshold(
         &self,
         query: &[f32],

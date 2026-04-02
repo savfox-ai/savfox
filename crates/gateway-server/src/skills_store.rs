@@ -133,11 +133,10 @@ fn collect_skill_manifests(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if let Some(name) = path.file_name().and_then(|v| v.to_str()) {
-                    if skip_system_subtree && name == ".system" {
+                if let Some(name) = path.file_name().and_then(|v| v.to_str())
+                    && skip_system_subtree && name == ".system" {
                         continue;
                     }
-                }
                 if skip_roots.contains(&path) {
                     continue;
                 }
@@ -373,7 +372,7 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         else {
             continue;
         };
-        let name = manifest.name.trim().to_string();
+        let name = manifest.name.trim().to_owned();
         if name.is_empty() {
             continue;
         }
@@ -409,9 +408,9 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         let persisted_enabled = get_persisted_enabled(&pool, &name).await.unwrap_or(true);
 
         let disabled_reason = if allowlist_blocked {
-            Some("blocked by allowlist".to_string())
+            Some("blocked by allowlist".to_owned())
         } else if !persisted_enabled {
-            Some("disabled by user".to_string())
+            Some("disabled by user".to_owned())
         } else {
             None
         };
@@ -450,7 +449,7 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
         }
         // Track every source for conflict detection.
         let source = SkillConflictSource {
-            category: category.to_string(),
+            category: category.to_owned(),
             path: row
                 .skill_dir
                 .as_ref()
@@ -480,14 +479,14 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
                 row.enabled = false;
                 if row.disabled_reason.is_none() {
                     row.disabled_reason =
-                        Some("auto-disabled: too many new skills at once".to_string());
+                        Some("auto-disabled: too many new skills at once".to_owned());
                 }
             }
             for row in all_rows.iter_mut().filter(|r| &r.name == name) {
                 row.enabled = false;
                 if row.disabled_reason.is_none() {
                     row.disabled_reason =
-                        Some("auto-disabled: too many new skills at once".to_string());
+                        Some("auto-disabled: too many new skills at once".to_owned());
                 }
             }
         }
@@ -636,7 +635,7 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
     let total_pages = if total == 0 {
         1
     } else {
-        (total + page_size - 1) / page_size
+        total.div_ceil(page_size)
     };
     let offset = (page - 1) * page_size;
     let bins: Vec<Value> = all_bins.into_iter().skip(offset).take(page_size).collect();
@@ -658,7 +657,7 @@ pub(crate) async fn set_enabled(
 ) -> Result<Value, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("missing skill name".to_string());
+        return Err("missing skill name".to_owned());
     }
 
     let pool = cached_db::get_pool(savfox_home).await?;
@@ -702,11 +701,10 @@ fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
         for (manifest_path, _) in
             collect_skill_manifests(root, CATEGORY_INSTALLED, 6, skip_system, &empty_skip)
         {
-            if let Some(parsed_name) = quick_read_skill_name(&manifest_path) {
-                if parsed_name.eq_ignore_ascii_case(name) {
+            if let Some(parsed_name) = quick_read_skill_name(&manifest_path)
+                && parsed_name.eq_ignore_ascii_case(name) {
                     return manifest_path.parent().map(Path::to_path_buf);
                 }
-            }
         }
     }
 
@@ -715,11 +713,10 @@ fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
         for (manifest_path, _) in
             collect_skill_manifests(&ws_dir, CATEGORY_WORKSPACE, 4, false, &empty_skip)
         {
-            if let Some(parsed_name) = quick_read_skill_name(&manifest_path) {
-                if parsed_name.eq_ignore_ascii_case(name) {
+            if let Some(parsed_name) = quick_read_skill_name(&manifest_path)
+                && parsed_name.eq_ignore_ascii_case(name) {
                     return manifest_path.parent().map(Path::to_path_buf);
                 }
-            }
         }
     }
 
@@ -738,7 +735,7 @@ fn quick_read_skill_name(path: &Path) -> Option<String> {
         if let Some(value) = line.strip_prefix("name:") {
             let name = value.trim().trim_matches('"').trim_matches('\'').trim();
             if !name.is_empty() {
-                return Some(name.to_string());
+                return Some(name.to_owned());
             }
         }
     }
@@ -748,7 +745,7 @@ fn quick_read_skill_name(path: &Path) -> Option<String> {
 pub(crate) async fn set_env(savfox_home: &Path, key: &str, value: &str) -> Result<Value, String> {
     let key = key.trim();
     if key.is_empty() {
-        return Err("missing env key".to_string());
+        return Err("missing env key".to_owned());
     }
     let pool = cached_db::get_pool(savfox_home).await?;
     let keyring = DefaultKeyringStore;
@@ -781,7 +778,7 @@ pub(crate) async fn set_env(savfox_home: &Path, key: &str, value: &str) -> Resul
 pub(crate) async fn get_env_status(savfox_home: &Path, key: &str) -> Result<Value, String> {
     let key = key.trim();
     if key.is_empty() {
-        return Err("missing env key".to_string());
+        return Err("missing env key".to_owned());
     }
     let pool = cached_db::get_pool(savfox_home).await?;
     let keyring = DefaultKeyringStore;

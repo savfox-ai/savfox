@@ -12,8 +12,10 @@ use crate::home_paths::stt_config_path;
 /// STT provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SttProvider {
     /// OpenAI Whisper API
+    #[default]
     OpenaiWhisper,
     /// Deepgram Nova
     Deepgram,
@@ -23,11 +25,6 @@ pub enum SttProvider {
     LocalWhisper,
 }
 
-impl Default for SttProvider {
-    fn default() -> Self {
-        Self::OpenaiWhisper
-    }
-}
 
 /// STT configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +111,7 @@ pub struct TranscriptionSegment {
 }
 
 /// Build OpenAI Whisper API URL
+#[must_use] 
 pub fn whisper_api_url(config: &SttConfig) -> String {
     let base = config
         .base_url
@@ -123,6 +121,7 @@ pub fn whisper_api_url(config: &SttConfig) -> String {
 }
 
 /// STT provider info
+#[must_use] 
 pub fn provider_info() -> Value {
     serde_json::json!({
         "providers": [
@@ -275,11 +274,11 @@ async fn transcribe_openai_compat(
 
     let mut form = multipart::Form::new()
         .part("file", file_part)
-        .text("model", model.to_string())
+        .text("model", model.to_owned())
         .text("response_format", "verbose_json");
 
     if let Some(lang) = language {
-        form = form.text("language", lang.to_string());
+        form = form.text("language", lang.to_owned());
     }
 
     info!(url = %url, model = %model, "STT transcription request");
@@ -299,7 +298,7 @@ async fn transcribe_openai_compat(
         .map_err(|e| format!("STT response read error: {e}"))?;
 
     if !status.is_success() {
-        return Err(format!("STT API error ({}): {}", status, body));
+        return Err(format!("STT API error ({status}): {body}"));
     }
 
     let result: Value =
@@ -321,7 +320,7 @@ async fn transcribe_deepgram(
     audio: &[u8],
     mime: &str,
 ) -> Result<Value, String> {
-    let mut url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true".to_string();
+    let mut url = "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true".to_owned();
     if let Some(lang) = language {
         url.push_str(&format!("&language={lang}"));
     }
@@ -344,7 +343,7 @@ async fn transcribe_deepgram(
         .map_err(|e| format!("Deepgram response read error: {e}"))?;
 
     if !status.is_success() {
-        return Err(format!("Deepgram API error ({}): {}", status, body));
+        return Err(format!("Deepgram API error ({status}): {body}"));
     }
 
     let result: Value =
@@ -357,7 +356,7 @@ async fn transcribe_deepgram(
     let duration = result["metadata"]["duration"].as_f64();
     let language = result["results"]["channels"][0]["detected_language"]
         .as_str()
-        .map(|s| Value::String(s.to_string()))
+        .map(|s| Value::String(s.to_owned()))
         .unwrap_or(Value::Null);
 
     Ok(serde_json::json!({

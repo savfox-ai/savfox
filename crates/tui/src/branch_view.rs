@@ -101,7 +101,7 @@ pub(crate) fn render_branch_lines(summary: &BranchSummary) -> Vec<Line<'static>>
 fn truncate_preview(message: &str, max_chars: usize) -> String {
     let first_line = message.lines().next().unwrap_or("");
     if first_line.chars().count() <= max_chars {
-        first_line.to_string()
+        first_line.to_owned()
     } else {
         let mut preview: String = first_line.chars().take(max_chars - 3).collect();
         preview.push_str("...");

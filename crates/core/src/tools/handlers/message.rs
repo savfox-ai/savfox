@@ -22,7 +22,7 @@ struct MessageArgs {
 
 mod defaults {
     pub fn format() -> String {
-        "plain".to_string()
+        "plain".to_owned()
     }
 }
 
@@ -53,7 +53,7 @@ impl ToolHandler for MessageHandler {
         // The gateway URL is determined from the SAVFOX_GATEWAY_URL environment variable,
         // defaulting to localhost:18881.
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)

@@ -1,4 +1,5 @@
 #[cfg(unix)]
+#[allow(unreachable_pub)]
 mod posix;
 
 #[cfg(unix)]

@@ -130,7 +130,7 @@ mod spawn {
         let isolated_workspace = config.cwd.display().to_string();
         agent_role
             .apply_to_config(&mut config)
-            .or_else(|e| model_err(e))?;
+            .or_else(model_err)?;
 
         let result = session
             .services
@@ -541,7 +541,7 @@ fn agent_id(id: &str) -> Result<SessionId, FunctionCallError> {
 fn collab_spawn_error(err: SavfoxError) -> FunctionCallError {
     match err {
         SavfoxError::UnsupportedOperation(_) => {
-            FunctionCallError::RespondToModel("collab manager unavailable".to_string())
+            FunctionCallError::RespondToModel("collab manager unavailable".to_owned())
         }
         err => FunctionCallError::RespondToModel(format!("collab spawn failed: {err}")),
     }
@@ -556,7 +556,7 @@ fn collab_agent_error(agent_id: SessionId, err: SavfoxError) -> FunctionCallErro
             FunctionCallError::RespondToModel(format!("agent with id {agent_id} is closed"))
         }
         SavfoxError::UnsupportedOperation(_) => {
-            FunctionCallError::RespondToModel("collab manager unavailable".to_string())
+            FunctionCallError::RespondToModel("collab manager unavailable".to_owned())
         }
         err => FunctionCallError::RespondToModel(format!("collab tool failed: {err}")),
     }

@@ -26,10 +26,11 @@ pub enum ImageProcessingError {
 }
 
 impl ImageProcessingError {
+    #[must_use] 
     pub fn is_invalid_image(&self) -> bool {
         matches!(
             self,
-            ImageProcessingError::Decode {
+            Self::Decode {
                 source: ImageError::Decoding(_),
                 ..
             }

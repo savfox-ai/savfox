@@ -138,10 +138,10 @@ fn build_structured_output(parsed: &ExecOutputJson) -> String {
     let mut output = parsed.output.clone();
     if let Some((stripped, total_lines)) = strip_total_output_header(&parsed.output) {
         sections.push(format!("Total output lines: {total_lines}"));
-        output = stripped.to_string();
+        output = stripped.to_owned();
     }
 
-    sections.push("Output:".to_string());
+    sections.push("Output:".to_owned());
     sections.push(output);
 
     sections.join("\n")
@@ -185,10 +185,10 @@ pub(crate) mod tools {
     impl ToolSpec {
         pub(crate) fn name(&self) -> &str {
             match self {
-                ToolSpec::Function(tool) => tool.name.as_str(),
-                ToolSpec::LocalShell {} => "local_shell",
-                ToolSpec::WebSearch { .. } => "web_search",
-                ToolSpec::Freeform(tool) => tool.name.as_str(),
+                Self::Function(tool) => tool.name.as_str(),
+                Self::LocalShell {} => "local_shell",
+                Self::WebSearch { .. } => "web_search",
+                Self::Freeform(tool) => tool.name.as_str(),
             }
         }
     }

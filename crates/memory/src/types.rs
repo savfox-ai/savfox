@@ -69,7 +69,7 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             embedding_provider: EmbeddingProviderConfig::OpenAI {
-                model: "text-embedding-3-small".to_string(),
+                model: "text-embedding-3-small".to_owned(),
             },
             chunk_tokens: 500,
             chunk_overlap: 50,

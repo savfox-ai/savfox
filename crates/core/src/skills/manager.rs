@@ -51,10 +51,10 @@ impl SkillsManager {
         outcome.disabled_paths = disabled_paths_from_stack(&config.config_layer_stack);
         match self.cache_by_cwd.write() {
             Ok(mut cache) => {
-                cache.insert(cwd.to_path_buf(), outcome.clone());
+                cache.insert(cwd.clone(), outcome.clone());
             }
             Err(err) => {
-                err.into_inner().insert(cwd.to_path_buf(), outcome.clone());
+                err.into_inner().insert(cwd.clone(), outcome.clone());
             }
         }
         outcome

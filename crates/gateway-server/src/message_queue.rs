@@ -7,18 +7,15 @@ use tokio::sync::{Mutex, Notify};
 
 /// Priority levels for messages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum MessagePriority {
     Low = 0,
+    #[default]
     Normal = 1,
     High = 2,
     Urgent = 3,
 }
 
-impl Default for MessagePriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// A queued message with metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +37,7 @@ pub struct MessageQueue {
 }
 
 impl MessageQueue {
+    #[must_use] 
     pub fn new(max_size: usize) -> Self {
         Self {
             urgent: Mutex::new(VecDeque::new()),
@@ -55,14 +53,14 @@ impl MessageQueue {
             MessagePriority::Urgent | MessagePriority::High => {
                 let mut q = self.urgent.lock().await;
                 if q.len() >= self.max_size {
-                    return Err("Priority queue full".to_string());
+                    return Err("Priority queue full".to_owned());
                 }
                 q.push_back(msg);
             }
             _ => {
                 let mut q = self.normal.lock().await;
                 if q.len() >= self.max_size {
-                    return Err("Normal queue full".to_string());
+                    return Err("Normal queue full".to_owned());
                 }
                 q.push_back(msg);
             }

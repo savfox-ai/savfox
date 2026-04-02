@@ -183,7 +183,7 @@ impl Stream for AggregatedStream {
                     if !this.cumulative.is_empty() {
                         let aggregated_message = ResponseItem::Message {
                             id: None,
-                            role: "assistant".to_string(),
+                            role: "assistant".to_owned(),
                             content: vec![ContentItem::OutputText {
                                 text: std::mem::take(&mut this.cumulative),
                             }],
@@ -265,7 +265,7 @@ impl AggregateStreamExt for ResponseStream {
 
 impl AggregatedStream {
     fn new(inner: ResponseStream, mode: AggregateMode) -> Self {
-        AggregatedStream {
+        Self {
             inner,
             cumulative: String::new(),
             cumulative_reasoning: String::new(),

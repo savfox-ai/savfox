@@ -42,7 +42,7 @@ impl SessionTask for UndoTask {
         sess.send_event(
             ctx.as_ref(),
             EventMsg::UndoStarted(UndoStartedEvent {
-                message: Some("Undo in progress...".to_string()),
+                message: Some("Undo in progress...".to_owned()),
             }),
         )
         .await;
@@ -52,7 +52,7 @@ impl SessionTask for UndoTask {
                 ctx.as_ref(),
                 EventMsg::UndoCompleted(UndoCompletedEvent {
                     success: false,
-                    message: Some("Undo cancelled.".to_string()),
+                    message: Some("Undo cancelled.".to_owned()),
                 }),
             )
             .await;
@@ -78,13 +78,13 @@ impl SessionTask for UndoTask {
                     _ => None,
                 })
         else {
-            completed.message = Some("No ghost snapshot available to undo.".to_string());
+            completed.message = Some("No ghost snapshot available to undo.".to_owned());
             sess.send_event(ctx.as_ref(), EventMsg::UndoCompleted(completed))
                 .await;
             return None;
         };
 
-        let commit_id = ghost_commit.id().to_string();
+        let commit_id = ghost_commit.id().to_owned();
         let repo_path = ctx.cwd.clone();
         let ghost_snapshot = ctx.ghost_snapshot.clone();
         let restore_result = tokio::task::spawn_blocking(move || {

@@ -93,7 +93,7 @@ pub async fn open_if_present(savfox_home: &Path, default_provider: &str) -> Opti
     }
     let runtime = savfox_state::StateRuntime::init(
         savfox_home.to_path_buf(),
-        default_provider.to_string(),
+        default_provider.to_owned(),
         None,
     )
     .await
@@ -293,16 +293,13 @@ pub async fn apply_rollout_items(
     };
     let mut builder = match builder {
         Some(builder) => builder.clone(),
-        None => match metadata::builder_from_items(items, rollout_path) {
-            Some(builder) => builder,
-            None => {
-                warn!(
-                    "state db apply_rollout_items missing builder during {stage}: {}",
-                    rollout_path.display()
-                );
-                record_discrepancy(stage, "missing_builder");
-                return;
-            }
+        None => if let Some(builder) = metadata::builder_from_items(items, rollout_path) { builder } else {
+            warn!(
+                "state db apply_rollout_items missing builder during {stage}: {}",
+                rollout_path.display()
+            );
+            record_discrepancy(stage, "missing_builder");
+            return;
         },
     };
     builder.rollout_path = rollout_path.to_path_buf();

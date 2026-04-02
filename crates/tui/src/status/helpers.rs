@@ -26,13 +26,13 @@ pub(crate) fn compose_model_display(
     if let Some((_, summary)) = entries.iter().find(|(k, _)| *k == "reasoning summaries") {
         let summary = summary.trim();
         if summary.eq_ignore_ascii_case("none") || summary.eq_ignore_ascii_case("off") {
-            details.push("summaries off".to_string());
+            details.push("summaries off".to_owned());
         } else if !summary.is_empty() {
             details.push(format!("summaries {}", summary.to_ascii_lowercase()));
         }
     }
 
-    (model_name.to_string(), details)
+    (model_name.to_owned(), details)
 }
 
 pub(crate) fn compose_agents_summary(config: &Config) -> String {
@@ -43,7 +43,7 @@ pub(crate) fn compose_agents_summary(config: &Config) -> String {
                 let file_name = p
                     .file_name()
                     .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "<unknown>".to_string());
+                    .unwrap_or_else(|| "<unknown>".to_owned());
                 let display = if let Some(parent) = p.parent() {
                     if parent == config.cwd {
                         file_name.clone()
@@ -74,12 +74,12 @@ pub(crate) fn compose_agents_summary(config: &Config) -> String {
                 rels.push(display);
             }
             if rels.is_empty() {
-                "<none>".to_string()
+                "<none>".to_owned()
             } else {
                 rels.join(", ")
             }
         }
-        Err(_) => "<none>".to_string(),
+        Err(_) => "<none>".to_owned(),
     }
 }
 
@@ -94,7 +94,7 @@ pub(crate) fn compose_account_display(
             let email = auth.get_account_email();
             let plan = plan
                 .map(|plan_type| title_case(format!("{plan_type:?}").as_str()))
-                .or_else(|| Some("Unknown".to_string()));
+                .or_else(|| Some("Unknown".to_owned()));
             Some(StatusAccountDisplay::ChatGpt { email, plan })
         }
         SavfoxAuth::ApiKey(_) => Some(StatusAccountDisplay::ApiKey),
@@ -104,7 +104,7 @@ pub(crate) fn compose_account_display(
 pub(crate) fn format_tokens_compact(value: i64) -> String {
     let value = value.max(0);
     if value == 0 {
-        return "0".to_string();
+        return "0".to_owned();
     }
     if value < 1_000 {
         return value.to_string();
@@ -145,7 +145,7 @@ pub(crate) fn format_tokens_compact(value: i64) -> String {
 pub(crate) fn format_directory_display(directory: &Path, max_width: Option<usize>) -> String {
     let formatted = if let Some(rel) = relativize_to_home(directory) {
         if rel.as_os_str().is_empty() {
-            "~".to_string()
+            "~".to_owned()
         } else {
             format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display())
         }

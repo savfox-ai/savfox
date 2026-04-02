@@ -91,7 +91,7 @@ pub(crate) async fn append_entry(
     let entry = HistoryEntry {
         session_id: conversation_id.to_string(),
         ts,
-        text: text.to_string(),
+        text: text.to_owned(),
     };
     let mut line = serde_json::to_string(&entry)
         .map_err(|e| std::io::Error::other(format!("failed to serialise history entry: {e}")))?;

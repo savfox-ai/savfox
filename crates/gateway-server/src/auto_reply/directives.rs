@@ -62,7 +62,7 @@ pub fn parse_directives(text: &str) -> DirectiveParseResult {
                 cleaned_lines.push(remainder);
             }
         } else {
-            cleaned_lines.push(line.to_string());
+            cleaned_lines.push(line.to_owned());
         }
     }
 
@@ -74,8 +74,7 @@ pub fn parse_directives(text: &str) -> DirectiveParseResult {
             .map(str::trim_end)
             .collect::<Vec<_>>()
             .join("\n")
-            .trim()
-            .to_string(),
+            .trim().to_owned(),
     }
 }
 
@@ -84,7 +83,7 @@ pub fn parse_model_target(value: &str) -> ModelDirectiveTarget {
     let raw = value.trim();
     let Some((model, profile)) = raw.rsplit_once('@') else {
         return ModelDirectiveTarget {
-            model: raw.to_string(),
+            model: raw.to_owned(),
             profile: None,
         };
     };
@@ -92,13 +91,13 @@ pub fn parse_model_target(value: &str) -> ModelDirectiveTarget {
     let profile = profile.trim();
     if model.is_empty() || profile.is_empty() {
         return ModelDirectiveTarget {
-            model: raw.to_string(),
+            model: raw.to_owned(),
             profile: None,
         };
     }
     ModelDirectiveTarget {
-        model: model.to_string(),
-        profile: Some(profile.to_string()),
+        model: model.to_owned(),
+        profile: Some(profile.to_owned()),
     }
 }
 
@@ -130,11 +129,10 @@ pub fn fuzzy_match_model_name(hint: &str, candidates: &[String]) -> Option<Strin
     }
 
     for candidate in candidates {
-        if let Some((_, tail)) = candidate.split_once('/') {
-            if tail.eq_ignore_ascii_case(hint) || normalize_token(tail) == hint_norm {
+        if let Some((_, tail)) = candidate.split_once('/')
+            && (tail.eq_ignore_ascii_case(hint) || normalize_token(tail) == hint_norm) {
                 return Some(candidate.clone());
             }
-        }
     }
 
     let mut contains_matches: Vec<&String> = candidates
@@ -173,7 +171,7 @@ fn try_parse_directive(line: &str) -> Option<(Directive, String)> {
                 kind: DirectiveKind::Thinking,
                 value: normalize_thinking_level(value_token),
             },
-            remainder.to_string(),
+            remainder.to_owned(),
         )),
         "model" | "m" => {
             if value_token.is_empty() {
@@ -182,9 +180,9 @@ fn try_parse_directive(line: &str) -> Option<(Directive, String)> {
                 Some((
                     Directive {
                         kind: DirectiveKind::Model,
-                        value: value_token.to_string(),
+                        value: value_token.to_owned(),
                     },
-                    remainder.to_string(),
+                    remainder.to_owned(),
                 ))
             }
         }
@@ -192,41 +190,41 @@ fn try_parse_directive(line: &str) -> Option<(Directive, String)> {
             Directive {
                 kind: DirectiveKind::Verbose,
                 value: if value_token.is_empty() {
-                    "on".to_string()
+                    "on".to_owned()
                 } else {
-                    value_token.to_string()
+                    value_token.to_owned()
                 },
             },
-            remainder.to_string(),
+            remainder.to_owned(),
         )),
         "elevated" | "elev" | "sudo" => Some((
             Directive {
                 kind: DirectiveKind::Elevated,
                 value: if value_token.is_empty() {
-                    "on".to_string()
+                    "on".to_owned()
                 } else {
-                    value_token.to_string()
+                    value_token.to_owned()
                 },
             },
-            remainder.to_string(),
+            remainder.to_owned(),
         )),
         "reasoning" | "reason" => Some((
             Directive {
                 kind: DirectiveKind::Reasoning,
                 value: if value_token.is_empty() {
-                    "verbose".to_string()
+                    "verbose".to_owned()
                 } else {
-                    value_token.to_string()
+                    value_token.to_owned()
                 },
             },
-            remainder.to_string(),
+            remainder.to_owned(),
         )),
         "status" => Some((
             Directive {
                 kind: DirectiveKind::Status,
                 value: String::new(),
             },
-            rest.trim().to_string(),
+            rest.trim().to_owned(),
         )),
         _ => None,
     }
@@ -271,9 +269,8 @@ fn normalize_thinking_level(value: &str) -> String {
         "high" | "4" => "high",
         "xhigh" | "max" | "5" => "xhigh",
         "" => "medium", // default when no value given
-        other => return other.to_string(),
-    }
-    .to_string()
+        other => return other.to_owned(),
+    }.to_owned()
 }
 
 #[cfg(test)]

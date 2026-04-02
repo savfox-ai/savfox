@@ -125,17 +125,14 @@ async fn handle_ws_connection(
     // 2. By sending a `Connect` message as the first frame
 
     let (token_info, _client_info) = if let Some(ref token) = query_token {
-        match auth.validate(token).await {
-            Some(info) => (info, None::<crate::protocol::ClientInfo>),
-            None => {
-                let err = GatewayMessage::Error {
-                    id: None,
-                    code: 401,
-                    message: "invalid token".to_owned(),
-                };
-                let _ = send_message(&mut ws, &err).await;
-                return;
-            }
+        if let Some(info) = auth.validate(token).await { (info, None::<crate::protocol::ClientInfo>) } else {
+            let err = GatewayMessage::Error {
+                id: None,
+                code: 401,
+                message: "invalid token".to_owned(),
+            };
+            let _ = send_message(&mut ws, &err).await;
+            return;
         }
     } else {
         // --- Challenge-Response Authentication ---
@@ -166,39 +163,33 @@ async fn handle_ws_connection(
                         return;
                     }
                 };
-                match serde_json::from_str::<GatewayMessage>(&text) {
-                    Ok(GatewayMessage::Connect {
+                if let Ok(GatewayMessage::Connect {
                         token, client_info, ..
-                    }) => {
-                        // Try direct token validation first (backwards-compatible)
-                        if let Some(info) = auth.validate(&token).await {
-                            (info, client_info)
-                        } else {
-                            // Try as HMAC signature: client sent HMAC-SHA256(nonce, real_token)
-                            // We need to check all known tokens to see if any matches
-                            match auth.validate_challenge_response(&token, &nonce).await {
-                                Some(info) => (info, client_info),
-                                None => {
-                                    let err = GatewayMessage::Error {
-                                        id: None,
-                                        code: 401,
-                                        message: "invalid token or signature".to_owned(),
-                                    };
-                                    let _ = send_message(&mut ws, &err).await;
-                                    return;
-                                }
-                            }
+                    }) = serde_json::from_str::<GatewayMessage>(&text) {
+                    // Try direct token validation first (backwards-compatible)
+                    if let Some(info) = auth.validate(&token).await {
+                        (info, client_info)
+                    } else {
+                        // Try as HMAC signature: client sent HMAC-SHA256(nonce, real_token)
+                        // We need to check all known tokens to see if any matches
+                        if let Some(info) = auth.validate_challenge_response(&token, &nonce).await { (info, client_info) } else {
+                            let err = GatewayMessage::Error {
+                                id: None,
+                                code: 401,
+                                message: "invalid token or signature".to_owned(),
+                            };
+                            let _ = send_message(&mut ws, &err).await;
+                            return;
                         }
                     }
-                    _ => {
-                        let err = GatewayMessage::Error {
-                            id: None,
-                            code: 400,
-                            message: "expected Connect message".to_owned(),
-                        };
-                        let _ = send_message(&mut ws, &err).await;
-                        return;
-                    }
+                } else {
+                    let err = GatewayMessage::Error {
+                        id: None,
+                        code: 400,
+                        message: "expected Connect message".to_owned(),
+                    };
+                    let _ = send_message(&mut ws, &err).await;
+                    return;
                 }
             }
             _ => {
@@ -275,8 +266,8 @@ async fn handle_ws_connection(
 
                 // Try JSON-RPC 2.0 dispatch first (Phase 5).
                 // JSON-RPC messages have a "jsonrpc" field; GatewayMessages have "type".
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) {
-                    if parsed.get("jsonrpc").is_some() {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text)
+                    && parsed.get("jsonrpc").is_some() {
                         let session_id_str = session_id.to_string();
                         let reply = crate::ws_rpc::dispatch_rpc(
                             text,
@@ -294,7 +285,6 @@ async fn handle_ws_connection(
                         }
                         continue;
                     }
-                }
 
                 let gateway_msg = match serde_json::from_str::<GatewayMessage>(text) {
                     Ok(m) => m,

@@ -32,6 +32,7 @@ const WEBSOCKET_UNKNOWN_KIND: &str = "unknown";
 
 impl OtelManager {
     #[allow(clippy::too_many_arguments)]
+    #[must_use] 
     pub fn new(
         conversation_id: SessionId,
         model: &str,
@@ -42,7 +43,7 @@ impl OtelManager {
         log_user_prompts: bool,
         terminal_type: String,
         session_source: SessionSource,
-    ) -> OtelManager {
+    ) -> Self {
         Self {
             metadata: OtelEventMetadata {
                 conversation_id,
@@ -68,7 +69,7 @@ impl OtelManager {
     }
 
     pub fn record_responses(&self, handle_responses_span: &Span, event: &ResponseEvent) {
-        handle_responses_span.record("otel.name", OtelManager::responses_type(event));
+        handle_responses_span.record("otel.name", Self::responses_type(event));
 
         match event {
             ResponseEvent::OutputItemDone(item) => {
@@ -151,7 +152,7 @@ impl OtelManager {
         let success_str = if success { "true" } else { "false" };
         let status_str = status
             .map(|code| code.to_string())
-            .unwrap_or_else(|| "none".to_string());
+            .unwrap_or_else(|| "none".to_owned());
         self.counter(
             API_CALL_COUNT_METRIC,
             1,
@@ -243,11 +244,11 @@ impl OtelManager {
                                     .get("response")
                                     .and_then(|value| value.get("error"))
                                     .map(serde_json::Value::to_string)
-                                    .or_else(|| Some("response.failed event received".to_string()));
+                                    .or_else(|| Some("response.failed event received".to_owned()));
                             }
                         }
                         Err(err) => {
-                            kind = Some("parse_error".to_string());
+                            kind = Some("parse_error".to_owned());
                             error_message = Some(err.to_string());
                             success = false;
                         }
@@ -255,7 +256,7 @@ impl OtelManager {
                 }
                 tokio_tungstenite::tungstenite::Message::Binary(_) => {
                     success = false;
-                    error_message = Some("unexpected binary websocket event".to_string());
+                    error_message = Some("unexpected binary websocket event".to_owned());
                 }
                 tokio_tungstenite::tungstenite::Message::Ping(_)
                 | tokio_tungstenite::tungstenite::Message::Pong(_) => {
@@ -264,11 +265,11 @@ impl OtelManager {
                 tokio_tungstenite::tungstenite::Message::Close(_) => {
                     success = false;
                     error_message =
-                        Some("websocket closed by server before response.completed".to_string());
+                        Some("websocket closed by server before response.completed".to_owned());
                 }
                 tokio_tungstenite::tungstenite::Message::Frame(_) => {
                     success = false;
-                    error_message = Some("unexpected websocket frame".to_string());
+                    error_message = Some("unexpected websocket frame".to_owned());
                 }
             },
             Ok(Some(Err(err))) => {
@@ -277,7 +278,7 @@ impl OtelManager {
             }
             Ok(None) => {
                 success = false;
-                error_message = Some("stream closed before response.completed".to_string());
+                error_message = Some("stream closed before response.completed".to_owned());
             }
             Err(err) => {
                 success = false;
@@ -399,39 +400,36 @@ impl OtelManager {
             duration,
             &[("kind", kind_str), ("success", "false")],
         );
-        match kind {
-            Some(kind) => tracing::event!(
-                tracing::Level::INFO,
-                event.name = "savfox.sse_event",
-                event.timestamp = %timestamp(),
-                event.kind = %kind,
-                conversation.id = %self.metadata.conversation_id,
-                app.version = %self.metadata.app_version,
-                auth_mode = self.metadata.auth_mode,
-                user.account_id = self.metadata.account_id,
-                user.email = self.metadata.account_email,
-                terminal.type = %self.metadata.terminal_type,
-                model = %self.metadata.model,
-                slug = %self.metadata.slug,
-                duration_ms = %duration.as_millis(),
-                error.message = %error,
-            ),
-            None => tracing::event!(
-                tracing::Level::INFO,
-                event.name = "savfox.sse_event",
-                event.timestamp = %timestamp(),
-                conversation.id = %self.metadata.conversation_id,
-                app.version = %self.metadata.app_version,
-                auth_mode = self.metadata.auth_mode,
-                user.account_id = self.metadata.account_id,
-                user.email = self.metadata.account_email,
-                terminal.type = %self.metadata.terminal_type,
-                model = %self.metadata.model,
-                slug = %self.metadata.slug,
-                duration_ms = %duration.as_millis(),
-                error.message = %error,
-            ),
-        }
+        if let Some(kind) = kind { tracing::event!(
+            tracing::Level::INFO,
+            event.name = "savfox.sse_event",
+            event.timestamp = %timestamp(),
+            event.kind = %kind,
+            conversation.id = %self.metadata.conversation_id,
+            app.version = %self.metadata.app_version,
+            auth_mode = self.metadata.auth_mode,
+            user.account_id = self.metadata.account_id,
+            user.email = self.metadata.account_email,
+            terminal.type = %self.metadata.terminal_type,
+            model = %self.metadata.model,
+            slug = %self.metadata.slug,
+            duration_ms = %duration.as_millis(),
+            error.message = %error,
+        ) } else { tracing::event!(
+            tracing::Level::INFO,
+            event.name = "savfox.sse_event",
+            event.timestamp = %timestamp(),
+            conversation.id = %self.metadata.conversation_id,
+            app.version = %self.metadata.app_version,
+            auth_mode = self.metadata.auth_mode,
+            user.account_id = self.metadata.account_id,
+            user.email = self.metadata.account_email,
+            terminal.type = %self.metadata.terminal_type,
+            model = %self.metadata.model,
+            slug = %self.metadata.slug,
+            duration_ms = %duration.as_millis(),
+            error.message = %error,
+        ) }
     }
 
     pub fn see_event_completed_failed<T>(&self, error: &T)
@@ -639,8 +637,8 @@ impl OtelManager {
     fn responses_type(event: &ResponseEvent) -> String {
         match event {
             ResponseEvent::Created => "created".into(),
-            ResponseEvent::OutputItemDone(item) => OtelManager::responses_item_type(item),
-            ResponseEvent::OutputItemAdded(item) => OtelManager::responses_item_type(item),
+            ResponseEvent::OutputItemDone(item) => Self::responses_item_type(item),
+            ResponseEvent::OutputItemAdded(item) => Self::responses_item_type(item),
             ResponseEvent::Completed { .. } => "completed".into(),
             ResponseEvent::OutputTextDelta(_) => "text_delta".into(),
             ResponseEvent::ReasoningSummaryDelta { .. } => "reasoning_summary_delta".into(),

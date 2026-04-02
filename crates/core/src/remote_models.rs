@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 fn trim_nonempty(value: &str) -> Option<String> {
     let trimmed = value.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 fn canonical_provider_or_empty(value: &str) -> String {
@@ -118,7 +118,7 @@ pub fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
             if provider.is_empty() {
                 provider = canonical_provider_or_empty(provider_prefix);
             }
-            model_slug = suffix.to_string();
+            model_slug = suffix.to_owned();
         } else if provider.is_empty() {
             provider = hint.clone();
         }
@@ -138,47 +138,47 @@ pub fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
         }
 
         let mut entry = item.as_object().cloned().unwrap_or_default();
-        entry.insert("id".to_string(), json!(model_id));
+        entry.insert("id".to_owned(), json!(model_id));
         entry.insert(
-            "name".to_string(),
+            "name".to_owned(),
             json!(name.unwrap_or_else(|| model_slug.clone())),
         );
-        entry.insert("model_slug".to_string(), json!(model_slug));
-        entry.insert("is_default".to_string(), json!(is_default));
-        entry.insert("builtin".to_string(), json!(true));
+        entry.insert("model_slug".to_owned(), json!(model_slug));
+        entry.insert("is_default".to_owned(), json!(is_default));
+        entry.insert("builtin".to_owned(), json!(true));
         if !provider.is_empty() {
-            entry.insert("provider".to_string(), json!(provider));
+            entry.insert("provider".to_owned(), json!(provider));
         }
 
         if !entry.contains_key("display_name")
             && let Some(value) = entry.get("displayName").cloned()
         {
-            entry.insert("display_name".to_string(), value);
+            entry.insert("display_name".to_owned(), value);
         }
         if !entry.contains_key("default_reasoning_effort")
             && let Some(value) = entry.get("defaultReasoningEffort").cloned()
         {
-            entry.insert("default_reasoning_effort".to_string(), value);
+            entry.insert("default_reasoning_effort".to_owned(), value);
         }
         if !entry.contains_key("default_reasoning_level")
             && let Some(value) = entry.get("defaultReasoningLevel").cloned()
         {
-            entry.insert("default_reasoning_level".to_string(), value);
+            entry.insert("default_reasoning_level".to_owned(), value);
         }
         if !entry.contains_key("supports_personality")
             && let Some(value) = entry.get("supportsPersonality").cloned()
         {
-            entry.insert("supports_personality".to_string(), value);
+            entry.insert("supports_personality".to_owned(), value);
         }
         if !entry.contains_key("supported_in_api")
             && let Some(value) = entry.get("supportedInApi").cloned()
         {
-            entry.insert("supported_in_api".to_string(), value);
+            entry.insert("supported_in_api".to_owned(), value);
         }
         if !entry.contains_key("input_modalities")
             && let Some(value) = entry.get("inputModalities").cloned()
         {
-            entry.insert("input_modalities".to_string(), value);
+            entry.insert("input_modalities".to_owned(), value);
         }
 
         let normalized_reasoning = entry
@@ -189,8 +189,8 @@ pub fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
             .or_else(|| entry.get("supportedReasoningEfforts").cloned())
             .and_then(|raw| normalize_reasoning_presets(&raw));
         if let Some(presets) = normalized_reasoning {
-            entry.insert("supported_reasoning_levels".to_string(), presets.clone());
-            entry.insert("supported_reasoning_efforts".to_string(), presets);
+            entry.insert("supported_reasoning_levels".to_owned(), presets.clone());
+            entry.insert("supported_reasoning_efforts".to_owned(), presets);
         }
 
         let visibility_hidden = entry
@@ -201,7 +201,7 @@ pub fn parse_remote_models(payload: &Value, provider_hint: &str) -> Vec<Value> {
             && !entry.contains_key("is_disabled")
             && !entry.contains_key("disabled")
         {
-            entry.insert("is_disabled".to_string(), json!(true));
+            entry.insert("is_disabled".to_owned(), json!(true));
         }
 
         parsed.push(Value::Object(entry));

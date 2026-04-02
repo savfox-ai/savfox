@@ -102,13 +102,13 @@ enum SkillParseError {
 impl fmt::Display for SkillParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SkillParseError::Read(e) => write!(f, "failed to read file: {e}"),
-            SkillParseError::MissingFrontmatter => {
+            Self::Read(e) => write!(f, "failed to read file: {e}"),
+            Self::MissingFrontmatter => {
                 write!(f, "missing YAML frontmatter delimited by ---")
             }
-            SkillParseError::InvalidYaml(e) => write!(f, "invalid YAML: {e}"),
-            SkillParseError::MissingField(field) => write!(f, "missing field `{field}`"),
-            SkillParseError::InvalidField { field, reason } => {
+            Self::InvalidYaml(e) => write!(f, "invalid YAML: {e}"),
+            Self::MissingField(field) => write!(f, "missing field `{field}`"),
+            Self::InvalidField { field, reason } => {
                 write!(f, "invalid {field}: {reason}")
             }
         }
@@ -117,6 +117,7 @@ impl fmt::Display for SkillParseError {
 
 impl Error for SkillParseError {}
 
+#[must_use] 
 pub fn load_skills(config: &Config) -> SkillLoadOutcome {
     load_skills_from_roots(skill_roots(config))
 }
@@ -717,7 +718,7 @@ fn resolve_color_str(value: Option<String>, field: &'static str) -> Option<Strin
     }
     let mut chars = value.chars();
     if value.len() == 7 && chars.next() == Some('#') && chars.all(|c| c.is_ascii_hexdigit()) {
-        Some(value.to_string())
+        Some(value.to_owned())
     } else {
         tracing::warn!("ignoring {field}: expected #RRGGBB, got {value}");
         None

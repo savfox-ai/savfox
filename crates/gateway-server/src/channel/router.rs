@@ -157,17 +157,14 @@ impl GatewayChannel {
                 }
 
                 // Move rollout file from sessions/ to archived_sessions/.
-                let file_name = match rollout_path.file_name() {
-                    Some(f) => f.to_owned(),
-                    None => {
-                        self.send_error(
-                            request_id,
-                            INTERNAL_ERROR_CODE,
-                            "rollout path missing file name".to_string(),
-                        )
-                        .await;
-                        return;
-                    }
+                let file_name = if let Some(f) = rollout_path.file_name() { f.to_owned() } else {
+                    self.send_error(
+                        request_id,
+                        INTERNAL_ERROR_CODE,
+                        "rollout path missing file name".to_owned(),
+                    )
+                    .await;
+                    return;
                 };
                 let archive_folder = self.config.savfox_home.join(ARCHIVED_SESSIONS_SUBDIR);
                 if let Err(err) = tokio::fs::create_dir_all(&archive_folder).await {
@@ -239,46 +236,40 @@ impl GatewayChannel {
                 };
 
                 // Move back to sessions/ directory.
-                let file_name = match archived_path.file_name() {
-                    Some(f) => f.to_owned(),
-                    None => {
+                let file_name = if let Some(f) = archived_path.file_name() { f.to_owned() } else {
+                    self.send_error(
+                        request_id,
+                        INTERNAL_ERROR_CODE,
+                        "archived path missing file name".to_owned(),
+                    )
+                    .await;
+                    return;
+                };
+
+                let (year, month, day) = if let Some(parts) = rollout_date_parts(&file_name) { parts } else {
+                    // Fall back to a flat directory.
+                    let sessions_folder = self.config.savfox_home.join(SESSIONS_SUBDIR);
+                    let restored_path = sessions_folder.join(&file_name);
+                    if let Err(err) = tokio::fs::create_dir_all(&sessions_folder).await {
                         self.send_error(
                             request_id,
                             INTERNAL_ERROR_CODE,
-                            "archived path missing file name".to_string(),
+                            format!("failed to create sessions dir: {err}"),
                         )
                         .await;
                         return;
                     }
-                };
-
-                let (year, month, day) = match rollout_date_parts(&file_name) {
-                    Some(parts) => parts,
-                    None => {
-                        // Fall back to a flat directory.
-                        let sessions_folder = self.config.savfox_home.join(SESSIONS_SUBDIR);
-                        let restored_path = sessions_folder.join(&file_name);
-                        if let Err(err) = tokio::fs::create_dir_all(&sessions_folder).await {
-                            self.send_error(
-                                request_id,
-                                INTERNAL_ERROR_CODE,
-                                format!("failed to create sessions dir: {err}"),
-                            )
-                            .await;
-                            return;
-                        }
-                        if let Err(err) = tokio::fs::rename(&archived_path, &restored_path).await {
-                            self.send_error(
-                                request_id,
-                                INTERNAL_ERROR_CODE,
-                                format!("failed to unarchive thread: {err}"),
-                            )
-                            .await;
-                            return;
-                        }
-                        self.send_response(request_id, serde_json::json!({ "status": "unarchived", "session_id": session_id_str })).await;
+                    if let Err(err) = tokio::fs::rename(&archived_path, &restored_path).await {
+                        self.send_error(
+                            request_id,
+                            INTERNAL_ERROR_CODE,
+                            format!("failed to unarchive thread: {err}"),
+                        )
+                        .await;
                         return;
                     }
+                    self.send_response(request_id, serde_json::json!({ "status": "unarchived", "session_id": session_id_str })).await;
+                    return;
                 };
 
                 let sessions_folder = self.config.savfox_home.join(SESSIONS_SUBDIR);
@@ -325,12 +316,12 @@ impl GatewayChannel {
                     }
                 };
 
-                let name = params.name.trim().to_string();
+                let name = params.name.trim().to_owned();
                 if name.is_empty() {
                     self.send_error(
                         request_id,
                         INVALID_REQUEST_ERROR_CODE,
-                        "session name must not be empty".to_string(),
+                        "session name must not be empty".to_owned(),
                     )
                     .await;
                     return;
@@ -383,7 +374,7 @@ impl GatewayChannel {
                     self.send_error(
                         request_id,
                         INVALID_REQUEST_ERROR_CODE,
-                        "numTurns must be >= 1".to_string(),
+                        "numTurns must be >= 1".to_owned(),
                     )
                     .await;
                     return;
@@ -976,7 +967,7 @@ impl GatewayChannel {
                 self.send_error(
                     request_id,
                     METHOD_NOT_FOUND_ERROR_CODE,
-                    "account logout is not supported in gateway mode".to_string(),
+                    "account logout is not supported in gateway mode".to_owned(),
                 )
                 .await;
             }
@@ -1011,7 +1002,7 @@ impl GatewayChannel {
                 self.send_error(
                     request_id,
                     METHOD_NOT_FOUND_ERROR_CODE,
-                    "MCP OAuth login is not supported in gateway mode".to_string(),
+                    "MCP OAuth login is not supported in gateway mode".to_owned(),
                 )
                 .await;
             }
@@ -1062,7 +1053,7 @@ impl GatewayChannel {
                 self.send_error(
                     request_id,
                     METHOD_NOT_FOUND_ERROR_CODE,
-                    "one-off command execution is not supported in gateway mode".to_string(),
+                    "one-off command execution is not supported in gateway mode".to_owned(),
                 )
                 .await;
             }
@@ -1080,7 +1071,7 @@ impl GatewayChannel {
                 self.send_error(
                     request_id,
                     METHOD_NOT_FOUND_ERROR_CODE,
-                    "fuzzy file search is not supported in gateway mode".to_string(),
+                    "fuzzy file search is not supported in gateway mode".to_owned(),
                 )
                 .await;
             }
@@ -1180,7 +1171,7 @@ impl GatewayChannel {
         if let Err(err) = self
             .outgoing_tx
             .send(BridgeOutgoing::Notification {
-                method: method.to_string(),
+                method: method.to_owned(),
                 params: Some(params),
             })
             .await

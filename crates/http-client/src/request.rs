@@ -24,6 +24,7 @@ pub struct Request {
 }
 
 impl Request {
+    #[must_use] 
     pub fn new(method: Method, url: String) -> Self {
         Self {
             method,
@@ -40,6 +41,7 @@ impl Request {
         self
     }
 
+    #[must_use] 
     pub fn with_compression(mut self, compression: RequestCompression) -> Self {
         self.compression = compression;
         self

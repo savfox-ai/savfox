@@ -34,7 +34,7 @@ impl SavfoxMessageProcessor {
         if params.command.is_empty() {
             let error = JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "command must not be empty".to_string(),
+                message: "command must not be empty".to_owned(),
                 data: None,
             };
             self.outgoing.send_error(request_id, error).await;
@@ -135,17 +135,14 @@ impl SavfoxMessageProcessor {
         let effective_limit = limit.unwrap_or(total as u32).max(1) as usize;
         let effective_limit = effective_limit.min(total);
         let start = match cursor {
-            Some(cursor) => match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => {
-                    let error = JSONRPCErrorError {
-                        code: INVALID_REQUEST_ERROR_CODE,
-                        message: format!("invalid cursor: {cursor}"),
-                        data: None,
-                    };
-                    outgoing.send_error(request_id, error).await;
-                    return;
-                }
+            Some(cursor) => if let Ok(idx) = cursor.parse::<usize>() { idx } else {
+                let error = JSONRPCErrorError {
+                    code: INVALID_REQUEST_ERROR_CODE,
+                    message: format!("invalid cursor: {cursor}"),
+                    data: None,
+                };
+                outgoing.send_error(request_id, error).await;
+                return;
             },
             None => 0,
         };
@@ -248,7 +245,7 @@ impl SavfoxMessageProcessor {
         if !self.config.feedback_enabled {
             let error = JSONRPCErrorError {
                 code: INVALID_REQUEST_ERROR_CODE,
-                message: "sending feedback is disabled by configuration".to_string(),
+                message: "sending feedback is disabled by configuration".to_owned(),
                 data: None,
             };
             self.outgoing.send_error(request_id, error).await;

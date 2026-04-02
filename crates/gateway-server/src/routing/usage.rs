@@ -45,7 +45,7 @@ pub async fn record_usage(model: &str, tokens: u64, cost_usd: f64) {
 
     let model_usage = store
         .by_model
-        .entry(model.to_string())
+        .entry(model.to_owned())
         .or_insert(ModelUsage {
             tokens: 0,
             requests: 0,

@@ -9,9 +9,9 @@ use crate::client_common::tools::ToolSpec;
 pub(super) fn create_view_image_tool() -> ToolSpec {
     // Support only local filesystem path.
     let properties = BTreeMap::from([(
-        "path".to_string(),
+        "path".to_owned(),
         JsonSchema::String {
-            description: Some("Local filesystem path to an image file".to_string()),
+            description: Some("Local filesystem path to an image file".to_owned()),
         },
     )]);
 
@@ -26,35 +26,33 @@ pub(super) fn create_view_image_tool() -> ToolSpec {
 pub(super) fn create_grep_files_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "pattern".to_string(),
+            "pattern".to_owned(),
             JsonSchema::String {
-                description: Some("Regular expression pattern to search for.".to_string()),
+                description: Some("Regular expression pattern to search for.".to_owned()),
             },
         ),
         (
-            "include".to_string(),
+            "include".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Optional glob that limits which files are searched (e.g. \"*.rs\" or \
-                     \"*.{ts,tsx}\")."
-                        .to_string(),
+                     \"*.{ts,tsx}\").".to_owned(),
                 ),
             },
         ),
         (
-            "path".to_string(),
+            "path".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Directory or file path to search. Defaults to the session's working directory."
-                        .to_string(),
+                    "Directory or file path to search. Defaults to the session's working directory.".to_owned(),
                 ),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum number of file paths to return (defaults to 100).".to_string(),
+                    "Maximum number of file paths to return (defaults to 100).".to_owned(),
                 ),
             },
         ),
@@ -71,46 +69,42 @@ pub(super) fn create_grep_files_tool() -> ToolSpec {
 pub(super) fn create_read_file_tool() -> ToolSpec {
     let indentation_properties = BTreeMap::from([
         (
-            "anchor_line".to_string(),
+            "anchor_line".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Anchor line to center the indentation lookup on (defaults to offset)."
-                        .to_string(),
+                    "Anchor line to center the indentation lookup on (defaults to offset).".to_owned(),
                 ),
             },
         ),
         (
-            "max_levels".to_string(),
+            "max_levels".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "How many parent indentation levels (smaller indents) to include.".to_string(),
+                    "How many parent indentation levels (smaller indents) to include.".to_owned(),
                 ),
             },
         ),
         (
-            "include_siblings".to_string(),
+            "include_siblings".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "When true, include additional blocks that share the anchor indentation."
-                        .to_string(),
+                    "When true, include additional blocks that share the anchor indentation.".to_owned(),
                 ),
             },
         ),
         (
-            "include_header".to_string(),
+            "include_header".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "Include doc comments or attributes directly above the selected block."
-                        .to_string(),
+                    "Include doc comments or attributes directly above the selected block.".to_owned(),
                 ),
             },
         ),
         (
-            "max_lines".to_string(),
+            "max_lines".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Hard cap on the number of lines returned when using indentation mode."
-                        .to_string(),
+                    "Hard cap on the number of lines returned when using indentation mode.".to_owned(),
                 ),
             },
         ),
@@ -118,37 +112,36 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
 
     let properties = BTreeMap::from([
         (
-            "file_path".to_string(),
+            "file_path".to_owned(),
             JsonSchema::String {
-                description: Some("Absolute path to the file".to_string()),
+                description: Some("Absolute path to the file".to_owned()),
             },
         ),
         (
-            "offset".to_string(),
+            "offset".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "The line number to start reading from. Must be 1 or greater.".to_string(),
+                    "The line number to start reading from. Must be 1 or greater.".to_owned(),
                 ),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
-                description: Some("The maximum number of lines to return.".to_string()),
+                description: Some("The maximum number of lines to return.".to_owned()),
             },
         ),
         (
-            "mode".to_string(),
+            "mode".to_owned(),
             JsonSchema::String {
                 description: Some(
                     "Optional mode selector: \"slice\" for simple ranges (default) or \"indentation\" \
-                     to expand around an anchor line."
-                        .to_string(),
+                     to expand around an anchor line.".to_owned(),
                 ),
             },
         ),
         (
-            "indentation".to_string(),
+            "indentation".to_owned(),
             JsonSchema::Object {
                 properties: indentation_properties,
                 required: None,
@@ -168,30 +161,30 @@ pub(super) fn create_read_file_tool() -> ToolSpec {
 pub(super) fn create_list_dir_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "dir_path".to_string(),
+            "dir_path".to_owned(),
             JsonSchema::String {
-                description: Some("Absolute path to the directory to list.".to_string()),
+                description: Some("Absolute path to the directory to list.".to_owned()),
             },
         ),
         (
-            "offset".to_string(),
+            "offset".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "The entry number to start listing from. Must be 1 or greater.".to_string(),
+                    "The entry number to start listing from. Must be 1 or greater.".to_owned(),
                 ),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
-                description: Some("The maximum number of entries to return.".to_string()),
+                description: Some("The maximum number of entries to return.".to_owned()),
             },
         ),
         (
-            "depth".to_string(),
+            "depth".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "The maximum directory depth to traverse. Must be 1 or greater.".to_string(),
+                    "The maximum directory depth to traverse. Must be 1 or greater.".to_owned(),
                 ),
             },
         ),
@@ -208,32 +201,30 @@ pub(super) fn create_list_dir_tool() -> ToolSpec {
 pub(super) fn create_write_file_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "file_path".to_string(),
+            "file_path".to_owned(),
             JsonSchema::String {
-                description: Some("Absolute path of the file to write.".to_string()),
+                description: Some("Absolute path of the file to write.".to_owned()),
             },
         ),
         (
-            "content".to_string(),
+            "content".to_owned(),
             JsonSchema::String {
-                description: Some("The content to write to the file.".to_string()),
+                description: Some("The content to write to the file.".to_owned()),
             },
         ),
         (
-            "create_dirs".to_string(),
+            "create_dirs".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "When true, create intermediate directories if they don't exist. Defaults to false."
-                        .to_string(),
+                    "When true, create intermediate directories if they don't exist. Defaults to false.".to_owned(),
                 ),
             },
         ),
         (
-            "overwrite".to_string(),
+            "overwrite".to_owned(),
             JsonSchema::Boolean {
                 description: Some(
-                    "When true (default), overwrite an existing file. When false, fail if the file already exists."
-                        .to_string(),
+                    "When true (default), overwrite an existing file. When false, fail if the file already exists.".to_owned(),
                 ),
             },
         ),
@@ -250,26 +241,24 @@ pub(super) fn create_write_file_tool() -> ToolSpec {
 pub(super) fn create_web_fetch_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "url".to_string(),
+            "url".to_owned(),
             JsonSchema::String {
-                description: Some("URL to fetch (http or https).".to_string()),
+                description: Some("URL to fetch (http or https).".to_owned()),
             },
         ),
         (
-            "extract_mode".to_string(),
+            "extract_mode".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "How to process the response: \"markdown\" (default, converts HTML to markdown), \"text\" (plain text), or \"raw\" (unprocessed body)."
-                        .to_string(),
+                    "How to process the response: \"markdown\" (default, converts HTML to markdown), \"text\" (plain text), or \"raw\" (unprocessed body).".to_owned(),
                 ),
             },
         ),
         (
-            "max_length".to_string(),
+            "max_length".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum character length of the returned content. Defaults to 50000."
-                        .to_string(),
+                    "Maximum character length of the returned content. Defaults to 50000.".to_owned(),
                 ),
             },
         ),
@@ -286,24 +275,24 @@ pub(super) fn create_web_fetch_tool() -> ToolSpec {
 pub(super) fn create_web_search_provider_tool() -> ToolSpec {
     let properties = BTreeMap::from([
         (
-            "query".to_string(),
+            "query".to_owned(),
             JsonSchema::String {
-                description: Some("The search query.".to_string()),
+                description: Some("The search query.".to_owned()),
             },
         ),
         (
-            "limit".to_string(),
+            "limit".to_owned(),
             JsonSchema::Number {
                 description: Some(
-                    "Maximum number of results to return (default 5, max 20).".to_string(),
+                    "Maximum number of results to return (default 5, max 20).".to_owned(),
                 ),
             },
         ),
         (
-            "site".to_string(),
+            "site".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Optional domain filter to restrict results to a specific site.".to_string(),
+                    "Optional domain filter to restrict results to a specific site.".to_owned(),
                 ),
             },
         ),

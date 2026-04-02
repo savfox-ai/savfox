@@ -18,6 +18,7 @@ pub enum PlatformLimit {
 }
 
 impl PlatformLimit {
+    #[must_use] 
     pub fn max_chars(self) -> usize {
         match self {
             Self::Discord => 2000,
@@ -28,6 +29,7 @@ impl PlatformLimit {
         }
     }
 
+    #[must_use] 
     pub fn from_channel(channel: &str) -> Self {
         let platform = channel
             .split_once(':')
@@ -58,6 +60,7 @@ enum Segment {
     Code(String),
 }
 
+#[must_use] 
 pub fn chunk_message_for_channel(
     text: &str,
     channel: &str,
@@ -73,11 +76,13 @@ pub fn chunk_message_for_channel(
 
 /// Split a long message into chunks respecting platform limits.
 /// Tries to split at paragraph/sentence boundaries.
+#[must_use] 
 pub fn chunk_message(text: &str, platform: PlatformLimit) -> Vec<MessageChunk> {
     chunk_message_with_options(text, platform.max_chars(), 0)
 }
 
 /// Split a long message with explicit max length and optional overlap.
+#[must_use] 
 pub fn chunk_message_with_options(
     text: &str,
     max_chars: usize,
@@ -86,7 +91,7 @@ pub fn chunk_message_with_options(
     let max = max_chars.max(1);
     if char_len(text) <= max {
         return vec![MessageChunk {
-            text: text.to_string(),
+            text: text.to_owned(),
             index: 1,
             total: 1,
         }];
@@ -141,7 +146,7 @@ pub fn chunk_message_with_options(
     }
 
     if chunks.is_empty() {
-        chunks.push(text.to_string());
+        chunks.push(text.to_owned());
     }
 
     let total = chunks.len();
@@ -177,16 +182,13 @@ fn split_segments(text: &str) -> Vec<Segment> {
         let code_end = text[code_start + 3..]
             .find("```")
             .map(|rel| code_start + 3 + rel + 3);
-        match code_end {
-            Some(end) => {
-                out.push(Segment::Code(text[code_start..end].to_string()));
-                cursor = end;
-            }
-            None => {
-                out.push(Segment::Text(text[code_start..].to_string()));
-                cursor = text.len();
-                break;
-            }
+        if let Some(end) = code_end {
+            out.push(Segment::Code(text[code_start..end].to_string()));
+            cursor = end;
+        } else {
+            out.push(Segment::Text(text[code_start..].to_string()));
+            cursor = text.len();
+            break;
         }
     }
 
@@ -199,20 +201,20 @@ fn split_segments(text: &str) -> Vec<Segment> {
 
 fn split_text_segment(text: &str, max: usize) -> Vec<String> {
     if char_len(text) <= max {
-        return vec![text.to_string()];
+        return vec![text.to_owned()];
     }
     let mut out = Vec::new();
     let mut remaining = text;
 
     while !remaining.is_empty() {
         if char_len(remaining) <= max {
-            out.push(remaining.to_string());
+            out.push(remaining.to_owned());
             break;
         }
         let slice = prefix_by_chars(remaining, max);
         let break_at = find_break_point(slice);
         let (chunk, rest) = remaining.split_at(break_at);
-        out.push(chunk.to_string());
+        out.push(chunk.to_owned());
         remaining = rest;
     }
 
@@ -221,7 +223,7 @@ fn split_text_segment(text: &str, max: usize) -> Vec<String> {
 
 fn split_code_segment(code_block: &str, max: usize) -> Vec<String> {
     if char_len(code_block) <= max {
-        return vec![code_block.to_string()];
+        return vec![code_block.to_owned()];
     }
 
     let Some(first_line_end) = code_block.find('\n') else {
@@ -246,7 +248,7 @@ fn split_code_segment(code_block: &str, max: usize) -> Vec<String> {
     let mut current = String::new();
     for line in content.lines() {
         let candidate = if current.is_empty() {
-            line.to_string()
+            line.to_owned()
         } else {
             format!("{current}\n{line}")
         };
@@ -284,26 +286,23 @@ fn split_code_segment(code_block: &str, max: usize) -> Vec<String> {
 /// Find the best break point in text, preferring paragraph > sentence > word boundaries
 fn find_break_point(text: &str) -> usize {
     // Try paragraph break (double newline)
-    if let Some(pos) = text.rfind("\n\n") {
-        if pos > text.len() / 2 {
+    if let Some(pos) = text.rfind("\n\n")
+        && pos > text.len() / 2 {
             return pos + 2;
         }
-    }
 
     // Try single newline
-    if let Some(pos) = text.rfind('\n') {
-        if pos > text.len() / 2 {
+    if let Some(pos) = text.rfind('\n')
+        && pos > text.len() / 2 {
             return pos + 1;
         }
-    }
 
     // Try sentence break (. ! ?)
     for sep in [". ", "! ", "? "] {
-        if let Some(pos) = text.rfind(sep) {
-            if pos > text.len() / 3 {
+        if let Some(pos) = text.rfind(sep)
+            && pos > text.len() / 3 {
                 return pos + sep.len();
             }
-        }
     }
 
     // Try word break (space)
@@ -321,7 +320,7 @@ fn tail_chars(text: &str, max_chars: usize) -> String {
     }
     let count = text.chars().count();
     if count <= max_chars {
-        return text.to_string();
+        return text.to_owned();
     }
     text.chars().skip(count - max_chars).collect()
 }

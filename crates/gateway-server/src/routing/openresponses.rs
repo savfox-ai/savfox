@@ -56,15 +56,15 @@ pub(crate) struct ResponsesMessage {
 impl ResponsesContent {
     pub(crate) fn to_text(&self) -> Vec<String> {
         match self {
-            ResponsesContent::Text(t) => vec![t.clone()],
-            ResponsesContent::Parts(parts) => parts
+            Self::Text(t) => vec![t.clone()],
+            Self::Parts(parts) => parts
                 .iter()
                 .filter_map(|p| match p {
                     ResponsesContentPart::InputText { text } => Some(text.clone()),
                     _ => None,
                 })
                 .collect(),
-            ResponsesContent::Empty => vec![],
+            Self::Empty => vec![],
         }
     }
 }
@@ -266,23 +266,17 @@ fn build_tools_system_prompt(
 #[handler]
 pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Auth.
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let token = match extract_bearer_token(req) {
-        Some(t) => t,
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(
-                json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
-            ));
-            return;
-        }
+    let token = if let Some(t) = extract_bearer_token(req) { t } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(
+            json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
+        ));
+        return;
     };
 
     if auth.validate(&token).await.is_none() {
@@ -306,12 +300,9 @@ pub(crate) async fn responses_handler(req: &mut Request, depot: &mut Depot, res:
         }
     };
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let response_id = generate_response_id();
@@ -389,7 +380,7 @@ fn try_parse_function_call(reply: &str) -> Option<(String, String)> {
     let args_str = if args.is_string() {
         args.as_str().unwrap_or("{}").to_owned()
     } else {
-        serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_owned())
     };
 
     Some((name, args_str))
@@ -425,7 +416,7 @@ async fn handle_non_streaming(
         if let Some((fn_name, fn_args)) = try_parse_function_call(&reply) {
             // Return as function_call output with status "incomplete" (client must execute).
             vec![ResponsesOutput {
-                output_type: "function_call".to_string(),
+                output_type: "function_call".to_owned(),
                 id: Some(format!("call-{}", uuid::Uuid::now_v7())),
                 call_id: Some(format!("call_{}", uuid::Uuid::now_v7())),
                 name: Some(fn_name),
@@ -436,14 +427,14 @@ async fn handle_non_streaming(
             }]
         } else {
             vec![ResponsesOutput {
-                output_type: "message".to_string(),
+                output_type: "message".to_owned(),
                 id: Some(format!("msg-{}", uuid::Uuid::now_v7())),
-                role: Some("assistant".to_string()),
+                role: Some("assistant".to_owned()),
                 content: Some(vec![ResponsesOutputContent {
-                    content_type: "output_text".to_string(),
+                    content_type: "output_text".to_owned(),
                     text: reply,
                 }]),
-                status: Some("completed".to_string()),
+                status: Some("completed".to_owned()),
                 call_id: None,
                 name: None,
                 arguments: None,
@@ -451,14 +442,14 @@ async fn handle_non_streaming(
         }
     } else {
         vec![ResponsesOutput {
-            output_type: "message".to_string(),
+            output_type: "message".to_owned(),
             id: Some(format!("msg-{}", uuid::Uuid::now_v7())),
-            role: Some("assistant".to_string()),
+            role: Some("assistant".to_owned()),
             content: Some(vec![ResponsesOutputContent {
-                content_type: "output_text".to_string(),
+                content_type: "output_text".to_owned(),
                 text: reply,
             }]),
-            status: Some("completed".to_string()),
+            status: Some("completed".to_owned()),
             call_id: None,
             name: None,
             arguments: None,
@@ -485,7 +476,7 @@ async fn handle_non_streaming(
             output_tokens,
             total_tokens: input_tokens + output_tokens,
         }),
-        status: status.to_string(),
+        status: status.to_owned(),
     };
 
     res.render(Text::Json(
@@ -505,8 +496,8 @@ async fn handle_streaming(
 ) {
     let (tx, rx) = mpsc::channel::<Result<SseEvent, salvo::Error>>(64);
 
-    let rid = response_id.clone();
-    let m = model.clone();
+    let rid = response_id;
+    let m = model;
     tokio::spawn(async move {
         // Initial event: response.created
         let created_json = json!({

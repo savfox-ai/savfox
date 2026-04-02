@@ -214,7 +214,7 @@ pub(crate) async fn configured_channel_tone_suffix(
 
 pub(crate) fn append_channel_tone_suffix(prompt: &str, tone_suffix: Option<&str>) -> String {
     let Some(tone_suffix) = normalize_tone_value(tone_suffix) else {
-        return prompt.to_string();
+        return prompt.to_owned();
     };
     let trimmed_prompt = prompt.trim_end();
     if trimmed_prompt.is_empty() {
@@ -231,7 +231,7 @@ fn normalize_tone_value(value: Option<&str>) -> Option<String> {
     if value.is_empty() {
         None
     } else {
-        Some(value.to_string())
+        Some(value.to_owned())
     }
 }
 

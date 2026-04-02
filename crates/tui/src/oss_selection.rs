@@ -85,15 +85,15 @@ impl OssSelectionWidget<'_> {
     fn new(lmstudio_status: ProviderStatus, ollama_status: ProviderStatus) -> io::Result<Self> {
         let providers = vec![
             ProviderOption {
-                name: "LM Studio".to_string(),
+                name: "LM Studio".to_owned(),
                 status: lmstudio_status,
             },
             ProviderOption {
-                name: "Ollama (Responses)".to_string(),
+                name: "Ollama (Responses)".to_owned(),
                 status: ollama_status.clone(),
             },
             ProviderOption {
-                name: "Ollama (Chat)".to_string(),
+                name: "Ollama (Chat)".to_owned(),
                 status: ollama_status,
             },
         ];
@@ -174,7 +174,7 @@ impl OssSelectionWidget<'_> {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.send_decision("__CANCELLED__".to_string());
+                self.send_decision("__CANCELLED__".to_owned());
             }
             KeyCode::Left => {
                 self.selected_option = (self.selected_option + self.select_options.len() - 1)
@@ -185,10 +185,10 @@ impl OssSelectionWidget<'_> {
             }
             KeyCode::Enter => {
                 let opt = &self.select_options[self.selected_option];
-                self.send_decision(opt.provider_id.to_string());
+                self.send_decision(opt.provider_id.to_owned());
             }
             KeyCode::Esc => {
-                self.send_decision(LMSTUDIO_OSS_PROVIDER_ID.to_string());
+                self.send_decision(LMSTUDIO_OSS_PROVIDER_ID.to_owned());
             }
             other => {
                 let normalized = Self::normalize_keycode(other);
@@ -197,7 +197,7 @@ impl OssSelectionWidget<'_> {
                     .iter()
                     .find(|opt| Self::normalize_keycode(opt.key) == normalized)
                 {
-                    self.send_decision(opt.provider_id.to_string());
+                    self.send_decision(opt.provider_id.to_owned());
                 }
             }
         }
@@ -298,11 +298,11 @@ pub async fn select_oss_provider(savfox_home: &std::path::Path) -> io::Result<St
     // Autoselect if only one is running
     match (&lmstudio_status, &ollama_status) {
         (ProviderStatus::Running, ProviderStatus::NotRunning) => {
-            let provider = LMSTUDIO_OSS_PROVIDER_ID.to_string();
+            let provider = LMSTUDIO_OSS_PROVIDER_ID.to_owned();
             return Ok(provider);
         }
         (ProviderStatus::NotRunning, ProviderStatus::Running) => {
-            let provider = OLLAMA_OSS_PROVIDER_ID.to_string();
+            let provider = OLLAMA_OSS_PROVIDER_ID.to_owned();
             return Ok(provider);
         }
         _ => {

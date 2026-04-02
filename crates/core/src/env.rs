@@ -5,6 +5,7 @@ fn env_var_set(key: &str) -> bool {
 }
 
 /// Returns true if the current process is running under Windows Subsystem for Linux.
+#[must_use] 
 pub fn is_wsl() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -26,6 +27,7 @@ pub fn is_wsl() -> bool {
 ///
 /// This is intentionally conservative and is used by frontends to avoid flows that would try to
 /// open a browser (e.g. device-code auth fallback).
+#[must_use] 
 pub fn is_headless_environment() -> bool {
     if env_var_set("CI")
         || env_var_set("SSH_CONNECTION")

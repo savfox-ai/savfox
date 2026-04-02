@@ -23,9 +23,9 @@ impl MemoryInstructions {
 
 impl From<MemoryInstructions> for ResponseItem {
     fn from(mi: MemoryInstructions) -> Self {
-        ResponseItem::Message {
+        Self::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText { text: mi.text }],
             end_turn: None,
             phase: None,

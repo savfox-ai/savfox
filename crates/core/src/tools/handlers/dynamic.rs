@@ -45,7 +45,7 @@ impl ToolHandler for DynamicToolHandler {
             .await
             .ok_or_else(|| {
                 FunctionCallError::RespondToModel(
-                    "dynamic tool call was cancelled before receiving a response".to_string(),
+                    "dynamic tool call was cancelled before receiving a response".to_owned(),
                 )
             })?;
 

@@ -52,6 +52,7 @@ pub struct MediaUnderstandingService {
 }
 
 impl MediaUnderstandingService {
+    #[must_use] 
     pub fn new(config: MediaUnderstandingConfig) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -59,6 +60,7 @@ impl MediaUnderstandingService {
         }
     }
 
+    #[must_use] 
     pub fn with_providers(mut self, providers: MediaProviders) -> Self {
         self.providers = Arc::new(RwLock::new(providers));
         self
@@ -91,9 +93,9 @@ impl MediaUnderstandingService {
                     result = result.with_decision(ProviderDecision {
                         attachment_index: attachment.index,
                         capability: Some(MediaCapability::Document),
-                        provider: Some(PDF_PROVIDER_ID.to_string()),
+                        provider: Some(PDF_PROVIDER_ID.to_owned()),
                         status: ProviderDecisionStatus::Skipped,
-                        reason: Some("Document processing disabled by scope".to_string()),
+                        reason: Some("Document processing disabled by scope".to_owned()),
                     });
                     continue;
                 }
@@ -118,7 +120,7 @@ impl MediaUnderstandingService {
                         result = result.with_decision(ProviderDecision {
                             attachment_index: attachment.index,
                             capability: Some(MediaCapability::Document),
-                            provider: Some(PDF_PROVIDER_ID.to_string()),
+                            provider: Some(PDF_PROVIDER_ID.to_owned()),
                             status: ProviderDecisionStatus::Success,
                             reason: None,
                         });
@@ -132,7 +134,7 @@ impl MediaUnderstandingService {
                         result = result.with_decision(ProviderDecision {
                             attachment_index: attachment.index,
                             capability: Some(MediaCapability::Document),
-                            provider: Some(PDF_PROVIDER_ID.to_string()),
+                            provider: Some(PDF_PROVIDER_ID.to_owned()),
                             status: if skipped {
                                 ProviderDecisionStatus::Skipped
                             } else {
@@ -221,10 +223,10 @@ impl MediaUnderstandingService {
     ) -> Result<(MediaCapability, String), String> {
         let capability = attachment
             .capability()
-            .ok_or_else(|| "Unknown media type".to_string())?;
+            .ok_or_else(|| "Unknown media type".to_owned())?;
 
         if !Self::is_capability_enabled(config, capability) {
-            return Err(format!("{:?} processing disabled by scope", capability));
+            return Err(format!("{capability:?} processing disabled by scope"));
         }
 
         let provider_id = match capability {
@@ -237,7 +239,7 @@ impl MediaUnderstandingService {
         let provider = provider_id
             .and_then(|id| providers.get(id))
             .or_else(|| providers.get_for_capability(capability))
-            .ok_or_else(|| format!("No provider for {:?}", capability))?;
+            .ok_or_else(|| format!("No provider for {capability:?}"))?;
 
         if !provider.capabilities().contains(&capability) {
             return Err(format!(
@@ -247,7 +249,7 @@ impl MediaUnderstandingService {
             ));
         }
 
-        Ok((capability, provider.id().to_string()))
+        Ok((capability, provider.id().to_owned()))
     }
 
     async fn process_attachment_with_provider(
@@ -260,7 +262,7 @@ impl MediaUnderstandingService {
     ) -> Result<MediaUnderstandingOutput, String> {
         let provider = providers
             .get(provider_id)
-            .ok_or_else(|| format!("Provider '{}' is not registered", provider_id))?;
+            .ok_or_else(|| format!("Provider '{provider_id}' is not registered"))?;
 
         let data = self.load_attachment_data(attachment).await?;
         let mime = attachment
@@ -283,7 +285,7 @@ impl MediaUnderstandingService {
                     .await?;
                 let dim_note = match (preflight.width, preflight.height) {
                     (Some(w), Some(h)) => format!("{w}x{h}"),
-                    _ => "unknown-size".to_string(),
+                    _ => "unknown-size".to_owned(),
                 };
                 info!(
                     "Image described by {} ({} chars, {}, mime: {}, resized: {}, converted: {}, orientation_applied: {})",
@@ -298,7 +300,7 @@ impl MediaUnderstandingService {
                 Ok(MediaUnderstandingOutput::ImageDescription {
                     attachment_index: attachment.index,
                     text: result.text,
-                    provider: provider.id().to_string(),
+                    provider: provider.id().to_owned(),
                     model: result.model,
                 })
             }
@@ -320,7 +322,7 @@ impl MediaUnderstandingService {
                 Ok(MediaUnderstandingOutput::AudioTranscription {
                     attachment_index: attachment.index,
                     text: result.text,
-                    provider: provider.id().to_string(),
+                    provider: provider.id().to_owned(),
                     model: result.model,
                     waveform: preflight.waveform,
                 })
@@ -354,7 +356,7 @@ impl MediaUnderstandingService {
                             config.video_frame_interval_seconds.max(1),
                             frame_lines.join("\n")
                         ),
-                        model.map(|m| m.to_string()),
+                        model.map(|m| m.to_owned()),
                     )
                 } else {
                     let result = provider
@@ -372,13 +374,13 @@ impl MediaUnderstandingService {
                 Ok(MediaUnderstandingOutput::VideoDescription {
                     attachment_index: attachment.index,
                     text,
-                    provider: provider.id().to_string(),
+                    provider: provider.id().to_owned(),
                     model: model_used,
                     thumbnail_base64: preflight.thumbnail_base64,
                     frame_count: (!preflight.frames.is_empty()).then_some(preflight.frames.len()),
                 })
             }
-            MediaCapability::Document => Err("Document processing is local-only".to_string()),
+            MediaCapability::Document => Err("Document processing is local-only".to_owned()),
         }
     }
 
@@ -393,7 +395,7 @@ impl MediaUnderstandingService {
             self.extract_pdf_text_pages(&data, page_limit, config.max_chars)?;
         Ok(MediaUnderstandingOutput::DocumentText {
             attachment_index: attachment.index,
-            provider: PDF_PROVIDER_ID.to_string(),
+            provider: PDF_PROVIDER_ID.to_owned(),
             model: None,
             pages,
             total_pages: Some(total_pages),
@@ -408,19 +410,19 @@ impl MediaUnderstandingService {
         max_chars: Option<usize>,
     ) -> Result<(Vec<PdfPageText>, usize, bool), String> {
         if Self::looks_like_encrypted_pdf(data) {
-            return Err("Encrypted PDF is not supported; skipping document".to_string());
+            return Err("Encrypted PDF is not supported; skipping document".to_owned());
         }
 
         let doc =
-            LopdfDocument::load_mem(data).map_err(|e| format!("Failed to parse PDF: {}", e))?;
+            LopdfDocument::load_mem(data).map_err(|e| format!("Failed to parse PDF: {e}"))?;
 
         if doc.is_encrypted() {
-            return Err("Encrypted PDF is not supported; skipping document".to_string());
+            return Err("Encrypted PDF is not supported; skipping document".to_owned());
         }
 
         let pages = doc.get_pages();
         if pages.is_empty() {
-            return Err("PDF has no pages".to_string());
+            return Err("PDF has no pages".to_owned());
         }
 
         let total_pages = pages.len();
@@ -430,7 +432,7 @@ impl MediaUnderstandingService {
         for page_number in pages.keys().take(max_pages) {
             let text = doc
                 .extract_text(&[*page_number])
-                .map_err(|e| format!("Failed to extract text from page {}: {}", page_number, e))?;
+                .map_err(|e| format!("Failed to extract text from page {page_number}: {e}"))?;
             let mut normalized = Self::normalize_page_text(&text);
             if let Some(max_chars) = max_chars {
                 normalized = Self::truncate_chars(&normalized, max_chars);
@@ -442,7 +444,7 @@ impl MediaUnderstandingService {
         }
 
         if extracted.iter().all(|page| page.text.trim().is_empty()) {
-            return Err("PDF contained no extractable text".to_string());
+            return Err("PDF contained no extractable text".to_owned());
         }
 
         Ok((extracted, total_pages, total_pages > max_pages))
@@ -467,7 +469,7 @@ impl MediaUnderstandingService {
         }
         let count = text.chars().count();
         if count <= max_len {
-            return text.to_string();
+            return text.to_owned();
         }
         if max_len <= 3 {
             return ".".repeat(max_len);
@@ -544,16 +546,16 @@ impl MediaUnderstandingService {
         };
         reader = reader
             .with_guessed_format()
-            .map_err(|e| format!("Failed to detect image format: {}", e))?;
+            .map_err(|e| format!("Failed to detect image format: {e}"))?;
 
         let mut decoder = reader
             .into_decoder()
-            .map_err(|e| format!("Failed to initialize image decoder: {}", e))?;
+            .map_err(|e| format!("Failed to initialize image decoder: {e}"))?;
         let orientation = decoder
             .orientation()
             .unwrap_or(image::metadata::Orientation::NoTransforms);
         let mut image = DynamicImage::from_decoder(decoder)
-            .map_err(|e| format!("Failed to decode image: {}", e))?;
+            .map_err(|e| format!("Failed to decode image: {e}"))?;
         let mut orientation_applied = false;
         if orientation != image::metadata::Orientation::NoTransforms {
             image.apply_orientation(orientation);
@@ -576,7 +578,7 @@ impl MediaUnderstandingService {
             let mut encoder = JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
             encoder
                 .encode_image(&image)
-                .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
+                .map_err(|e| format!("Failed to encode JPEG: {e}"))?;
         } else {
             let rgba = image.to_rgba8();
             let encoder = PngEncoder::new(&mut out);
@@ -587,10 +589,10 @@ impl MediaUnderstandingService {
                     image.height(),
                     image::ColorType::Rgba8.into(),
                 )
-                .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+                .map_err(|e| format!("Failed to encode PNG: {e}"))?;
         }
 
-        let output_mime = target_mime.to_string();
+        let output_mime = target_mime.to_owned();
         let converted = mime != output_mime || resized || orientation_applied;
         Ok((
             out,
@@ -605,12 +607,12 @@ impl MediaUnderstandingService {
 
     fn normalize_image_mime(mime: &str) -> String {
         match mime {
-            "image/jpg" => "image/jpeg".to_string(),
-            "image/x-png" => "image/png".to_string(),
-            "image/x-webp" => "image/webp".to_string(),
-            "image/x-heic" => "image/heic".to_string(),
-            "image/x-heif" => "image/heif".to_string(),
-            other => other.to_string(),
+            "image/jpg" => "image/jpeg".to_owned(),
+            "image/x-png" => "image/png".to_owned(),
+            "image/x-webp" => "image/webp".to_owned(),
+            "image/x-heic" => "image/heic".to_owned(),
+            "image/x-heif" => "image/heif".to_owned(),
+            other => other.to_owned(),
         }
     }
 
@@ -643,8 +645,7 @@ impl MediaUnderstandingService {
         let qv = (((100u16.saturating_sub(quality as u16)) * 30) / 100 + 1).clamp(2, 31);
         let max_dimension = max_dimension.max(1);
         let scale_filter = format!(
-            "scale='if(gt(iw,ih),min(iw,{0}),-2)':'if(gt(iw,ih),-2,min(ih,{0}))'",
-            max_dimension
+            "scale='if(gt(iw,ih),min(iw,{max_dimension}),-2)':'if(gt(iw,ih),-2,min(ih,{max_dimension}))'"
         );
 
         let output = Command::new("ffmpeg")
@@ -667,7 +668,7 @@ impl MediaUnderstandingService {
 
         let converted = tokio::fs::read(&output_path).await.ok()?;
         let _ = tokio::fs::remove_dir_all(&temp_dir).await;
-        Some((converted, "image/jpeg".to_string()))
+        Some((converted, "image/jpeg".to_owned()))
     }
 
     async fn audio_preflight(
@@ -678,10 +679,10 @@ impl MediaUnderstandingService {
         config: &MediaUnderstandingConfig,
     ) -> AudioPreflightResult {
         let mut normalized_mime = match mime {
-            "audio/x-wav" | "audio/wave" => "audio/wav".to_string(),
-            "audio/x-m4a" => "audio/m4a".to_string(),
-            "audio/x-caf" => "audio/caf".to_string(),
-            other => other.to_string(),
+            "audio/x-wav" | "audio/wave" => "audio/wav".to_owned(),
+            "audio/x-m4a" => "audio/m4a".to_owned(),
+            "audio/x-caf" => "audio/caf".to_owned(),
+            other => other.to_owned(),
         };
         let mut prepared_data = data;
 
@@ -690,7 +691,7 @@ impl MediaUnderstandingService {
                 Self::convert_audio_to_wav_with_ffmpeg(&prepared_data, &normalized_mime).await
         {
             prepared_data = converted;
-            normalized_mime = "audio/wav".to_string();
+            normalized_mime = "audio/wav".to_owned();
         }
 
         let detected_language = Self::detect_language_hint(attachment);
@@ -907,12 +908,12 @@ impl MediaUnderstandingService {
         let temp_dir = Self::build_temp_dir("video-frames");
         tokio::fs::create_dir_all(&temp_dir)
             .await
-            .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+            .map_err(|e| format!("Failed to create temp dir: {e}"))?;
 
         let input_path = temp_dir.join(format!("input.{}", Self::extension_for_mime(mime)));
         tokio::fs::write(&input_path, data)
             .await
-            .map_err(|e| format!("Failed to write temp video: {}", e))?;
+            .map_err(|e| format!("Failed to write temp video: {e}"))?;
 
         let output_pattern = temp_dir.join("frame-%03d.jpg");
         let output = Command::new("ffmpeg")
@@ -928,7 +929,7 @@ impl MediaUnderstandingService {
             .arg(&output_pattern)
             .output()
             .await
-            .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+            .map_err(|e| format!("Failed to run ffmpeg: {e}"))?;
 
         if !output.status.success() {
             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
@@ -938,7 +939,7 @@ impl MediaUnderstandingService {
         let mut frame_paths = Vec::new();
         let mut entries = tokio::fs::read_dir(&temp_dir)
             .await
-            .map_err(|e| format!("Failed to read temp dir: {}", e))?;
+            .map_err(|e| format!("Failed to read temp dir: {e}"))?;
         while let Ok(Some(entry)) = entries.next_entry().await {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -1094,7 +1095,7 @@ impl MediaUnderstandingService {
         if let Some(ref path) = attachment.path {
             return tokio::fs::read(path)
                 .await
-                .map_err(|e| format!("Failed to read file {}: {}", path, e));
+                .map_err(|e| format!("Failed to read file {path}: {e}"));
         }
 
         if let Some(ref url) = attachment.url {
@@ -1102,7 +1103,7 @@ impl MediaUnderstandingService {
             let entry = store
                 .fetch_and_store(url, None, attachment.mime.as_deref())
                 .await
-                .map_err(|e| format!("Failed to fetch URL {}: {}", url, e))?;
+                .map_err(|e| format!("Failed to fetch URL {url}: {e}"))?;
             let (_, data) = store
                 .read(&entry.id)
                 .await
@@ -1110,7 +1111,7 @@ impl MediaUnderstandingService {
             return Ok(data);
         }
 
-        Err("No data source in attachment".to_string())
+        Err("No data source in attachment".to_owned())
     }
 
     pub async fn format_output(&self, output: &MediaUnderstandingOutput) -> String {
@@ -1123,9 +1124,9 @@ impl MediaUnderstandingService {
             } => {
                 let model_str = model
                     .as_ref()
-                    .map(|m| format!(" ({})", m))
+                    .map(|m| format!(" ({m})"))
                     .unwrap_or_default();
-                format!("[Image via {}{}]: {}", provider, model_str, text)
+                format!("[Image via {provider}{model_str}]: {text}")
             }
             MediaUnderstandingOutput::AudioTranscription {
                 text,
@@ -1135,9 +1136,9 @@ impl MediaUnderstandingService {
             } => {
                 let model_str = model
                     .as_ref()
-                    .map(|m| format!(" ({})", m))
+                    .map(|m| format!(" ({m})"))
                     .unwrap_or_default();
-                format!("[Transcript via {}{}]: {}", provider, model_str, text)
+                format!("[Transcript via {provider}{model_str}]: {text}")
             }
             MediaUnderstandingOutput::VideoDescription {
                 text,
@@ -1147,9 +1148,9 @@ impl MediaUnderstandingService {
             } => {
                 let model_str = model
                     .as_ref()
-                    .map(|m| format!(" ({})", m))
+                    .map(|m| format!(" ({m})"))
                     .unwrap_or_default();
-                format!("[Video via {}{}]: {}", provider, model_str, text)
+                format!("[Video via {provider}{model_str}]: {text}")
             }
             MediaUnderstandingOutput::DocumentText {
                 provider,
@@ -1168,10 +1169,10 @@ impl MediaUnderstandingService {
                                 total
                             )
                         }
-                        None => format!("[PDF via {}] (truncated):", provider),
+                        None => format!("[PDF via {provider}] (truncated):"),
                     }
                 } else {
-                    format!("[PDF via {}]:", provider)
+                    format!("[PDF via {provider}]:")
                 };
 
                 let text = pages

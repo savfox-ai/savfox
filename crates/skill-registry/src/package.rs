@@ -116,13 +116,14 @@ impl SkillManifest {
         serde_yaml::from_str(content)
     }
 
+    #[must_use] 
     pub fn to_skill_md(&self) -> String {
         let mut md = String::new();
         md.push_str("---\n");
         md.push_str(&format!("name: {}\n", self.name));
         md.push_str(&format!("description: {}\n", self.description));
         if let Some(ref short) = self.short_description {
-            md.push_str(&format!("short-description: {}\n", short));
+            md.push_str(&format!("short-description: {short}\n"));
         }
         md.push_str("---\n\n");
         if let Some(ref readme) = self.readme {
@@ -133,6 +134,7 @@ impl SkillManifest {
 }
 
 impl SkillPackage {
+    #[must_use] 
     pub fn is_update_available(&self) -> bool {
         if !self.installed {
             return false;
@@ -144,6 +146,7 @@ impl SkillPackage {
         }
     }
 
+    #[must_use] 
     pub fn status_label(&self) -> &'static str {
         if !self.installed {
             "Not installed"

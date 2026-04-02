@@ -87,7 +87,7 @@ impl Approvable<ShellRequest> for ShellRuntime {
             .or_else(|| req.justification.clone());
         let session = ctx.session;
         let turn = ctx.turn;
-        let call_id = ctx.call_id.to_string();
+        let call_id = ctx.call_id.to_owned();
         Box::pin(async move {
             with_cached_approval(&session.services, "shell", keys, move || async move {
                 session

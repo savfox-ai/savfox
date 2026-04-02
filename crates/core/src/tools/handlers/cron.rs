@@ -85,9 +85,9 @@ impl ToolHandler for CronHandler {
 impl CronHandler {
     async fn handle_list(&self) -> Result<ToolOutput, FunctionCallError> {
         let entries = self.state.entries.read().await;
-        let json = serde_json::to_string_pretty(&*entries).unwrap_or_else(|_| "[]".to_string());
+        let json = serde_json::to_string_pretty(&*entries).unwrap_or_else(|_| "[]".to_owned());
         Ok(ToolOutput::ok(if entries.is_empty() {
-            "No cron jobs configured.".to_string()
+            "No cron jobs configured.".to_owned()
         } else {
             json
         }))
@@ -114,9 +114,9 @@ impl CronHandler {
             .or_else(|err| model_err(format!("invalid cron schedule `{schedule_str}`: {err}")))?;
 
         let entry = CronEntry {
-            name: name.to_string(),
-            schedule: schedule_str.to_string(),
-            command: command.to_string(),
+            name: name.to_owned(),
+            schedule: schedule_str.to_owned(),
+            command: command.to_owned(),
         };
 
         let mut entries = self.state.entries.write().await;

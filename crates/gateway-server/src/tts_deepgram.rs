@@ -144,10 +144,10 @@ pub async fn synthesize(
     config: &DeepgramTtsConfig,
 ) -> Result<Vec<u8>, String> {
     if config.api_key.is_empty() {
-        return Err("deepgram api_key is required".to_string());
+        return Err("deepgram api_key is required".to_owned());
     }
     if text.is_empty() {
-        return Err("text must not be empty".to_string());
+        return Err("text must not be empty".to_owned());
     }
 
     let url = build_request_url(config);

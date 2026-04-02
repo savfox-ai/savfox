@@ -51,28 +51,28 @@ impl HookEvent {
     /// `MemoryCreated` becomes `"memory:created"`.
     pub(crate) fn as_pattern_str(&self) -> &'static str {
         match self {
-            HookEvent::SessionStart => "session:start",
-            HookEvent::SessionEnd => "session:end",
-            HookEvent::SessionCompact => "session:compact",
+            Self::SessionStart => "session:start",
+            Self::SessionEnd => "session:end",
+            Self::SessionCompact => "session:compact",
 
-            HookEvent::MessageReceived => "message:received",
-            HookEvent::MessageSent => "message:sent",
-            HookEvent::MessageError => "message:error",
+            Self::MessageReceived => "message:received",
+            Self::MessageSent => "message:sent",
+            Self::MessageError => "message:error",
 
-            HookEvent::AgentStart => "agent:start",
-            HookEvent::AgentComplete => "agent:complete",
-            HookEvent::AgentError => "agent:error",
+            Self::AgentStart => "agent:start",
+            Self::AgentComplete => "agent:complete",
+            Self::AgentError => "agent:error",
 
-            HookEvent::CronStarted => "cron:started",
-            HookEvent::CronCompleted => "cron:completed",
-            HookEvent::CronFailed => "cron:failed",
+            Self::CronStarted => "cron:started",
+            Self::CronCompleted => "cron:completed",
+            Self::CronFailed => "cron:failed",
 
-            HookEvent::MemoryCreated => "memory:created",
-            HookEvent::MemoryUpdated => "memory:updated",
-            HookEvent::MemoryDeleted => "memory:deleted",
+            Self::MemoryCreated => "memory:created",
+            Self::MemoryUpdated => "memory:updated",
+            Self::MemoryDeleted => "memory:deleted",
 
-            HookEvent::ConfigChanged => "config:changed",
-            HookEvent::ConfigReloaded => "config:reloaded",
+            Self::ConfigChanged => "config:changed",
+            Self::ConfigReloaded => "config:reloaded",
         }
     }
 }

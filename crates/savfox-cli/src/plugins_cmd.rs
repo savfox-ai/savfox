@@ -235,8 +235,7 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
                 .unwrap_or(false);
             if pinned && !force {
                 println!(
-                    "Plugin '{}' is pinned; use --force to update pinned versions",
-                    plugin
+                    "Plugin '{plugin}' is pinned; use --force to update pinned versions"
                 );
                 return Ok(());
             }
@@ -277,10 +276,10 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
             let installed = scan_installed_plugins_map(&plugins_dir);
             if !installed.contains_key(&plugin) {
                 if force {
-                    println!("Plugin '{}' is not installed", plugin);
+                    println!("Plugin '{plugin}' is not installed");
                     return Ok(());
                 }
-                return Err(format!("plugin '{}' is not installed", plugin).into());
+                return Err(format!("plugin '{plugin}' is not installed").into());
             }
 
             let dependents = find_dependents(&installed, &plugin);
@@ -297,7 +296,7 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
             if dry_run {
                 println!("Dry run:");
                 println!(" - remove {}", target.display());
-                println!(" - remove lock entry '{}'", plugin);
+                println!(" - remove lock entry '{plugin}'");
                 return Ok(());
             }
 
@@ -305,29 +304,29 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
                 .map_err(|err| format!("failed to remove '{}': {err}", target.display()))?;
             lock.plugins.remove(&plugin);
             save_lock_file(&lock_path, &lock)?;
-            println!("Uninstalled plugin '{}'", plugin);
+            println!("Uninstalled plugin '{plugin}'");
         }
         PluginsAction::Pin { plugin } => {
             let installed = scan_installed_plugins_map(&plugins_dir);
             let Some(local) = installed.get(&plugin) else {
-                return Err(format!("plugin '{}' is not installed", plugin).into());
+                return Err(format!("plugin '{plugin}' is not installed").into());
             };
             let source = lock
                 .plugins
                 .get(&plugin)
                 .map(|entry| entry.source.clone())
-                .unwrap_or_else(|| "local:unknown".to_string());
+                .unwrap_or_else(|| "local:unknown".to_owned());
             upsert_lock(&mut lock, &plugin, &local.version, &source, true);
             save_lock_file(&lock_path, &lock)?;
             println!("Pinned plugin '{}' at {}", plugin, local.version);
         }
         PluginsAction::Unpin { plugin } => {
             let Some(entry) = lock.plugins.get_mut(&plugin) else {
-                return Err(format!("plugin '{}' has no lock entry", plugin).into());
+                return Err(format!("plugin '{plugin}' has no lock entry").into());
             };
             entry.pinned = false;
             save_lock_file(&lock_path, &lock)?;
-            println!("Unpinned plugin '{}'", plugin);
+            println!("Unpinned plugin '{plugin}'");
         }
     }
 
@@ -342,7 +341,7 @@ fn print_plugin_table(plugins: &[InstalledPlugin]) {
     println!("{}", "-".repeat(120));
     for plugin in plugins {
         let deps = if plugin.dependencies.is_empty() {
-            "-".to_string()
+            "-".to_owned()
         } else {
             plugin.dependencies.join(",")
         };
@@ -375,10 +374,10 @@ fn save_lock_file(path: &Path, lock: &PluginLockFile) -> Result<(), String> {
 
 fn upsert_lock(lock: &mut PluginLockFile, id: &str, version: &str, source: &str, pinned: bool) {
     lock.plugins.insert(
-        id.to_string(),
+        id.to_owned(),
         PluginLockEntry {
-            version: version.to_string(),
-            source: source.to_string(),
+            version: version.to_owned(),
+            source: source.to_owned(),
             pinned,
             installed_at_epoch_ms: now_epoch_ms(),
         },
@@ -429,13 +428,13 @@ fn scan_installed_plugins_map(plugins_dir: &Path) -> HashMap<String, InstalledPl
         let dependencies = manifest
             .dependencies
             .iter()
-            .map(|dep| dep.id().to_string())
+            .map(|dep| dep.id().to_owned())
             .collect::<Vec<_>>();
 
         map.insert(
-            plugin_id.to_string(),
+            plugin_id.to_owned(),
             InstalledPlugin {
-                id: plugin_id.to_string(),
+                id: plugin_id.to_owned(),
                 name: manifest.name,
                 version: manifest.version,
                 path: path.to_string_lossy().to_string(),
@@ -531,14 +530,14 @@ fn install_from_directory(
     copy_dir_all(source_dir, &target_dir)?;
 
     Ok(InstalledPlugin {
-        id: plugin_id.to_string(),
+        id: plugin_id.to_owned(),
         name: manifest.name,
         version: manifest.version,
         path: target_dir.to_string_lossy().to_string(),
         dependencies: manifest
             .dependencies
             .iter()
-            .map(|dep| dep.id().to_string())
+            .map(|dep| dep.id().to_owned())
             .collect(),
         pinned: false,
     })
@@ -553,7 +552,7 @@ fn install_from_archive_bytes(
         .map_err(|err| format!("failed to allocate temporary directory: {err}"))?;
     extract_zip_archive(archive_bytes, temp_dir.path())?;
     let root = find_plugin_root(temp_dir.path()).ok_or_else(|| {
-        "archive does not contain a plugin manifest (savfox.plugin.toml or plugin.toml)".to_string()
+        "archive does not contain a plugin manifest (savfox.plugin.toml or plugin.toml)".to_owned()
     })?;
 
     install_from_directory(&root, plugins_dir, force)
@@ -675,22 +674,20 @@ fn resolve_registry_install_order(
         if visited.contains(plugin_id) {
             return Ok(());
         }
-        if !visiting.insert(plugin_id.to_string()) {
+        if !visiting.insert(plugin_id.to_owned()) {
             return Err(format!(
-                "cycle detected in plugin dependencies at '{}'",
-                plugin_id
+                "cycle detected in plugin dependencies at '{plugin_id}'"
             ));
         }
 
         let entry = find_registry_entry(registry, plugin_id)
-            .ok_or_else(|| format!("plugin '{}' not found in registry", plugin_id))?;
+            .ok_or_else(|| format!("plugin '{plugin_id}' not found in registry"))?;
 
         for dep in &entry.dependencies {
             let dep_id = dep.id();
             let dep_entry = find_registry_entry(registry, dep_id).ok_or_else(|| {
                 format!(
-                    "dependency '{}' (required by '{}') not found in registry",
-                    dep_id, plugin_id
+                    "dependency '{dep_id}' (required by '{plugin_id}') not found in registry"
                 )
             })?;
 
@@ -718,8 +715,8 @@ fn resolve_registry_install_order(
         }
 
         visiting.remove(plugin_id);
-        visited.insert(plugin_id.to_string());
-        install_order.push(plugin_id.to_string());
+        visited.insert(plugin_id.to_owned());
+        install_order.push(plugin_id.to_owned());
         Ok(())
     }
 
@@ -756,8 +753,7 @@ async fn install_registry_plugins(
     for plugin_id in install_order {
         let entry = find_registry_entry(registry_doc, plugin_id).ok_or_else(|| {
             format!(
-                "plugin '{}' resolved in dependency graph but missing from registry",
-                plugin_id
+                "plugin '{plugin_id}' resolved in dependency graph but missing from registry"
             )
         })?;
         let installed = install_registry_entry(entry, plugins_dir, force).await?;
@@ -830,7 +826,7 @@ async fn download_registry_archive(url: &str) -> Result<Vec<u8>, Box<dyn std::er
         let bytes = response.bytes().await?;
         return Ok(bytes.to_vec());
     }
-    let bytes = fs::read(url).map_err(|err| format!("failed to read '{}': {err}", url))?;
+    let bytes = fs::read(url).map_err(|err| format!("failed to read '{url}': {err}"))?;
     Ok(bytes)
 }
 
@@ -850,7 +846,7 @@ async fn load_registry_doc(
     explicit_registry: Option<&str>,
 ) -> Result<PluginRegistryDoc, Box<dyn std::error::Error>> {
     let source = explicit_registry
-        .map(|s| s.to_string())
+        .map(|s| s.to_owned())
         .or_else(|| std::env::var(REGISTRY_URL_ENV).ok())
         .or_else(|| {
             let default_file = savfox_home.join(DEFAULT_REGISTRY_FILE);
@@ -862,8 +858,7 @@ async fn load_registry_doc(
         })
         .ok_or_else(|| {
             format!(
-                "no plugin registry configured; provide --registry or set {}",
-                REGISTRY_URL_ENV
+                "no plugin registry configured; provide --registry or set {REGISTRY_URL_ENV}"
             )
         })?;
 
@@ -879,11 +874,11 @@ async fn load_registry_doc(
         response.text().await?
     } else {
         fs::read_to_string(&source)
-            .map_err(|err| format!("failed to read registry '{}': {err}", source))?
+            .map_err(|err| format!("failed to read registry '{source}': {err}"))?
     };
 
     let doc = serde_json::from_str::<PluginRegistryDoc>(&content)
-        .map_err(|err| format!("invalid registry JSON from '{}': {err}", source))?;
+        .map_err(|err| format!("invalid registry JSON from '{source}': {err}"))?;
     Ok(doc)
 }
 

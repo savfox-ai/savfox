@@ -39,7 +39,7 @@ pub type ConstraintResult<T> = Result<T, ConstraintError>;
 
 impl From<ConstraintError> for std::io::Error {
     fn from(err: ConstraintError) -> Self {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, err)
+        Self::new(std::io::ErrorKind::InvalidInput, err)
     }
 }
 
@@ -95,6 +95,7 @@ impl<T: Send + Sync> Constrained<T> {
     }
 
     /// Allow any value of T, using T's Default as the initial value.
+    #[must_use] 
     pub fn allow_any_from_default() -> Self
     where
         T: Default,

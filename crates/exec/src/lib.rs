@@ -74,7 +74,7 @@ struct SessionEventEnvelope {
 }
 
 pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()> {
-    if let Err(err) = set_default_originator("savfox_exec".to_string()) {
+    if let Err(err) = set_default_originator("savfox_exec".to_owned()) {
         tracing::warn!(
             ?err,
             "Failed to set savfox exec originator override {err:?}"
@@ -267,21 +267,18 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
     if oss {
         // We're in the oss section, so provider_id should be Some
         // Let's handle None case gracefully though just in case
-        let provider_id = match model_provider.as_ref() {
-            Some(id) => id,
-            None => {
-                error!("OSS provider unexpectedly not set when oss flag is used");
-                return Err(anyhow::anyhow!(
-                    "OSS provider not set but oss flag was used"
-                ));
-            }
+        let provider_id = if let Some(id) = model_provider.as_ref() { id } else {
+            error!("OSS provider unexpectedly not set when oss flag is used");
+            return Err(anyhow::anyhow!(
+                "OSS provider not set but oss flag was used"
+            ));
         };
         ensure_oss_provider_ready(provider_id, &config)
             .await
             .map_err(|e| anyhow::anyhow!("OSS setup failed: {e}"))?;
     }
 
-    let default_cwd = config.cwd.to_path_buf();
+    let default_cwd = config.cwd.clone();
     let default_approval_policy = config.approval_policy.value();
     let default_sandbox_policy = config.sandbox_policy.get();
     let default_effort = config.model_reasoning_effort;
@@ -632,15 +629,15 @@ enum PromptDecodeError {
 impl std::fmt::Display for PromptDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PromptDecodeError::InvalidUtf8 { valid_up_to } => write!(
+            Self::InvalidUtf8 { valid_up_to } => write!(
                 f,
                 "input is not valid UTF-8 (invalid byte at offset {valid_up_to}). Convert it to UTF-8 and retry (e.g., `iconv -f <ENC> -t UTF-8 prompt.txt`)."
             ),
-            PromptDecodeError::InvalidUtf16 { encoding } => write!(
+            Self::InvalidUtf16 { encoding } => write!(
                 f,
                 "input looked like {encoding} but could not be decoded. Convert it to UTF-8 and retry."
             ),
-            PromptDecodeError::UnsupportedBom { encoding } => write!(
+            Self::UnsupportedBom { encoding } => write!(
                 f,
                 "input appears to be {encoding}. Convert it to UTF-8 and retry."
             ),
@@ -746,7 +743,7 @@ fn build_review_request(args: ReviewArgs) -> anyhow::Result<ReviewRequest> {
             title: args.commit_title,
         }
     } else if let Some(prompt_arg) = args.prompt {
-        let prompt = resolve_prompt(Some(prompt_arg)).trim().to_string();
+        let prompt = resolve_prompt(Some(prompt_arg)).trim().to_owned();
         if prompt.is_empty() {
             anyhow::bail!("Review prompt cannot be empty");
         }

@@ -41,6 +41,7 @@ pub struct TextElement {
 }
 
 impl TextElement {
+    #[must_use] 
     pub fn new(byte_range: ByteRange, placeholder: Option<String>) -> Self {
         Self {
             byte_range,
@@ -73,10 +74,12 @@ impl TextElement {
     /// protocol types where the source text is unavailable. Prefer `placeholder(text)`
     /// everywhere else.
     #[doc(hidden)]
+    #[must_use] 
     pub fn _placeholder_for_conversion_only(&self) -> Option<&str> {
         self.placeholder.as_deref()
     }
 
+    #[must_use] 
     pub fn placeholder<'a>(&'a self, text: &'a str) -> Option<&'a str> {
         self.placeholder
             .as_deref()

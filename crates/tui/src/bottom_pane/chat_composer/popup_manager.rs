@@ -109,7 +109,7 @@ impl ChatComposer {
                 // Ensure popup filtering/selection reflects the latest composer text
                 // before applying completion.
                 let first_line = self.textarea.text().lines().next().unwrap_or("");
-                popup.on_composer_text_change(first_line.to_string());
+                popup.on_composer_text_change(first_line.to_owned());
                 if let Some(sel) = popup.selected_item() {
                     let mut cursor_target: Option<usize> = None;
                     match sel {
@@ -164,7 +164,7 @@ impl ChatComposer {
                 // If the current line starts with a custom prompt name and includes
                 // positional args for a numeric-style template, expand and submit
                 // immediately regardless of the popup selection.
-                let mut text = self.textarea.text().to_string();
+                let mut text = self.textarea.text().to_owned();
                 let mut text_elements = self.textarea.text_elements();
                 if !self.pending_pastes.is_empty() {
                     let (expanded, expanded_elements) =
@@ -710,7 +710,7 @@ impl ChatComposer {
         match &mut self.active_popup {
             ActivePopup::Command(popup) => {
                 if is_editing_slash_command_name {
-                    popup.on_composer_text_change(first_line.to_string());
+                    popup.on_composer_text_change(first_line.to_owned());
                 } else {
                     self.active_popup = ActivePopup::None;
                 }
@@ -729,7 +729,7 @@ impl ChatComposer {
                             windows_degraded_sandbox_active: self.windows_degraded_sandbox_active,
                         },
                     );
-                    command_popup.on_composer_text_change(first_line.to_string());
+                    command_popup.on_composer_text_change(first_line.to_owned());
                     self.active_popup = ActivePopup::Command(command_popup);
                 }
             }
@@ -759,23 +759,20 @@ impl ChatComposer {
                 .send(AppEvent::StartFileSearch(query.clone()));
         }
 
-        match &mut self.active_popup {
-            ActivePopup::File(popup) => {
-                if query.is_empty() {
-                    popup.set_empty_prompt();
-                } else {
-                    popup.set_query(&query);
-                }
+        if let ActivePopup::File(popup) = &mut self.active_popup {
+            if query.is_empty() {
+                popup.set_empty_prompt();
+            } else {
+                popup.set_query(&query);
             }
-            _ => {
-                let mut popup = FileSearchPopup::new();
-                if query.is_empty() {
-                    popup.set_empty_prompt();
-                } else {
-                    popup.set_query(&query);
-                }
-                self.active_popup = ActivePopup::File(popup);
+        } else {
+            let mut popup = FileSearchPopup::new();
+            if query.is_empty() {
+                popup.set_empty_prompt();
+            } else {
+                popup.set_query(&query);
             }
+            self.active_popup = ActivePopup::File(popup);
         }
 
         if query.is_empty() {
@@ -797,16 +794,13 @@ impl ChatComposer {
             return;
         }
 
-        match &mut self.active_popup {
-            ActivePopup::Skill(popup) => {
-                popup.set_query(&query);
-                popup.set_mentions(mentions);
-            }
-            _ => {
-                let mut popup = SkillPopup::new(mentions);
-                popup.set_query(&query);
-                self.active_popup = ActivePopup::Skill(popup);
-            }
+        if let ActivePopup::Skill(popup) = &mut self.active_popup {
+            popup.set_query(&query);
+            popup.set_mentions(mentions);
+        } else {
+            let mut popup = SkillPopup::new(mentions);
+            popup.set_query(&query);
+            self.active_popup = ActivePopup::Skill(popup);
         }
     }
 
@@ -815,7 +809,7 @@ impl ChatComposer {
 
         if let Some(skills) = self.skills.as_ref() {
             for skill in skills {
-                let name = super::skill_name(skill).to_string();
+                let name = super::skill_name(skill).to_owned();
                 let description = super::skill_description(skill);
                 let skill_name = skill.name.clone();
                 let search_terms = if name == skill.name {
@@ -866,7 +860,7 @@ impl ChatComposer {
         };
         match Self::connector_description(connector) {
             Some(description) => format!("{status_label} - {description}"),
-            None => status_label.to_string(),
+            None => status_label.to_owned(),
         }
     }
 

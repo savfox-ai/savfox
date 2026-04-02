@@ -119,6 +119,7 @@ pub fn maybe_parse_apply_patch(argv: &[String]) -> MaybeApplyPatch {
 
 /// cwd must be an absolute path so that we can resolve relative paths in the
 /// patch.
+#[must_use] 
 pub fn maybe_parse_apply_patch_verified(argv: &[String], cwd: &Path) -> MaybeApplyPatchVerified {
     // Detect a raw patch body passed directly as the command or as the body of a shell
     // script. In these cases, report an explicit error rather than applying the patch.
@@ -322,16 +323,14 @@ fn extract_apply_patch_from_bash(
                         .node
                         .utf8_text(bytes)
                         .map_err(ExtractHeredocError::HeredocNotUtf8)?
-                        .trim_end_matches('\n')
-                        .to_string();
+                        .trim_end_matches('\n').to_owned();
                     heredoc_text = Some(text);
                 }
                 "cd_path" => {
                     let text = capture
                         .node
                         .utf8_text(bytes)
-                        .map_err(ExtractHeredocError::HeredocNotUtf8)?
-                        .to_string();
+                        .map_err(ExtractHeredocError::HeredocNotUtf8)?.to_owned();
                     cd_path = Some(text);
                 }
                 "cd_raw_string" => {
@@ -343,7 +342,7 @@ fn extract_apply_patch_from_bash(
                         .strip_prefix('\'')
                         .and_then(|s| s.strip_suffix('\''))
                         .unwrap_or(raw);
-                    cd_path = Some(trimmed.to_string());
+                    cd_path = Some(trimmed.to_owned());
                 }
                 _ => {}
             }

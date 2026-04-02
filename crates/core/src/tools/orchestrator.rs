@@ -68,7 +68,7 @@ impl ToolOrchestrator {
 
                 match decision {
                     ReviewDecision::Denied | ReviewDecision::Abort => {
-                        return Err(ToolError::Rejected("rejected by user".to_string()));
+                        return Err(ToolError::Rejected("rejected by user".to_owned()));
                     }
                     ReviewDecision::Approved
                     | ReviewDecision::ApprovedExecpolicyAmendment { .. }
@@ -133,7 +133,7 @@ impl ToolOrchestrator {
 
                     match decision {
                         ReviewDecision::Denied | ReviewDecision::Abort => {
-                            return Err(ToolError::Rejected("rejected by user".to_string()));
+                            return Err(ToolError::Rejected("rejected by user".to_owned()));
                         }
                         ReviewDecision::Approved
                         | ReviewDecision::ApprovedExecpolicyAmendment { .. }
@@ -161,5 +161,5 @@ impl ToolOrchestrator {
 fn build_denial_reason_from_output(_output: &ExecToolCallOutput) -> String {
     // Keep approval reason terse and stable for UX/tests, but accept the
     // output so we can evolve heuristics later without touching call sites.
-    "command failed; retry without sandbox?".to_string()
+    "command failed; retry without sandbox?".to_owned()
 }

@@ -157,20 +157,16 @@ pub async fn run(cmd: ConfigCommand) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ConfigAction::Convert { from, to, output } => {
-            let from_format = match from {
-                Some(explicit) => explicit,
-                None => {
-                    let detected =
-                        ws_rpc_client::rpc_call(gateway_url, token, "config.format", json!({}))
-                            .await
-                            .map_err(|e| format!("config.format failed: {e}"))?;
-                    detected
-                        .get("format")
-                        .and_then(|v| v.as_str())
-                        .filter(|v| !v.is_empty() && *v != "unknown")
-                        .unwrap_or("toml")
-                        .to_string()
-                }
+            let from_format = if let Some(explicit) = from { explicit } else {
+                let detected =
+                    ws_rpc_client::rpc_call(gateway_url, token, "config.format", json!({}))
+                        .await
+                        .map_err(|e| format!("config.format failed: {e}"))?;
+                detected
+                    .get("format")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty() && *v != "unknown")
+                    .unwrap_or("toml").to_owned()
             };
 
             let params = json!({

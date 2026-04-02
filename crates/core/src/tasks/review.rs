@@ -81,7 +81,7 @@ async fn start_review_conversation(
     sub_agent_config.web_search_mode = Some(WebSearchMode::Disabled);
 
     // Set explicit review rubric for the sub-agent
-    sub_agent_config.base_instructions = Some(crate::REVIEW_PROMPT.to_string());
+    sub_agent_config.base_instructions = Some(crate::REVIEW_PROMPT.to_owned());
 
     let model = config
         .review_model
@@ -170,7 +170,7 @@ fn parse_review_output_event(text: &str) -> ReviewOutputEvent {
         return ev;
     }
     ReviewOutputEvent {
-        overall_explanation: text.to_string(),
+        overall_explanation: text.to_owned(),
         ..Default::default()
     }
 }
@@ -199,10 +199,9 @@ pub(crate) async fn exit_review_mode(
         let assistant_message = render_review_output_text(&out);
         (rendered, assistant_message)
     } else {
-        let rendered = crate::client_common::REVIEW_EXIT_INTERRUPTED_TMPL.to_string();
+        let rendered = crate::client_common::REVIEW_EXIT_INTERRUPTED_TMPL.to_owned();
         let assistant_message =
-            "Review was interrupted. Please re-run /review and wait for it to complete."
-                .to_string();
+            "Review was interrupted. Please re-run /review and wait for it to complete.".to_owned();
         (rendered, assistant_message)
     };
 
@@ -210,8 +209,8 @@ pub(crate) async fn exit_review_mode(
         .record_conversation_items(
             &ctx,
             &[ResponseItem::Message {
-                id: Some(REVIEW_USER_MESSAGE_ID.to_string()),
-                role: "user".to_string(),
+                id: Some(REVIEW_USER_MESSAGE_ID.to_owned()),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText { text: user_message }],
                 end_turn: None,
                 phase: None,
@@ -228,8 +227,8 @@ pub(crate) async fn exit_review_mode(
         .record_response_item_and_emit_turn_item(
             ctx.as_ref(),
             ResponseItem::Message {
-                id: Some(REVIEW_ASSISTANT_MESSAGE_ID.to_string()),
-                role: "assistant".to_string(),
+                id: Some(REVIEW_ASSISTANT_MESSAGE_ID.to_owned()),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
                     text: assistant_message,
                 }],

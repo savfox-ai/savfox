@@ -131,8 +131,7 @@ impl BroadcastManager {
                 message: t
                     .template_override
                     .as_deref()
-                    .unwrap_or(default_message)
-                    .to_string(),
+                    .unwrap_or(default_message).to_owned(),
                 delay_secs: t.delay_secs,
             })
             .collect();

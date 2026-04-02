@@ -44,8 +44,8 @@ impl NostrChannel {
         match kind {
             // Kind 1: Text note (public mention).
             1 => {
-                let content = payload["content"].as_str().unwrap_or("").to_string();
-                let pubkey = payload["pubkey"].as_str().unwrap_or("unknown").to_string();
+                let content = payload["content"].as_str().unwrap_or("").to_owned();
+                let pubkey = payload["pubkey"].as_str().unwrap_or("unknown").to_owned();
 
                 if content.trim().is_empty() {
                     return Ok(ChannelAction::Ignore);
@@ -58,8 +58,8 @@ impl NostrChannel {
             }
             // Kind 4: Encrypted direct message.
             4 => {
-                let content = payload["content"].as_str().unwrap_or("").to_string();
-                let pubkey = payload["pubkey"].as_str().unwrap_or("unknown").to_string();
+                let content = payload["content"].as_str().unwrap_or("").to_owned();
+                let pubkey = payload["pubkey"].as_str().unwrap_or("unknown").to_owned();
 
                 // Content is encrypted (NIP-04), needs decryption.
                 // For now, pass the raw content - decryption would require

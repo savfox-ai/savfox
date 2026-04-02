@@ -38,7 +38,7 @@ pub fn search_memories<'a>(
                 .iter()
                 .map(|term| {
                     let tf = text.matches(term.as_str()).count() as f64;
-                    (tf * (k1 + 1.0)) / (tf + k1 * (1.0 - b + b * doc_len / avg_len))
+                    (tf * (k1 + 1.0)) / k1.mul_add(1.0 - b + b * doc_len / avg_len, tf)
                 })
                 .sum();
 

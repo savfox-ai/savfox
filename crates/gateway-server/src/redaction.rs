@@ -67,7 +67,7 @@ static SECRET_ENV_VALUES: LazyLock<Vec<String>> = LazyLock::new(collect_secret_e
 
 fn redaction_enabled() -> bool {
     let mode = std::env::var("SAVFOX_REDACTION_MODE")
-        .unwrap_or_else(|_| "on".to_string())
+        .unwrap_or_else(|_| "on".to_owned())
         .to_ascii_lowercase();
     if mode == "off" || mode == "false" || mode == "0" {
         return false;
@@ -85,12 +85,12 @@ fn redaction_enabled() -> bool {
 fn collect_secret_env_values() -> Vec<String> {
     let mut names: HashSet<String> = DEFAULT_SECRET_ENV_VARS
         .iter()
-        .map(|s| (*s).to_string())
+        .map(|s| (*s).to_owned())
         .collect();
 
     if let Ok(extra) = std::env::var("SAVFOX_REDACTION_SECRET_ENVS") {
         for name in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            names.insert(name.to_string());
+            names.insert(name.to_owned());
         }
     }
 
@@ -111,7 +111,7 @@ fn collect_secret_env_values() -> Vec<String> {
         if let Ok(value) = std::env::var(&name) {
             let trimmed = value.trim();
             if trimmed.len() >= 6 {
-                values.push(trimmed.to_string());
+                values.push(trimmed.to_owned());
             }
         }
     }
@@ -124,10 +124,10 @@ fn collect_secret_env_values() -> Vec<String> {
 fn mask_secret(secret: &str) -> String {
     let trimmed = secret.trim();
     if trimmed.is_empty() {
-        return "***".to_string();
+        return "***".to_owned();
     }
     if trimmed.contains("...") {
-        return trimmed.to_string();
+        return trimmed.to_owned();
     }
 
     let suffix: String = trimmed
@@ -156,7 +156,7 @@ fn mask_secret(secret: &str) -> String {
     } else if lower.starts_with("aiza") {
         format!("AIza...{suffix}")
     } else if trimmed.len() <= 8 {
-        "***".to_string()
+        "***".to_owned()
     } else {
         format!("***...{suffix}")
     }
@@ -177,10 +177,10 @@ fn looks_like_secret_key(key: &str) -> bool {
 
 pub fn redact_text(input: &str) -> String {
     if !redaction_enabled() || input.is_empty() {
-        return input.to_string();
+        return input.to_owned();
     }
 
-    let mut output = input.to_string();
+    let mut output = input.to_owned();
 
     output = JSON_SECRET_FIELD_RE
         .replace_all(&output, |caps: &Captures<'_>| {
@@ -233,6 +233,7 @@ pub fn redact_text(input: &str) -> String {
     output
 }
 
+#[must_use] 
 pub fn redact_json(value: Value) -> Value {
     let mut out = value;
     redact_json_in_place(&mut out);

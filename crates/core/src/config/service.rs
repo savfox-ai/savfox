@@ -83,6 +83,7 @@ impl ConfigServiceError {
         Self::Anyhow { context, source }
     }
 
+    #[must_use] 
     pub fn write_error_code(&self) -> Option<ConfigWriteErrorCode> {
         match self {
             Self::Write { code, .. } => Some(code.clone()),
@@ -100,6 +101,7 @@ pub struct ConfigService {
 }
 
 impl ConfigService {
+    #[must_use] 
     pub fn new(
         savfox_home: PathBuf,
         cli_overrides: Vec<(String, TomlValue)>,
@@ -114,6 +116,7 @@ impl ConfigService {
         }
     }
 
+    #[must_use] 
     pub fn new_with_defaults(savfox_home: PathBuf) -> Self {
         Self {
             savfox_home,
@@ -382,26 +385,23 @@ async fn create_empty_user_layer(
         write_path,
     } = resolve_symlink_write_paths(config_toml.as_path())
         .map_err(|err| ConfigServiceError::io("failed to resolve user config path", err))?;
-    let toml_value = match read_path {
-        Some(path) => match tokio::fs::read_to_string(&path).await {
-            Ok(contents) => toml::from_str(&contents).map_err(|e| {
-                ConfigServiceError::toml("failed to parse existing user config.toml", e)
-            })?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                write_empty_user_config(write_path.clone()).await?;
-                TomlValue::Table(toml::map::Map::new())
-            }
-            Err(err) => {
-                return Err(ConfigServiceError::io(
-                    "failed to read user config.toml",
-                    err,
-                ));
-            }
-        },
-        None => {
-            write_empty_user_config(write_path).await?;
+    let toml_value = if let Some(path) = read_path { match tokio::fs::read_to_string(&path).await {
+        Ok(contents) => toml::from_str(&contents).map_err(|e| {
+            ConfigServiceError::toml("failed to parse existing user config.toml", e)
+        })?,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            write_empty_user_config(write_path.clone()).await?;
             TomlValue::Table(toml::map::Map::new())
         }
+        Err(err) => {
+            return Err(ConfigServiceError::io(
+                "failed to read user config.toml",
+                err,
+            ));
+        }
+    } } else {
+        write_empty_user_config(write_path).await?;
+        TomlValue::Table(toml::map::Map::new())
     };
     Ok(ConfigLayerEntry::new(
         ConfigLayerSource::User {
@@ -430,7 +430,7 @@ fn parse_value(value: JsonValue) -> Result<Option<TomlValue>, String> {
 
 fn parse_key_path(path: &str) -> Result<Vec<String>, String> {
     if path.trim().is_empty() {
-        return Err("keyPath must not be empty".to_string());
+        return Err("keyPath must not be empty".to_owned());
     }
     Ok(path
         .split('.')
@@ -456,32 +456,29 @@ fn apply_merge(
 
     let Some((last, parents)) = segments.split_last() else {
         return Err(MergeError::Validation(
-            "keyPath must not be empty".to_string(),
+            "keyPath must not be empty".to_owned(),
         ));
     };
 
     let mut current = root;
 
     for segment in parents {
-        match current {
-            TomlValue::Table(table) => {
+        if let TomlValue::Table(table) = current {
+            current = table
+                .entry(segment.clone())
+                .or_insert_with(|| TomlValue::Table(toml::map::Map::new()));
+        } else {
+            *current = TomlValue::Table(toml::map::Map::new());
+            if let TomlValue::Table(table) = current {
                 current = table
                     .entry(segment.clone())
                     .or_insert_with(|| TomlValue::Table(toml::map::Map::new()));
-            }
-            _ => {
-                *current = TomlValue::Table(toml::map::Map::new());
-                if let TomlValue::Table(table) = current {
-                    current = table
-                        .entry(segment.clone())
-                        .or_insert_with(|| TomlValue::Table(toml::map::Map::new()));
-                }
             }
         }
     }
 
     let table = current.as_table_mut().ok_or_else(|| {
-        MergeError::Validation("cannot set value on non-table parent".to_string())
+        MergeError::Validation("cannot set value on non-table parent".to_owned())
     })?;
 
     if matches!(strategy, MergeStrategy::Upsert)
@@ -504,7 +501,7 @@ fn apply_merge(
 fn clear_path(root: &mut TomlValue, segments: &[String]) -> Result<bool, MergeError> {
     let Some((last, parents)) = segments.split_last() else {
         return Err(MergeError::Validation(
-            "keyPath must not be empty".to_string(),
+            "keyPath must not be empty".to_owned(),
         ));
     };
 
@@ -609,7 +606,7 @@ fn override_message(layer: &ConfigLayerSource) -> String {
             "Overridden by project config: {}/{CONFIG_TOML_FILE}",
             dot_savfox_folder.display(),
         ),
-        ConfigLayerSource::SessionFlags => "Overridden by session flags".to_string(),
+        ConfigLayerSource::SessionFlags => "Overridden by session flags".to_owned(),
         ConfigLayerSource::User { file } => {
             format!("Overridden by user config: {}", file.display())
         }

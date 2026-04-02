@@ -138,7 +138,7 @@ pub(crate) async fn run_savfox_session_one_shot(
             if should_shutdown {
                 let _ = ops_tx
                     .send(Submission {
-                        id: "shutdown".to_string(),
+                        id: "shutdown".to_owned(),
                         op: Op::Shutdown {},
                     })
                     .await;
@@ -246,12 +246,9 @@ async fn forward_events(
                         .await;
                     }
                     other => {
-                        match tx_sub.send(other).or_cancel(&cancel_token).await {
-                            Ok(Ok(())) => {}
-                            _ => {
-                                shutdown_delegate(&handle).await;
-                                break;
-                            }
+                        if matches!(tx_sub.send(other).or_cancel(&cancel_token).await, Ok(Ok(()))) {} else {
+                            shutdown_delegate(&handle).await;
+                            break;
                         }
                     }
                 }

@@ -20,7 +20,7 @@ impl Decision {
             "allow" => Ok(Self::Allow),
             "prompt" => Ok(Self::Prompt),
             "forbidden" => Ok(Self::Forbidden),
-            other => Err(Error::InvalidDecision(other.to_string())),
+            other => Err(Error::InvalidDecision(other.to_owned())),
         }
     }
 }

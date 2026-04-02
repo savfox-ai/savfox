@@ -46,7 +46,7 @@ impl ToolHandler for GatewayToolHandler {
         };
         let args: GatewayToolArgs = parse_arguments(&arguments)?;
         let gateway_url = std::env::var("SAVFOX_GATEWAY_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_string());
+            .unwrap_or_else(|_| "http://127.0.0.1:18881".to_owned());
 
         // Read the gateway token from the environment.
         let token = std::env::var("SAVFOX_GATEWAY_TOKEN").ok();

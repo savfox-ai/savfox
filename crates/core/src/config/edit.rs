@@ -185,7 +185,7 @@ mod document_helpers {
                 *updated_value.decor_mut() = existing_value.decor().clone();
                 *existing_value = updated_value;
             } else {
-                existing.insert(key.to_string(), value.clone());
+                existing.insert(key.to_owned(), value.clone());
             }
         }
     }
@@ -275,7 +275,7 @@ impl ConfigFile {
                 Ok({
                     let mut mutated = false;
                     if let Some(slug_value) = slug {
-                        let Some(provider_to_write) = provider.clone() else {
+                        let Some(provider_to_write) = provider else {
                             anyhow::bail!(
                                 "model.provider is required when setting model `{slug_value}`"
                             );
@@ -284,13 +284,13 @@ impl ConfigFile {
                         mutated |= self.write_value(
                             Scope::Global,
                             &["model", "slug"],
-                            value(slug_value.clone()),
+                            value(slug_value),
                         );
 
                         mutated |= self.write_value(
                             Scope::Global,
                             &["model", "provider"],
-                            value(provider_to_write.clone()),
+                            value(provider_to_write),
                         );
                         match effort {
                             Some(effort_value)
@@ -417,7 +417,7 @@ impl ConfigFile {
 
         let keys_to_remove: Vec<String> = table
             .iter()
-            .map(|(key, _)| key.to_string())
+            .map(|(key, _)| key.to_owned())
             .filter(|key| !servers.contains_key(key.as_str()))
             .collect();
 
@@ -452,21 +452,18 @@ impl ConfigFile {
 
         {
             let root = self.doc.as_table_mut();
-            let skills_item = match root.get_mut("skills") {
-                Some(item) => item,
-                None => {
-                    if enabled {
-                        return false;
-                    }
-                    root.insert(
-                        "skills",
-                        TomlItem::Table(document_helpers::new_implicit_table()),
-                    );
-                    let Some(item) = root.get_mut("skills") else {
-                        return false;
-                    };
-                    item
+            let skills_item = if let Some(item) = root.get_mut("skills") { item } else {
+                if enabled {
+                    return false;
                 }
+                root.insert(
+                    "skills",
+                    TomlItem::Table(document_helpers::new_implicit_table()),
+                );
+                let Some(item) = root.get_mut("skills") else {
+                    return false;
+                };
+                item
             };
 
             if document_helpers::ensure_table_for_write(skills_item).is_none() {
@@ -479,18 +476,15 @@ impl ConfigFile {
                 return false;
             };
 
-            let config_item = match skills_table.get_mut("config") {
-                Some(item) => item,
-                None => {
-                    if enabled {
-                        return false;
-                    }
-                    skills_table.insert("config", TomlItem::ArrayOfTables(ArrayOfTables::new()));
-                    let Some(item) = skills_table.get_mut("config") else {
-                        return false;
-                    };
-                    item
+            let config_item = if let Some(item) = skills_table.get_mut("config") { item } else {
+                if enabled {
+                    return false;
                 }
+                skills_table.insert("config", TomlItem::ArrayOfTables(ArrayOfTables::new()));
+                let Some(item) = skills_table.get_mut("config") else {
+                    return false;
+                };
+                item
             };
 
             if !matches!(config_item, TomlItem::ArrayOfTables(_)) {
@@ -556,7 +550,7 @@ impl ConfigFile {
     fn scoped_segments(&self, _scope: Scope, segments: &[&str]) -> Vec<String> {
         segments
             .iter()
-            .map(|segment| (*segment).to_string())
+            .map(|segment| (*segment).to_owned())
             .collect()
     }
 
@@ -711,6 +705,7 @@ pub struct ConfigEditsBuilder {
 }
 
 impl ConfigEditsBuilder {
+    #[must_use] 
     pub fn new(savfox_home: &Path) -> Self {
         Self {
             savfox_home: savfox_home.to_path_buf(),
@@ -718,12 +713,13 @@ impl ConfigEditsBuilder {
         }
     }
 
+    #[must_use] 
     pub fn set_model(mut self, model: Option<&str>, effort: Option<ReasoningEffort>) -> Self {
         let (slug, provider) = if let Some(model_value) = model {
             if let Some((provider_id, model_slug)) = parse_provider_prefixed_model(model_value) {
-                (Some(model_slug.to_string()), Some(provider_id.to_string()))
+                (Some(model_slug.to_owned()), Some(provider_id.to_owned()))
             } else {
-                (Some(model_value.to_string()), None)
+                (Some(model_value.to_owned()), None)
             }
         } else {
             (None, None)
@@ -737,53 +733,61 @@ impl ConfigEditsBuilder {
         self
     }
 
+    #[must_use] 
     pub fn set_personality(mut self, personality: Option<Personality>) -> Self {
         self.edits
             .push(ConfigEdit::SetModelPersonality { personality });
         self
     }
 
+    #[must_use] 
     pub fn set_hide_full_access_warning(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideFullAccessWarning(acknowledged));
         self
     }
 
+    #[must_use] 
     pub fn set_hide_world_writable_warning(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideWorldWritableWarning(acknowledged));
         self
     }
 
+    #[must_use] 
     pub fn set_hide_rate_limit_model_nudge(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideRateLimitModelNudge(acknowledged));
         self
     }
 
+    #[must_use] 
     pub fn set_hide_model_migration_prompt(mut self, model: &str, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetNoticeHideModelMigrationPrompt(
-                model.to_string(),
+                model.to_owned(),
                 acknowledged,
             ));
         self
     }
 
+    #[must_use] 
     pub fn record_model_migration_seen(mut self, from: &str, to: &str) -> Self {
         self.edits.push(ConfigEdit::RecordModelMigrationSeen {
-            from: from.to_string(),
-            to: to.to_string(),
+            from: from.to_owned(),
+            to: to.to_owned(),
         });
         self
     }
 
+    #[must_use] 
     pub fn set_windows_wsl_setup_acknowledged(mut self, acknowledged: bool) -> Self {
         self.edits
             .push(ConfigEdit::SetWindowsWslSetupAcknowledged(acknowledged));
         self
     }
 
+    #[must_use] 
     pub fn replace_mcp_servers(mut self, servers: &BTreeMap<String, McpServerConfig>) -> Self {
         self.edits
             .push(ConfigEdit::ReplaceMcpServers(servers.clone()));
@@ -803,9 +807,10 @@ impl ConfigEditsBuilder {
     }
 
     /// Enable or disable a feature flag by key under the `[features]` table.
+    #[must_use] 
     pub fn set_feature_enabled(mut self, key: &str, enabled: bool) -> Self {
         self.edits.push(ConfigEdit::SetPath {
-            segments: vec!["features".to_string(), key.to_string()],
+            segments: vec!["features".to_owned(), key.to_owned()],
             value: value(enabled),
         });
         self

@@ -37,6 +37,7 @@ pub struct LogDbLayer {
     sender: mpsc::Sender<LogEntry>,
 }
 
+#[must_use] 
 pub fn start(state_db: std::sync::Arc<StateRuntime>) -> LogDbLayer {
     let (sender, receiver) = mpsc::channel(LOG_QUEUE_CAPACITY);
     tokio::spawn(run_inserter(std::sync::Arc::clone(&state_db), receiver));
@@ -105,8 +106,8 @@ where
         let entry = LogEntry {
             ts: now.as_secs() as i64,
             ts_nanos: now.subsec_nanos() as i64,
-            level: metadata.level().as_str().to_string(),
-            target: metadata.target().to_string(),
+            level: metadata.level().as_str().to_owned(),
+            target: metadata.target().to_owned(),
             message: visitor.message,
             session_id,
             module_path: metadata.module_path().map(ToString::to_string),
@@ -154,7 +155,7 @@ impl Visit for SpanFieldVisitor {
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.record_field(field, value.to_string());
+        self.record_field(field, value.to_owned());
     }
 
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
@@ -196,17 +197,14 @@ async fn run_inserter(
     loop {
         tokio::select! {
             maybe_entry = receiver.recv() => {
-                match maybe_entry {
-                    Some(entry) => {
-                        buffer.push(entry);
-                        if buffer.len() >= LOG_BATCH_SIZE {
-                            flush(&state_db, &mut buffer).await;
-                        }
-                    }
-                    None => {
+                if let Some(entry) = maybe_entry {
+                    buffer.push(entry);
+                    if buffer.len() >= LOG_BATCH_SIZE {
                         flush(&state_db, &mut buffer).await;
-                        break;
                     }
+                } else {
+                    flush(&state_db, &mut buffer).await;
+                    break;
                 }
             }
             _ = ticker.tick() => {
@@ -267,7 +265,7 @@ impl Visit for MessageVisitor {
     }
 
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.record_field(field, value.to_string());
+        self.record_field(field, value.to_owned());
     }
 
     fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {

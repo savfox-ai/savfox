@@ -399,7 +399,7 @@ fn passthrough_env_vars() -> Vec<(String, String)> {
         .filter_map(|key| {
             std::env::var(key)
                 .ok()
-                .map(|value| ((*key).to_string(), value))
+                .map(|value| ((*key).to_owned(), value))
         })
         .collect()
 }
@@ -551,7 +551,7 @@ pub(crate) fn install_windows_scheduled_task(name: &str) -> anyhow::Result<()> {
             .status()?;
 
         if !status.success() {
-            anyhow::bail!("failed to create scheduled task '{}'", name);
+            anyhow::bail!("failed to create scheduled task '{name}'");
         }
 
         eprintln!("Installed Windows scheduled task: {name}");
@@ -574,7 +574,7 @@ pub(crate) fn uninstall_windows_scheduled_task(name: &str) -> anyhow::Result<()>
             .status()?;
 
         if !status.success() {
-            anyhow::bail!("failed to remove scheduled task '{}'", name);
+            anyhow::bail!("failed to remove scheduled task '{name}'");
         }
 
         eprintln!("Removed Windows scheduled task: {name}");

@@ -513,8 +513,7 @@ fn truncate_line_word_boundary_with_ellipsis(
     while let Some(last) = spans_out.last_mut() {
         let trimmed = last
             .content
-            .trim_end_matches(char::is_whitespace)
-            .to_string();
+            .trim_end_matches(char::is_whitespace).to_owned();
         if trimmed.is_empty() {
             spans_out.pop();
         } else {

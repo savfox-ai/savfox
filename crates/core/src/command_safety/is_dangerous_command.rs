@@ -3,6 +3,7 @@ use crate::bash::parse_shell_lc_plain_commands;
 #[path = "windows_dangerous_commands.rs"]
 mod windows_dangerous_commands;
 
+#[must_use] 
 pub fn command_might_be_dangerous(command: &[String]) -> bool {
     #[cfg(windows)]
     {

@@ -43,9 +43,9 @@ impl TwitchChannel {
 
         match msg_type {
             "PRIVMSG" => {
-                let text = payload["message"].as_str().unwrap_or("").to_string();
-                let channel = payload["channel"].as_str().unwrap_or("unknown").to_string();
-                let _user = payload["user"].as_str().unwrap_or("unknown").to_string();
+                let text = payload["message"].as_str().unwrap_or("").to_owned();
+                let channel = payload["channel"].as_str().unwrap_or("unknown").to_owned();
+                let _user = payload["user"].as_str().unwrap_or("unknown").to_owned();
 
                 if text.trim().is_empty() {
                     return Ok(ChannelAction::Ignore);
@@ -58,8 +58,8 @@ impl TwitchChannel {
             }
             "WHISPER" => {
                 // Twitch whispers (DMs).
-                let text = payload["message"].as_str().unwrap_or("").to_string();
-                let user = payload["user"].as_str().unwrap_or("unknown").to_string();
+                let text = payload["message"].as_str().unwrap_or("").to_owned();
+                let user = payload["user"].as_str().unwrap_or("unknown").to_owned();
 
                 if text.trim().is_empty() {
                     return Ok(ChannelAction::Ignore);

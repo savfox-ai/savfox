@@ -122,7 +122,7 @@ pub struct PluginManifest {
 }
 
 fn default_entry_type() -> String {
-    "subprocess".to_string()
+    "subprocess".to_owned()
 }
 
 /// Plugin registry
@@ -132,6 +132,7 @@ pub struct PluginRegistry {
 }
 
 impl PluginRegistry {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             plugins: HashMap::new(),
@@ -173,11 +174,13 @@ impl PluginRegistry {
     }
 
     /// Get a plugin
+    #[must_use] 
     pub fn get(&self, id: &str) -> Option<&RegisteredPlugin> {
         self.plugins.get(id)
     }
 
     /// List all plugins
+    #[must_use] 
     pub fn list(&self) -> Vec<&RegisteredPlugin> {
         self.plugins.values().collect()
     }
@@ -224,6 +227,7 @@ impl std::fmt::Debug for PluginLoader {
 
 impl PluginLoader {
     /// Create a new loader rooted at `{savfox_home}/plugins/`.
+    #[must_use] 
     pub fn new(savfox_home: &std::path::Path) -> Self {
         Self {
             plugins_dir: savfox_home.join("plugins"),
@@ -259,8 +263,7 @@ impl PluginLoader {
                     let id = path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or("unknown")
-                        .to_string();
+                        .unwrap_or("unknown").to_owned();
 
                     let info = PluginInfo {
                         id: id.clone(),
@@ -344,6 +347,7 @@ impl PluginLoader {
     }
 
     /// Return the plugins directory path.
+    #[must_use] 
     pub fn plugins_dir(&self) -> &std::path::Path {
         &self.plugins_dir
     }
@@ -360,7 +364,7 @@ fn resolve_manifest_path(plugin_dir: &std::path::Path) -> Option<std::path::Path
 
 fn validate_plugin_config(schema: &PluginConfigSchema, config: &Value) -> Result<(), String> {
     let Some(config_obj) = config.as_object() else {
-        return Err("plugin config must be a JSON object".to_string());
+        return Err("plugin config must be a JSON object".to_owned());
     };
 
     for key in config_obj.keys() {
@@ -439,6 +443,7 @@ pub async fn discover_snapshot(
 }
 
 /// Build REST route descriptors for plugin HTTP endpoints.
+#[must_use] 
 pub fn describe_http_routes(
     plugins: &[RegisteredPlugin],
     rate_limit_per_minute: u32,
@@ -447,7 +452,7 @@ pub fn describe_http_routes(
         .iter()
         .map(|plugin| PluginHttpRoute {
             plugin_id: plugin.info.id.clone(),
-            method: "POST".to_string(),
+            method: "POST".to_owned(),
             path: format!("/plugins/{}/...", plugin.info.id),
             requires_auth: true,
             rate_limit_per_minute,

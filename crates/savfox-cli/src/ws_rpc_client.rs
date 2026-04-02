@@ -39,7 +39,7 @@ async fn connect(
     token: &str,
 ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, String> {
     let url = if token.is_empty() {
-        ws_url.to_string()
+        ws_url.to_owned()
     } else {
         // Append token as a query parameter so the gateway can authenticate.
         if ws_url.contains('?') {
@@ -106,14 +106,14 @@ pub async fn rpc_call(
                     // Not our response — skip (could be a notification).
                 }
                 Message::Close(_) => {
-                    return Err("connection closed by server".to_string());
+                    return Err("connection closed by server".to_owned());
                 }
                 _ => {
                     // Ignore ping/pong/binary.
                 }
             }
         }
-        Err("connection ended without response".to_string())
+        Err("connection ended without response".to_owned())
     })
     .await;
 

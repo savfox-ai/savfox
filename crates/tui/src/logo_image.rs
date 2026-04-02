@@ -37,11 +37,10 @@ fn detect_protocol_from_env() -> Option<ratatui_image::picker::ProtocolType> {
     }
 
     // TERM=xterm-kitty (common for Kitty)
-    if let Ok(term) = std::env::var("TERM") {
-        if term.contains("xterm-kitty") {
+    if let Ok(term) = std::env::var("TERM")
+        && term.contains("xterm-kitty") {
             return Some(ProtocolType::Kitty);
         }
-    }
 
     // TERM_PROGRAM – many modern terminals set this.
     if let Ok(prog) = std::env::var("TERM_PROGRAM") {

@@ -59,7 +59,7 @@ static BEARER_TOKEN_OVERRIDES: LazyLock<RwLock<HashMap<String, String>>> =
 /// will consult before falling back to `std::env::var()`.
 pub fn set_env_override(env_key: &str, value: &str) {
     if let Ok(mut map) = ENV_OVERRIDES.write() {
-        map.insert(env_key.to_string(), value.to_string());
+        map.insert(env_key.to_owned(), value.to_owned());
     }
 }
 
@@ -83,7 +83,7 @@ fn get_env_override(env_key: &str) -> Option<String> {
 /// whose built-in `ModelProviderInfo` has `env_key: None` (e.g. OpenAI).
 pub fn set_bearer_token_override(provider_id: &str, token: &str) {
     if let Ok(mut map) = BEARER_TOKEN_OVERRIDES.write() {
-        map.insert(provider_id.to_string(), token.to_string());
+        map.insert(provider_id.to_owned(), token.to_owned());
     }
 }
 
@@ -139,8 +139,8 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
         };
 
         // Extract account_id and provider_id before moving auth out.
-        let file_account_id = file.account_id().to_string();
-        let file_provider_id = file.provider_id.trim().to_string();
+        let file_account_id = file.account_id().to_owned();
+        let file_provider_id = file.provider_id.trim().to_owned();
 
         let Some(auth) = file.auth else {
             continue;
@@ -303,7 +303,7 @@ impl ModelProviderInfo {
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            base_url.to_string()
+            base_url.to_owned()
         } else {
             let is_openai_provider =
                 provider_id.is_some_and(is_openai_provider_id) || self.is_openai();
@@ -311,7 +311,7 @@ impl ModelProviderInfo {
             if matches!(auth_mode, Some(AuthMode::Chatgpt)) && is_openai_provider {
                 default_chatgpt_openai_base_url(chatgpt_base_url)
             } else if is_openai_provider {
-                DEFAULT_OPENAI_API_BASE_URL.to_string()
+                DEFAULT_OPENAI_API_BASE_URL.to_owned()
             } else if let Some(provider_id) = provider_id {
                 provider_default_base_url(provider_id).ok_or_else(|| {
                     crate::error::SavfoxError::Fatal(format!(
@@ -394,6 +394,7 @@ impl ModelProviderInfo {
     }
 
     /// Effective maximum number of request retries for this provider.
+    #[must_use] 
     pub fn request_max_retries(&self) -> u64 {
         self.request_max_retries
             .unwrap_or(DEFAULT_REQUEST_MAX_RETRIES)
@@ -401,6 +402,7 @@ impl ModelProviderInfo {
     }
 
     /// Effective maximum number of stream reconnection attempts for this provider.
+    #[must_use] 
     pub fn stream_max_retries(&self) -> u64 {
         self.stream_max_retries
             .unwrap_or(DEFAULT_STREAM_MAX_RETRIES)
@@ -413,8 +415,9 @@ impl ModelProviderInfo {
             .map(Duration::from_millis)
             .unwrap_or(Duration::from_millis(DEFAULT_STREAM_IDLE_TIMEOUT_MS))
     }
-    pub fn create_openai_provider() -> ModelProviderInfo {
-        ModelProviderInfo {
+    #[must_use] 
+    pub fn create_openai_provider() -> Self {
+        Self {
             id: "openai".into(),
             name: "OpenAI".into(),
             // Allow users to override the default OpenAI endpoint by
@@ -431,17 +434,17 @@ impl ModelProviderInfo {
             wire_api: WireApi::Responses,
             query_params: None,
             http_headers: Some(
-                [("version".to_string(), "0.0.0".to_string())]
+                [("version".to_owned(), "0.0.0".to_owned())]
                     .into_iter()
                     .collect(),
             ),
             env_http_headers: Some(
                 [
                     (
-                        "OpenAI-Organization".to_string(),
-                        "OPENAI_ORGANIZATION".to_string(),
+                        "OpenAI-Organization".to_owned(),
+                        "OPENAI_ORGANIZATION".to_owned(),
                     ),
-                    ("OpenAI-Project".to_string(), "OPENAI_PROJECT".to_string()),
+                    ("OpenAI-Project".to_owned(), "OPENAI_PROJECT".to_owned()),
                 ]
                 .into_iter()
                 .collect(),
@@ -455,6 +458,7 @@ impl ModelProviderInfo {
         }
     }
 
+    #[must_use] 
     pub fn is_openai(&self) -> bool {
         self.id == "openai" || self.name == "OpenAI"
     }
@@ -466,14 +470,14 @@ fn is_openai_provider_id(provider_id: &str) -> bool {
 
 fn built_in_provider_key(provider_id: &str) -> Option<String> {
     match provider_id {
-        "alibaba" => Some("qwen".to_string()),
+        "alibaba" => Some("qwen".to_owned()),
         "alibaba-cn" => None,
-        "amazon-bedrock" => Some("bedrock".to_string()),
-        "google" => Some("gemini".to_string()),
+        "amazon-bedrock" => Some("bedrock".to_owned()),
+        "google" => Some("gemini".to_owned()),
         "google-vertex" | "google-vertex-anthropic" => None,
-        "togetherai" => Some("together".to_string()),
+        "togetherai" => Some("together".to_owned()),
         "zhipuai" | "zhipuai-coding-plan" => None,
-        other => Some(other.to_string()),
+        other => Some(other.to_owned()),
     }
 }
 
@@ -484,23 +488,22 @@ pub fn provider_default_base_url(provider_id: &str) -> Option<String> {
     let provider_key = built_in_provider_key(&canonical);
     if let Some(provider_key) = provider_key {
         let built_in = built_in_model_providers();
-        if let Some(info) = built_in.get(provider_key.as_str()) {
-            if let Some(base_url) = info
+        if let Some(info) = built_in.get(provider_key.as_str())
+            && let Some(base_url) = info
                 .base_url
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
             {
-                return Some(base_url.to_string());
+                return Some(base_url.to_owned());
             }
-        }
     }
 
     mapped_default.map(str::to_string)
 }
 
 fn normalize_chatgpt_base_url(base_url: &str) -> String {
-    let mut normalized = base_url.trim().trim_end_matches('/').to_string();
+    let mut normalized = base_url.trim().trim_end_matches('/').to_owned();
     if (normalized.starts_with("https://savfox.ai")
         || normalized.starts_with("https://chat.openai.com"))
         && !normalized.contains("/backend-api")
@@ -536,6 +539,7 @@ pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
 pub const OLLAMA_CHAT_PROVIDER_ID: &str = "ollama-chat";
 
 /// Built-in default provider list.
+#[must_use] 
 pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     use ModelProviderInfo as P;
 
@@ -610,7 +614,7 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
         ),
     ]
     .into_iter()
-    .map(|(k, v)| (k.to_string(), v))
+    .map(|(k, v)| (k.to_owned(), v))
     .collect()
 }
 
@@ -645,12 +649,12 @@ fn create_anthropic_provider() -> ModelProviderInfo {
         wire_api: WireApi::Anthropic,
         query_params: None,
         http_headers: Some(
-            [("anthropic-version".to_string(), "2023-06-01".to_string())]
+            [("anthropic-version".to_owned(), "2023-06-01".to_owned())]
                 .into_iter()
                 .collect(),
         ),
         env_http_headers: Some(
-            [("x-api-key".to_string(), "ANTHROPIC_API_KEY".to_string())]
+            [("x-api-key".to_owned(), "ANTHROPIC_API_KEY".to_owned())]
                 .into_iter()
                 .collect(),
         ),
@@ -664,7 +668,7 @@ fn create_anthropic_provider() -> ModelProviderInfo {
 
 fn create_cloud_chat_provider(name: &str, base_url: &str, env_key: &str) -> ModelProviderInfo {
     ModelProviderInfo {
-        id: name.to_lowercase().into(),
+        id: name.to_lowercase(),
         name: name.into(),
         base_url: Some(base_url.into()),
         env_key: Some(env_key.into()),
@@ -747,6 +751,7 @@ fn create_bedrock_provider() -> ModelProviderInfo {
     }
 }
 
+#[must_use] 
 pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> ModelProviderInfo {
     ModelProviderInfo {
         id: "gpt-oss".into(),

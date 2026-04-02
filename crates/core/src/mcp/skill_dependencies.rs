@@ -66,8 +66,8 @@ async fn should_install_mcp_dependencies(
 
     let server_list = format_missing_mcp_dependencies(missing);
     let question = RequestUserInputQuestion {
-        id: SKILL_MCP_DEPENDENCY_PROMPT_ID.to_string(),
-        header: "Install MCP servers?".to_string(),
+        id: SKILL_MCP_DEPENDENCY_PROMPT_ID.to_owned(),
+        header: "Install MCP servers?".to_owned(),
         question: format!(
             "The following MCP servers are required by the selected skills but are not installed yet: {server_list}. Install them now?"
         ),
@@ -75,15 +75,13 @@ async fn should_install_mcp_dependencies(
         is_secret: false,
         options: Some(vec![
             RequestUserInputQuestionOption {
-                label: MCP_DEPENDENCY_OPTION_INSTALL.to_string(),
+                label: MCP_DEPENDENCY_OPTION_INSTALL.to_owned(),
                 description:
-                    "Install and enable the missing MCP servers in your global config."
-                        .to_string(),
+                    "Install and enable the missing MCP servers in your global config.".to_owned(),
             },
             RequestUserInputQuestionOption {
-                label: MCP_DEPENDENCY_OPTION_SKIP.to_string(),
-                description: "Skip installation for now and do not show again for these MCP servers in this session."
-                    .to_string(),
+                label: MCP_DEPENDENCY_OPTION_SKIP.to_owned(),
+                description: "Skip installation for now and do not show again for these MCP servers in this session.".to_owned(),
             },
         ]),
     };
@@ -262,7 +260,7 @@ pub(crate) async fn maybe_install_mcp_dependencies(
 fn canonical_mcp_key(transport: &str, identifier: &str, fallback: &str) -> String {
     let identifier = identifier.trim();
     if identifier.is_empty() {
-        fallback.to_string()
+        fallback.to_owned()
     } else {
         format!("mcp__{transport}__{identifier}")
     }
@@ -285,14 +283,14 @@ fn canonical_mcp_dependency_key(dependency: &SkillToolDependency) -> Result<Stri
         let url = dependency
             .url
             .as_ref()
-            .ok_or_else(|| "missing url for streamable_http dependency".to_string())?;
+            .ok_or_else(|| "missing url for streamable_http dependency".to_owned())?;
         return Ok(canonical_mcp_key("streamable_http", url, &dependency.value));
     }
     if transport.eq_ignore_ascii_case("stdio") {
         let command = dependency
             .command
             .as_ref()
-            .ok_or_else(|| "missing command for stdio dependency".to_string())?;
+            .ok_or_else(|| "missing command for stdio dependency".to_owned())?;
         return Ok(canonical_mcp_key("stdio", command, &dependency.value));
     }
     Err(format!("unsupported transport {transport}"))
@@ -363,7 +361,7 @@ fn mcp_dependency_to_server_config(
         let url = dependency
             .url
             .as_ref()
-            .ok_or_else(|| "missing url for streamable_http dependency".to_string())?;
+            .ok_or_else(|| "missing url for streamable_http dependency".to_owned())?;
         return Ok(McpServerConfig {
             transport: McpServerTransportConfig::StreamableHttp {
                 url: url.clone(),
@@ -385,7 +383,7 @@ fn mcp_dependency_to_server_config(
         let command = dependency
             .command
             .as_ref()
-            .ok_or_else(|| "missing command for stdio dependency".to_string())?;
+            .ok_or_else(|| "missing command for stdio dependency".to_owned())?;
         return Ok(McpServerConfig {
             transport: McpServerTransportConfig::Stdio {
                 command: command.clone(),

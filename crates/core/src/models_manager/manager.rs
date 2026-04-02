@@ -112,7 +112,7 @@ impl ModelsManager {
         refresh_strategy: RefreshStrategy,
     ) -> String {
         if let Some(model) = model.as_ref() {
-            return model.to_string();
+            return model.clone();
         }
         if let Err(err) = self
             .refresh_available_models(config, refresh_strategy)
@@ -446,9 +446,10 @@ impl ModelsManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Get model identifier without consulting remote state or cache.
+    #[must_use] 
     pub fn get_model_offline(model: Option<&str>) -> String {
         if let Some(model) = model {
-            return model.to_string();
+            return model.to_owned();
         }
         let presets = builtin_model_presets(None);
         presets
@@ -461,6 +462,7 @@ impl ModelsManager {
 
     #[cfg(any(test, feature = "test-support"))]
     /// Build `ModelInfo` without consulting remote state or cache.
+    #[must_use] 
     pub fn construct_model_info_offline(model: &str, config: &Config) -> ModelInfo {
         model_info::with_config_overrides(model_info::find_model_info_for_slug(model), config)
     }

@@ -62,7 +62,7 @@ impl TlonChannel {
             .filter_map(|v: &reqwest::header::HeaderValue| {
                 let s = v.to_str().ok()?;
                 if s.starts_with("urbauth") {
-                    Some(s.split(';').next().unwrap_or(s).to_string())
+                    Some(s.split(';').next().unwrap_or(s).to_owned())
                 } else {
                     None
                 }

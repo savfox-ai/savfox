@@ -41,7 +41,7 @@ impl GatewayChannel {
     async fn handle_chatgpt_login(&self, request_id: RequestId) {
         let opts = ServerOptions::new(
             self.config.savfox_home.clone(),
-            CLIENT_ID.to_string(),
+            CLIENT_ID.to_owned(),
             self.config.forced_chatgpt_workspace_id.clone(),
             self.config.cli_auth_credentials_store_mode,
         );
@@ -86,16 +86,15 @@ impl GatewayChannel {
                             (true, None)
                         }
                         Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
-                        Err(_) => (false, Some("Login timed out".to_string())),
+                        Err(_) => (false, Some("Login timed out".to_owned())),
                     };
 
                     {
                         let mut guard = active_login.lock().await;
-                        if let Some(active) = guard.take() {
-                            if active.login_id != login_id {
+                        if let Some(active) = guard.take()
+                            && active.login_id != login_id {
                                 *guard = Some(active);
                             }
-                        }
                     }
 
                     let notification = AccountLoginCompletedNotification {
@@ -105,7 +104,7 @@ impl GatewayChannel {
                     };
                     if let Err(err) = outgoing_tx
                         .send(BridgeOutgoing::Notification {
-                            method: "account/login/completed".to_string(),
+                            method: "account/login/completed".to_owned(),
                             params: Some(serde_json::to_value(notification).unwrap()),
                         })
                         .await
@@ -122,7 +121,7 @@ impl GatewayChannel {
                         };
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
-                                method: "account/updated".to_string(),
+                                method: "account/updated".to_owned(),
                                 params: Some(serde_json::to_value(account_updated).unwrap()),
                             })
                             .await
@@ -146,7 +145,7 @@ impl GatewayChannel {
     async fn handle_device_code_login(&self, request_id: RequestId) {
         let opts = ServerOptions::new(
             self.config.savfox_home.clone(),
-            CLIENT_ID.to_string(),
+            CLIENT_ID.to_owned(),
             self.config.forced_chatgpt_workspace_id.clone(),
             self.config.cli_auth_credentials_store_mode,
         );
@@ -182,7 +181,7 @@ impl GatewayChannel {
                             (true, None)
                         }
                         Ok(Err(err)) => (false, Some(format!("Device code login error: {err}"))),
-                        Err(_) => (false, Some("Device code login timed out".to_string())),
+                        Err(_) => (false, Some("Device code login timed out".to_owned())),
                     };
 
                     let notification = AccountLoginCompletedNotification {
@@ -192,7 +191,7 @@ impl GatewayChannel {
                     };
                     if let Err(err) = outgoing_tx
                         .send(BridgeOutgoing::Notification {
-                            method: "account/login/completed".to_string(),
+                            method: "account/login/completed".to_owned(),
                             params: Some(serde_json::to_value(notification).unwrap()),
                         })
                         .await
@@ -209,7 +208,7 @@ impl GatewayChannel {
                         };
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
-                                method: "account/updated".to_string(),
+                                method: "account/updated".to_owned(),
                                 params: Some(serde_json::to_value(account_updated).unwrap()),
                             })
                             .await
@@ -334,16 +333,13 @@ impl GatewayChannel {
         request_id: RequestId,
         params: CancelLoginAccountParams,
     ) {
-        let login_id = match Uuid::parse_str(&params.login_id) {
-            Ok(id) => id,
-            Err(_) => {
-                let response = CancelLoginAccountResponse {
-                    status: CancelLoginAccountStatus::NotFound,
-                };
-                self.send_response(request_id, serde_json::to_value(response).unwrap())
-                    .await;
-                return;
-            }
+        let login_id = if let Ok(id) = Uuid::parse_str(&params.login_id) { id } else {
+            let response = CancelLoginAccountResponse {
+                status: CancelLoginAccountStatus::NotFound,
+            };
+            self.send_response(request_id, serde_json::to_value(response).unwrap())
+                .await;
+            return;
         };
 
         let mut guard = self.active_login.lock().await;

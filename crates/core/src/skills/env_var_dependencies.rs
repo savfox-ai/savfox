@@ -111,7 +111,7 @@ pub(crate) async fn request_skill_dependencies(
             );
             RequestUserInputQuestion {
                 id: dep.name.clone(),
-                header: "Skill requires environment variable".to_string(),
+                header: "Skill requires environment variable".to_owned(),
                 question,
                 is_other: false,
                 is_secret: true,
@@ -144,7 +144,7 @@ pub(crate) async fn request_skill_dependencies(
             if let Some(note) = entry.strip_prefix("user_note: ")
                 && !note.trim().is_empty()
             {
-                user_note = Some(note.trim().to_string());
+                user_note = Some(note.trim().to_owned());
             }
         }
         if let Some(value) = user_note {

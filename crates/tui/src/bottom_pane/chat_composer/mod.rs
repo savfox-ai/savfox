@@ -549,7 +549,7 @@ fn skill_description(skill: &SkillMetadata) -> Option<String> {
         .or(skill.short_description.as_deref())
         .unwrap_or(&skill.description);
     let trimmed = description.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 fn is_mention_name_char(byte: u8) -> bool {

@@ -117,11 +117,11 @@ async fn handle_socks5_tcp(
             let _ = app_state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
-                    reason: REASON_PROXY_DISABLED.to_string(),
+                    reason: REASON_PROXY_DISABLED.to_owned(),
                     client: client.clone(),
                     method: None,
                     mode: None,
-                    protocol: "socks5".to_string(),
+                    protocol: "socks5".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -139,11 +139,11 @@ async fn handle_socks5_tcp(
             let _ = app_state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
-                    reason: REASON_METHOD_NOT_ALLOWED.to_string(),
+                    reason: REASON_METHOD_NOT_ALLOWED.to_owned(),
                     client: client.clone(),
                     method: None,
                     mode: Some(NetworkMode::Limited),
-                    protocol: "socks5".to_string(),
+                    protocol: "socks5".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -178,7 +178,7 @@ async fn handle_socks5_tcp(
                     client: client.clone(),
                     method: None,
                     mode: None,
-                    protocol: "socks5".to_string(),
+                    protocol: "socks5".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -226,11 +226,11 @@ async fn inspect_socks5_udp(
             let _ = state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
-                    reason: REASON_PROXY_DISABLED.to_string(),
+                    reason: REASON_PROXY_DISABLED.to_owned(),
                     client: client.clone(),
                     method: None,
                     mode: None,
-                    protocol: "socks5-udp".to_string(),
+                    protocol: "socks5-udp".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();
@@ -251,11 +251,11 @@ async fn inspect_socks5_udp(
             let _ = state
                 .record_blocked(BlockedRequest::new(BlockedRequestArgs {
                     host: host.clone(),
-                    reason: REASON_METHOD_NOT_ALLOWED.to_string(),
+                    reason: REASON_METHOD_NOT_ALLOWED.to_owned(),
                     client: client.clone(),
                     method: None,
                     mode: Some(NetworkMode::Limited),
-                    protocol: "socks5-udp".to_string(),
+                    protocol: "socks5-udp".to_owned(),
                 }))
                 .await;
             return Ok(RelayResponse {
@@ -289,7 +289,7 @@ async fn inspect_socks5_udp(
                     client: client.clone(),
                     method: None,
                     mode: None,
-                    protocol: "socks5-udp".to_string(),
+                    protocol: "socks5-udp".to_owned(),
                 }))
                 .await;
             let client = client.as_deref().unwrap_or_default();

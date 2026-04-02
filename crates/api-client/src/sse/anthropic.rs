@@ -116,13 +116,12 @@ pub async fn process_anthropic_sse<S>(
                 // Extract response ID and input tokens from message metadata.
                 if let Some(message) = value.get("message") {
                     if let Some(id) = message.get("id").and_then(|v| v.as_str()) {
-                        response_id = id.to_string();
+                        response_id = id.to_owned();
                     }
-                    if let Some(usage) = message.get("usage") {
-                        if let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
+                    if let Some(usage) = message.get("usage")
+                        && let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
                             input_tokens = tokens;
                         }
-                    }
                 }
                 let _ = tx_event.send(Ok(ResponseEvent::Created)).await;
             }
@@ -134,13 +133,13 @@ pub async fn process_anthropic_sse<S>(
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
 
-                current_block_type = Some(block_type.to_string());
+                current_block_type = Some(block_type.to_owned());
 
                 match block_type {
                     "text" => {
                         let item = ResponseItem::Message {
                             id: None,
-                            role: "assistant".to_string(),
+                            role: "assistant".to_owned(),
                             content: vec![],
                             end_turn: None,
                             phase: None,
@@ -155,13 +154,11 @@ pub async fn process_anthropic_sse<S>(
                         let id = cb
                             .and_then(|c| c.get("id"))
                             .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                            .unwrap_or("").to_owned();
                         let name = cb
                             .and_then(|c| c.get("name"))
                             .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                            .unwrap_or("").to_owned();
                         tool_accumulator = Some(ToolAccumulator {
                             id,
                             name,
@@ -206,12 +203,12 @@ pub async fn process_anthropic_sse<S>(
                                     existing.push_str(text);
                                 } else {
                                     content.push(ContentItem::OutputText {
-                                        text: text.to_string(),
+                                        text: text.to_owned(),
                                     });
                                 }
                             }
                             let _ = tx_event
-                                .send(Ok(ResponseEvent::OutputTextDelta(text.to_string())))
+                                .send(Ok(ResponseEvent::OutputTextDelta(text.to_owned())))
                                 .await;
                         }
                     }
@@ -220,19 +217,16 @@ pub async fn process_anthropic_sse<S>(
                             .get("delta")
                             .and_then(|d| d.get("partial_json"))
                             .and_then(|t| t.as_str())
-                        {
-                            if let Some(acc) = &mut tool_accumulator {
+                            && let Some(acc) = &mut tool_accumulator {
                                 acc.arguments.push_str(partial);
                             }
-                        }
                     }
                     "thinking_delta" => {
                         if let Some(text) = value
                             .get("delta")
                             .and_then(|d| d.get("thinking"))
                             .and_then(|t| t.as_str())
-                        {
-                            if let Some(ResponseItem::Reasoning {
+                            && let Some(ResponseItem::Reasoning {
                                 content: Some(content),
                                 ..
                             }) = &mut reasoning_item
@@ -247,18 +241,17 @@ pub async fn process_anthropic_sse<S>(
                                     }
                                 } else {
                                     content.push(ReasoningItemContent::ReasoningText {
-                                        text: text.to_string(),
+                                        text: text.to_owned(),
                                     });
                                     0
                                 };
                                 let _ = tx_event
                                     .send(Ok(ResponseEvent::ReasoningContentDelta {
-                                        delta: text.to_string(),
+                                        delta: text.to_owned(),
                                         content_index,
                                     }))
                                     .await;
                             }
-                        }
                     }
                     _ => {}
                 }
@@ -295,11 +288,10 @@ pub async fn process_anthropic_sse<S>(
 
             "message_delta" => {
                 // Extract output tokens and stop_reason from message_delta.
-                if let Some(usage) = value.get("usage") {
-                    if let Some(tokens) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
+                if let Some(usage) = value.get("usage")
+                    && let Some(tokens) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
                         output_tokens = tokens;
                     }
-                }
             }
 
             "message_stop" => {
@@ -322,7 +314,7 @@ pub async fn process_anthropic_sse<S>(
                     .and_then(|m| m.as_str())
                     .unwrap_or("Unknown Anthropic API error");
                 let _ = tx_event
-                    .send(Err(ApiError::Stream(error_msg.to_string())))
+                    .send(Err(ApiError::Stream(error_msg.to_owned())))
                     .await;
                 return;
             }
@@ -367,7 +359,7 @@ async fn emit_completed(
 
     let _ = tx_event
         .send(Ok(ResponseEvent::Completed {
-            response_id: response_id.to_string(),
+            response_id: response_id.to_owned(),
             token_usage,
         }))
         .await;

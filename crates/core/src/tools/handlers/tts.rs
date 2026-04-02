@@ -22,7 +22,7 @@ struct TtsArgs {
 
 mod defaults {
     pub fn voice() -> String {
-        "alloy".to_string()
+        "alloy".to_owned()
     }
 }
 
@@ -66,12 +66,12 @@ impl ToolHandler for TtsHandler {
         // Get the API key from the environment.
         let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
             FunctionCallError::RespondToModel(
-                "TTS requires OPENAI_API_KEY environment variable to be set.".to_string(),
+                "TTS requires OPENAI_API_KEY environment variable to be set.".to_owned(),
             )
         })?;
 
         let api_base = std::env::var("OPENAI_API_BASE")
-            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_owned());
 
         let client = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)

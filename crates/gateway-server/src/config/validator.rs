@@ -29,6 +29,7 @@ pub struct ValidationResult {
 }
 
 impl ValidationResult {
+    #[must_use] 
     pub fn ok() -> Self {
         Self {
             valid: true,
@@ -36,6 +37,7 @@ impl ValidationResult {
         }
     }
 
+    #[must_use] 
     pub fn with_errors(errors: Vec<ValidationError>) -> Self {
         let valid = !errors.iter().any(|e| e.severity == Severity::Error);
         Self { valid, errors }
@@ -43,6 +45,7 @@ impl ValidationResult {
 }
 
 /// Validate a configuration value
+#[must_use] 
 pub fn validate_config(config: &Value) -> ValidationResult {
     let mut errors = Vec::new();
 
@@ -73,45 +76,41 @@ fn validate_gateway_section(gateway: &Value, errors: &mut Vec<ValidationError>) 
             if let Some(p) = port.as_u64() {
                 if p == 0 || p > 65535 {
                     errors.push(ValidationError {
-                        field: "gateway.port".to_string(),
+                        field: "gateway.port".to_owned(),
                         message: format!("Port must be between 1 and 65535, got {p}"),
                         severity: Severity::Error,
                     });
                 }
             } else if !port.is_null() {
                 errors.push(ValidationError {
-                    field: "gateway.port".to_string(),
-                    message: "Port must be a number".to_string(),
+                    field: "gateway.port".to_owned(),
+                    message: "Port must be a number".to_owned(),
                     severity: Severity::Error,
                 });
             }
         }
 
         // Host validation
-        if let Some(host) = map.get("host") {
-            if let Some(h) = host.as_str() {
-                if h.is_empty() {
+        if let Some(host) = map.get("host")
+            && let Some(h) = host.as_str()
+                && h.is_empty() {
                     errors.push(ValidationError {
-                        field: "gateway.host".to_string(),
-                        message: "Host cannot be empty".to_string(),
+                        field: "gateway.host".to_owned(),
+                        message: "Host cannot be empty".to_owned(),
                         severity: Severity::Error,
                     });
                 }
-            }
-        }
 
         // Token validation
-        if let Some(token) = map.get("token") {
-            if let Some(t) = token.as_str() {
-                if t.len() < 8 {
+        if let Some(token) = map.get("token")
+            && let Some(t) = token.as_str()
+                && t.len() < 8 {
                     errors.push(ValidationError {
-                        field: "gateway.token".to_string(),
-                        message: "Token should be at least 8 characters for security".to_string(),
+                        field: "gateway.token".to_owned(),
+                        message: "Token should be at least 8 characters for security".to_owned(),
                         severity: Severity::Warning,
                     });
                 }
-            }
-        }
     }
 }
 
@@ -120,11 +119,11 @@ fn validate_agents_section(agents: &Value, errors: &mut Vec<ValidationError>) {
         for (name, agent) in map {
             if let Value::Object(agent_map) = agent {
                 // Validate model reference
-                if let Some(models) = agent_map.get("models") {
-                    if let Value::Object(m) = models {
-                        if let Some(primary) = m.get("primary") {
-                            if let Some(p) = primary.as_str() {
-                                if !p.contains('/') {
+                if let Some(models) = agent_map.get("models")
+                    && let Value::Object(m) = models
+                        && let Some(primary) = m.get("primary")
+                            && let Some(p) = primary.as_str()
+                                && !p.contains('/') {
                                     errors.push(ValidationError {
                                         field: format!("agents.{name}.models.primary"),
                                         message: format!(
@@ -133,15 +132,11 @@ fn validate_agents_section(agents: &Value, errors: &mut Vec<ValidationError>) {
                                         severity: Severity::Warning,
                                     });
                                 }
-                            }
-                        }
-                    }
-                }
 
                 // Validate temperature
-                if let Some(temp) = agent_map.get("temperature") {
-                    if let Some(t) = temp.as_f64() {
-                        if !(0.0..=2.0).contains(&t) {
+                if let Some(temp) = agent_map.get("temperature")
+                    && let Some(t) = temp.as_f64()
+                        && !(0.0..=2.0).contains(&t) {
                             errors.push(ValidationError {
                                 field: format!("agents.{name}.temperature"),
                                 message: format!(
@@ -150,8 +145,6 @@ fn validate_agents_section(agents: &Value, errors: &mut Vec<ValidationError>) {
                                 severity: Severity::Error,
                             });
                         }
-                    }
-                }
 
                 validate_agent_workspace(name, agent_map, errors);
             }
@@ -171,7 +164,7 @@ fn validate_agent_workspace(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(|value| (*key, value.to_string()))
+            .map(|value| (*key, value.to_owned()))
     }) else {
         return;
     };
@@ -191,7 +184,7 @@ fn validate_agent_workspace(
         if auto_create && auto_create_confirmed {
             if let Err(err) = std::fs::create_dir_all(&workspace_path) {
                 errors.push(ValidationError {
-                    field: field.clone(),
+                    field,
                     message: format!(
                         "Workspace path does not exist and auto-create failed: {} ({err})",
                         workspace_path.display()
@@ -207,7 +200,7 @@ fn validate_agent_workspace(
                 "create the directory or enable workspace_auto_create with confirmation"
             };
             errors.push(ValidationError {
-                field: field.clone(),
+                field,
                 message: format!(
                     "Workspace path does not exist: {} ({hint})",
                     workspace_path.display()
@@ -220,7 +213,7 @@ fn validate_agent_workspace(
 
     if !workspace_path.is_dir() {
         errors.push(ValidationError {
-            field: field.clone(),
+            field,
             message: format!(
                 "Workspace path exists but is not a directory: {}",
                 workspace_path.display()
@@ -232,7 +225,7 @@ fn validate_agent_workspace(
 
     if !is_workspace_path_writable(&workspace_path) {
         errors.push(ValidationError {
-            field: field.clone(),
+            field,
             message: format!(
                 "Workspace path is not writable: {}",
                 workspace_path.display()
@@ -302,11 +295,11 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
                 if model_map
                     .get("provider")
                     .and_then(|v| v.as_str())
-                    .map_or(true, |s| s.is_empty())
+                    .is_none_or(|s| s.is_empty())
                 {
                     errors.push(ValidationError {
                         field: format!("models.{id}.provider"),
-                        message: "Provider is required".to_string(),
+                        message: "Provider is required".to_owned(),
                         severity: Severity::Error,
                     });
                 }
@@ -315,19 +308,19 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
                 if model_map
                     .get("model_slug")
                     .and_then(|v| v.as_str())
-                    .map_or(true, |s| s.is_empty())
+                    .is_none_or(|s| s.is_empty())
                 {
                     errors.push(ValidationError {
                         field: format!("models.{id}.model_slug"),
-                        message: "Model code is required".to_string(),
+                        message: "Model code is required".to_owned(),
                         severity: Severity::Error,
                     });
                 }
 
                 // Temperature range
-                if let Some(temp) = model_map.get("temperature") {
-                    if let Some(t) = temp.as_f64() {
-                        if !(0.0..=2.0).contains(&t) {
+                if let Some(temp) = model_map.get("temperature")
+                    && let Some(t) = temp.as_f64()
+                        && !(0.0..=2.0).contains(&t) {
                             errors.push(ValidationError {
                                 field: format!("models.{id}.temperature"),
                                 message: format!(
@@ -336,8 +329,6 @@ fn validate_models_section(models: &Value, errors: &mut Vec<ValidationError>) {
                                 severity: Severity::Error,
                             });
                         }
-                    }
-                }
             }
         }
     }

@@ -184,7 +184,7 @@ pub fn parse_skill_manifest(content: &str) -> Result<SkillManifest, ManifestErro
     );
 
     let mut manifest: SkillManifest = serde_yaml::from_str(yaml_str)?;
-    manifest.instructions = body.to_string();
+    manifest.instructions = body.to_owned();
     Ok(manifest)
 }
 

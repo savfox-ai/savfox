@@ -10,8 +10,10 @@ use tracing::{info, warn};
 /// DM policy mode
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DmPolicyMode {
     /// Unknown senders get a pairing code, must be approved
+    #[default]
     Pairing,
     /// Anyone can DM
     Open,
@@ -19,11 +21,6 @@ pub enum DmPolicyMode {
     Closed,
 }
 
-impl Default for DmPolicyMode {
-    fn default() -> Self {
-        Self::Pairing
-    }
-}
 
 /// Per-channel DM policy
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +59,7 @@ pub struct DmPolicyStore {
 }
 
 impl DmPolicyStore {
+    #[must_use] 
     pub fn new(savfox_home: &Path) -> Self {
         let path = savfox_home.join("gateway").join("dm-policies.json");
         Self {
@@ -125,7 +123,7 @@ impl DmPolicyStore {
     /// Add sender to allowlist
     pub async fn allow_sender(&self, channel: &str, sender_id: String) {
         let mut policies = self.policies.write().await;
-        let policy = policies.entry(channel.to_string()).or_default();
+        let policy = policies.entry(channel.to_owned()).or_default();
         policy.allowlist.insert(sender_id.clone());
         policy.blocklist.remove(&sender_id);
         drop(policies);
@@ -135,7 +133,7 @@ impl DmPolicyStore {
     /// Add sender to blocklist
     pub async fn block_sender(&self, channel: &str, sender_id: String) {
         let mut policies = self.policies.write().await;
-        let policy = policies.entry(channel.to_string()).or_default();
+        let policy = policies.entry(channel.to_owned()).or_default();
         policy.blocklist.insert(sender_id.clone());
         policy.allowlist.remove(&sender_id);
         drop(policies);

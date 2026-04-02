@@ -41,6 +41,7 @@ pub struct ResponsesRequestBuilder<'a> {
 }
 
 impl<'a> ResponsesRequestBuilder<'a> {
+    #[must_use] 
     pub fn new(model: &'a str, instructions: &'a str, input: &'a [ResponseItem]) -> Self {
         Self {
             model: Some(model),
@@ -50,56 +51,67 @@ impl<'a> ResponsesRequestBuilder<'a> {
         }
     }
 
+    #[must_use] 
     pub fn tools(mut self, tools: &'a [Value]) -> Self {
         self.tools = Some(tools);
         self
     }
 
+    #[must_use] 
     pub fn parallel_tool_calls(mut self, enabled: bool) -> Self {
         self.parallel_tool_calls = enabled;
         self
     }
 
+    #[must_use] 
     pub fn reasoning(mut self, reasoning: Option<Reasoning>) -> Self {
         self.reasoning = reasoning;
         self
     }
 
+    #[must_use] 
     pub fn include(mut self, include: Vec<String>) -> Self {
         self.include = include;
         self
     }
 
+    #[must_use] 
     pub fn prompt_cache_key(mut self, key: Option<String>) -> Self {
         self.prompt_cache_key = key;
         self
     }
 
+    #[must_use] 
     pub fn text(mut self, text: Option<TextControls>) -> Self {
         self.text = text;
         self
     }
 
+    #[must_use] 
     pub fn conversation(mut self, conversation_id: Option<String>) -> Self {
         self.conversation_id = conversation_id;
         self
     }
 
+    #[must_use] 
     pub fn session_source(mut self, source: Option<SessionSource>) -> Self {
         self.session_source = source;
         self
     }
 
+    #[must_use] 
     pub fn store_override(mut self, store: Option<bool>) -> Self {
         self.store_override = store;
         self
     }
 
+    #[must_use] 
     pub fn extra_headers(mut self, headers: HeaderMap) -> Self {
         self.headers = headers;
         self
     }
 
+    #[must_use] 
     pub fn compression(mut self, compression: Compression) -> Self {
         self.compression = compression;
         self
@@ -178,7 +190,7 @@ fn attach_item_ids(payload_json: &mut Value, original_items: &[ResponseItem]) {
             }
 
             if let Some(obj) = value.as_object_mut() {
-                obj.insert("id".to_string(), Value::String(id.clone()));
+                obj.insert("id".to_owned(), Value::String(id.clone()));
             }
         }
     }

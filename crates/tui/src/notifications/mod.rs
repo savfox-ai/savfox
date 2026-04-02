@@ -30,15 +30,15 @@ impl DesktopNotificationBackend {
 
     pub fn method(&self) -> NotificationMethod {
         match self {
-            DesktopNotificationBackend::Osc9(_) => NotificationMethod::Osc9,
-            DesktopNotificationBackend::Bel(_) => NotificationMethod::Bel,
+            Self::Osc9(_) => NotificationMethod::Osc9,
+            Self::Bel(_) => NotificationMethod::Bel,
         }
     }
 
     pub fn notify(&mut self, message: &str) -> io::Result<()> {
         match self {
-            DesktopNotificationBackend::Osc9(backend) => backend.notify(message),
-            DesktopNotificationBackend::Bel(backend) => backend.notify(message),
+            Self::Osc9(backend) => backend.notify(message),
+            Self::Bel(backend) => backend.notify(message),
         }
     }
 }

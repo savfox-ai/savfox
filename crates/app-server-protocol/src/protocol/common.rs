@@ -19,8 +19,9 @@ use crate::{JSONRPCNotification, JSONRPCRequest, RequestId};
 pub struct GitSha(pub String);
 
 impl GitSha {
+    #[must_use] 
     pub fn new(sha: &str) -> Self {
-        Self(sha.to_string())
+        Self(sha.to_owned())
     }
 }
 

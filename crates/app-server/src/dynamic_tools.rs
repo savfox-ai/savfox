@@ -19,7 +19,7 @@ pub(crate) async fn on_call_response(
             error!("request failed: {err:?}");
             let fallback = CoreDynamicToolResponse {
                 call_id: call_id.clone(),
-                output: "dynamic tool request failed".to_string(),
+                output: "dynamic tool request failed".to_owned(),
                 success: false,
             };
             if let Err(err) = conversation
@@ -38,7 +38,7 @@ pub(crate) async fn on_call_response(
     let response = serde_json::from_value::<DynamicToolCallResponse>(value).unwrap_or_else(|err| {
         error!("failed to deserialize DynamicToolCallResponse: {err}");
         DynamicToolCallResponse {
-            output: "dynamic tool response was invalid".to_string(),
+            output: "dynamic tool response was invalid".to_owned(),
             success: false,
         }
     });

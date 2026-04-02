@@ -81,6 +81,7 @@ fn cargo_bin_env_keys(name: &str) -> Vec<String> {
     keys
 }
 
+#[must_use] 
 pub fn runfiles_available() -> bool {
     std::env::var_os(RUNFILES_MANIFEST_ONLY_ENV).is_some()
 }

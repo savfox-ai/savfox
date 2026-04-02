@@ -13,6 +13,7 @@ const APPLY_PATCH_ARG0: &str = "apply_patch";
 const MISSPELLED_APPLY_PATCH_ARG0: &str = "applypatch";
 const TOKIO_WORKER_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 
+#[must_use] 
 pub fn arg0_dispatch() -> Option<TempDir> {
     // Determine if we were invoked via the special alias.
     let mut args = std::env::args_os();
@@ -32,19 +33,16 @@ pub fn arg0_dispatch() -> Option<TempDir> {
     let argv1 = args.next().unwrap_or_default();
     if argv1 == SAVFOX_APPLY_PATCH_ARG1 {
         let patch_arg = args.next().and_then(|s| s.to_str().map(str::to_owned));
-        let exit_code = match patch_arg {
-            Some(patch_arg) => {
-                let mut stdout = std::io::stdout();
-                let mut stderr = std::io::stderr();
-                match savfox_apply_patch::apply_patch(&patch_arg, &mut stdout, &mut stderr) {
-                    Ok(()) => 0,
-                    Err(_) => 1,
-                }
+        let exit_code = if let Some(patch_arg) = patch_arg {
+            let mut stdout = std::io::stdout();
+            let mut stderr = std::io::stderr();
+            match savfox_apply_patch::apply_patch(&patch_arg, &mut stdout, &mut stderr) {
+                Ok(()) => 0,
+                Err(_) => 1,
             }
-            None => {
-                eprintln!("Error: {SAVFOX_APPLY_PATCH_ARG1} requires a UTF-8 PATCH argument.");
-                1
-            }
+        } else {
+            eprintln!("Error: {SAVFOX_APPLY_PATCH_ARG1} requires a UTF-8 PATCH argument.");
+            1
         };
         std::process::exit(exit_code);
     }

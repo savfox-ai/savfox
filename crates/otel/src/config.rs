@@ -15,10 +15,10 @@ pub(crate) fn resolve_exporter(exporter: &OtelExporter) -> OtelExporter {
             }
 
             OtelExporter::OtlpHttp {
-                endpoint: STATSIG_OTLP_HTTP_ENDPOINT.to_string(),
+                endpoint: STATSIG_OTLP_HTTP_ENDPOINT.to_owned(),
                 headers: HashMap::from([(
-                    STATSIG_API_KEY_HEADER.to_string(),
-                    STATSIG_API_KEY.to_string(),
+                    STATSIG_API_KEY_HEADER.to_owned(),
+                    STATSIG_API_KEY.to_owned(),
                 )]),
                 protocol: OtelHttpProtocol::Json,
                 tls: None,

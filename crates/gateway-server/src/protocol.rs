@@ -116,8 +116,10 @@ pub struct ClientInfo {
 /// Client role determines available methods and events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ClientRole {
     /// CLI/UI/automation client with full operator capabilities.
+    #[default]
     Operator,
     /// Capability host (camera, screen, canvas, voice)  - typically a mobile device.
     Node,
@@ -125,11 +127,6 @@ pub enum ClientRole {
     WebChat,
 }
 
-impl Default for ClientRole {
-    fn default() -> Self {
-        Self::Operator
-    }
-}
 
 /// Server-side connection policy sent with the Connected message.
 #[derive(Debug, Clone, Serialize, Deserialize)]

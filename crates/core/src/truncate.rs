@@ -40,10 +40,10 @@ impl TruncationPolicy {
     ///   heuristic.
     pub fn token_budget(&self) -> usize {
         match self {
-            TruncationPolicy::Bytes(bytes) => {
+            Self::Bytes(bytes) => {
                 usize::try_from(approx_tokens_from_byte_count(*bytes)).unwrap_or(usize::MAX)
             }
-            TruncationPolicy::Tokens(tokens) => *tokens,
+            Self::Tokens(tokens) => *tokens,
         }
     }
 
@@ -54,8 +54,8 @@ impl TruncationPolicy {
     ///   heuristic.
     pub fn byte_budget(&self) -> usize {
         match self {
-            TruncationPolicy::Bytes(bytes) => *bytes,
-            TruncationPolicy::Tokens(tokens) => approx_bytes_for_tokens(*tokens),
+            Self::Bytes(bytes) => *bytes,
+            Self::Tokens(tokens) => approx_bytes_for_tokens(*tokens),
         }
     }
 }
@@ -65,11 +65,11 @@ impl std::ops::Mul<f64> for TruncationPolicy {
 
     fn mul(self, multiplier: f64) -> Self::Output {
         match self {
-            TruncationPolicy::Bytes(bytes) => {
-                TruncationPolicy::Bytes((bytes as f64 * multiplier).ceil() as usize)
+            Self::Bytes(bytes) => {
+                Self::Bytes((bytes as f64 * multiplier).ceil() as usize)
             }
-            TruncationPolicy::Tokens(tokens) => {
-                TruncationPolicy::Tokens((tokens as f64 * multiplier).ceil() as usize)
+            Self::Tokens(tokens) => {
+                Self::Tokens((tokens as f64 * multiplier).ceil() as usize)
             }
         }
     }
@@ -77,7 +77,7 @@ impl std::ops::Mul<f64> for TruncationPolicy {
 
 pub(crate) fn formatted_truncate_text(content: &str, policy: TruncationPolicy) -> String {
     if content.len() <= policy.byte_budget() {
-        return content.to_string();
+        return content.to_owned();
     }
     let total_lines = content.lines().count();
     let result = truncate_text(content, policy);
@@ -166,7 +166,7 @@ fn truncate_with_token_budget(s: &str, policy: TruncationPolicy) -> (String, Opt
 
     let byte_len = s.len();
     if max_tokens > 0 && byte_len <= approx_bytes_for_tokens(max_tokens) {
-        return (s.to_string(), None);
+        return (s.to_owned(), None);
     }
 
     let truncated = truncate_with_byte_estimate(s, policy);
@@ -200,7 +200,7 @@ fn truncate_with_byte_estimate(s: &str, policy: TruncationPolicy) -> String {
     }
 
     if s.len() <= max_bytes {
-        return s.to_string();
+        return s.to_owned();
     }
 
     let total_bytes = s.len();

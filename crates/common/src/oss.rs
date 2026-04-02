@@ -9,6 +9,7 @@ use savfox_core::{
 };
 
 /// Returns the default model for a given OSS provider.
+#[must_use] 
 pub fn get_default_model_for_oss_provider(provider_id: &str) -> Option<&'static str> {
     match provider_id {
         LMSTUDIO_OSS_PROVIDER_ID => Some(savfox_lmstudio::DEFAULT_OSS_MODEL),

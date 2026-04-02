@@ -27,7 +27,7 @@ pub async fn login_with_chatgpt(
 ) -> std::io::Result<()> {
     let opts = ServerOptions::new(
         savfox_home,
-        CLIENT_ID.to_string(),
+        CLIENT_ID.to_owned(),
         forced_chatgpt_workspace_id,
         cli_auth_credentials_store_mode,
     );
@@ -90,6 +90,7 @@ pub async fn run_login_with_api_key(api_key: String) -> ! {
     }
 }
 
+#[must_use] 
 pub fn read_api_key_from_stdin() -> String {
     let mut stdin = std::io::stdin();
 
@@ -108,7 +109,7 @@ pub fn read_api_key_from_stdin() -> String {
         std::process::exit(1);
     }
 
-    let api_key = buffer.trim().to_string();
+    let api_key = buffer.trim().to_owned();
     if api_key.is_empty() {
         eprintln!("No API key provided via stdin.");
         std::process::exit(1);
@@ -130,7 +131,7 @@ pub async fn run_login_with_device_code(
     let forced_chatgpt_workspace_id = config.forced_chatgpt_workspace_id.clone();
     let mut opts = ServerOptions::new(
         config.savfox_home,
-        client_id.unwrap_or(CLIENT_ID.to_string()),
+        client_id.unwrap_or(CLIENT_ID.to_owned()),
         forced_chatgpt_workspace_id,
         config.cli_auth_credentials_store_mode,
     );
@@ -166,7 +167,7 @@ pub async fn run_login_with_device_code_fallback_to_browser(
     let forced_chatgpt_workspace_id = config.forced_chatgpt_workspace_id.clone();
     let mut opts = ServerOptions::new(
         config.savfox_home,
-        client_id.unwrap_or(CLIENT_ID.to_string()),
+        client_id.unwrap_or(CLIENT_ID.to_owned()),
         forced_chatgpt_workspace_id,
         config.cli_auth_credentials_store_mode,
     );
@@ -279,7 +280,7 @@ async fn load_config_or_exit() -> Config {
 
 fn safe_format_key(key: &str) -> String {
     if key.len() <= 13 {
-        return "***".to_string();
+        return "***".to_owned();
     }
     let prefix = &key[..8];
     let suffix = &key[key.len() - 5..];

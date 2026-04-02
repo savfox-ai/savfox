@@ -13,11 +13,11 @@ pub(crate) fn features_schema(schema_gen: &mut SchemaGenerator) -> Schema {
     let mut properties = Map::new();
     for feature in FEATURES {
         let bool_schema = schema_gen.subschema_for::<bool>();
-        properties.insert(feature.key.to_string(), bool_schema.into());
+        properties.insert(feature.key.to_owned(), bool_schema.into());
     }
     for legacy_key in crate::features::legacy_feature_keys() {
         let bool_schema = schema_gen.subschema_for::<bool>();
-        properties.insert(legacy_key.to_string(), bool_schema.into());
+        properties.insert(legacy_key.to_owned(), bool_schema.into());
     }
 
     serde_json::json!({
@@ -41,6 +41,7 @@ pub(crate) fn mcp_servers_schema(schema_gen: &mut SchemaGenerator) -> Schema {
 }
 
 /// Build the config schema for `config.toml`.
+#[must_use] 
 pub fn config_schema() -> Schema {
     SchemaSettings::draft07()
         .into_generator()

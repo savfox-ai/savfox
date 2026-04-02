@@ -90,14 +90,14 @@ fn header_map_to_hashmap(
         if let Ok(v) = value.to_str() {
             map.entry(key.to_string())
                 .or_insert_with(Vec::new)
-                .push(v.to_string());
+                .push(v.to_owned());
         }
     }
     map
 }
 
 async fn request_to_event_req(req: &mut Request) -> Result<EventReq, anyhow::Error> {
-    let request_uri = req.uri().path().to_string();
+    let request_uri = req.uri().path().to_owned();
     let header = header_map_to_hashmap(req.headers());
     let body = req
         .payload()

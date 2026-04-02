@@ -390,7 +390,7 @@ fn push_wrapped_diff_line(
             let gutter = format!("{:gutter_width$}  ", "");
             lines.push(RtLine::from(vec![
                 RtSpan::styled(gutter, style_gutter()),
-                RtSpan::styled(chunk.to_string(), line_style),
+                RtSpan::styled(chunk.to_owned(), line_style),
             ]));
         }
         if remaining_text.is_empty() {

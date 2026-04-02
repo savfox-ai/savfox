@@ -43,9 +43,9 @@ pub struct EmbedConfig {
 impl Default for EmbedConfig {
     fn default() -> Self {
         Self {
-            base_url: "https://api.openai.com/v1".to_string(),
+            base_url: "https://api.openai.com/v1".to_owned(),
             api_key: String::new(),
-            model: "text-embedding-3-small".to_string(),
+            model: "text-embedding-3-small".to_owned(),
             batch_size: 100,
         }
     }
@@ -98,7 +98,7 @@ pub async fn batch_embed(
             let body = response
                 .text()
                 .await
-                .unwrap_or_else(|_| "unknown".to_string());
+                .unwrap_or_else(|_| "unknown".to_owned());
             warn!(
                 status = %status,
                 body = %body,
@@ -117,7 +117,7 @@ pub async fn batch_embed(
             if data.index < keys.len() {
                 result
                     .embeddings
-                    .insert(keys[data.index].to_string(), data.embedding);
+                    .insert(keys[data.index].to_owned(), data.embedding);
             }
         }
     }
@@ -127,6 +127,7 @@ pub async fn batch_embed(
 
 /// Prepare text for embedding by combining frontmatter metadata with body content.
 /// Truncates to a reasonable length for the embedding model.
+#[must_use] 
 pub fn prepare_text_for_embedding(
     slug: &str,
     tags: &[String],

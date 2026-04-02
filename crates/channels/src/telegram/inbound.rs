@@ -41,13 +41,13 @@ fn describe_update(payload: &serde_json::Value) -> (String, String, usize) {
         .get("chat")
         .and_then(|chat| chat.get("id"))
         .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string());
+        .unwrap_or_else(|| "-".to_owned());
     let text = message
         .get("text")
         .and_then(serde_json::Value::as_str)
         .or_else(|| message.get("caption").and_then(serde_json::Value::as_str))
         .unwrap_or("");
-    (kind.to_string(), chat_id, text.len())
+    (kind.to_owned(), chat_id, text.len())
 }
 
 #[async_trait]
@@ -91,18 +91,17 @@ pub async fn start_telegram_polling(
         channel_id, config.polling, config.webhook_url
     );
 
-    let bot = Bot::new(bot_token.to_string());
+    let bot = Bot::new(bot_token.to_owned());
     bot.delete_webhook()
         .send()
         .await
         .map_err(|err| anyhow::anyhow!("failed to disable Telegram webhook for polling: {err}"))?;
     println!(
-        "[telegram] Polling mode enabled for channel '{}'; existing webhook cleared",
-        channel_id
+        "[telegram] Polling mode enabled for channel '{channel_id}'; existing webhook cleared"
     );
 
     let generation = next_polling_generation();
-    let tracked_channel_id = channel_id.to_string();
+    let tracked_channel_id = channel_id.to_owned();
     let task_channel_id = tracked_channel_id.clone();
     let mut listener = Polling::builder(bot)
         .drop_pending_updates()
@@ -114,21 +113,18 @@ pub async fn start_telegram_polling(
         ])
         .build();
     println!(
-        "[telegram] Polling listener built for channel '{}', spawning polling task...",
-        channel_id
+        "[telegram] Polling listener built for channel '{channel_id}', spawning polling task..."
     );
     let handle = tokio::spawn(async move {
         println!(
-            "[telegram] Polling task started for channel '{}'",
-            task_channel_id
+            "[telegram] Polling task started for channel '{task_channel_id}'"
         );
         info!(channel_id = %task_channel_id, "Telegram polling channel starting");
 
         let stream = listener.as_stream();
         tokio::pin!(stream);
         println!(
-            "[telegram] Polling stream created for channel '{}', waiting for updates...",
-            task_channel_id
+            "[telegram] Polling stream created for channel '{task_channel_id}', waiting for updates..."
         );
         while let Some(update_result) = stream.next().await {
             match update_result {
@@ -138,7 +134,7 @@ pub async fn start_telegram_polling(
                             .get("update_id")
                             .and_then(serde_json::Value::as_i64)
                             .map(|value| value.to_string())
-                            .unwrap_or_else(|| "-".to_string());
+                            .unwrap_or_else(|| "-".to_owned());
                         let (kind, chat_id, text_len) = describe_update(&payload);
                         println!(
                             "[telegram] Polling update received: channel_id={}, update_id={}, kind={}, chat_id={}, text_len={}, payload_preview={}",
@@ -153,8 +149,7 @@ pub async fn start_telegram_polling(
                     }
                     Err(err) => {
                         println!(
-                            "[telegram] Polling update serialization failed: channel_id={}, error={}",
-                            task_channel_id, err
+                            "[telegram] Polling update serialization failed: channel_id={task_channel_id}, error={err}"
                         );
                         warn!(
                             channel_id = %task_channel_id,
@@ -165,8 +160,7 @@ pub async fn start_telegram_polling(
                 },
                 Err(err) => {
                     println!(
-                        "[telegram] Polling listener error: channel_id={}, error={}",
-                        task_channel_id, err
+                        "[telegram] Polling listener error: channel_id={task_channel_id}, error={err}"
                     );
                     warn!(
                         channel_id = %task_channel_id,
@@ -178,8 +172,7 @@ pub async fn start_telegram_polling(
         }
 
         println!(
-            "[telegram] Polling stream ended for channel '{}'",
-            task_channel_id
+            "[telegram] Polling stream ended for channel '{task_channel_id}'"
         );
         info!(channel_id = %task_channel_id, "Telegram polling channel stopped");
         let mut handles = polling_handles().lock().await;
@@ -193,12 +186,11 @@ pub async fn start_telegram_polling(
 
     let mut handles = polling_handles().lock().await;
     if let Some(previous) = handles.insert(
-        channel_id.to_string(),
+        channel_id.to_owned(),
         PollingTaskEntry { generation, handle },
     ) {
         println!(
-            "[telegram] Replacing existing polling task for channel '{}'",
-            channel_id
+            "[telegram] Replacing existing polling task for channel '{channel_id}'"
         );
         previous.handle.abort();
     }
@@ -209,15 +201,13 @@ pub async fn stop_telegram_polling(channel_id: &str) -> bool {
     let mut handles = polling_handles().lock().await;
     if let Some(entry) = handles.remove(channel_id) {
         println!(
-            "[telegram] Stopping polling task for channel '{}'",
-            channel_id
+            "[telegram] Stopping polling task for channel '{channel_id}'"
         );
         entry.handle.abort();
         true
     } else {
         println!(
-            "[telegram] Stop polling requested but no task was running for channel '{}'",
-            channel_id
+            "[telegram] Stop polling requested but no task was running for channel '{channel_id}'"
         );
         false
     }

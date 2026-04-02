@@ -6,10 +6,11 @@ const FRONTMATTER_DELIMITER: &str = "---";
 ///
 /// If the file starts with `---`, everything between the first and second `---`
 /// is treated as YAML frontmatter. Otherwise, the entire content is the body.
+#[must_use] 
 pub fn parse_md_file(content: &str) -> (MemoryFrontmatter, String) {
     let trimmed = content.trim_start();
     if !trimmed.starts_with(FRONTMATTER_DELIMITER) {
-        return (MemoryFrontmatter::default(), content.to_string());
+        return (MemoryFrontmatter::default(), content.to_owned());
     }
 
     // Find the closing delimiter.
@@ -23,14 +24,15 @@ pub fn parse_md_file(content: &str) -> (MemoryFrontmatter, String) {
 
         let frontmatter: MemoryFrontmatter = serde_yaml::from_str(yaml_str).unwrap_or_default();
 
-        (frontmatter, body.to_string())
+        (frontmatter, body.to_owned())
     } else {
         // No closing delimiter found; treat everything as body.
-        (MemoryFrontmatter::default(), content.to_string())
+        (MemoryFrontmatter::default(), content.to_owned())
     }
 }
 
 /// Render a `MemoryFrontmatter` + body back into a Markdown string with YAML frontmatter.
+#[must_use] 
 pub fn render_md_file(frontmatter: &MemoryFrontmatter, body: &str) -> String {
     let yaml = serde_yaml::to_string(frontmatter).unwrap_or_default();
     format!("---\n{yaml}---\n\n{body}\n")

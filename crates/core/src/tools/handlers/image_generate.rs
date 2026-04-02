@@ -28,15 +28,15 @@ struct ImageGenerateArgs {
 
 mod defaults {
     pub fn size() -> String {
-        "1024x1024".to_string()
+        "1024x1024".to_owned()
     }
 
     pub fn model() -> String {
-        "dall-e-3".to_string()
+        "dall-e-3".to_owned()
     }
 
     pub fn quality() -> String {
-        "standard".to_string()
+        "standard".to_owned()
     }
 }
 
@@ -57,7 +57,7 @@ impl ToolHandler for ImageGenerateHandler {
         let args: ImageGenerateArgs = parse_arguments(&arguments)?;
 
         let api_base = std::env::var("OPENAI_API_BASE")
-            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_owned());
         let api_key = std::env::var("OPENAI_API_KEY")
             .or_else(|_| model_err("OPENAI_API_KEY environment variable not set"))?;
 

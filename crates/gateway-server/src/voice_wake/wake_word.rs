@@ -23,9 +23,10 @@ pub struct WakeWordDetector {
 }
 
 impl WakeWordDetector {
+    #[must_use] 
     pub fn new(keyword: &str, sensitivity: f32) -> Self {
         Self {
-            keyword: keyword.to_string(),
+            keyword: keyword.to_owned(),
             keyword_lower: keyword.to_lowercase(),
             sensitivity,
             audio_buffer: Arc::new(Mutex::new(Vec::new())),
@@ -122,18 +123,20 @@ impl WakeWordDetector {
     }
 
     /// Get the current keyword.
+    #[must_use] 
     pub fn keyword(&self) -> &str {
         &self.keyword
     }
 
     /// Get the sensitivity level.
+    #[must_use] 
     pub fn sensitivity(&self) -> f32 {
         self.sensitivity
     }
 
     /// Update the wake word keyword.
     pub fn set_keyword(&mut self, keyword: &str) {
-        self.keyword = keyword.to_string();
+        self.keyword = keyword.to_owned();
         self.keyword_lower = keyword.to_lowercase();
     }
 

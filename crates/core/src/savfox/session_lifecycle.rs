@@ -164,7 +164,7 @@ impl SessionHandle {
             task_coordinator::submission_loop(Arc::clone(&session), config, rx_sub)
                 .instrument(session_loop_span),
         );
-        let handle = SessionHandle {
+        let handle = Self {
             next_id: AtomicU64::new(0),
             tx_sub,
             rx_event,
@@ -456,7 +456,7 @@ impl Session {
             transport_manager: TransportManager::new(),
         };
 
-        let sess = Arc::new(Session {
+        let sess = Arc::new(Self {
             conversation_id,
             tx_event: tx_event.clone(),
             agent_status,
@@ -476,7 +476,7 @@ impl Session {
                 session_id: conversation_id,
                 forked_from_id,
                 session_name: session_configuration.session_name.clone(),
-                model: session_configuration.collaboration_mode.model().to_string(),
+                model: session_configuration.collaboration_mode.model().to_owned(),
                 model_provider_id: config.model_provider_id.clone(),
                 approval_policy: session_configuration.approval_policy.value(),
                 sandbox_policy: session_configuration.sandbox_policy.get().clone(),
@@ -894,7 +894,7 @@ impl Session {
             .into(),
         );
         if let Some(developer_instructions) = turn_context.developer_instructions.as_deref() {
-            items.push(DeveloperInstructions::new(developer_instructions.to_string()).into());
+            items.push(DeveloperInstructions::new(developer_instructions.to_owned()).into());
         }
         // Add developer instructions from collaboration_mode if they exist and are non-empty
         let (collaboration_mode, base_instructions) = {
@@ -927,7 +927,7 @@ impl Session {
         if let Some(user_instructions) = turn_context.user_instructions.as_deref() {
             items.push(
                 UserInstructions {
-                    text: user_instructions.to_string(),
+                    text: user_instructions.to_owned(),
                     directory: turn_context.cwd.to_string_lossy().into_owned(),
                 }
                 .into(),

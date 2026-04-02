@@ -61,6 +61,7 @@ pub struct ReadinessFlag {
 
 impl ReadinessFlag {
     /// Create a new, not-yet-ready flag.
+    #[must_use] 
     pub fn new() -> Self {
         let (tx, _rx) = watch::channel(false);
         Self {

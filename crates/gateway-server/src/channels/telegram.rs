@@ -65,12 +65,12 @@ fn telegram_update_summary(body: &Value) -> (String, String, String, String) {
         .get("chat")
         .and_then(|chat| chat.get("id"))
         .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string());
+        .unwrap_or_else(|| "-".to_owned());
     let from_id = message
         .get("from")
         .and_then(|from| from.get("id"))
         .map(|value| value.to_string())
-        .unwrap_or_else(|| "-".to_string());
+        .unwrap_or_else(|| "-".to_owned());
     let text = message
         .get("text")
         .and_then(Value::as_str)
@@ -82,7 +82,7 @@ fn telegram_update_summary(body: &Value) -> (String, String, String, String) {
         })
         .unwrap_or("");
     (
-        kind.to_string(),
+        kind.to_owned(),
         chat_id,
         from_id,
         telegram_log_preview(text, 160),

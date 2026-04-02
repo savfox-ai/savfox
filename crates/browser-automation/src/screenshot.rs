@@ -1,17 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ScreenshotFormat {
     Jpeg,
+    #[default]
     Png,
     Webp,
 }
 
-impl Default for ScreenshotFormat {
-    fn default() -> Self {
-        Self::Png
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Viewport {
@@ -47,20 +44,24 @@ impl Default for ScreenshotOptions {
 }
 
 impl ScreenshotOptions {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use] 
     pub fn format(mut self, format: ScreenshotFormat) -> Self {
         self.format = format;
         self
     }
 
+    #[must_use] 
     pub fn quality(mut self, quality: u8) -> Self {
         self.quality = Some(quality);
         self
     }
 
+    #[must_use] 
     pub fn clip(mut self, x: f64, y: f64, width: f64, height: f64) -> Self {
         self.clip = Some(Viewport {
             x,
@@ -72,6 +73,7 @@ impl ScreenshotOptions {
         self
     }
 
+    #[must_use] 
     pub fn full_page(mut self, width: f64, height: f64) -> Self {
         self.clip = Some(Viewport {
             x: 0.0,

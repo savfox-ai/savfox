@@ -114,17 +114,19 @@ impl OtelProvider {
         }))
     }
 
+    #[must_use] 
     pub fn logger_layer<S>(&self) -> Option<impl Layer<S> + Send + Sync>
     where
         S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
     {
         self.logger.as_ref().map(|logger| {
             OpenTelemetryTracingBridge::new(logger).with_filter(
-                tracing_subscriber::filter::filter_fn(OtelProvider::savfox_export_filter),
+                tracing_subscriber::filter::filter_fn(Self::savfox_export_filter),
             )
         })
     }
 
+    #[must_use] 
     pub fn tracing_layer<S>(&self) -> Option<impl Layer<S> + Send + Sync>
     where
         S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
@@ -136,10 +138,12 @@ impl OtelProvider {
         })
     }
 
+    #[must_use] 
     pub fn savfox_export_filter(meta: &tracing::Metadata<'_>) -> bool {
         meta.target().starts_with("savfox_otel")
     }
 
+    #[must_use] 
     pub fn metrics(&self) -> Option<&MetricsClient> {
         self.metrics.as_ref()
     }
@@ -181,23 +185,20 @@ fn load_traceparent_context() -> Option<Context> {
     let traceparent = env::var(TRACEPARENT_ENV_VAR).ok()?;
     let tracestate = env::var(TRACESTATE_ENV_VAR).ok();
 
-    match extract_traceparent_context(traceparent, tracestate) {
-        Some(context) => {
-            debug!("TRACEPARENT detected; continuing trace from parent context");
-            Some(context)
-        }
-        None => {
-            warn!("TRACEPARENT is set but invalid; ignoring trace context");
-            None
-        }
+    if let Some(context) = extract_traceparent_context(traceparent, tracestate) {
+        debug!("TRACEPARENT detected; continuing trace from parent context");
+        Some(context)
+    } else {
+        warn!("TRACEPARENT is set but invalid; ignoring trace context");
+        None
     }
 }
 
 fn extract_traceparent_context(traceparent: String, tracestate: Option<String>) -> Option<Context> {
     let mut headers = HashMap::new();
-    headers.insert("traceparent".to_string(), traceparent);
+    headers.insert("traceparent".to_owned(), traceparent);
     if let Some(tracestate) = tracestate {
-        headers.insert("tracestate".to_string(), tracestate);
+        headers.insert("tracestate".to_owned(), tracestate);
     }
 
     let context = TraceContextPropagator::new().extract(&headers);

@@ -53,7 +53,7 @@ impl ToolRouter {
             if name.contains('/') {
                 return true;
             }
-            policy.is_tool_allowed(&name)
+            policy.is_tool_allowed(name)
         });
     }
 
@@ -132,7 +132,7 @@ impl ToolRouter {
                             justification: None,
                         };
                         Ok(Some(ToolCall {
-                            tool_name: "local_shell".to_string(),
+                            tool_name: "local_shell".to_owned(),
                             call_id,
                             payload: ToolPayload::LocalShell { params },
                         }))

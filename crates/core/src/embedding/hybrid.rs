@@ -22,6 +22,7 @@ impl HybridSearcher {
     ///
     /// * `bm25_weight` -- Weight for the BM25 text search signal (e.g. 0.3).
     /// * `vector_weight` -- Weight for the vector similarity signal (e.g. 0.7).
+    #[must_use] 
     pub fn new(bm25_weight: f32, vector_weight: f32) -> Self {
         Self {
             bm25_weight,
@@ -42,6 +43,7 @@ impl HybridSearcher {
     /// * `top_k` -- Maximum number of results to return.
     ///
     /// Returns `(doc_id, combined_score)` pairs sorted by descending score.
+    #[must_use] 
     pub fn search(
         &self,
         query_text: &str,
@@ -152,11 +154,11 @@ fn bm25_score(query: &str, documents: &[(String, String)]) -> Vec<(String, f32)>
                     let doc_freq = df.get(term.as_str()).copied().unwrap_or(0.0);
 
                     // IDF: log((N - df + 0.5) / (df + 0.5) + 1)
-                    let idf = ((n - doc_freq + 0.5) / (doc_freq + 0.5) + 1.0).ln();
+                    let idf = ((n - doc_freq + 0.5) / (doc_freq + 0.5)).ln_1p();
 
                     // TF saturation: (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl))
                     let tf_norm = (tf * (BM25_K1 + 1.0))
-                        / (tf + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avg_dl));
+                        / BM25_K1.mul_add(1.0 - BM25_B + BM25_B * dl / avg_dl, tf);
 
                     idf * tf_norm
                 })
@@ -173,8 +175,7 @@ fn tokenize(text: &str) -> Vec<String> {
         .split_whitespace()
         .map(|s| {
             // Strip common punctuation from the edges of tokens.
-            s.trim_matches(|c: char| c.is_ascii_punctuation())
-                .to_string()
+            s.trim_matches(|c: char| c.is_ascii_punctuation()).to_owned()
         })
         .filter(|s| !s.is_empty())
         .collect()

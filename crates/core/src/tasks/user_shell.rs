@@ -119,7 +119,7 @@ impl SessionTask for UserShellCommandTask {
 
         match exec_result {
             Err(CancelErr::Cancelled) => {
-                let aborted_message = "command aborted by user".to_string();
+                let aborted_message = "command aborted by user".to_owned();
                 let exec_output = ExecToolCallOutput {
                     exit_code: -1,
                     stdout: StreamOutput::new(String::new()),

@@ -59,7 +59,7 @@ impl ToolHandler for SessionsSpawnHandler {
         let result = serde_json::json!({
             "agent_id": agent_id,
             "status": "spawned",
-            "model": args.model.unwrap_or_else(|| "default".to_string()),
+            "model": args.model.unwrap_or_else(|| "default".to_owned()),
             "prompt": args.prompt,
             "timeout_secs": args.timeout_secs,
             "cleanup": args.cleanup,

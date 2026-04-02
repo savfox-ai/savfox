@@ -12,6 +12,7 @@ use super::config::resolve_telegram_outbound_token;
 /// Escape text for Telegram HTML parse mode.
 ///
 /// Replaces `&`, `<`, and `>` with their HTML entity equivalents.
+#[must_use] 
 pub fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -23,6 +24,7 @@ pub fn escape_html(text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Truncate a string for log preview purposes.
+#[must_use] 
 pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
     let mut preview: String = text.chars().take(max_chars).collect();
     if text.chars().count() > max_chars {
@@ -36,6 +38,7 @@ pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
 // ---------------------------------------------------------------------------
 
 /// Verify Telegram webhook secret token equality.
+#[must_use] 
 pub fn verify_webhook_secret(expected_secret: &str, received_secret: &str) -> bool {
     expected_secret == received_secret
 }
@@ -85,7 +88,7 @@ pub async fn send_message(
     let rendered_text = if parse_mode.is_some_and(|mode| mode.eq_ignore_ascii_case("HTML")) {
         escape_html(text)
     } else {
-        text.to_string()
+        text.to_owned()
     };
 
     let mut body = serde_json::json!({
@@ -154,7 +157,7 @@ pub async fn edit_message(
     let rendered_text = if parse_mode.is_some_and(|mode| mode.eq_ignore_ascii_case("HTML")) {
         escape_html(text)
     } else {
-        text.to_string()
+        text.to_owned()
     };
 
     let body = serde_json::json!({

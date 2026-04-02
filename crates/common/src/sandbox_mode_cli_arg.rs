@@ -20,9 +20,9 @@ pub enum SandboxModeCliArg {
 impl From<SandboxModeCliArg> for SandboxMode {
     fn from(value: SandboxModeCliArg) -> Self {
         match value {
-            SandboxModeCliArg::ReadOnly => SandboxMode::ReadOnly,
-            SandboxModeCliArg::WorkspaceWrite => SandboxMode::WorkspaceWrite,
-            SandboxModeCliArg::DangerFullAccess => SandboxMode::DangerFullAccess,
+            SandboxModeCliArg::ReadOnly => Self::ReadOnly,
+            SandboxModeCliArg::WorkspaceWrite => Self::WorkspaceWrite,
+            SandboxModeCliArg::DangerFullAccess => Self::DangerFullAccess,
         }
     }
 }

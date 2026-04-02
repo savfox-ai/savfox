@@ -91,9 +91,9 @@ impl CommandRegistry {
 
     fn register_builtin_commands(&mut self) {
         self.register(Command {
-            name: "help".to_string(),
-            description: "Show available commands".to_string(),
-            aliases: vec!["/?".to_string()],
+            name: "help".to_owned(),
+            description: "Show available commands".to_owned(),
+            aliases: vec!["/?".to_owned()],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
                 reply: Some(
@@ -107,8 +107,7 @@ impl CommandRegistry {
                      /reset — Reset current session\n\
                      /stop — Stop current run\n\
                      /think [level] — Set thinking level\n\
-                     /verbose — Toggle verbose mode"
-                        .to_string(),
+                     /verbose — Toggle verbose mode".to_owned(),
                 ),
                 action: Some(CommandAction::ShowHelp),
                 error: None,
@@ -116,8 +115,8 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "status".to_string(),
-            description: "Show current status".to_string(),
+            name: "status".to_owned(),
+            description: "Show current status".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |ctx, _args| {
@@ -136,24 +135,24 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "model".to_string(),
-            description: "Show or set the model".to_string(),
+            name: "model".to_owned(),
+            description: "Show or set the model".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema {
                 positional: vec![PositionalArg {
-                    name: "model".to_string(),
+                    name: "model".to_owned(),
                     required: false,
                 }],
                 named: vec![
                     NamedArg {
-                        name: "model".to_string(),
-                        aliases: vec!["m".to_string()],
+                        name: "model".to_owned(),
+                        aliases: vec!["m".to_owned()],
                         takes_value: true,
                         required: false,
                     },
                     NamedArg {
-                        name: "profile".to_string(),
-                        aliases: vec!["p".to_string()],
+                        name: "profile".to_owned(),
+                        aliases: vec!["p".to_owned()],
                         takes_value: true,
                         required: false,
                     },
@@ -163,7 +162,7 @@ impl CommandRegistry {
             handler: |ctx, args| {
                 let model = args.named("model").or_else(|| args.positional(0));
                 if let Some(model) = model {
-                    let mut model = model.trim().to_string();
+                    let mut model = model.trim().to_owned();
                     if !model.is_empty()
                         && !model.contains('@')
                         && let Some(profile) = args
@@ -184,7 +183,7 @@ impl CommandRegistry {
                         .metadata
                         .get("model")
                         .cloned()
-                        .unwrap_or_else(|| "default".to_string());
+                        .unwrap_or_else(|| "default".to_owned());
                     CommandResult {
                         reply: Some(format!("Current model: {current}")),
                         action: None,
@@ -195,29 +194,29 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "reset".to_string(),
-            description: "Reset current session".to_string(),
+            name: "reset".to_owned(),
+            description: "Reset current session".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
-                reply: Some("Session reset.".to_string()),
+                reply: Some("Session reset.".to_owned()),
                 action: Some(CommandAction::Reset),
                 error: None,
             },
         });
 
         self.register(Command {
-            name: "compact".to_string(),
-            description: "Compact current session context".to_string(),
+            name: "compact".to_owned(),
+            description: "Compact current session context".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema {
                 positional: vec![PositionalArg {
-                    name: "turns".to_string(),
+                    name: "turns".to_owned(),
                     required: false,
                 }],
                 named: vec![NamedArg {
-                    name: "turns".to_string(),
-                    aliases: vec!["n".to_string()],
+                    name: "turns".to_owned(),
+                    aliases: vec!["n".to_owned()],
                     takes_value: true,
                     required: false,
                 }],
@@ -232,7 +231,7 @@ impl CommandRegistry {
                             return CommandResult {
                                 reply: None,
                                 action: None,
-                                error: Some("Invalid turns value: expected integer".to_string()),
+                                error: Some("Invalid turns value: expected integer".to_owned()),
                             };
                         }
                     },
@@ -241,7 +240,7 @@ impl CommandRegistry {
 
                 let reply = match parsed_turns {
                     Some(v) => format!("Compaction requested (keep last {v} turns)."),
-                    None => "Compaction requested.".to_string(),
+                    None => "Compaction requested.".to_owned(),
                 };
                 CommandResult {
                     reply: Some(reply),
@@ -254,9 +253,9 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "whoami".to_string(),
-            description: "Show your sender ID".to_string(),
-            aliases: vec!["id".to_string()],
+            name: "whoami".to_owned(),
+            description: "Show your sender ID".to_owned(),
+            aliases: vec!["id".to_owned()],
             args: CommandArgsSchema::none(),
             handler: |ctx, _args| CommandResult {
                 reply: Some(format!("Your sender ID: {}", ctx.sender_id)),
@@ -266,44 +265,44 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "clear".to_string(),
-            description: "Clear conversation history, keep current settings".to_string(),
-            aliases: vec!["cls".to_string()],
+            name: "clear".to_owned(),
+            description: "Clear conversation history, keep current settings".to_owned(),
+            aliases: vec!["cls".to_owned()],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
-                reply: Some("Conversation history cleared.".to_string()),
+                reply: Some("Conversation history cleared.".to_owned()),
                 action: Some(CommandAction::Clear),
                 error: None,
             },
         });
 
         self.register(Command {
-            name: "new".to_string(),
-            description: "New session with fresh agent thread, reset all settings".to_string(),
+            name: "new".to_owned(),
+            description: "New session with fresh agent thread, reset all settings".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
-                reply: Some("New session started. All settings reset.".to_string()),
+                reply: Some("New session started. All settings reset.".to_owned()),
                 action: Some(CommandAction::NewSession),
                 error: None,
             },
         });
 
         self.register(Command {
-            name: "stop".to_string(),
-            description: "Stop current run".to_string(),
+            name: "stop".to_owned(),
+            description: "Stop current run".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
-                reply: Some("Stopping current run.".to_string()),
+                reply: Some("Stopping current run.".to_owned()),
                 action: Some(CommandAction::Stop),
                 error: None,
             },
         });
 
         self.register(Command {
-            name: "models".to_string(),
-            description: "List available models".to_string(),
+            name: "models".to_owned(),
+            description: "List available models".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
@@ -316,8 +315,7 @@ impl CommandRegistry {
   anthropic/claude-3.5-sonnet
   google/gemini-2.0-flash
   deepseek/deepseek-chat
-  ollama/llama3.2"#
-                        .to_string(),
+  ollama/llama3.2"#.to_owned(),
                 ),
                 action: None,
                 error: None,
@@ -325,17 +323,17 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "think".to_string(),
-            description: "Set thinking level".to_string(),
-            aliases: vec!["thinking".to_string(), "t".to_string()],
+            name: "think".to_owned(),
+            description: "Set thinking level".to_owned(),
+            aliases: vec!["thinking".to_owned(), "t".to_owned()],
             args: CommandArgsSchema {
                 positional: vec![PositionalArg {
-                    name: "level".to_string(),
+                    name: "level".to_owned(),
                     required: false,
                 }],
                 named: vec![NamedArg {
-                    name: "level".to_string(),
-                    aliases: vec!["l".to_string()],
+                    name: "level".to_owned(),
+                    aliases: vec!["l".to_owned()],
                     takes_value: true,
                     required: false,
                 }],
@@ -364,23 +362,23 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "verbose".to_string(),
-            description: "Toggle verbose mode".to_string(),
-            aliases: vec!["v".to_string()],
+            name: "verbose".to_owned(),
+            description: "Toggle verbose mode".to_owned(),
+            aliases: vec!["v".to_owned()],
             args: CommandArgsSchema {
                 positional: vec![PositionalArg {
-                    name: "state".to_string(),
+                    name: "state".to_owned(),
                     required: false,
                 }],
                 named: vec![
                     NamedArg {
-                        name: "on".to_string(),
+                        name: "on".to_owned(),
                         aliases: vec![],
                         takes_value: false,
                         required: false,
                     },
                     NamedArg {
-                        name: "off".to_string(),
+                        name: "off".to_owned(),
                         aliases: vec![],
                         takes_value: false,
                         required: false,
@@ -392,7 +390,7 @@ impl CommandRegistry {
                 let state = args
                     .positional(0)
                     .map(str::to_lowercase)
-                    .unwrap_or_else(|| "on".to_string());
+                    .unwrap_or_else(|| "on".to_owned());
                 let enabled = if args.has_flag("off") {
                     false
                 } else if args.has_flag("on") {
@@ -412,8 +410,8 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "commands".to_string(),
-            description: "List all commands".to_string(),
+            name: "commands".to_owned(),
+            description: "List all commands".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema::none(),
             handler: |_ctx, _args| CommandResult {
@@ -431,8 +429,7 @@ impl CommandRegistry {
                      /compact [n] — Compact session\n\
                      /think, /t [level] — Thinking level\n\
                      /verbose, /v — Verbose mode\n\
-                     /usage [mode] — Usage info"
-                        .to_string(),
+                     /usage [mode] — Usage info".to_owned(),
                 ),
                 action: None,
                 error: None,
@@ -440,17 +437,17 @@ impl CommandRegistry {
         });
 
         self.register(Command {
-            name: "usage".to_string(),
-            description: "Show usage info".to_string(),
+            name: "usage".to_owned(),
+            description: "Show usage info".to_owned(),
             aliases: vec![],
             args: CommandArgsSchema {
                 positional: vec![PositionalArg {
-                    name: "mode".to_string(),
+                    name: "mode".to_owned(),
                     required: false,
                 }],
                 named: vec![NamedArg {
-                    name: "mode".to_string(),
-                    aliases: vec!["m".to_string()],
+                    name: "mode".to_owned(),
+                    aliases: vec!["m".to_owned()],
                     takes_value: true,
                     required: false,
                 }],
@@ -467,14 +464,14 @@ impl CommandRegistry {
                     .map(|s| s.parse::<u64>().unwrap_or(0))
                     .unwrap_or(0);
                 let reply = match mode {
-                    "off" => "Usage display disabled.".to_string(),
+                    "off" => "Usage display disabled.".to_owned(),
                     "cost" => format!("Estimated cost: ${:.4}", tokens_used as f64 * 0.00001),
                     "full" => format!(
                         "Tokens used: {}\nEstimated cost: ${:.4}",
                         tokens_used,
                         tokens_used as f64 * 0.00001
                     ),
-                    _ => format!("Tokens used: {}", tokens_used),
+                    _ => format!("Tokens used: {tokens_used}"),
                 };
                 CommandResult {
                     reply: Some(reply),
@@ -505,12 +502,12 @@ impl CommandRegistry {
     ) -> Result<(), String> {
         let plugin_id = plugin_id.trim();
         if plugin_id.is_empty() {
-            return Err("plugin_id cannot be empty".to_string());
+            return Err("plugin_id cannot be empty".to_owned());
         }
 
         let canonical = normalize_command_name(&command.name);
         if canonical.is_empty() {
-            return Err("command name cannot be empty".to_string());
+            return Err("command name cannot be empty".to_owned());
         }
 
         if self.commands.contains_key(&canonical) && !self.plugin_commands.contains_key(&canonical)
@@ -528,7 +525,7 @@ impl CommandRegistry {
 
         self.register(command);
         self.plugin_commands
-            .insert(canonical, plugin_id.to_string());
+            .insert(canonical, plugin_id.to_owned());
         Ok(())
     }
 
@@ -559,15 +556,15 @@ impl CommandRegistry {
         if key.is_empty() {
             return;
         }
-        self.alias_map.insert(key.clone(), canonical.to_string());
+        self.alias_map.insert(key.clone(), canonical.to_owned());
         if let Some(stripped) = key.strip_prefix('/') {
             if !stripped.is_empty() {
                 self.alias_map
-                    .insert(stripped.to_string(), canonical.to_string());
+                    .insert(stripped.to_owned(), canonical.to_owned());
             }
         } else {
             self.alias_map
-                .insert(format!("/{key}"), canonical.to_string());
+                .insert(format!("/{key}"), canonical.to_owned());
         }
     }
 
@@ -590,6 +587,7 @@ impl CommandRegistry {
         }
     }
 
+    #[must_use] 
     pub fn handle_command(&self, text: &str, ctx: &CommandContext) -> Option<CommandResult> {
         match self.parse_command(text)? {
             Ok(invocation) => {
@@ -677,7 +675,7 @@ fn parse_args(raw: &str, schema: &CommandArgsSchema) -> Result<ParsedCommandArgs
         let token = &tokens[i];
         if token.starts_with('-') {
             let (option, inline_value) = if let Some((left, right)) = token.split_once('=') {
-                (left.to_lowercase(), Some(right.to_string()))
+                (left.to_lowercase(), Some(right.to_owned()))
             } else {
                 (token.to_lowercase(), None)
             };
@@ -721,10 +719,10 @@ fn parse_args(raw: &str, schema: &CommandArgsSchema) -> Result<ParsedCommandArgs
 
     let required_positional = schema.positional.iter().filter(|p| p.required).count();
     if parsed.positionals.len() < required_positional {
-        return Err("missing required positional argument(s)".to_string());
+        return Err("missing required positional argument(s)".to_owned());
     }
     if !schema.allow_extra_positionals && parsed.positionals.len() > schema.positional.len() {
-        return Err("too many positional arguments".to_string());
+        return Err("too many positional arguments".to_owned());
     }
 
     Ok(parsed)
@@ -771,7 +769,7 @@ fn tokenize_args(raw: &str) -> Result<Vec<String>, String> {
     }
 
     if quote.is_some() {
-        return Err("unterminated quoted argument".to_string());
+        return Err("unterminated quoted argument".to_owned());
     }
     if !current.is_empty() {
         out.push(current);

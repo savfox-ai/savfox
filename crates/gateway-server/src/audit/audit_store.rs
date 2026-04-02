@@ -18,6 +18,7 @@ const CHANNEL_SIZE: usize = 1024;
 const MAX_FILE_SIZE_MB: u64 = 100;
 
 impl AuditStore {
+    #[must_use] 
     pub fn new(savfox_home: &std::path::Path) -> Self {
         let log_path = savfox_home.join("logs").join("audit.log");
         let (tx, rx) = mpsc::channel::<AuditEvent>(CHANNEL_SIZE);
@@ -38,6 +39,7 @@ impl AuditStore {
         store
     }
 
+    #[must_use] 
     pub fn from_home(savfox_home: &std::path::Path) -> Self {
         Self::new(savfox_home)
     }
@@ -118,7 +120,7 @@ impl AuditStore {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
         let rotated_path = self
             .log_path
-            .with_file_name(format!("audit_{}.log", timestamp));
+            .with_file_name(format!("audit_{timestamp}.log"));
 
         tokio::fs::rename(&self.log_path, &rotated_path).await?;
         info!("Rotated audit log to {}", rotated_path.display());
@@ -155,17 +157,15 @@ impl AuditStore {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().map(|e| e == "log").unwrap_or(false) {
-                if let Ok(metadata) = entry.metadata().await {
-                    if let Ok(modified) = metadata.modified() {
+            if path.extension().map(|e| e == "log").unwrap_or(false)
+                && let Ok(metadata) = entry.metadata().await
+                    && let Ok(modified) = metadata.modified() {
                         let modified: chrono::DateTime<chrono::Utc> = modified.into();
                         if modified < cutoff && path != self.log_path {
                             tokio::fs::remove_file(&path).await?;
                             pruned += 1;
                         }
                     }
-                }
-            }
         }
 
         if pruned > 0 {
@@ -182,6 +182,7 @@ pub struct AuditLogger {
 }
 
 impl AuditLogger {
+    #[must_use] 
     pub fn new(store: Arc<AuditStore>) -> Self {
         Self { store }
     }
@@ -199,7 +200,7 @@ impl AuditLogger {
     pub async fn log_auth_failure(&self, user_id: Option<&str>, method: &str, reason: &str) {
         self.store
             .log(AuditEvent::auth_failure(
-                user_id.map(|s| s.to_string()),
+                user_id.map(|s| s.to_owned()),
                 method,
                 reason,
             ))
@@ -218,7 +219,7 @@ impl AuditLogger {
                 sender_id,
                 channel,
                 command,
-                args.map(|s| s.to_string()),
+                args.map(|s| s.to_owned()),
             ))
             .await;
     }
@@ -233,8 +234,8 @@ impl AuditLogger {
         self.store
             .log(AuditEvent::tool_invoked(
                 tool_name,
-                user_id.map(|s| s.to_string()),
-                session_id.map(|s| s.to_string()),
+                user_id.map(|s| s.to_owned()),
+                session_id.map(|s| s.to_owned()),
                 success,
             ))
             .await;

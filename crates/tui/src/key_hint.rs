@@ -73,14 +73,14 @@ impl From<&KeyBinding> for Span<'static> {
         let KeyBinding { key, modifiers } = binding;
         let modifiers = modifiers_to_string(*modifiers);
         let key = match key {
-            KeyCode::Enter => "enter".to_string(),
-            KeyCode::Char(' ') => "space".to_string(),
-            KeyCode::Up => "↑".to_string(),
-            KeyCode::Down => "↓".to_string(),
-            KeyCode::Left => "←".to_string(),
-            KeyCode::Right => "→".to_string(),
-            KeyCode::PageUp => "pgup".to_string(),
-            KeyCode::PageDown => "pgdn".to_string(),
+            KeyCode::Enter => "enter".to_owned(),
+            KeyCode::Char(' ') => "space".to_owned(),
+            KeyCode::Up => "↑".to_owned(),
+            KeyCode::Down => "↓".to_owned(),
+            KeyCode::Left => "←".to_owned(),
+            KeyCode::Right => "→".to_owned(),
+            KeyCode::PageUp => "pgup".to_owned(),
+            KeyCode::PageDown => "pgdn".to_owned(),
             _ => format!("{key}").to_ascii_lowercase(),
         };
         Span::styled(format!("{modifiers}{key}"), key_hint_style())

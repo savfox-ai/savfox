@@ -22,7 +22,7 @@ static ROLE_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 fn current_mode() -> ExternalContentMode {
     match std::env::var("SAVFOX_EXTERNAL_CONTENT_MODE")
-        .unwrap_or_else(|_| "moderate".to_string())
+        .unwrap_or_else(|_| "moderate".to_owned())
         .to_ascii_lowercase()
         .as_str()
     {
@@ -72,12 +72,13 @@ fn neutralize_instruction_like(content: &str, mode: ExternalContentMode) -> Stri
     out
 }
 
+#[must_use] 
 pub fn wrap_external_content(source: &str, content: &str) -> String {
     let mode = current_mode();
     if mode == ExternalContentMode::Off
         || (content.contains("<external_content ") && content.contains("</external_content>"))
     {
-        return content.to_string();
+        return content.to_owned();
     }
     let safe_source = escape_xml_attr(source);
     let sanitized = neutralize_instruction_like(content, mode);

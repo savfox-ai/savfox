@@ -18,7 +18,7 @@ pub(crate) fn prefix_powershell_script_with_utf8(command: &[String]) -> Vec<Stri
 
     let trimmed = script.trim_start();
     let script = if trimmed.starts_with(UTF8_OUTPUT_PREFIX) {
-        script.to_string()
+        script.to_owned()
     } else {
         format!("{UTF8_OUTPUT_PREFIX}{script}")
     };
@@ -39,6 +39,7 @@ pub(crate) fn prefix_powershell_script_with_utf8(command: &[String]) -> Vec<Stri
 ///
 /// Returns (`shell`, `script`) when the first arg is a PowerShell executable and a
 /// `-Command` (or `-c`) flag is present followed by a script string.
+#[must_use] 
 pub fn extract_powershell_command(command: &[String]) -> Option<(&str, &str)> {
     if command.len() < 3 {
         return None;
@@ -110,7 +111,7 @@ pub(crate) fn try_find_pwsh_executable_blocking() -> Option<AbsolutePathBuf> {
             }
             let stdout = String::from_utf8_lossy(&out.stdout);
             let trimmed = stdout.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
         })
     {
         let candidate = AbsolutePathBuf::resolve_path_against_base("pwsh.exe", &ps_home);

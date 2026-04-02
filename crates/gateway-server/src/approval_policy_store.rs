@@ -20,7 +20,7 @@ struct ExecApprovalPolicyStore {
 }
 
 fn default_mode() -> String {
-    "auto".to_string()
+    "auto".to_owned()
 }
 
 impl Default for ExecApprovalPolicyStore {
@@ -106,7 +106,7 @@ pub(crate) async fn set_node(
     rules: Option<&Value>,
 ) -> Result<Value, String> {
     if node_id.is_empty() {
-        return Err("missing 'node_id' parameter".to_string());
+        return Err("missing 'node_id' parameter".to_owned());
     }
     if !matches!(mode, "auto" | "manual" | "deny") {
         return Err(format!("invalid mode: {mode}"));

@@ -116,7 +116,7 @@ struct OAuthDiscoveryMetadata {
 /// https://github.com/modelcontextprotocol/rust-sdk/blob/main/crates/rmcp/src/transport/auth.rs#L182
 fn discovery_paths(base_path: &str) -> Vec<String> {
     let trimmed = base_path.trim_start_matches('/').trim_end_matches('/');
-    let canonical = "/.well-known/oauth-authorization-server".to_string();
+    let canonical = "/.well-known/oauth-authorization-server".to_owned();
 
     if trimmed.is_empty() {
         return vec![canonical];

@@ -22,7 +22,7 @@ struct ImageAnalyzeArgs {
 
 mod defaults {
     pub fn detail() -> String {
-        "high".to_string()
+        "high".to_owned()
     }
 }
 
@@ -72,7 +72,7 @@ impl ToolHandler for ImageAnalyzeHandler {
         content.push(ContentItem::InputText { text: prompt_text });
 
         let input = ResponseInputItem::Message {
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content,
         };
 
@@ -81,7 +81,7 @@ impl ToolHandler for ImageAnalyzeHandler {
             .await
             .map_err(|_| {
                 FunctionCallError::RespondToModel(
-                    "unable to attach image for analysis (no active task)".to_string(),
+                    "unable to attach image for analysis (no active task)".to_owned(),
                 )
             })?;
 

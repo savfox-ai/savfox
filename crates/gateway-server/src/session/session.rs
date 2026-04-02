@@ -74,10 +74,10 @@ impl GatewaySessionManager {
 
     /// Register a new session.
     pub async fn add_session(&self, session: ClientSession) {
-        let id = session.id.clone();
+        let id = session.id;
         let session = Arc::new(RwLock::new(session));
         let mut sessions = self.sessions.write().await;
-        sessions.insert(id.clone(), session);
+        sessions.insert(id, session);
         info!(session_id = %id, "client session registered");
     }
 
@@ -101,11 +101,10 @@ impl GatewaySessionManager {
         for session_arc in sessions.values() {
             let session = session_arc.read().await;
             if session.subscribed_to_logs {
-                if let Some(ref filter) = session.log_level_filter {
-                    if !Self::log_level_matches(level, filter) {
+                if let Some(ref filter) = session.log_level_filter
+                    && !Self::log_level_matches(level, filter) {
                         continue;
                     }
-                }
                 let seq = session.next_seq();
                 let msg = GatewayMessage::Event {
                     event: "log".to_owned(),

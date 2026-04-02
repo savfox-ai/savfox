@@ -83,7 +83,7 @@ pub fn format_exec_output_for_model_freeform(
         sections.push(format!("Total output lines: {total_lines}"));
     }
 
-    sections.push("Output:".to_string());
+    sections.push("Output:".to_owned());
     sections.push(formatted_output);
 
     sections.join("\n")

@@ -1185,15 +1185,14 @@ fn heartbeat_agent_from_params(params: &Value) -> String {
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("default")
-        .to_string()
+        .unwrap_or("default").to_owned()
 }
 
 async fn load_heartbeat_settings(channel: &GatewayChannel) -> HeartbeatSettingsDocument {
     let path = heartbeat_config_path(channel);
     let content = tokio::fs::read_to_string(&path)
         .await
-        .unwrap_or_else(|_| "{}".to_string());
+        .unwrap_or_else(|_| "{}".to_owned());
     serde_json::from_str::<HeartbeatSettingsDocument>(&content).unwrap_or_default()
 }
 
@@ -1333,8 +1332,8 @@ pub(crate) async fn handle_system_event(
             let elapsed = now_ms.saturating_sub(state.last_delivered_ms);
             if elapsed < settings.coalesce_window_ms {
                 state.pending = Some(PendingHeartbeatEvent {
-                    event_type: event_type.to_string(),
-                    text: text.to_string(),
+                    event_type: event_type.to_owned(),
+                    text: text.to_owned(),
                     timestamp: timestamp.clone(),
                 });
                 if !state.flush_scheduled {
@@ -1505,7 +1504,7 @@ pub(crate) async fn handle_system_disconnect(
     let session_id_str = params
         .get("session_id")
         .and_then(|v| v.as_str())
-        .ok_or((INVALID_REQUEST, "missing session_id".to_string()))?;
+        .ok_or((INVALID_REQUEST, "missing session_id".to_owned()))?;
 
     let session_id = SessionId::from_string(session_id_str)
         .map_err(|e| (INVALID_REQUEST, format!("invalid session_id: {e}")))?;
@@ -1528,7 +1527,7 @@ pub(crate) async fn handle_system_kick(
     let session_id_str = params
         .get("session_id")
         .and_then(|v| v.as_str())
-        .ok_or((INVALID_REQUEST, "missing session_id".to_string()))?;
+        .ok_or((INVALID_REQUEST, "missing session_id".to_owned()))?;
 
     let reason = opt_str(params, "reason", "kicked by operator");
 

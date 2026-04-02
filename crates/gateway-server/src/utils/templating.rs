@@ -22,8 +22,9 @@ fn format_value(value: &serde_json::Value) -> String {
     }
 }
 
+#[must_use] 
 pub fn apply_template(template: &str, ctx: &TemplateContext) -> String {
-    let mut result = template.to_string();
+    let mut result = template.to_owned();
     let mut start = 0;
 
     while let Some(open) = result[start..].find("{{") {

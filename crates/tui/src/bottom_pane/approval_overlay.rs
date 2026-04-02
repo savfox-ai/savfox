@@ -103,11 +103,11 @@ impl ApprovalOverlay {
                 ..
             } => (
                 exec_options(proposed_execpolicy_amendment.clone(), features),
-                "Would you like to run the following command?".to_string(),
+                "Would you like to run the following command?".to_owned(),
             ),
             ApprovalVariant::ApplyPatch { .. } => (
                 patch_options(),
-                "Would you like to make the following edits?".to_string(),
+                "Would you like to make the following edits?".to_owned(),
             ),
             ApprovalVariant::McpElicitation { server_name, .. } => (
                 elicitation_options(),
@@ -185,7 +185,7 @@ impl ApprovalOverlay {
         let cell = history_cell::new_approval_decision_cell(command.to_vec(), decision.clone());
         self.app_event_tx.send(AppEvent::InsertHistoryCell(cell));
         self.app_event_tx.send(AppEvent::SavfoxOp(Op::ExecApproval {
-            id: id.to_string(),
+            id: id.to_owned(),
             decision,
         }));
     }
@@ -193,7 +193,7 @@ impl ApprovalOverlay {
     fn handle_patch_decision(&self, id: &str, decision: ReviewDecision) {
         self.app_event_tx
             .send(AppEvent::SavfoxOp(Op::PatchApproval {
-                id: id.to_string(),
+                id: id.to_owned(),
                 decision,
             }));
     }
@@ -206,7 +206,7 @@ impl ApprovalOverlay {
     ) {
         self.app_event_tx
             .send(AppEvent::SavfoxOp(Op::ResolveElicitation {
-                server_name: server_name.to_string(),
+                server_name: server_name.to_owned(),
                 request_id: request_id.clone(),
                 decision,
             }));
@@ -470,7 +470,7 @@ fn exec_options(
     features: &Features,
 ) -> Vec<ApprovalOption> {
     vec![ApprovalOption {
-        label: "Yes, proceed (y)".to_string(),
+        label: "Yes, proceed (y)".to_owned(),
         decision: ApprovalDecision::Review(ReviewDecision::Approved),
         display_shortcut: None,
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
@@ -498,7 +498,7 @@ fn exec_options(
             }),
     )
     .chain([ApprovalOption {
-        label: "No, tell Savfox what to do differently (n)".to_string(),
+        label: "No, tell Savfox what to do differently (n)".to_owned(),
         decision: ApprovalDecision::Review(ReviewDecision::Abort),
         display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -509,19 +509,19 @@ fn exec_options(
 fn patch_options() -> Vec<ApprovalOption> {
     vec![
         ApprovalOption {
-            label: "Yes, proceed (y)".to_string(),
+            label: "Yes, proceed (y)".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::Approved),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "Yes, don't ask again for these files (a)".to_string(),
+            label: "Yes, don't ask again for these files (a)".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::ApprovedForSession),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('a'))],
         },
         ApprovalOption {
-            label: "No, tell Savfox what to do differently (n)".to_string(),
+            label: "No, tell Savfox what to do differently (n)".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::Abort),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -532,19 +532,19 @@ fn patch_options() -> Vec<ApprovalOption> {
 fn elicitation_options() -> Vec<ApprovalOption> {
     vec![
         ApprovalOption {
-            label: "Yes, provide the requested info (y)".to_string(),
+            label: "Yes, provide the requested info (y)".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Accept),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "No, but continue without it (n)".to_string(),
+            label: "No, but continue without it (n)".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Decline),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
         },
         ApprovalOption {
-            label: "Cancel this request (c)".to_string(),
+            label: "Cancel this request (c)".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Cancel),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('c'))],

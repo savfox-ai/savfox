@@ -707,12 +707,9 @@ impl BottomPane {
     /// Called when the agent requests user approval.
     pub fn push_approval_request(&mut self, request: ApprovalRequest, features: &Features) {
         let request = if let Some(view) = self.view_stack.last_mut() {
-            match view.try_consume_approval_request(request) {
-                Some(request) => request,
-                None => {
-                    self.request_redraw();
-                    return;
-                }
+            if let Some(request) = view.try_consume_approval_request(request) { request } else {
+                self.request_redraw();
+                return;
             }
         } else {
             request
@@ -727,12 +724,9 @@ impl BottomPane {
     /// Called when the agent requests user input.
     pub fn push_user_input_request(&mut self, request: RequestUserInputEvent) {
         let request = if let Some(view) = self.view_stack.last_mut() {
-            match view.try_consume_user_input_request(request) {
-                Some(request) => request,
-                None => {
-                    self.request_redraw();
-                    return;
-                }
+            if let Some(request) = view.try_consume_user_input_request(request) { request } else {
+                self.request_redraw();
+                return;
             }
         } else {
             request
@@ -748,7 +742,7 @@ impl BottomPane {
         self.pause_status_timer_for_modal();
         self.set_composer_input_enabled(
             false,
-            Some("Answer the questions to continue.".to_string()),
+            Some("Answer the questions to continue.".to_owned()),
         );
         self.push_view(Box::new(modal));
     }

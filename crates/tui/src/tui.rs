@@ -139,8 +139,8 @@ pub enum RestoreMode {
 impl RestoreMode {
     fn restore(self) -> Result<()> {
         match self {
-            RestoreMode::Full => restore(),
-            RestoreMode::KeepRaw => restore_keep_raw(),
+            Self::Full => restore(),
+            Self::KeepRaw => restore_keep_raw(),
         }
     }
 }
@@ -346,7 +346,7 @@ impl Tui {
             return false;
         };
 
-        let message = message.as_ref().to_string();
+        let message = message.as_ref().to_owned();
         match backend.notify(&message) {
             Ok(()) => true,
             Err(err) => {

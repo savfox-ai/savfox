@@ -117,7 +117,7 @@ pub(crate) async fn handle_skills_update(
     let name = require_str(params, "name")?;
     let enabled = params.get("enabled").and_then(|v| v.as_bool());
     let Some(enabled) = enabled else {
-        return Err((INVALID_PARAMS, "missing 'enabled' parameter".to_string()));
+        return Err((INVALID_PARAMS, "missing 'enabled' parameter".to_owned()));
     };
     skills_store::set_enabled(&channel.config().savfox_home, name, enabled)
         .await
@@ -139,9 +139,9 @@ pub(crate) async fn handle_skills_install_url(
     params: &Value,
     channel: &Arc<GatewayChannel>,
 ) -> RpcResult {
-    let url = require_str(params, "url")?.trim().to_string();
+    let url = require_str(params, "url")?.trim().to_owned();
     if url.is_empty() {
-        return Err((INVALID_PARAMS, "url must not be empty".to_string()));
+        return Err((INVALID_PARAMS, "url must not be empty".to_owned()));
     }
 
     // Derive a skill folder name from the URL as {domain}/{restpath}
@@ -157,7 +157,7 @@ pub(crate) async fn handle_skills_install_url(
     if name.is_empty() || name == "." || name == ".." {
         return Err((
             INVALID_PARAMS,
-            "could not derive skill name from url".to_string(),
+            "could not derive skill name from url".to_owned(),
         ));
     }
 
@@ -179,7 +179,7 @@ pub(crate) async fn handle_skills_install_url(
             subdir: params
                 .get("subdir")
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+                .map(|s| s.to_owned()),
         },
         installed: false,
         installed_version: None,
@@ -231,7 +231,7 @@ pub(crate) async fn handle_skills_install_url(
     } else {
         Err((
             INTERNAL_ERROR,
-            result.error.unwrap_or_else(|| "unknown error".to_string()),
+            result.error.unwrap_or_else(|| "unknown error".to_owned()),
         ))
     }
 }
@@ -299,7 +299,7 @@ pub(crate) async fn handle_exec_approvals_get(channel: &Arc<GatewayChannel>) -> 
         })?;
     let count = approvals.len();
     Ok(json!({
-        "mode": policy.get("mode").cloned().unwrap_or(Value::String("auto".to_string())),
+        "mode": policy.get("mode").cloned().unwrap_or(Value::String("auto".to_owned())),
         "rules": policy.get("rules").cloned().unwrap_or(Value::Array(Vec::new())),
         "approvals": approvals,
         "count": count,
@@ -454,18 +454,18 @@ fn load_approval_forwarding_config() -> ApprovalForwardingConfig {
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let mode = std::env::var("SAVFOX_APPROVAL_MODE").unwrap_or_else(|_| "targets".to_string());
+    let mode = std::env::var("SAVFOX_APPROVAL_MODE").unwrap_or_else(|_| "targets".to_owned());
 
     let targets = std::env::var("SAVFOX_APPROVAL_TARGETS")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     let agent_filter = std::env::var("SAVFOX_APPROVAL_AGENT_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     let session_filter = std::env::var("SAVFOX_APPROVAL_SESSION_FILTER")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).collect())
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).collect())
         .unwrap_or_default();
 
     ApprovalForwardingConfig {

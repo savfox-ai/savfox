@@ -78,8 +78,8 @@ pub(crate) enum ContentPart {
 impl MessageContent {
     pub(crate) fn to_texts(&self) -> Vec<String> {
         match self {
-            MessageContent::Text(t) => vec![t.clone()],
-            MessageContent::Parts(parts) => parts
+            Self::Text(t) => vec![t.clone()],
+            Self::Parts(parts) => parts
                 .iter()
                 .filter_map(|p| match p {
                     ContentPart::Text { text } => Some(text.clone()),
@@ -183,7 +183,7 @@ fn unix_timestamp() -> u64 {
 
 fn parse_embedded_delta_object(value: &Value) -> Option<EmbeddedDelta> {
     let kind = value.get("type").and_then(Value::as_str)?;
-    let text = value.get("text").and_then(Value::as_str)?.to_string();
+    let text = value.get("text").and_then(Value::as_str)?.to_owned();
     let kind = match kind {
         "text" => EmbeddedDeltaKind::Text,
         "reasoning_text" => EmbeddedDeltaKind::Reasoning,
@@ -254,7 +254,7 @@ fn decode_stream_delta(delta_text: &str) -> Vec<EmbeddedDelta> {
     let Some(parts) = split_top_level_json_objects(delta_text) else {
         return vec![EmbeddedDelta {
             kind: EmbeddedDeltaKind::Text,
-            text: delta_text.to_string(),
+            text: delta_text.to_owned(),
         }];
     };
 
@@ -263,13 +263,13 @@ fn decode_stream_delta(delta_text: &str) -> Vec<EmbeddedDelta> {
         let Ok(value) = serde_json::from_str::<Value>(part) else {
             return vec![EmbeddedDelta {
                 kind: EmbeddedDeltaKind::Text,
-                text: delta_text.to_string(),
+                text: delta_text.to_owned(),
             }];
         };
         let Some(segment) = parse_embedded_delta_object(&value) else {
             return vec![EmbeddedDelta {
                 kind: EmbeddedDeltaKind::Text,
-                text: delta_text.to_string(),
+                text: delta_text.to_owned(),
             }];
         };
         decoded.push(segment);
@@ -308,23 +308,17 @@ struct ModelListResponse {
 #[handler]
 pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     // Auth
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let token = match extract_bearer_token(req) {
-        Some(t) => t,
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(
-                json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
-            ));
-            return;
-        }
+    let token = if let Some(t) = extract_bearer_token(req) { t } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(
+            json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
+        ));
+        return;
     };
 
     if auth.validate(&token).await.is_none() {
@@ -336,12 +330,9 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
         return;
     }
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let models = channel.list_models().await;
@@ -350,10 +341,10 @@ pub(crate) async fn models_list_handler(req: &mut Request, depot: &mut Depot, re
     let data: Vec<ModelObject> = models
         .into_iter()
         .map(|m| ModelObject {
-            id: m.clone(),
+            id: m,
             object: "model",
             created,
-            owned_by: "savfox".to_string(),
+            owned_by: "savfox".to_owned(),
         })
         .collect();
 
@@ -377,23 +368,17 @@ pub(crate) async fn chat_completions_handler(
     res: &mut Response,
 ) {
     // Auth
-    let auth = match depot.obtain::<Arc<GatewayAuth>>() {
-        Ok(a) => a.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let auth = if let Ok(a) = depot.obtain::<Arc<GatewayAuth>>() { a.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
-    let token = match extract_bearer_token(req) {
-        Some(t) => t,
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(
-                json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
-            ));
-            return;
-        }
+    let token = if let Some(t) = extract_bearer_token(req) { t } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(
+            json!({"error": {"message": "missing Authorization header", "type": "invalid_request_error"}}).to_string(),
+        ));
+        return;
     };
 
     if auth.validate(&token).await.is_none() {
@@ -417,19 +402,13 @@ pub(crate) async fn chat_completions_handler(
         }
     };
 
-    let channel = match depot.obtain::<Arc<GatewayChannel>>() {
-        Ok(b) => b.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let channel = if let Ok(b) = depot.obtain::<Arc<GatewayChannel>>() { b.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
-    let session_store = match depot.obtain::<Arc<SessionStore>>() {
-        Ok(store) => store.clone(),
-        Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            return;
-        }
+    let session_store = if let Ok(store) = depot.obtain::<Arc<SessionStore>>() { store.clone() } else {
+        res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+        return;
     };
 
     let completion_id = generate_completion_id();
@@ -526,13 +505,13 @@ async fn handle_non_streaming(
         choices: vec![Choice {
             index: 0,
             message: ChatMessage {
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: MessageContent::Text(reply),
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
             },
-            finish_reason: Some("stop".to_string()),
+            finish_reason: Some("stop".to_owned()),
         }],
         usage: Usage {
             prompt_tokens,
@@ -580,10 +559,10 @@ async fn handle_streaming(
         "text/event-stream; charset=utf-8".parse().unwrap(),
     );
 
-    let cid = completion_id.clone();
-    let m = model.clone();
-    let sid = session_id.clone();
-    let session_store_for_task = session_store.clone();
+    let cid = completion_id;
+    let m = model;
+    let sid = session_id;
+    let session_store_for_task = session_store;
     let savfox_home = channel.config().savfox_home.clone();
     tokio::spawn(async move {
         // First chunk: role announcement.
@@ -595,7 +574,7 @@ async fn handle_streaming(
             choices: vec![StreamChoice {
                 index: 0,
                 delta: DeltaMessage {
-                    role: Some("assistant".to_string()),
+                    role: Some("assistant".to_owned()),
                     content: None,
                     reasoning_content: None,
                 },
@@ -683,7 +662,7 @@ async fn handle_streaming(
                             content: None,
                             reasoning_content: None,
                         },
-                        finish_reason: Some("stop".to_string()),
+                        finish_reason: Some("stop".to_owned()),
                     }],
                 };
                 if let Ok(json) = serde_json::to_string(&done_chunk) {

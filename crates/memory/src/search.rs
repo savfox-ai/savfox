@@ -8,6 +8,7 @@ pub struct HybridSearch {
 }
 
 impl HybridSearch {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             vector_weight: 0.7,
@@ -15,6 +16,7 @@ impl HybridSearch {
         }
     }
 
+    #[must_use] 
     pub fn with_weights(vector_weight: f32, keyword_weight: f32) -> Self {
         Self {
             vector_weight,
@@ -30,7 +32,7 @@ impl HybridSearch {
         limit: usize,
     ) -> Result<Vec<MemorySearchResult>, SearchError> {
         let embedding_result = provider
-            .embed(&[query.to_string()])
+            .embed(&[query.to_owned()])
             .await
             .map_err(|e| SearchError::EmbeddingError(e.to_string()))?;
 
@@ -166,7 +168,7 @@ fn create_snippet(content: &str) -> String {
     let content = content.trim();
 
     if content.len() <= SNIPPET_MAX_CHARS {
-        return content.to_string();
+        return content.to_owned();
     }
 
     let snippet = &content[..SNIPPET_MAX_CHARS];
@@ -174,7 +176,7 @@ fn create_snippet(content: &str) -> String {
     if let Some(last_space) = snippet.rfind(' ') {
         format!("{}...", &snippet[..last_space])
     } else {
-        format!("{}...", snippet)
+        format!("{snippet}...")
     }
 }
 
@@ -187,6 +189,7 @@ pub enum SearchError {
     StorageError(String),
 }
 
+#[must_use] 
 pub fn build_fts_query(query: &str) -> String {
     let terms: Vec<&str> = query.split_whitespace().filter(|t| t.len() > 2).collect();
 

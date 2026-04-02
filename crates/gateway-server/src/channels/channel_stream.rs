@@ -128,11 +128,10 @@ impl ChannelStreamWriter {
         }
 
         // Delete status if never deleted (no deltas received at all).
-        if !status_deleted {
-            if let Some(ref sid) = self.status_msg_id {
+        if !status_deleted
+            && let Some(ref sid) = self.status_msg_id {
                 self.sink.delete_message(sid).await;
             }
-        }
 
         // Final flush with footer.
         if let Some(footer) = &completed_footer {
@@ -829,7 +828,7 @@ pub(crate) async fn create_stream_sink(
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
             {
-                t.to_string()
+                t.to_owned()
             } else if let (Some(app_id), Some(app_secret)) = (
                 cfg.app_id
                     .as_deref()
@@ -896,23 +895,20 @@ pub(crate) async fn create_stream_sink(
 
             // Determine target: DM (need user_id) or group (need conversation_id).
             let chat_type = ctx.and_then(|c| c.chat_type);
-            let target = match chat_type {
-                Some("dm") | Some("private") | Some("direct") | Some("single") => {
-                    let user_id = ctx
-                        .and_then(|c| c.peer_id)
-                        .filter(|v| !v.trim().is_empty())?;
-                    DingtalkTarget::Dm {
-                        user_id: user_id.to_string(),
-                    }
+            let target = if let Some("dm" | "private" | "direct" | "single") = chat_type {
+                let user_id = ctx
+                    .and_then(|c| c.peer_id)
+                    .filter(|v| !v.trim().is_empty())?;
+                DingtalkTarget::Dm {
+                    user_id: user_id.to_owned(),
                 }
-                _ => {
-                    // Group chat or unknown — use conversation_id from thread_id.
-                    let conversation_id = ctx
-                        .and_then(|c| c.thread_id)
-                        .filter(|v| !v.trim().is_empty())?;
-                    DingtalkTarget::Group {
-                        conversation_id: conversation_id.to_string(),
-                    }
+            } else {
+                // Group chat or unknown — use conversation_id from thread_id.
+                let conversation_id = ctx
+                    .and_then(|c| c.thread_id)
+                    .filter(|v| !v.trim().is_empty())?;
+                DingtalkTarget::Group {
+                    conversation_id: conversation_id.to_owned(),
                 }
             };
 
@@ -920,7 +916,7 @@ pub(crate) async fn create_stream_sink(
                 client,
                 cfg.openapi_host.clone(),
                 access_token,
-                client_id.to_string(),
+                client_id.to_owned(),
                 target,
             )))
         }

@@ -63,10 +63,10 @@ struct WizardState {
 impl Default for WizardState {
     fn default() -> Self {
         Self {
-            provider: "openai".to_string(),
+            provider: "openai".to_owned(),
             api_key: None,
-            model: "gpt-4.1".to_string(),
-            channel_type: Some("webhook".to_string()),
+            model: "gpt-4.1".to_owned(),
+            channel_type: Some("webhook".to_owned()),
             api_key_valid: None,
         }
     }
@@ -165,14 +165,14 @@ fn prompt_input(prompt: &str) -> std::io::Result<String> {
     std::io::stdout().flush()?;
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
-    Ok(input.trim().to_string())
+    Ok(input.trim().to_owned())
 }
 
 fn prompt_input_default(prompt: &str, default: &str) -> std::io::Result<String> {
     let full_prompt = format!("{prompt} [{default}]: ");
     let input = prompt_input(&full_prompt)?;
     if input.is_empty() {
-        Ok(default.to_string())
+        Ok(default.to_owned())
     } else {
         Ok(input)
     }
@@ -198,15 +198,15 @@ struct ProviderOption {
 
 fn canonical_provider_alias(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
-        "zhipu" | "zhipu-ai" => "zhipuai".to_string(),
-        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_string(),
-        "together" | "together-ai" => "togetherai".to_string(),
-        "gemini" => "google".to_string(),
-        "bedrock" => "amazon-bedrock".to_string(),
-        "qwen" => "alibaba".to_string(),
-        "googlevertex" | "google_vertex" => "google-vertex".to_string(),
-        "google_vertex_anthropic" => "google-vertex-anthropic".to_string(),
-        other => other.to_string(),
+        "zhipu" | "zhipu-ai" => "zhipuai".to_owned(),
+        "zhipu-coding-plan" | "zhipu-ai-coding-plan" => "zhipuai-coding-plan".to_owned(),
+        "together" | "together-ai" => "togetherai".to_owned(),
+        "gemini" => "google".to_owned(),
+        "bedrock" => "amazon-bedrock".to_owned(),
+        "qwen" => "alibaba".to_owned(),
+        "googlevertex" | "google_vertex" => "google-vertex".to_owned(),
+        "google_vertex_anthropic" => "google-vertex-anthropic".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -216,7 +216,7 @@ fn provider_options() -> Vec<ProviderOption> {
     let mut ordered_ids: Vec<String> = Vec::new();
     for provider_id in WIZARD_PROVIDER_PRIORITY {
         if model_providers.contains_key(provider_id) {
-            ordered_ids.push(provider_id.to_string());
+            ordered_ids.push(provider_id.to_owned());
         }
     }
 
@@ -315,7 +315,7 @@ fn provider_env_var(provider: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return Some(env_key.to_string());
+        return Some(env_key.to_owned());
     }
 
     if let Some(headers) = &info.env_http_headers {
@@ -477,7 +477,7 @@ fn step_provider_selection(state: &mut WizardState, non_interactive: bool) -> an
         }
 
         if !trimmed.is_empty() {
-            query = trimmed.to_string();
+            query = trimmed.to_owned();
             println!();
             continue;
         }
@@ -511,21 +511,20 @@ fn step_api_key(state: &mut WizardState, non_interactive: bool) -> anyhow::Resul
 
     let env_var = provider_env_var(&state.provider)
         .unwrap_or_else(|| fallback_env_var_for_provider(&state.provider));
-    if let Ok(existing) = std::env::var(env_var.as_str()) {
-        if api_key_looks_valid(&state.provider, &existing) {
+    if let Ok(existing) = std::env::var(env_var.as_str())
+        && api_key_looks_valid(&state.provider, &existing) {
             let masked = if existing.len() > 8 {
                 format!("{}...{}", &existing[..4], &existing[existing.len() - 4..])
             } else {
-                "****".to_string()
+                "****".to_owned()
             };
-            println!("Found existing key in {}: {}", env_var, masked);
+            println!("Found existing key in {env_var}: {masked}");
             if non_interactive || prompt_yes_no("Use this key?", true)? {
                 state.api_key = Some(existing);
                 println!();
                 return Ok(());
             }
         }
-    }
 
     if non_interactive {
         anyhow::bail!(
@@ -536,7 +535,7 @@ fn step_api_key(state: &mut WizardState, non_interactive: bool) -> anyhow::Resul
     }
 
     loop {
-        let key = prompt_input(&format!("Enter {}: ", env_var))?;
+        let key = prompt_input(&format!("Enter {env_var}: "))?;
         if key.is_empty() {
             println!("API key is required for provider '{}'.", state.provider);
             continue;
@@ -595,7 +594,7 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
                 println!("Model cannot be empty.");
                 continue;
             }
-            state.model = model.trim().to_string();
+            state.model = model.trim().to_owned();
             println!("Selected model: {}", state.model);
             println!();
             return Ok(());
@@ -613,7 +612,7 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
             .ok()
             .filter(|v| !v.trim().is_empty())
             .or_else(|| (!state.model.trim().is_empty()).then_some(state.model.clone()))
-            .unwrap_or_else(|| models[0].0.to_string());
+            .unwrap_or_else(|| models[0].0.to_owned());
         state.model = model;
         println!("Using model: {}", state.model);
         println!();
@@ -626,11 +625,11 @@ fn step_model_selection(state: &mut WizardState, non_interactive: bool) -> anyho
             && index >= 1
             && index <= models.len()
         {
-            state.model = models[index - 1].0.to_string();
+            state.model = models[index - 1].0.to_owned();
             break;
         }
         if !choice.trim().is_empty() {
-            state.model = choice.trim().to_string();
+            state.model = choice.trim().to_owned();
             break;
         }
         println!("Model cannot be empty.");
@@ -652,7 +651,7 @@ fn step_channel_config(state: &mut WizardState, non_interactive: bool) -> anyhow
         let channel = std::env::var("SAVFOX_WIZARD_CHANNEL")
             .ok()
             .and_then(|v| normalize_channel(&v))
-            .unwrap_or_else(|| "webhook".to_string());
+            .unwrap_or_else(|| "webhook".to_owned());
         state.channel_type = Some(channel.clone());
         println!("Using channel: {channel}");
         println!();
@@ -690,7 +689,7 @@ async fn run_connection_probe(state: &WizardState) -> anyhow::Result<bool> {
     let key = state
         .api_key
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("missing API key for provider '{}'", provider))?;
+        .ok_or_else(|| anyhow::anyhow!("missing API key for provider '{provider}'"))?;
 
     let response = match provider {
         "openai" => {
@@ -778,13 +777,13 @@ fn step_summary(state: &WizardState, savfox_home: &Path, first_run: bool) {
     println!(
         "  API key:     {}",
         match state.api_key_valid {
-            Some(true) => "configured and verified".to_string(),
-            Some(false) => "configured but not verified".to_string(),
+            Some(true) => "configured and verified".to_owned(),
+            Some(false) => "configured but not verified".to_owned(),
             None => {
                 if provider_requires_api_key(&state.provider) {
-                    "required but missing".to_string()
+                    "required but missing".to_owned()
                 } else {
-                    "not required".to_string()
+                    "not required".to_owned()
                 }
             }
         }

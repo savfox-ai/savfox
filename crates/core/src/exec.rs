@@ -66,26 +66,26 @@ pub enum ExecExpiration {
 
 impl From<Option<u64>> for ExecExpiration {
     fn from(timeout_ms: Option<u64>) -> Self {
-        timeout_ms.map_or(ExecExpiration::DefaultTimeout, |timeout_ms| {
-            ExecExpiration::Timeout(Duration::from_millis(timeout_ms))
+        timeout_ms.map_or(Self::DefaultTimeout, |timeout_ms| {
+            Self::Timeout(Duration::from_millis(timeout_ms))
         })
     }
 }
 
 impl From<u64> for ExecExpiration {
     fn from(timeout_ms: u64) -> Self {
-        ExecExpiration::Timeout(Duration::from_millis(timeout_ms))
+        Self::Timeout(Duration::from_millis(timeout_ms))
     }
 }
 
 impl ExecExpiration {
     async fn wait(self) {
         match self {
-            ExecExpiration::Timeout(duration) => tokio::time::sleep(duration).await,
-            ExecExpiration::DefaultTimeout => {
+            Self::Timeout(duration) => tokio::time::sleep(duration).await,
+            Self::DefaultTimeout => {
                 tokio::time::sleep(Duration::from_millis(DEFAULT_EXEC_COMMAND_TIMEOUT_MS)).await
             }
-            ExecExpiration::Cancellation(cancel) => {
+            Self::Cancellation(cancel) => {
                 cancel.cancelled().await;
             }
         }
@@ -94,9 +94,9 @@ impl ExecExpiration {
     /// If ExecExpiration is a timeout, returns the timeout in milliseconds.
     pub(crate) fn timeout_ms(&self) -> Option<u64> {
         match self {
-            ExecExpiration::Timeout(duration) => Some(duration.as_millis() as u64),
-            ExecExpiration::DefaultTimeout => Some(DEFAULT_EXEC_COMMAND_TIMEOUT_MS),
-            ExecExpiration::Cancellation(_) => None,
+            Self::Timeout(duration) => Some(duration.as_millis() as u64),
+            Self::DefaultTimeout => Some(DEFAULT_EXEC_COMMAND_TIMEOUT_MS),
+            Self::Cancellation(_) => None,
         }
     }
 }
@@ -462,11 +462,11 @@ pub(crate) mod errors {
         fn from(err: SandboxTransformError) -> Self {
             match err {
                 SandboxTransformError::MissingLinuxSandboxExecutable => {
-                    SavfoxError::LandlockSandboxExecutableNotProvided
+                    Self::LandlockSandboxExecutableNotProvided
                 }
                 #[cfg(not(target_os = "macos"))]
-                SandboxTransformError::SeatbeltUnavailable => SavfoxError::UnsupportedOperation(
-                    "seatbelt sandbox is only available on macOS".to_string(),
+                SandboxTransformError::SeatbeltUnavailable => Self::UnsupportedOperation(
+                    "seatbelt sandbox is only available on macOS".to_owned(),
                 ),
             }
         }
@@ -551,6 +551,7 @@ struct RawExecToolCallOutput {
 }
 
 impl StreamOutput<String> {
+    #[must_use] 
     pub fn new(text: String) -> Self {
         Self {
             text,
@@ -560,6 +561,7 @@ impl StreamOutput<String> {
 }
 
 impl StreamOutput<Vec<u8>> {
+    #[must_use] 
     pub fn from_utf8_lossy(&self) -> StreamOutput<String> {
         StreamOutput {
             text: bytes_to_string_smart(&self.text),
