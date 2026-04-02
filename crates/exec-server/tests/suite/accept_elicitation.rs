@@ -12,8 +12,8 @@ use maplit::hashset;
 use pretty_assertions::assert_eq;
 use rmcp::ServiceExt;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, CreateElicitationRequestParams, EmptyResult, ServerResult,
-    object,
+    CallToolRequestParam, CallToolResult, CreateElicitationRequestParams, EmptyResult,
+    ServerResult, object,
 };
 use savfox_exec_server::ExecResult;
 use serde_json::json;
@@ -132,9 +132,7 @@ prefix_rule(
             CreateElicitationRequestParams::FormElicitationParams { message, .. } => {
                 message.clone()
             }
-            CreateElicitationRequestParams::UrlElicitationParams { message, .. } => {
-                message.clone()
-            }
+            CreateElicitationRequestParams::UrlElicitationParams { message, .. } => message.clone(),
         })
         .collect::<Vec<_>>();
     assert_eq!(vec![expected_elicitation_message], elicitation_messages);
