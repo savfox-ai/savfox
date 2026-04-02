@@ -795,7 +795,8 @@ async fn review_uses_overridden_cwd_for_base_branch_merge_base() {
     assert!(head_sha.status.success());
     let head_sha = String::from_utf8(head_sha.stdout)
         .expect("utf8 sha")
-        .trim().to_owned();
+        .trim()
+        .to_owned();
 
     let savfox_home = Arc::new(TempDir::new().unwrap());
     let initial_cwd_path = initial_cwd.path().to_path_buf();

@@ -51,7 +51,8 @@ fn assert_tool_names(body: &serde_json::Value, expected_names: &[&str]) {
                 t.get("name")
                     .and_then(|value| value.as_str())
                     .or_else(|| t.get("type").and_then(|value| value.as_str()))
-                    .unwrap().to_owned()
+                    .unwrap()
+                    .to_owned()
             })
             .collect::<Vec<_>>(),
         expected_names

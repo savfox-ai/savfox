@@ -978,7 +978,8 @@ mod tests {
     fn unexpected_status_cloudflare_html_is_simplified() {
         let err = UnexpectedResponseError {
             status: StatusCode::FORBIDDEN,
-            body: "<html><body>Cloudflare error: Sorry, you have been blocked</body></html>".to_owned(),
+            body: "<html><body>Cloudflare error: Sorry, you have been blocked</body></html>"
+                .to_owned(),
             url: Some("http://example.com/blocked".to_owned()),
             request_id: Some("ray-id".to_owned()),
         };

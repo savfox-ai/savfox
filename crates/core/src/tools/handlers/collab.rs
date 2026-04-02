@@ -721,9 +721,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel(
-                "Empty message can't be sent to an agent".to_owned()
-            )
+            FunctionCallError::RespondToModel("Empty message can't be sent to an agent".to_owned())
         );
     }
 
@@ -799,9 +797,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel(
-                "Empty message can't be sent to an agent".to_owned()
-            )
+            FunctionCallError::RespondToModel("Empty message can't be sent to an agent".to_owned())
         );
     }
 

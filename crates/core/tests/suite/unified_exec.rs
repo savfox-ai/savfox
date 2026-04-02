@@ -101,7 +101,8 @@ fn parse_unified_exec_output(raw: &str) -> Result<ParsedUnifiedExecOutput> {
     let output = captures
         .name("output")
         .expect("output group present")
-        .as_str().to_owned();
+        .as_str()
+        .to_owned();
 
     Ok(ParsedUnifiedExecOutput {
         chunk_id,
@@ -1313,7 +1314,9 @@ async fn unified_exec_defaults_to_pipe() -> Result<()> {
     skip_if_sandbox!(Ok(()));
     skip_if_windows!(Ok(()));
 
-    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) { path } else {
+    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) {
+        path
+    } else {
         eprintln!("python not found in PATH, skipping tty default test.");
         return Ok(());
     };
@@ -1399,7 +1402,9 @@ async fn unified_exec_can_enable_tty() -> Result<()> {
     skip_if_sandbox!(Ok(()));
     skip_if_windows!(Ok(()));
 
-    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) { path } else {
+    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) {
+        path
+    } else {
         eprintln!("python not found in PATH, skipping tty enable test.");
         return Ok(());
     };

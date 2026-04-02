@@ -1862,10 +1862,7 @@ async fn alt_up_edits_most_recent_queued_message() {
     chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT));
 
     // Composer should now contain the last queued message.
-    assert_eq!(
-        chat.bottom_pane.composer_text(),
-        "second queued".to_owned()
-    );
+    assert_eq!(chat.bottom_pane.composer_text(), "second queued".to_owned());
     // And the queue should now contain only the remaining (older) item.
     assert_eq!(chat.queued_user_messages.len(), 1);
     assert_eq!(

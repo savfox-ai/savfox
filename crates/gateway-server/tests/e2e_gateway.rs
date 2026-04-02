@@ -741,7 +741,8 @@ async fn chat_send_agent_response_message_delivery_e2e() {
     let response = send_result
         .get("response")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     assert!(
         response.contains("hello from mock agent"),
         "chat.send should return mocked agent response"
@@ -788,7 +789,8 @@ async fn cron_job_scheduling_e2e() {
     let id = add
         .get("id")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     assert!(!id.is_empty(), "cron.add should return id");
 
     let list = ws_rpc_call(&mut ws, 1302, "cron.list", json!({})).await;

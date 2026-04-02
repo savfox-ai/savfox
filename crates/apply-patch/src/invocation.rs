@@ -727,7 +727,8 @@ PATCH"#,
 @@
 -session directory content
 +updated session directory content
-*** End Patch"#.to_owned(),
+*** End Patch"#
+                .to_owned(),
         ];
 
         let result = maybe_parse_apply_patch_verified(&argv, session_dir.path());
@@ -743,7 +744,8 @@ PATCH"#,
                         unified_diff: r#"@@ -1 +1 @@
 -session directory content
 +updated session directory content
-"#.to_owned(),
+"#
+                        .to_owned(),
                         move_path: None,
                         new_content: "updated session directory content\n".to_owned(),
                     },

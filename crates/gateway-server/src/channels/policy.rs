@@ -299,10 +299,7 @@ mod tests {
             cfg.resolve("support", "telegram:1"),
             Some("friendly".to_owned())
         );
-        assert_eq!(
-            cfg.resolve("other", "slack:C01"),
-            Some("formal".to_owned())
-        );
+        assert_eq!(cfg.resolve("other", "slack:C01"), Some("formal".to_owned()));
         assert_eq!(
             cfg.resolve("other", "telegram:777"),
             Some("default style".to_owned())

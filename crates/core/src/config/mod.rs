@@ -3224,10 +3224,7 @@ url = "https://example.com/mcp"
                     transport: McpServerTransportConfig::StreamableHttp {
                         url: "https://example.com/mcp".to_owned(),
                         bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
-                        http_headers: Some(HashMap::from([(
-                            "X-Doc".to_owned(),
-                            "42".to_owned(),
-                        )])),
+                        http_headers: Some(HashMap::from([("X-Doc".to_owned(), "42".to_owned())])),
                         env_http_headers: Some(HashMap::from([(
                             "X-Auth".to_owned(),
                             "DOCS_AUTH".to_owned(),

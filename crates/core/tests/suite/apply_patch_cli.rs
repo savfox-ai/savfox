@@ -733,7 +733,8 @@ async fn apply_patch_cli_can_use_shell_command_output_as_patch_input() -> Result
             .split_once("Output:\n")
             .map(|x| x.1)
             .unwrap_or("")
-            .trim_end_matches('\n').to_owned()
+            .trim_end_matches('\n')
+            .to_owned()
     }
 
     fn function_call_output_text(body: &serde_json::Value, call_id: &str) -> String {
@@ -747,7 +748,8 @@ async fn apply_patch_cli_can_use_shell_command_output_as_patch_input() -> Result
                 })
             })
             .and_then(|item| item.get("output").and_then(serde_json::Value::as_str))
-            .expect("function_call_output output string").to_owned()
+            .expect("function_call_output output string")
+            .to_owned()
     }
 
     struct DynamicApplyFromRead {

@@ -80,7 +80,8 @@ fn read_http_request(
     let _method = parts.next().unwrap_or_default();
     let path = parts
         .next()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing path"))?.to_owned();
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing path"))?
+        .to_owned();
 
     let mut headers = HashMap::new();
     for line in lines {

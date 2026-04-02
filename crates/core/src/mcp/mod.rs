@@ -359,10 +359,7 @@ mod tests {
     fn group_tools_by_server_strips_prefix_and_groups() {
         let mut tools = HashMap::new();
         tools.insert("mcp__alpha__do_thing".to_owned(), make_tool("do_thing"));
-        tools.insert(
-            "mcp__alpha__nested__op".to_owned(),
-            make_tool("nested__op"),
-        );
+        tools.insert("mcp__alpha__nested__op".to_owned(), make_tool("nested__op"));
         tools.insert("mcp__beta__do_other".to_owned(), make_tool("do_other"));
 
         let mut expected_alpha = HashMap::new();

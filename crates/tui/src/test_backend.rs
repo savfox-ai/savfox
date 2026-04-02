@@ -21,7 +21,7 @@ pub struct VT100Backend {
 
 impl VT100Backend {
     /// Creates a new `TestBackend` with the specified width and height.
-    #[must_use] 
+    #[must_use]
     pub fn new(width: u16, height: u16) -> Self {
         crossterm::style::force_color_output(true);
         Self {
@@ -29,7 +29,7 @@ impl VT100Backend {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn vt100(&self) -> &vt100::Parser {
         self.crossterm_backend.writer()
     }

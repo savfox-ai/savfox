@@ -240,9 +240,7 @@ mod tests {
             ignore_default_excludes: true,
             ..Default::default()
         };
-        policy
-            .r#set
-            .insert("ONLY_VAR".to_owned(), "yes".to_owned());
+        policy.r#set.insert("ONLY_VAR".to_owned(), "yes".to_owned());
 
         let result = populate_env(vars, &policy);
         let expected: HashMap<String, String> = hashmap! {

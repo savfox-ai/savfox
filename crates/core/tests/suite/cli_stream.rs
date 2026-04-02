@@ -169,7 +169,8 @@ async fn exec_cli_applies_model_instructions_file() {
     let instructions = body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     assert!(
         instructions.contains(marker),
         "instructions did not contain custom marker; got: {instructions}"
@@ -515,7 +516,8 @@ async fn integration_git_info_unit_test() {
         .unwrap();
     let expected_remote_url = String::from_utf8(expected_remote_url.stdout)
         .unwrap()
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     assert_eq!(
         repo_url, &expected_remote_url,
         "Repository URL should match git remote get-url output"

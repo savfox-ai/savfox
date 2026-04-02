@@ -900,7 +900,8 @@ mod tests {
         // whatever URL Git reports instead of a fixed placeholder.
         let expected_remote = String::from_utf8(remote_url_output.stdout)
             .unwrap()
-            .trim().to_owned();
+            .trim()
+            .to_owned();
 
         // Should have repository URL
         assert_eq!(git_info.repository_url, Some(expected_remote));
@@ -973,7 +974,8 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim().to_owned();
+            .trim()
+            .to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -999,7 +1001,8 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim().to_owned();
+            .trim()
+            .to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -1042,7 +1045,8 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim().to_owned();
+            .trim()
+            .to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -1134,7 +1138,8 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim().to_owned();
+            .trim()
+            .to_owned();
 
         fs::write(repo_path.join("test.txt"), "updated").unwrap();
         Command::new("git")

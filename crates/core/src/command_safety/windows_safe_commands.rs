@@ -417,7 +417,8 @@ mod tests {
             "-NoLogo".to_owned(),
             "-NoProfile".to_owned(),
             "-Command".to_owned(),
-            "rg --files-with-matches foo | Measure-Object | Select-Object -ExpandProperty Count".to_owned()
+            "rg --files-with-matches foo | Measure-Object | Select-Object -ExpandProperty Count"
+                .to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[

@@ -81,7 +81,8 @@ fn body_contains_text(body: &str, text: &str) -> bool {
 fn json_fragment(text: &str) -> String {
     serde_json::to_string(text)
         .expect("serialize text to JSON")
-        .trim_matches('"').to_owned()
+        .trim_matches('"')
+        .to_owned()
 }
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
@@ -213,14 +214,16 @@ async fn summarize_context_three_requests_and_instructions() {
             let role = item
                 .get("role")
                 .and_then(|v| v.as_str())
-                .unwrap_or_default().to_owned();
+                .unwrap_or_default()
+                .to_owned();
             let text = item
                 .get("content")
                 .and_then(|v| v.as_array())
                 .and_then(|arr| arr.first())
                 .and_then(|entry| entry.get("text"))
                 .and_then(|v| v.as_str())
-                .unwrap_or_default().to_owned();
+                .unwrap_or_default()
+                .to_owned();
             messages.push((role, text));
         }
     }
@@ -1165,7 +1168,8 @@ async fn auto_compact_runs_after_token_limit_hit() {
     let baseline_instructions = body_first
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     assert_eq!(
         instructions, baseline_instructions,
         "auto compact should keep the standard developer instructions",

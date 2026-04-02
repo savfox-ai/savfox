@@ -529,10 +529,12 @@ async fn responses_stream_includes_turn_metadata_header_for_git_workspace_e2e() 
 
     let expected_head = String::from_utf8(run_git(&["rev-parse", "HEAD"]).stdout)
         .expect("git rev-parse output should be valid UTF-8")
-        .trim().to_owned();
+        .trim()
+        .to_owned();
     let expected_origin = String::from_utf8(run_git(&["remote", "get-url", "origin"]).stdout)
         .expect("git remote get-url output should be valid UTF-8")
-        .trim().to_owned();
+        .trim()
+        .to_owned();
 
     let repo_root = std::fs::canonicalize(cwd)
         .unwrap_or_else(|_| cwd.to_path_buf())

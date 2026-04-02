@@ -1328,17 +1328,20 @@ mod tests {
                 RequestUserInputQuestionOption {
                     label: "Discuss a code change".to_owned(),
                     description:
-                        "Walk through a plan, then implement it together with careful checks.".to_owned(),
+                        "Walk through a plan, then implement it together with careful checks."
+                            .to_owned(),
                 },
                 RequestUserInputQuestionOption {
                     label: "Run targeted tests".to_owned(),
                     description:
-                        "Pick the most relevant crate and validate the current behavior first.".to_owned(),
+                        "Pick the most relevant crate and validate the current behavior first."
+                            .to_owned(),
                 },
                 RequestUserInputQuestionOption {
                     label: "Review the diff".to_owned(),
                     description:
-                        "Summarize the changes and highlight the most important risks and gaps.".to_owned(),
+                        "Summarize the changes and highlight the most important risks and gaps."
+                            .to_owned(),
                 },
             ]),
         }

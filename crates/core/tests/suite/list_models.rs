@@ -187,7 +187,8 @@ fn gpt_5_2() -> ModelPreset {
         slug: "gpt-5.2".to_owned(),
         name: "gpt-5.2".to_owned(),
         description:
-            "Latest frontier model with improvements across knowledge, reasoning and coding".to_owned(),
+            "Latest frontier model with improvements across knowledge, reasoning and coding"
+                .to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(

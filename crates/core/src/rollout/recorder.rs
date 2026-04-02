@@ -671,7 +671,6 @@ fn extract_session_cwd(head: &[serde_json::Value]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use savfox_protocol::models::ContentItem;
-    
 
     use super::*;
 

@@ -173,7 +173,8 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     let initial_instructions = initial_body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
 
     let resumed_sse = sse(vec![
         ev_response_created("resp-resume"),
@@ -205,7 +206,8 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     let resumed_instructions = resumed_body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     assert_eq!(resumed_instructions, initial_instructions);
 
     Ok(())

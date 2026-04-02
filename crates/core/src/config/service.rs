@@ -676,8 +676,6 @@ fn find_effective_layer(
 mod tests {
     use anyhow::Result;
     use pretty_assertions::assert_eq;
-    
-    
     use tempfile::tempdir;
 
     use super::*;

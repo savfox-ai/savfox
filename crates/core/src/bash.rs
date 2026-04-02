@@ -247,10 +247,7 @@ mod tests {
         );
 
         let cmds2 = parse_seq("echo 'hi there'").unwrap();
-        assert_eq!(
-            cmds2,
-            vec![vec!["echo".to_owned(), "hi there".to_owned()]]
-        );
+        assert_eq!(cmds2, vec![vec!["echo".to_owned(), "hi there".to_owned()]]);
     }
 
     #[test]
@@ -290,11 +287,7 @@ mod tests {
         let cmds = parse_seq("echo 123 456").unwrap();
         assert_eq!(
             cmds,
-            vec![vec![
-                "echo".to_owned(),
-                "123".to_owned(),
-                "456".to_owned()
-            ]]
+            vec![vec!["echo".to_owned(), "123".to_owned(), "456".to_owned()]]
         );
     }
 

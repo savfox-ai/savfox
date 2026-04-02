@@ -503,8 +503,7 @@ mod tests {
             AgentRouter::extract_discord_roles(&["admin,mod".to_owned(), " ops ".to_owned()]);
         assert_eq!(roles, vec!["admin", "mod", "ops"]);
 
-        let groups =
-            AgentRouter::extract_slack_groups(&["eng,qa".to_owned(), "oncall".to_owned()]);
+        let groups = AgentRouter::extract_slack_groups(&["eng,qa".to_owned(), "oncall".to_owned()]);
         assert_eq!(groups, vec!["eng", "qa", "oncall"]);
     }
 }

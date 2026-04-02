@@ -688,7 +688,8 @@ fn test_update_file_chunk() {
     assert_eq!(
         parse_update_file_chunk(&["bad"], 123, false),
         Err(InvalidHunkError {
-            message: "Expected update hunk to start with a @@ context marker, got: 'bad'".to_owned(),
+            message: "Expected update hunk to start with a @@ context marker, got: 'bad'"
+                .to_owned(),
             line_number: 123
         })
     );

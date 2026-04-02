@@ -109,7 +109,8 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems".to_owned(),
+                    description: "Maximizes reasoning depth for complex or ambiguous problems"
+                        .to_owned(),
                 },
             ],
             default_reasoning_effort: ReasoningEffort::Medium,
@@ -122,21 +123,25 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
             slug: "gpt-5.2".to_owned(),
             name: "gpt-5.2".to_owned(),
             description:
-                "Latest frontier model with improvements across knowledge, reasoning and coding".to_owned(),
+                "Latest frontier model with improvements across knowledge, reasoning and coding"
+                    .to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Low,
                     description: "Balances speed with some reasoning; useful for straightforward \
-                                   queries and short explanations".to_owned(),
+                                   queries and short explanations"
+                        .to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Medium,
                     description: "Provides a solid balance of reasoning depth and latency for \
-                         general-purpose tasks".to_owned(),
+                         general-purpose tasks"
+                        .to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems".to_owned(),
+                    description: "Maximizes reasoning depth for complex or ambiguous problems"
+                        .to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::XHigh,

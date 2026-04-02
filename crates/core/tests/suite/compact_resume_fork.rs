@@ -40,7 +40,8 @@ fn body_contains_text(body: &str, text: &str) -> bool {
 fn json_fragment(text: &str) -> String {
     serde_json::to_string(text)
         .expect("serialize text to JSON")
-        .trim_matches('"').to_owned()
+        .trim_matches('"')
+        .to_owned()
 }
 
 fn filter_out_ghost_snapshot_entries(items: &[Value]) -> Vec<Value> {
@@ -193,26 +194,29 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
         &fork_arr[..compact_arr.len()]
     );
 
-    let expected_model = requests[0]["model"]
-        .as_str()
-        .unwrap_or_default().to_owned();
+    let expected_model = requests[0]["model"].as_str().unwrap_or_default().to_owned();
     let prompt = requests[0]["instructions"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let permissions_message = requests[0]["input"][0].clone();
     let user_instructions = requests[0]["input"][1]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let environment_context = requests[0]["input"][2]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let tool_calls = json!(requests[0]["tools"].as_array());
     let prompt_cache_key = requests[0]["prompt_cache_key"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let fork_prompt_cache_key = requests[requests.len() - 1]["prompt_cache_key"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let summary_after_compact = extract_summary_message(&requests[2], SUMMARY_TEXT);
     let summary_after_resume = extract_summary_message(&requests[3], SUMMARY_TEXT);
     let summary_after_fork = extract_summary_message(&requests[4], SUMMARY_TEXT);
@@ -715,14 +719,17 @@ async fn compact_resume_after_second_compaction_preserves_history() {
     // hard coded test
     let prompt = requests[0]["instructions"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let permissions_message = requests[0]["input"][0].clone();
     let user_instructions = requests[0]["input"][1]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
     let environment_instructions = requests[0]["input"][2]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default().to_owned();
+        .unwrap_or_default()
+        .to_owned();
 
     // Build expected final request input: initial context + forked user message +
     // compacted summary + post-compact user message + resumed user message.

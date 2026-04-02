@@ -921,10 +921,7 @@ foo = "xyzzy"
             "provider".to_owned(),
             TomlValue::String("openai".to_owned()),
         );
-        model.insert(
-            "slug".to_owned(),
-            TomlValue::String("gpt-1000".to_owned()),
-        );
+        model.insert("slug".to_owned(), TomlValue::String("gpt-1000".to_owned()));
         expected_toml_value.insert("model".to_owned(), TomlValue::Table(model));
         expected_toml_value.insert("foo".to_owned(), TomlValue::String("xyzzy".to_owned()));
         assert_eq!(normalized_toml_value, TomlValue::Table(expected_toml_value));

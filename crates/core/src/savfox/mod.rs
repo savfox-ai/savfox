@@ -2454,17 +2454,9 @@ mod tests {
         let sandbox_permissions = SandboxPermissions::RequireEscalated;
         let params = ExecParams {
             command: if cfg!(windows) {
-                vec![
-                    "cmd.exe".to_owned(),
-                    "/C".to_owned(),
-                    "echo hi".to_owned(),
-                ]
+                vec!["cmd.exe".to_owned(), "/C".to_owned(), "echo hi".to_owned()]
             } else {
-                vec![
-                    "/bin/sh".to_owned(),
-                    "-c".to_owned(),
-                    "echo hi".to_owned(),
-                ]
+                vec!["/bin/sh".to_owned(), "-c".to_owned(), "echo hi".to_owned()]
             },
             cwd: turn_context.cwd.clone(),
             expiration: timeout_ms.into(),

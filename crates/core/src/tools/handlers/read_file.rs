@@ -536,10 +536,7 @@ third
         )?;
 
         let lines = read(temp.path(), 1, 2).await?;
-        assert_eq!(
-            lines,
-            vec!["L1: first".to_owned(), "L2: second".to_owned()]
-        );
+        assert_eq!(lines, vec!["L1: first".to_owned(), "L2: second".to_owned()]);
         Ok(())
     }
 

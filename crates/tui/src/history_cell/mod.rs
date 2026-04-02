@@ -2949,7 +2949,8 @@ mod tests {
     #[test]
     fn multiline_command_both_lines_wrap_with_correct_prefixes() {
         let call_id = "c1".to_owned();
-        let cmd = "first_token_is_long_enough_to_wrap\nsecond_token_is_also_long_enough_to_wrap".to_owned();
+        let cmd = "first_token_is_long_enough_to_wrap\nsecond_token_is_also_long_enough_to_wrap"
+            .to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -3170,8 +3171,7 @@ mod tests {
 
     #[test]
     fn reasoning_summary_block_falls_back_when_header_is_missing() {
-        let cell =
-            new_reasoning_summary_block("**High level reasoning without closing".to_owned());
+        let cell = new_reasoning_summary_block("**High level reasoning without closing".to_owned());
 
         let rendered = render_transcript(cell.as_ref());
         assert_eq!(rendered, vec!["• **High level reasoning without closing"]);

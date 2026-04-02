@@ -770,7 +770,8 @@ mod tests {
             SelectionItem {
                 name: "gpt-5.1-savfox".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Balance of reasoning quality and coding ability.".to_owned(),
+                    "Optimized for Savfox. Balance of reasoning quality and coding ability."
+                        .to_owned(),
                 ),
                 is_current: true,
                 dismiss_on_select: true,
@@ -787,7 +788,8 @@ mod tests {
             SelectionItem {
                 name: "gpt-4.1-savfox".to_owned(),
                 description: Some(
-                    "Legacy model. Use when you need compatibility with older automations.".to_owned(),
+                    "Legacy model. Use when you need compatibility with older automations."
+                        .to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()
@@ -850,7 +852,8 @@ mod tests {
             SelectionItem {
                 name: "gpt-5.1-savfox".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Balance of reasoning quality and coding ability.".to_owned(),
+                    "Optimized for Savfox. Balance of reasoning quality and coding ability."
+                        .to_owned(),
                 ),
                 is_current: true,
                 dismiss_on_select: true,
@@ -867,7 +870,8 @@ mod tests {
             SelectionItem {
                 name: "gpt-4.1-savfox".to_owned(),
                 description: Some(
-                    "Legacy model. Use when you need compatibility with older automations.".to_owned(),
+                    "Legacy model. Use when you need compatibility with older automations."
+                        .to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()

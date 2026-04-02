@@ -295,14 +295,12 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    
     use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::protocol::{
         CompactedItem, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionModel,
         SessionSource,
     };
-    
     use tempfile::tempdir;
     use uuid::Uuid;
 

@@ -10,9 +10,10 @@ fn find_python() -> Option<String> {
         if let Ok(output) = std::process::Command::new(candidate)
             .arg("--version")
             .output()
-            && output.status.success() {
-                return Some(candidate.to_owned());
-            }
+            && output.status.success()
+        {
+            return Some(candidate.to_owned());
+        }
     }
     None
 }

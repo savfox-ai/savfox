@@ -1273,10 +1273,7 @@ mod tests {
     }
 
     fn build_turn_context(config: &Config, cwd: PathBuf) -> TurnContextItem {
-        let model = config
-            .model
-            .clone()
-            .unwrap_or_else(|| "gpt-5.1".to_owned());
+        let model = config.model.clone().unwrap_or_else(|| "gpt-5.1".to_owned());
         TurnContextItem {
             cwd,
             approval_policy: config.approval_policy.value(),

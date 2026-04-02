@@ -64,7 +64,7 @@ async fn request_user_input_round_trip() -> Result<()> {
         mcp.read_stream_until_response_message(RequestId::Integer(turn_start_id)),
     )
     .await??;
-    let TurnStartResponse { turn,  } = to_response(turn_start_resp)?;
+    let TurnStartResponse { turn } = to_response(turn_start_resp)?;
 
     let server_req = timeout(
         DEFAULT_READ_TIMEOUT,

@@ -881,11 +881,7 @@ fn exec_command_end_success_produces_completed_command_item() {
 #[test]
 fn command_execution_output_delta_updates_item_progress() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
-    let command = vec![
-        "bash".to_owned(),
-        "-lc".to_owned(),
-        "echo delta".to_owned(),
-    ];
+    let command = vec!["bash".to_owned(), "-lc".to_owned(), "echo delta".to_owned()];
     let cwd = std::env::current_dir().unwrap();
     let parsed_cmd = Vec::new();
 

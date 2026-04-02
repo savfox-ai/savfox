@@ -681,7 +681,8 @@ mod tests {
         let file_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default().to_owned();
+            .unwrap_or_default()
+            .to_owned();
         assert_eq!(file_name, "matrix-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")
@@ -737,7 +738,8 @@ mod tests {
         let first_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default().to_owned();
+            .unwrap_or_default()
+            .to_owned();
         assert_eq!(first_name, "matrix-primary-matrix.json");
 
         let second = ChannelConfig {
@@ -762,7 +764,8 @@ mod tests {
         let second_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default().to_owned();
+            .unwrap_or_default()
+            .to_owned();
         assert_eq!(second_name, "matrix-renamed-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")

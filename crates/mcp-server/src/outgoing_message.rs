@@ -385,7 +385,7 @@ mod tests {
         let session_id = SessionId::new();
         let rollout_file = NamedTempFile::new()?;
         let session_configured_event = SessionConfiguredEvent {
-            session_id: session_id,
+            session_id,
             forked_from_id: None,
             session_name: None,
             model: "gpt-4o".to_owned(),
