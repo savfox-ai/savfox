@@ -122,7 +122,7 @@ stream_max_retries = 0
 async fn start_session(mcp: &mut McpProcess) -> Result<String> {
     let req_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.1".to_string()),
+            model: Some("gpt-5.1".to_owned()),
             ..Default::default()
         })
         .await?;

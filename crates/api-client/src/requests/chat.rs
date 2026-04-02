@@ -386,9 +386,9 @@ mod tests {
 
     fn provider() -> Provider {
         Provider {
-            id: "openai".to_string(),
-            name: "openai".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
+            id: "openai".to_owned(),
+            name: "openai".to_owned(),
+            base_url: "https://api.openai.com/v1".to_owned(),
             query_params: None,
             wire: WireApi::Chat,
             headers: HeaderMap::new(),
@@ -407,9 +407,9 @@ mod tests {
     fn attaches_conversation_and_subagent_headers() {
         let prompt_input = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "hi".to_string(),
+                text: "hi".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -435,49 +435,49 @@ mod tests {
         let prompt_input = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "read these".to_string(),
+                    text: "read these".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"a.txt"}"#.to_string(),
-                call_id: "call-a".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"a.txt"}"#.to_owned(),
+                call_id: "call-a".to_owned(),
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"b.txt"}"#.to_string(),
-                call_id: "call-b".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"b.txt"}"#.to_owned(),
+                call_id: "call-b".to_owned(),
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"c.txt"}"#.to_string(),
-                call_id: "call-c".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"c.txt"}"#.to_owned(),
+                call_id: "call-c".to_owned(),
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-a".to_string(),
+                call_id: "call-a".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "A".to_string(),
+                    content: "A".to_owned(),
                     ..Default::default()
                 },
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-b".to_string(),
+                call_id: "call-b".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "B".to_string(),
+                    content: "B".to_owned(),
                     ..Default::default()
                 },
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-c".to_string(),
+                call_id: "call-c".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "C".to_string(),
+                    content: "C".to_owned(),
                     ..Default::default()
                 },
             },

@@ -304,9 +304,9 @@ mod tests {
     #[test]
     fn fuzzy_match_model_names() {
         let candidates = vec![
-            "openai/gpt-4o".to_string(),
-            "openai/gpt-4o-mini".to_string(),
-            "anthropic/claude-sonnet-4-20250514".to_string(),
+            "openai/gpt-4o".to_owned(),
+            "openai/gpt-4o-mini".to_owned(),
+            "anthropic/claude-sonnet-4-20250514".to_owned(),
         ];
 
         assert_eq!(

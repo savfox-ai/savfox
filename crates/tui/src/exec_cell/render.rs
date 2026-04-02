@@ -674,7 +674,7 @@ mod tests {
         );
 
         let call = ExecCall {
-            call_id: "call-id".to_string(),
+            call_id: "call-id".to_owned(),
             command: vec!["bash".into(), "-lc".into(), "echo long".into()],
             parsed: Vec::new(),
             output: Some(output),

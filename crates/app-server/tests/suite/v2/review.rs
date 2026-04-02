@@ -47,8 +47,8 @@ async fn review_start_runs_review_turn_and_emits_code_review_item() -> Result<()
             session_id: session_id.clone(),
             delivery: Some(ReviewDelivery::Inline),
             target: ReviewTarget::Commit {
-                sha: "1234567deadbeef".to_string(),
-                title: Some("Tidy UI colors".to_string()),
+                sha: "1234567deadbeef".to_owned(),
+                title: Some("Tidy UI colors".to_owned()),
             },
         })
         .await?;
@@ -133,7 +133,7 @@ async fn review_start_rejects_empty_base_branch() -> Result<()> {
             session_id,
             delivery: Some(ReviewDelivery::Inline),
             target: ReviewTarget::BaseBranch {
-                branch: "   ".to_string(),
+                branch: "   ".to_owned(),
             },
         })
         .await?;
@@ -176,7 +176,7 @@ async fn review_start_with_detached_delivery_returns_new_session_id() -> Result<
             session_id: session_id.clone(),
             delivery: Some(ReviewDelivery::Detached),
             target: ReviewTarget::Custom {
-                instructions: "detached review".to_string(),
+                instructions: "detached review".to_owned(),
             },
         })
         .await?;
@@ -214,7 +214,7 @@ async fn review_start_rejects_empty_commit_sha() -> Result<()> {
             session_id,
             delivery: Some(ReviewDelivery::Inline),
             target: ReviewTarget::Commit {
-                sha: "\t".to_string(),
+                sha: "\t".to_owned(),
                 title: None,
             },
         })
@@ -249,7 +249,7 @@ async fn review_start_rejects_empty_custom_instructions() -> Result<()> {
             session_id,
             delivery: Some(ReviewDelivery::Inline),
             target: ReviewTarget::Custom {
-                instructions: "\n\n".to_string(),
+                instructions: "\n\n".to_owned(),
             },
         })
         .await?;
@@ -274,7 +274,7 @@ async fn review_start_rejects_empty_custom_instructions() -> Result<()> {
 async fn start_default_session(mcp: &mut McpProcess) -> Result<String> {
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;

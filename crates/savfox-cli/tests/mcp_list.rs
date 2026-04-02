@@ -54,7 +54,7 @@ async fn list_and_get_render_expected_output() -> Result<()> {
         .expect("docs server should exist after add");
     match &mut docs_entry.transport {
         McpServerTransportConfig::Stdio { env_vars, .. } => {
-            *env_vars = vec!["APP_TOKEN".to_string(), "WORKSPACE_ID".to_string()];
+            *env_vars = vec!["APP_TOKEN".to_owned(), "WORKSPACE_ID".to_owned()];
         }
         other => panic!("unexpected transport: {other:?}"),
     }

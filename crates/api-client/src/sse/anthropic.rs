@@ -389,7 +389,7 @@ mod tests {
     }
 
     async fn collect_events(body: &str) -> Vec<ResponseEvent> {
-        let reader = ReaderStream::new(std::io::Cursor::new(body.to_string()))
+        let reader = ReaderStream::new(std::io::Cursor::new(body.to_owned()))
             .map_err(|err| savfox_http_client::TransportError::Network(err.to_string()));
         let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(16);
         tokio::spawn(process_anthropic_sse(

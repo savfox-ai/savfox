@@ -246,10 +246,10 @@ mod tests {
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: "dingtalk-test".to_string(),
-            kind: "dingtalk".to_string(),
-            slug: "dingtalk-test".to_string(),
-            name: "dingtalk-test".to_string(),
+            id: "dingtalk-test".to_owned(),
+            kind: "dingtalk".to_owned(),
+            slug: "dingtalk-test".to_owned(),
+            name: "dingtalk-test".to_owned(),
             enabled: true,
             config,
             router: None,

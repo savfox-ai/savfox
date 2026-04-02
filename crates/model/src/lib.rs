@@ -280,9 +280,9 @@ mod tests {
         let models = provider_models_from_slugs(
             "openai",
             &[
-                "model-a".to_string(),
-                "model-a".to_string(),
-                "model-b".to_string(),
+                "model-a".to_owned(),
+                "model-a".to_owned(),
+                "model-b".to_owned(),
             ],
         );
         let slugs: Vec<&str> = models.iter().map(|model| model.slug.as_str()).collect();

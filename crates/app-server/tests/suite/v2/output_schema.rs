@@ -56,7 +56,7 @@ async fn turn_start_accepts_output_schema_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             output_schema: Some(output_schema.clone()),
@@ -138,7 +138,7 @@ async fn turn_start_output_schema_is_per_turn_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             output_schema: Some(output_schema.clone()),
@@ -180,7 +180,7 @@ async fn turn_start_output_schema_is_per_turn_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello again".to_string(),
+                text: "Hello again".to_owned(),
                 text_elements: Vec::new(),
             }],
             output_schema: None,

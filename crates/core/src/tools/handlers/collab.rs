@@ -648,8 +648,8 @@ mod tests {
             session,
             turn,
             tracker: Arc::new(Mutex::new(TurnDiffTracker::default())),
-            call_id: "call-1".to_string(),
-            tool_name: tool_name.to_string(),
+            call_id: "call-1".to_owned(),
+            tool_name: tool_name.to_owned(),
             payload,
         }
     }
@@ -675,7 +675,7 @@ mod tests {
             Arc::new(turn),
             "spawn_agent",
             ToolPayload::Custom {
-                input: "hello".to_string(),
+                input: "hello".to_owned(),
             },
         );
         let Err(err) = CollabHandler.handle(invocation).await else {
@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(
             err,
             FunctionCallError::RespondToModel(
-                "collab handler received unsupported payload".to_string()
+                "collab handler received unsupported payload".to_owned()
             )
         );
     }
@@ -703,7 +703,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("unsupported collab tool unknown_tool".to_string())
+            FunctionCallError::RespondToModel("unsupported collab tool unknown_tool".to_owned())
         );
     }
 
@@ -722,7 +722,7 @@ mod tests {
         assert_eq!(
             err,
             FunctionCallError::RespondToModel(
-                "Empty message can't be sent to an agent".to_string()
+                "Empty message can't be sent to an agent".to_owned()
             )
         );
     }
@@ -741,7 +741,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("collab manager unavailable".to_string())
+            FunctionCallError::RespondToModel("collab manager unavailable".to_owned())
         );
     }
 
@@ -780,7 +780,7 @@ mod tests {
         assert_eq!(
             err,
             FunctionCallError::RespondToModel(
-                "Agent depth limit reached. Solve the task yourself.".to_string()
+                "Agent depth limit reached. Solve the task yourself.".to_owned()
             )
         );
     }
@@ -800,7 +800,7 @@ mod tests {
         assert_eq!(
             err,
             FunctionCallError::RespondToModel(
-                "Empty message can't be sent to an agent".to_string()
+                "Empty message can't be sent to an agent".to_owned()
             )
         );
     }
@@ -906,7 +906,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("timeout_ms must be greater than zero".to_string())
+            FunctionCallError::RespondToModel("timeout_ms must be greater than zero".to_owned())
         );
     }
 
@@ -942,7 +942,7 @@ mod tests {
         };
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("ids must be non-empty".to_string())
+            FunctionCallError::RespondToModel("ids must be non-empty".to_owned())
         );
     }
 
@@ -1162,10 +1162,10 @@ mod tests {
     async fn build_agent_spawn_config_uses_turn_context_values() {
         let (_session, mut turn) = make_session_and_context().await;
         let base_instructions = BaseInstructions {
-            text: "base".to_string(),
+            text: "base".to_owned(),
         };
-        turn.developer_instructions = Some("dev".to_string());
-        turn.compact_prompt = Some("compact".to_string());
+        turn.developer_instructions = Some("dev".to_owned());
+        turn.compact_prompt = Some("compact".to_owned());
         turn.shell_environment_policy = ShellEnvironmentPolicy {
             use_profile: true,
             ..ShellEnvironmentPolicy::default()
@@ -1204,8 +1204,8 @@ mod tests {
         let (session, mut turn) = make_session_and_context().await;
         let session_source = turn.client.get_session_source();
         let mut base_config = (*turn.client.config()).clone();
-        base_config.user_instructions = Some("base-user".to_string());
-        turn.user_instructions = Some("resolved-user".to_string());
+        base_config.user_instructions = Some("base-user".to_owned());
+        turn.user_instructions = Some("resolved-user".to_owned());
         let transport_manager = turn.client.transport_manager();
         turn.client = ModelClient::new(
             Arc::new(base_config.clone()),
@@ -1220,7 +1220,7 @@ mod tests {
             transport_manager,
         );
         let base_instructions = BaseInstructions {
-            text: "base".to_string(),
+            text: "base".to_owned(),
         };
 
         let config = build_agent_spawn_config(&base_instructions, &turn, 0).expect("spawn config");

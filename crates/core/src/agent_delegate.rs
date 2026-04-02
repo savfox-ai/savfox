@@ -449,7 +449,7 @@ mod tests {
         let (tx_out, rx_out) = bounded(1);
         tx_out
             .send(Event {
-                id: "full".to_string(),
+                id: "full".to_owned(),
                 msg: EventMsg::TurnAborted(TurnAbortedEvent {
                     reason: TurnAbortReason::Interrupted,
                 }),
@@ -468,14 +468,14 @@ mod tests {
 
         tx_events
             .send(Event {
-                id: "evt".to_string(),
+                id: "evt".to_owned(),
                 msg: EventMsg::RawResponseItem(RawResponseItemEvent {
                     item: ResponseItem::CustomToolCall {
                         id: None,
                         status: None,
-                        call_id: "call-1".to_string(),
-                        name: "tool".to_string(),
-                        input: "{}".to_string(),
+                        call_id: "call-1".to_owned(),
+                        name: "tool".to_owned(),
+                        input: "{}".to_owned(),
                     },
                 }),
             })

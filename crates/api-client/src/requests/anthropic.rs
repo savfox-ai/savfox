@@ -227,9 +227,9 @@ mod tests {
 
     fn provider() -> Provider {
         Provider {
-            id: "anthropic".to_string(),
-            name: "anthropic".to_string(),
-            base_url: "https://api.anthropic.com".to_string(),
+            id: "anthropic".to_owned(),
+            name: "anthropic".to_owned(),
+            base_url: "https://api.anthropic.com".to_owned(),
             query_params: None,
             wire: WireApi::Anthropic,
             headers: HeaderMap::new(),
@@ -248,9 +248,9 @@ mod tests {
     fn builds_basic_anthropic_request() {
         let input = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -283,36 +283,36 @@ mod tests {
         let input = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "read files".to_string(),
+                    text: "read files".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"a.txt"}"#.to_string(),
-                call_id: "call-a".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"a.txt"}"#.to_owned(),
+                call_id: "call-a".to_owned(),
             },
             ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"b.txt"}"#.to_string(),
-                call_id: "call-b".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"b.txt"}"#.to_owned(),
+                call_id: "call-b".to_owned(),
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-a".to_string(),
+                call_id: "call-a".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "content A".to_string(),
+                    content: "content A".to_owned(),
                     ..Default::default()
                 },
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-b".to_string(),
+                call_id: "call-b".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "content B".to_string(),
+                    content: "content B".to_owned(),
                     ..Default::default()
                 },
             },

@@ -72,8 +72,8 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
 
     let dynamic_tools = vec![
         DynamicToolSpec {
-            name: "geo_lookup".to_string(),
-            description: "lookup a city".to_string(),
+            name: "geo_lookup".to_owned(),
+            description: "lookup a city".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "required": ["city"],
@@ -81,8 +81,8 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
             }),
         },
         DynamicToolSpec {
-            name: "weather_lookup".to_string(),
-            description: "lookup weather".to_string(),
+            name: "weather_lookup".to_owned(),
+            description: "lookup weather".to_owned(),
             input_schema: json!({
                 "type": "object",
                 "required": ["zip"],
@@ -103,10 +103,10 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
                 meta: SessionMeta {
                     id: session_id,
                     forked_from_id: None,
-                    timestamp: "2026-01-27T12:00:00Z".to_string(),
+                    timestamp: "2026-01-27T12:00:00Z".to_owned(),
                     cwd: savfox_home.to_path_buf(),
-                    originator: "test".to_string(),
-                    cli_version: "test".to_string(),
+                    originator: "test".to_owned(),
+                    cli_version: "test".to_owned(),
                     source: SessionSource::default(),
                     model: None,
                     model_provider: None,
@@ -118,13 +118,13 @@ async fn backfill_scans_existing_rollouts() -> Result<()> {
 
             let lines = [
                 RolloutLine {
-                    timestamp: "2026-01-27T12:00:00Z".to_string(),
+                    timestamp: "2026-01-27T12:00:00Z".to_owned(),
                     item: RolloutItem::SessionMeta(session_meta_line),
                 },
                 RolloutLine {
-                    timestamp: "2026-01-27T12:00:01Z".to_string(),
+                    timestamp: "2026-01-27T12:00:01Z".to_owned(),
                     item: RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
-                        message: "hello from backfill".to_string(),
+                        message: "hello from backfill".to_owned(),
                         images: None,
                         local_images: Vec::new(),
                         text_elements: Vec::new(),

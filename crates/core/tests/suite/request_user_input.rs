@@ -141,9 +141,9 @@ async fn request_user_input_round_trip_resolves_pending() -> anyhow::Result<()> 
 
     let mut answers = HashMap::new();
     answers.insert(
-        "confirm_path".to_string(),
+        "confirm_path".to_owned(),
         RequestUserInputAnswer {
-            answers: vec!["yes".to_string()],
+            answers: vec!["yes".to_owned()],
         },
     );
     let response = RequestUserInputResponse { answers };

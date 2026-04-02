@@ -614,16 +614,16 @@ mod tests {
 
         // Also assert exact expected plain strings for clarity.
         let expected = vec![
-            "Loose vs. tight list items:".to_string(),
-            "".to_string(),
-            "1. Tight item".to_string(),
-            "2. Another tight item".to_string(),
-            "3. Loose item with its own paragraph.".to_string(),
-            "".to_string(),
-            "   This paragraph belongs to the same list item.".to_string(),
-            "4. Second loose item with a nested list after a blank line.".to_string(),
-            "    - Nested bullet under a loose item".to_string(),
-            "    - Another nested bullet".to_string(),
+            "Loose vs. tight list items:".to_owned(),
+            "".to_owned(),
+            "1. Tight item".to_owned(),
+            "2. Another tight item".to_owned(),
+            "3. Loose item with its own paragraph.".to_owned(),
+            "".to_owned(),
+            "   This paragraph belongs to the same list item.".to_owned(),
+            "4. Second loose item with a nested list after a blank line.".to_owned(),
+            "    - Nested bullet under a loose item".to_owned(),
+            "    - Another nested bullet".to_owned(),
         ];
         assert_eq!(
             streamed_strs, expected,

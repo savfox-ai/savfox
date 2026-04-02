@@ -46,7 +46,7 @@ async fn renews_cache_ttl_on_matching_models_etag() -> Result<()> {
     let mut builder = test_savfox().with_auth(SavfoxAuth::create_dummy_chatgpt_auth_for_testing());
     builder = builder.with_config(|config| {
         config.features.enable(Feature::RemoteModels);
-        config.model = Some("gpt-5".to_string());
+        config.model = Some("gpt-5".to_owned());
         config.model_provider.request_max_retries = Some(0);
         config.model_provider.stream_max_retries = Some(1);
     });
@@ -308,18 +308,18 @@ struct ModelsCache {
 
 fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
     ModelInfo {
-        slug: slug.to_string(),
-        name: "Remote Test".to_string(),
-        description: Some("remote model".to_string()),
+        slug: slug.to_owned(),
+        name: "Remote Test".to_owned(),
+        description: Some("remote model".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![
             ReasoningEffortPreset {
                 effort: ReasoningEffort::Low,
-                description: "low".to_string(),
+                description: "low".to_owned(),
             },
             ReasoningEffortPreset {
                 effort: ReasoningEffort::Medium,
-                description: "medium".to_string(),
+                description: "medium".to_owned(),
             },
         ],
         shell_type: ConfigShellToolType::ShellCommand,
@@ -327,7 +327,7 @@ fn test_remote_model(slug: &str, priority: i32) -> ModelInfo {
         supported_in_api: true,
         priority,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: None,
         supports_reasoning_summaries: false,
         support_verbosity: false,

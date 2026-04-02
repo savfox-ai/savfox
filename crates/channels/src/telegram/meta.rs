@@ -85,12 +85,12 @@ mod tests {
         assert_eq!(
             parse_start_meta(&payload),
             TelegramStartMeta {
-                peer_id: Some("-100123".to_string()),
-                chat_id: Some("-100123".to_string()),
-                chat_type: Some("channel".to_string()),
-                thread_id: Some("77".to_string()),
-                reply_target: Some("12".to_string()),
-                topic: Some("Release Feed".to_string()),
+                peer_id: Some("-100123".to_owned()),
+                chat_id: Some("-100123".to_owned()),
+                chat_type: Some("channel".to_owned()),
+                thread_id: Some("77".to_owned()),
+                reply_target: Some("12".to_owned()),
+                topic: Some("Release Feed".to_owned()),
             }
         );
     }

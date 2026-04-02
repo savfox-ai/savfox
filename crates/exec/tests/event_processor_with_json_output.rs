@@ -31,7 +31,7 @@ use serde_json::json;
 
 fn event(id: &str, msg: EventMsg) -> Event {
     Event {
-        id: id.to_string(),
+        id: id.to_owned(),
         msg,
     }
 }
@@ -48,8 +48,8 @@ fn session_configured_produces_session_started_event() {
             session_id,
             forked_from_id: None,
             session_name: None,
-            model: "savfox-mini-latest".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "savfox-mini-latest".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/home/user/project"),
@@ -64,7 +64,7 @@ fn session_configured_produces_session_started_event() {
     assert_eq!(
         out,
         vec![SessionEvent::SessionStarted(SessionStartedEvent {
-            session_id: "67e55044-10b1-426f-9247-bb680e5fe0c8".to_string(),
+            session_id: "67e55044-10b1-426f-9247-bb680e5fe0c8".to_owned(),
         })]
     );
 }
@@ -86,7 +86,7 @@ fn task_started_produces_turn_started_event() {
 #[test]
 fn web_search_end_emits_item_completed() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
-    let query = "rust async await".to_string();
+    let query = "rust async await".to_owned();
     let action = WebSearchAction::Search {
         query: Some(query.clone()),
         queries: None,
@@ -94,7 +94,7 @@ fn web_search_end_emits_item_completed() {
     let out = ep.collect_session_events(&event(
         "w1",
         EventMsg::WebSearchEnd(WebSearchEndEvent {
-            call_id: "call-123".to_string(),
+            call_id: "call-123".to_owned(),
             query: query.clone(),
             action: action.clone(),
         }),
@@ -104,9 +104,9 @@ fn web_search_end_emits_item_completed() {
         out,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::WebSearch(WebSearchItem {
-                    id: "call-123".to_string(),
+                    id: "call-123".to_owned(),
                     query,
                     action,
                 }),
@@ -121,7 +121,7 @@ fn web_search_begin_emits_item_started() {
     let out = ep.collect_session_events(&event(
         "w0",
         EventMsg::WebSearchBegin(WebSearchBeginEvent {
-            call_id: "call-0".to_string(),
+            call_id: "call-0".to_owned(),
         }),
     ));
 
@@ -133,7 +133,7 @@ fn web_search_begin_emits_item_started() {
     assert_eq!(
         item.details,
         SessionItemDetails::WebSearch(WebSearchItem {
-            id: "call-0".to_string(),
+            id: "call-0".to_owned(),
             query: String::new(),
             action: WebSearchAction::Other,
         })
@@ -146,21 +146,21 @@ fn web_search_begin_then_end_reuses_item_id() {
     let begin = ep.collect_session_events(&event(
         "w0",
         EventMsg::WebSearchBegin(WebSearchBeginEvent {
-            call_id: "call-1".to_string(),
+            call_id: "call-1".to_owned(),
         }),
     ));
     let SessionEvent::ItemStarted(ItemStartedEvent { item: started_item }) = &begin[0] else {
         panic!("expected ItemStarted");
     };
     let action = WebSearchAction::Search {
-        query: Some("rust async await".to_string()),
+        query: Some("rust async await".to_owned()),
         queries: None,
     };
     let end = ep.collect_session_events(&event(
         "w1",
         EventMsg::WebSearchEnd(WebSearchEndEvent {
-            call_id: "call-1".to_string(),
-            query: "rust async await".to_string(),
+            call_id: "call-1".to_owned(),
+            query: "rust async await".to_owned(),
             action: action.clone(),
         }),
     ));
@@ -175,8 +175,8 @@ fn web_search_begin_then_end_reuses_item_id() {
     assert_eq!(
         completed_item.details,
         SessionItemDetails::WebSearch(WebSearchItem {
-            id: "call-1".to_string(),
-            query: "rust async await".to_string(),
+            id: "call-1".to_owned(),
+            query: "rust async await".to_owned(),
             action,
         })
     );
@@ -193,11 +193,11 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
             explanation: None,
             plan: vec![
                 PlanItemArg {
-                    step: "step one".to_string(),
+                    step: "step one".to_owned(),
                     status: StepStatus::Pending,
                 },
                 PlanItemArg {
-                    step: "step two".to_string(),
+                    step: "step two".to_owned(),
                     status: StepStatus::InProgress,
                 },
             ],
@@ -208,15 +208,15 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
         out_first,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::TodoList(ExecTodoListItem {
                     items: vec![
                         ExecTodoItem {
-                            text: "step one".to_string(),
+                            text: "step one".to_owned(),
                             completed: false
                         },
                         ExecTodoItem {
-                            text: "step two".to_string(),
+                            text: "step two".to_owned(),
                             completed: false
                         },
                     ],
@@ -232,11 +232,11 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
             explanation: None,
             plan: vec![
                 PlanItemArg {
-                    step: "step one".to_string(),
+                    step: "step one".to_owned(),
                     status: StepStatus::Completed,
                 },
                 PlanItemArg {
-                    step: "step two".to_string(),
+                    step: "step two".to_owned(),
                     status: StepStatus::InProgress,
                 },
             ],
@@ -247,15 +247,15 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
         out_second,
         vec![SessionEvent::ItemUpdated(ItemUpdatedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::TodoList(ExecTodoListItem {
                     items: vec![
                         ExecTodoItem {
-                            text: "step one".to_string(),
+                            text: "step one".to_owned(),
                             completed: true
                         },
                         ExecTodoItem {
-                            text: "step two".to_string(),
+                            text: "step two".to_owned(),
                             completed: false
                         },
                     ],
@@ -277,15 +277,15 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
         vec![
             SessionEvent::ItemCompleted(ItemCompletedEvent {
                 item: SessionItem {
-                    id: "item_0".to_string(),
+                    id: "item_0".to_owned(),
                     details: SessionItemDetails::TodoList(ExecTodoListItem {
                         items: vec![
                             ExecTodoItem {
-                                text: "step one".to_string(),
+                                text: "step one".to_owned(),
                                 completed: true
                             },
                             ExecTodoItem {
-                                text: "step two".to_string(),
+                                text: "step two".to_owned(),
                                 completed: false
                             },
                         ],
@@ -303,15 +303,15 @@ fn plan_update_emits_todo_list_started_updated_and_completed() {
 fn mcp_tool_call_begin_and_end_emit_item_events() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let invocation = McpInvocation {
-        server: "server_a".to_string(),
-        tool: "tool_x".to_string(),
+        server: "server_a".to_owned(),
+        tool: "tool_x".to_owned(),
         arguments: Some(json!({ "key": "value" })),
     };
 
     let begin = event(
         "m1",
         EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
-            call_id: "call-1".to_string(),
+            call_id: "call-1".to_owned(),
             invocation: invocation.clone(),
         }),
     );
@@ -320,10 +320,10 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
         begin_events,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::McpToolCall(McpToolCallItem {
-                    server: "server_a".to_string(),
-                    tool: "tool_x".to_string(),
+                    server: "server_a".to_owned(),
+                    tool: "tool_x".to_owned(),
                     arguments: json!({ "key": "value" }),
                     result: None,
                     error: None,
@@ -336,7 +336,7 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
     let end = event(
         "m2",
         EventMsg::McpToolCallEnd(McpToolCallEndEvent {
-            call_id: "call-1".to_string(),
+            call_id: "call-1".to_owned(),
             invocation,
             duration: Duration::from_secs(1),
             result: Ok(CallToolResult {
@@ -352,10 +352,10 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
         end_events,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::McpToolCall(McpToolCallItem {
-                    server: "server_a".to_string(),
-                    tool: "tool_x".to_string(),
+                    server: "server_a".to_owned(),
+                    tool: "tool_x".to_owned(),
                     arguments: json!({ "key": "value" }),
                     result: Some(McpToolCallItemResult {
                         content: Vec::new(),
@@ -373,15 +373,15 @@ fn mcp_tool_call_begin_and_end_emit_item_events() {
 fn mcp_tool_call_failure_sets_failed_status() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let invocation = McpInvocation {
-        server: "server_b".to_string(),
-        tool: "tool_y".to_string(),
+        server: "server_b".to_owned(),
+        tool: "tool_y".to_owned(),
         arguments: Some(json!({ "param": 42 })),
     };
 
     let begin = event(
         "m3",
         EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
-            call_id: "call-2".to_string(),
+            call_id: "call-2".to_owned(),
             invocation: invocation.clone(),
         }),
     );
@@ -390,10 +390,10 @@ fn mcp_tool_call_failure_sets_failed_status() {
     let end = event(
         "m4",
         EventMsg::McpToolCallEnd(McpToolCallEndEvent {
-            call_id: "call-2".to_string(),
+            call_id: "call-2".to_owned(),
             invocation,
             duration: Duration::from_millis(5),
-            result: Err("tool exploded".to_string()),
+            result: Err("tool exploded".to_owned()),
         }),
     );
     let events = ep.collect_session_events(&end);
@@ -401,14 +401,14 @@ fn mcp_tool_call_failure_sets_failed_status() {
         events,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::McpToolCall(McpToolCallItem {
-                    server: "server_b".to_string(),
-                    tool: "tool_y".to_string(),
+                    server: "server_b".to_owned(),
+                    tool: "tool_y".to_owned(),
                     arguments: json!({ "param": 42 }),
                     result: None,
                     error: Some(McpToolCallItemError {
-                        message: "tool exploded".to_string(),
+                        message: "tool exploded".to_owned(),
                     }),
                     status: McpToolCallStatus::Failed,
                 }),
@@ -421,15 +421,15 @@ fn mcp_tool_call_failure_sets_failed_status() {
 fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let invocation = McpInvocation {
-        server: "server_c".to_string(),
-        tool: "tool_z".to_string(),
+        server: "server_c".to_owned(),
+        tool: "tool_z".to_owned(),
         arguments: None,
     };
 
     let begin = event(
         "m5",
         EventMsg::McpToolCallBegin(McpToolCallBeginEvent {
-            call_id: "call-3".to_string(),
+            call_id: "call-3".to_owned(),
             invocation: invocation.clone(),
         }),
     );
@@ -438,10 +438,10 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
         begin_events,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::McpToolCall(McpToolCallItem {
-                    server: "server_c".to_string(),
-                    tool: "tool_z".to_string(),
+                    server: "server_c".to_owned(),
+                    tool: "tool_z".to_owned(),
                     arguments: serde_json::Value::Null,
                     result: None,
                     error: None,
@@ -454,7 +454,7 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
     let end = event(
         "m6",
         EventMsg::McpToolCallEnd(McpToolCallEndEvent {
-            call_id: "call-3".to_string(),
+            call_id: "call-3".to_owned(),
             invocation,
             duration: Duration::from_millis(10),
             result: Ok(CallToolResult {
@@ -470,10 +470,10 @@ fn mcp_tool_call_defaults_arguments_and_preserves_structured_content() {
         events,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::McpToolCall(McpToolCallItem {
-                    server: "server_c".to_string(),
-                    tool: "tool_z".to_string(),
+                    server: "server_c".to_owned(),
+                    tool: "tool_z".to_owned(),
                     arguments: serde_json::Value::Null,
                     result: Some(McpToolCallItemResult {
                         content: vec![serde_json::to_value(Content::text("done")).unwrap()],
@@ -492,12 +492,12 @@ fn collab_spawn_begin_and_end_emit_item_events() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let sender_session_id = SessionId::from_string("67e55044-10b1-426f-9247-bb680e5fe0c8").unwrap();
     let new_session_id = SessionId::from_string("9e107d9d-372b-4b8c-a2a4-1d9bb3fce0c1").unwrap();
-    let prompt = "draft a plan".to_string();
+    let prompt = "draft a plan".to_owned();
 
     let begin = event(
         "c1",
         EventMsg::CollabAgentSpawnBegin(CollabAgentSpawnBeginEvent {
-            call_id: "call-10".to_string(),
+            call_id: "call-10".to_owned(),
             sender_session_id,
             prompt: prompt.clone(),
         }),
@@ -507,7 +507,7 @@ fn collab_spawn_begin_and_end_emit_item_events() {
         begin_events,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CollabToolCall(CollabToolCallItem {
                     tool: CollabTool::SpawnAgent,
                     sender_session_id: sender_session_id.to_string(),
@@ -523,7 +523,7 @@ fn collab_spawn_begin_and_end_emit_item_events() {
     let end = event(
         "c2",
         EventMsg::CollabAgentSpawnEnd(CollabAgentSpawnEndEvent {
-            call_id: "call-10".to_string(),
+            call_id: "call-10".to_owned(),
             sender_session_id,
             new_session_id: Some(new_session_id),
             prompt: prompt.clone(),
@@ -535,7 +535,7 @@ fn collab_spawn_begin_and_end_emit_item_events() {
         end_events,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CollabToolCall(CollabToolCallItem {
                     tool: CollabTool::SpawnAgent,
                     sender_session_id: sender_session_id.to_string(),
@@ -572,15 +572,15 @@ fn collab_wait_end_without_begin_synthesizes_failed_item() {
     let mut statuses = std::collections::HashMap::new();
     statuses.insert(
         running_session_id,
-        AgentStatus::Completed(Some("done".to_string())),
+        AgentStatus::Completed(Some("done".to_owned())),
     );
-    statuses.insert(failed_session_id, AgentStatus::Errored("boom".to_string()));
+    statuses.insert(failed_session_id, AgentStatus::Errored("boom".to_owned()));
 
     let end = event(
         "c3",
         EventMsg::CollabWaitingEnd(CollabWaitingEndEvent {
             sender_session_id,
-            call_id: "call-11".to_string(),
+            call_id: "call-11".to_owned(),
             statuses: statuses.clone(),
         }),
     );
@@ -589,7 +589,7 @@ fn collab_wait_end_without_begin_synthesizes_failed_item() {
         events,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CollabToolCall(CollabToolCallItem {
                     tool: CollabTool::Wait,
                     sender_session_id: sender_session_id.to_string(),
@@ -600,14 +600,14 @@ fn collab_wait_end_without_begin_synthesizes_failed_item() {
                             running_session_id.to_string(),
                             CollabAgentState {
                                 status: CollabAgentStatus::Completed,
-                                message: Some("done".to_string()),
+                                message: Some("done".to_owned()),
                             },
                         ),
                         (
                             failed_session_id.to_string(),
                             CollabAgentState {
                                 status: CollabAgentStatus::Errored,
-                                message: Some("boom".to_string()),
+                                message: Some("boom".to_owned()),
                             },
                         ),
                     ]
@@ -630,7 +630,7 @@ fn plan_update_after_complete_starts_new_todo_list_with_new_id() {
         EventMsg::PlanUpdate(UpdatePlanArgs {
             explanation: None,
             plan: vec![PlanItemArg {
-                step: "only".to_string(),
+                step: "only".to_owned(),
                 status: StepStatus::Pending,
             }],
         }),
@@ -650,7 +650,7 @@ fn plan_update_after_complete_starts_new_todo_list_with_new_id() {
         EventMsg::PlanUpdate(UpdatePlanArgs {
             explanation: None,
             plan: vec![PlanItemArg {
-                step: "again".to_string(),
+                step: "again".to_owned(),
                 status: StepStatus::Pending,
             }],
         }),
@@ -671,7 +671,7 @@ fn agent_reasoning_produces_item_completed_reasoning() {
     let ev = event(
         "e1",
         EventMsg::AgentReasoning(AgentReasoningEvent {
-            text: "thinking...".to_string(),
+            text: "thinking...".to_owned(),
         }),
     );
     let out = ep.collect_session_events(&ev);
@@ -679,9 +679,9 @@ fn agent_reasoning_produces_item_completed_reasoning() {
         out,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::Reasoning(ReasoningItem {
-                    text: "thinking...".to_string(),
+                    text: "thinking...".to_owned(),
                 }),
             },
         })]
@@ -694,7 +694,7 @@ fn agent_message_produces_item_completed_agent_message() {
     let ev = event(
         "e1",
         EventMsg::AgentMessage(AgentMessageEvent {
-            message: "hello".to_string(),
+            message: "hello".to_owned(),
         }),
     );
     let out = ep.collect_session_events(&ev);
@@ -702,9 +702,9 @@ fn agent_message_produces_item_completed_agent_message() {
         out,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::AgentMessage(AgentMessageItem {
-                    text: "hello".to_string(),
+                    text: "hello".to_owned(),
                 }),
             },
         })]
@@ -717,14 +717,14 @@ fn error_event_produces_error() {
     let out = ep.collect_session_events(&event(
         "e1",
         EventMsg::Error(savfox_core::protocol::ErrorEvent {
-            message: "boom".to_string(),
+            message: "boom".to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::Other),
         }),
     ));
     assert_eq!(
         out,
         vec![SessionEvent::Error(SessionErrorEvent {
-            message: "boom".to_string(),
+            message: "boom".to_owned(),
         })]
     );
 }
@@ -735,16 +735,16 @@ fn warning_event_produces_error_item() {
     let out = ep.collect_session_events(&event(
         "e1",
         EventMsg::Warning(WarningEvent {
-            message: "Heads up: Long conversations and multiple compactions can cause the model to be less accurate. Start a new conversation when possible to keep conversations small and targeted.".to_string(),
+            message: "Heads up: Long conversations and multiple compactions can cause the model to be less accurate. Start a new conversation when possible to keep conversations small and targeted.".to_owned(),
         }),
     ));
     assert_eq!(
         out,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::Error(ErrorItem {
-                    message: "Heads up: Long conversations and multiple compactions can cause the model to be less accurate. Start a new conversation when possible to keep conversations small and targeted.".to_string(),
+                    message: "Heads up: Long conversations and multiple compactions can cause the model to be less accurate. Start a new conversation when possible to keep conversations small and targeted.".to_owned(),
                 }),
             },
         })]
@@ -757,7 +757,7 @@ fn stream_error_event_produces_error() {
     let out = ep.collect_session_events(&event(
         "e1",
         EventMsg::StreamError(savfox_core::protocol::StreamErrorEvent {
-            message: "retrying".to_string(),
+            message: "retrying".to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::Other),
             additional_details: None,
         }),
@@ -765,7 +765,7 @@ fn stream_error_event_produces_error() {
     assert_eq!(
         out,
         vec![SessionEvent::Error(SessionErrorEvent {
-            message: "retrying".to_string(),
+            message: "retrying".to_owned(),
         })]
     );
 }
@@ -777,14 +777,14 @@ fn error_followed_by_task_complete_produces_turn_failed() {
     let error_event = event(
         "e1",
         EventMsg::Error(ErrorEvent {
-            message: "boom".to_string(),
+            message: "boom".to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::Other),
         }),
     );
     assert_eq!(
         ep.collect_session_events(&error_event),
         vec![SessionEvent::Error(SessionErrorEvent {
-            message: "boom".to_string(),
+            message: "boom".to_owned(),
         })]
     );
 
@@ -798,7 +798,7 @@ fn error_followed_by_task_complete_produces_turn_failed() {
         ep.collect_session_events(&complete_event),
         vec![SessionEvent::TurnFailed(TurnFailedEvent {
             error: SessionErrorEvent {
-                message: "boom".to_string(),
+                message: "boom".to_owned(),
             },
         })]
     );
@@ -807,7 +807,7 @@ fn error_followed_by_task_complete_produces_turn_failed() {
 #[test]
 fn exec_command_end_success_produces_completed_command_item() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
-    let command = vec!["bash".to_string(), "-lc".to_string(), "echo hi".to_string()];
+    let command = vec!["bash".to_owned(), "-lc".to_owned(), "echo hi".to_owned()];
     let cwd = std::env::current_dir().unwrap();
     let parsed_cmd = Vec::new();
 
@@ -815,9 +815,9 @@ fn exec_command_end_success_produces_completed_command_item() {
     let begin = event(
         "c1",
         EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-            call_id: "1".to_string(),
+            call_id: "1".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command: command.clone(),
             cwd: cwd.clone(),
             parsed_cmd: parsed_cmd.clone(),
@@ -830,9 +830,9 @@ fn exec_command_end_success_produces_completed_command_item() {
         out_begin,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "bash -lc 'echo hi'".to_string(),
+                    command: "bash -lc 'echo hi'".to_owned(),
                     aggregated_output: String::new(),
                     exit_code: None,
                     status: CommandExecutionStatus::InProgress,
@@ -845,9 +845,9 @@ fn exec_command_end_success_produces_completed_command_item() {
     let end_ok = event(
         "c2",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-            call_id: "1".to_string(),
+            call_id: "1".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command,
             cwd,
             parsed_cmd,
@@ -855,7 +855,7 @@ fn exec_command_end_success_produces_completed_command_item() {
             interaction_input: None,
             stdout: String::new(),
             stderr: String::new(),
-            aggregated_output: "hi\n".to_string(),
+            aggregated_output: "hi\n".to_owned(),
             exit_code: 0,
             duration: Duration::from_millis(5),
             formatted_output: String::new(),
@@ -866,10 +866,10 @@ fn exec_command_end_success_produces_completed_command_item() {
         out_ok,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "bash -lc 'echo hi'".to_string(),
-                    aggregated_output: "hi\n".to_string(),
+                    command: "bash -lc 'echo hi'".to_owned(),
+                    aggregated_output: "hi\n".to_owned(),
                     exit_code: Some(0),
                     status: CommandExecutionStatus::Completed,
                 }),
@@ -882,9 +882,9 @@ fn exec_command_end_success_produces_completed_command_item() {
 fn command_execution_output_delta_updates_item_progress() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
     let command = vec![
-        "bash".to_string(),
-        "-lc".to_string(),
-        "echo delta".to_string(),
+        "bash".to_owned(),
+        "-lc".to_owned(),
+        "echo delta".to_owned(),
     ];
     let cwd = std::env::current_dir().unwrap();
     let parsed_cmd = Vec::new();
@@ -892,9 +892,9 @@ fn command_execution_output_delta_updates_item_progress() {
     let begin = event(
         "d1",
         EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-            call_id: "delta-1".to_string(),
-            process_id: Some("42".to_string()),
-            turn_id: "turn-1".to_string(),
+            call_id: "delta-1".to_owned(),
+            process_id: Some("42".to_owned()),
+            turn_id: "turn-1".to_owned(),
             command: command.clone(),
             cwd: cwd.clone(),
             parsed_cmd: parsed_cmd.clone(),
@@ -907,9 +907,9 @@ fn command_execution_output_delta_updates_item_progress() {
         out_begin,
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "bash -lc 'echo delta'".to_string(),
+                    command: "bash -lc 'echo delta'".to_owned(),
                     aggregated_output: String::new(),
                     exit_code: None,
                     status: CommandExecutionStatus::InProgress,
@@ -921,7 +921,7 @@ fn command_execution_output_delta_updates_item_progress() {
     let delta = event(
         "d2",
         EventMsg::ExecCommandOutputDelta(ExecCommandOutputDeltaEvent {
-            call_id: "delta-1".to_string(),
+            call_id: "delta-1".to_owned(),
             stream: ExecOutputStream::Stdout,
             chunk: b"partial output\n".to_vec(),
         }),
@@ -932,9 +932,9 @@ fn command_execution_output_delta_updates_item_progress() {
     let end = event(
         "d3",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-            call_id: "delta-1".to_string(),
-            process_id: Some("42".to_string()),
-            turn_id: "turn-1".to_string(),
+            call_id: "delta-1".to_owned(),
+            process_id: Some("42".to_owned()),
+            turn_id: "turn-1".to_owned(),
             command,
             cwd,
             parsed_cmd,
@@ -953,9 +953,9 @@ fn command_execution_output_delta_updates_item_progress() {
         out_end,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "bash -lc 'echo delta'".to_string(),
+                    command: "bash -lc 'echo delta'".to_owned(),
                     aggregated_output: String::new(),
                     exit_code: Some(0),
                     status: CommandExecutionStatus::Completed,
@@ -968,7 +968,7 @@ fn command_execution_output_delta_updates_item_progress() {
 #[test]
 fn exec_command_end_failure_produces_failed_command_item() {
     let mut ep = EventProcessorWithJsonOutput::new(None);
-    let command = vec!["sh".to_string(), "-c".to_string(), "exit 1".to_string()];
+    let command = vec!["sh".to_owned(), "-c".to_owned(), "exit 1".to_owned()];
     let cwd = std::env::current_dir().unwrap();
     let parsed_cmd = Vec::new();
 
@@ -976,9 +976,9 @@ fn exec_command_end_failure_produces_failed_command_item() {
     let begin = event(
         "c1",
         EventMsg::ExecCommandBegin(ExecCommandBeginEvent {
-            call_id: "2".to_string(),
+            call_id: "2".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command: command.clone(),
             cwd: cwd.clone(),
             parsed_cmd: parsed_cmd.clone(),
@@ -990,9 +990,9 @@ fn exec_command_end_failure_produces_failed_command_item() {
         ep.collect_session_events(&begin),
         vec![SessionEvent::ItemStarted(ItemStartedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "sh -c 'exit 1'".to_string(),
+                    command: "sh -c 'exit 1'".to_owned(),
                     aggregated_output: String::new(),
                     exit_code: None,
                     status: CommandExecutionStatus::InProgress,
@@ -1005,9 +1005,9 @@ fn exec_command_end_failure_produces_failed_command_item() {
     let end_fail = event(
         "c2",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-            call_id: "2".to_string(),
+            call_id: "2".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command,
             cwd,
             parsed_cmd,
@@ -1026,9 +1026,9 @@ fn exec_command_end_failure_produces_failed_command_item() {
         out_fail,
         vec![SessionEvent::ItemCompleted(ItemCompletedEvent {
             item: SessionItem {
-                id: "item_0".to_string(),
+                id: "item_0".to_owned(),
                 details: SessionItemDetails::CommandExecution(CommandExecutionItem {
-                    command: "sh -c 'exit 1'".to_string(),
+                    command: "sh -c 'exit 1'".to_owned(),
                     aggregated_output: String::new(),
                     exit_code: Some(1),
                     status: CommandExecutionStatus::Failed,
@@ -1046,9 +1046,9 @@ fn exec_command_end_without_begin_is_ignored() {
     let end_only = event(
         "c1",
         EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-            call_id: "no-begin".to_string(),
+            call_id: "no-begin".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command: Vec::new(),
             cwd: PathBuf::from("."),
             parsed_cmd: Vec::new(),
@@ -1075,19 +1075,19 @@ fn patch_apply_success_produces_item_completed_patchapply() {
     changes.insert(
         PathBuf::from("a/added.txt"),
         FileChange::Add {
-            content: "+hello".to_string(),
+            content: "+hello".to_owned(),
         },
     );
     changes.insert(
         PathBuf::from("b/deleted.txt"),
         FileChange::Delete {
-            content: "-goodbye".to_string(),
+            content: "-goodbye".to_owned(),
         },
     );
     changes.insert(
         PathBuf::from("c/modified.txt"),
         FileChange::Update {
-            unified_diff: "--- c/modified.txt\n+++ c/modified.txt\n@@\n-old\n+new\n".to_string(),
+            unified_diff: "--- c/modified.txt\n+++ c/modified.txt\n@@\n-old\n+new\n".to_owned(),
             move_path: Some(PathBuf::from("c/renamed.txt")),
         },
     );
@@ -1096,8 +1096,8 @@ fn patch_apply_success_produces_item_completed_patchapply() {
     let begin = event(
         "p1",
         EventMsg::PatchApplyBegin(PatchApplyBeginEvent {
-            call_id: "call-1".to_string(),
-            turn_id: "turn-1".to_string(),
+            call_id: "call-1".to_owned(),
+            turn_id: "turn-1".to_owned(),
             auto_approved: true,
             changes: changes.clone(),
         }),
@@ -1109,9 +1109,9 @@ fn patch_apply_success_produces_item_completed_patchapply() {
     let end = event(
         "p2",
         EventMsg::PatchApplyEnd(PatchApplyEndEvent {
-            call_id: "call-1".to_string(),
-            turn_id: "turn-1".to_string(),
-            stdout: "applied 3 changes".to_string(),
+            call_id: "call-1".to_owned(),
+            turn_id: "turn-1".to_owned(),
+            stdout: "applied 3 changes".to_owned(),
             stderr: String::new(),
             success: true,
             changes: changes.clone(),
@@ -1136,9 +1136,9 @@ fn patch_apply_success_produces_item_completed_patchapply() {
                     actual.sort_by(|a, b| a.0.cmp(&b.0));
 
                     let mut expected = vec![
-                        ("a/added.txt".to_string(), PatchChangeKind::Add),
-                        ("b/deleted.txt".to_string(), PatchChangeKind::Delete),
-                        ("c/modified.txt".to_string(), PatchChangeKind::Update),
+                        ("a/added.txt".to_owned(), PatchChangeKind::Add),
+                        ("b/deleted.txt".to_owned(), PatchChangeKind::Delete),
+                        ("c/modified.txt".to_owned(), PatchChangeKind::Update),
                     ];
                     expected.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -1159,7 +1159,7 @@ fn patch_apply_failure_produces_item_completed_patchapply_failed() {
     changes.insert(
         PathBuf::from("file.txt"),
         FileChange::Update {
-            unified_diff: "--- file.txt\n+++ file.txt\n@@\n-old\n+new\n".to_string(),
+            unified_diff: "--- file.txt\n+++ file.txt\n@@\n-old\n+new\n".to_owned(),
             move_path: None,
         },
     );
@@ -1168,8 +1168,8 @@ fn patch_apply_failure_produces_item_completed_patchapply_failed() {
     let begin = event(
         "p1",
         EventMsg::PatchApplyBegin(PatchApplyBeginEvent {
-            call_id: "call-2".to_string(),
-            turn_id: "turn-2".to_string(),
+            call_id: "call-2".to_owned(),
+            turn_id: "turn-2".to_owned(),
             auto_approved: false,
             changes: changes.clone(),
         }),
@@ -1180,10 +1180,10 @@ fn patch_apply_failure_produces_item_completed_patchapply_failed() {
     let end = event(
         "p2",
         EventMsg::PatchApplyEnd(PatchApplyEndEvent {
-            call_id: "call-2".to_string(),
-            turn_id: "turn-2".to_string(),
+            call_id: "call-2".to_owned(),
+            turn_id: "turn-2".to_owned(),
             stdout: String::new(),
-            stderr: "failed to apply".to_string(),
+            stderr: "failed to apply".to_owned(),
             success: false,
             changes: changes.clone(),
         }),
@@ -1198,7 +1198,7 @@ fn patch_apply_failure_produces_item_completed_patchapply_failed() {
                 SessionItemDetails::FileChange(file_update) => {
                     assert_eq!(file_update.status, PatchApplyStatus::Failed);
                     assert_eq!(file_update.changes.len(), 1);
-                    assert_eq!(file_update.changes[0].path, "file.txt".to_string());
+                    assert_eq!(file_update.changes[0].path, "file.txt".to_owned());
                     assert_eq!(file_update.changes[0].kind, PatchChangeKind::Update);
                 }
                 other => panic!("unexpected details: {other:?}"),
@@ -1238,7 +1238,7 @@ fn task_complete_produces_turn_completed_with_usage() {
     let complete_event = event(
         "e2",
         EventMsg::TurnComplete(savfox_core::protocol::TurnCompleteEvent {
-            last_agent_message: Some("done".to_string()),
+            last_agent_message: Some("done".to_owned()),
         }),
     );
     let out = ep.collect_session_events(&complete_event);

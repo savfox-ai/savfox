@@ -59,7 +59,7 @@ impl FrameRequester {
     /// Create a no-op frame requester for tests.
     pub(crate) fn test_dummy() -> Self {
         let (tx, _rx) = mpsc::unbounded_channel();
-        FrameRequester {
+        Self {
             frame_schedule_tx: tx,
         }
     }

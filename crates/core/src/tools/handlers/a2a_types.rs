@@ -267,7 +267,7 @@ mod tests {
     fn a2a_message_serialization_roundtrip() {
         let msg = A2AMessage::request("src", "dst", serde_json::json!({"key": "value"}))
             .with_timeout(3000)
-            .with_delegation(vec!["root".to_string(), "src".to_string()]);
+            .with_delegation(vec!["root".to_owned(), "src".to_owned()]);
 
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: A2AMessage = serde_json::from_str(&json).unwrap();
@@ -282,10 +282,10 @@ mod tests {
     #[test]
     fn delegation_entry_serialization() {
         let entry = DelegationEntry {
-            parent_agent: "parent".to_string(),
-            child_agent: "child".to_string(),
+            parent_agent: "parent".to_owned(),
+            child_agent: "child".to_owned(),
             spawned_at: 1700000000000,
-            purpose: "test delegation".to_string(),
+            purpose: "test delegation".to_owned(),
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -298,10 +298,10 @@ mod tests {
     #[tokio::test]
     async fn delegation_store_operations() {
         let entry = DelegationEntry {
-            parent_agent: "test-parent".to_string(),
-            child_agent: "test-child-unique".to_string(),
+            parent_agent: "test-parent".to_owned(),
+            child_agent: "test-child-unique".to_owned(),
             spawned_at: now_ms(),
-            purpose: "unit test".to_string(),
+            purpose: "unit test".to_owned(),
         };
 
         record_delegation(entry.clone()).await;
@@ -320,11 +320,11 @@ mod tests {
     #[test]
     fn agent_capabilities_serialization() {
         let caps = AgentCapabilities {
-            agent: "my-agent".to_string(),
-            tools: vec!["shell".to_string(), "read_file".to_string()],
-            skills: vec!["code-review".to_string()],
-            channels: vec!["discord:12345".to_string()],
-            status: "active".to_string(),
+            agent: "my-agent".to_owned(),
+            tools: vec!["shell".to_owned(), "read_file".to_owned()],
+            skills: vec!["code-review".to_owned()],
+            channels: vec!["discord:12345".to_owned()],
+            status: "active".to_owned(),
         };
 
         let json = serde_json::to_string(&caps).unwrap();

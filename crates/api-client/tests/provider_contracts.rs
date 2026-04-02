@@ -28,9 +28,9 @@ fn retry_config() -> RetryConfig {
 
 fn openai_provider() -> Provider {
     Provider {
-        id: "openai".to_string(),
-        name: "openai".to_string(),
-        base_url: "https://api.openai.com/v1".to_string(),
+        id: "openai".to_owned(),
+        name: "openai".to_owned(),
+        base_url: "https://api.openai.com/v1".to_owned(),
         query_params: None,
         wire: WireApi::Responses,
         headers: HeaderMap::new(),
@@ -41,9 +41,9 @@ fn openai_provider() -> Provider {
 
 fn chat_provider() -> Provider {
     Provider {
-        id: "openai".to_string(),
-        name: "openai".to_string(),
-        base_url: "https://api.openai.com/v1".to_string(),
+        id: "openai".to_owned(),
+        name: "openai".to_owned(),
+        base_url: "https://api.openai.com/v1".to_owned(),
         query_params: None,
         wire: WireApi::Chat,
         headers: HeaderMap::new(),
@@ -54,9 +54,9 @@ fn chat_provider() -> Provider {
 
 fn anthropic_provider() -> Provider {
     Provider {
-        id: "anthropic".to_string(),
-        name: "anthropic".to_string(),
-        base_url: "https://api.anthropic.com".to_string(),
+        id: "anthropic".to_owned(),
+        name: "anthropic".to_owned(),
+        base_url: "https://api.anthropic.com".to_owned(),
         query_params: None,
         wire: WireApi::Anthropic,
         headers: HeaderMap::new(),
@@ -68,9 +68,9 @@ fn anthropic_provider() -> Provider {
 fn simple_user_message(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -80,9 +80,9 @@ fn simple_user_message(text: &str) -> ResponseItem {
 fn simple_assistant_message(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "assistant".to_string(),
+        role: "assistant".to_owned(),
         content: vec![ContentItem::OutputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -173,14 +173,14 @@ mod request_format {
             simple_user_message("read file"),
             savfox_protocol::models::ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"main.rs"}"#.to_string(),
-                call_id: "call-1".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"main.rs"}"#.to_owned(),
+                call_id: "call-1".to_owned(),
             },
             savfox_protocol::models::ResponseItem::FunctionCallOutput {
-                call_id: "call-1".to_string(),
+                call_id: "call-1".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "fn main() {}".to_string(),
+                    content: "fn main() {}".to_owned(),
                     ..Default::default()
                 },
             },
@@ -255,9 +255,9 @@ mod request_format {
     #[test]
     fn responses_request_azure_defaults_store_true() {
         let azure = Provider {
-            id: "azure".to_string(),
-            name: "azure".to_string(),
-            base_url: "https://example.openai.azure.com/v1".to_string(),
+            id: "azure".to_owned(),
+            name: "azure".to_owned(),
+            base_url: "https://example.openai.azure.com/v1".to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -364,14 +364,14 @@ mod request_format {
             simple_user_message("read a file"),
             savfox_protocol::models::ResponseItem::FunctionCall {
                 id: None,
-                name: "read_file".to_string(),
-                arguments: r#"{"path":"a.txt"}"#.to_string(),
-                call_id: "toolu_01".to_string(),
+                name: "read_file".to_owned(),
+                arguments: r#"{"path":"a.txt"}"#.to_owned(),
+                call_id: "toolu_01".to_owned(),
             },
             savfox_protocol::models::ResponseItem::FunctionCallOutput {
-                call_id: "toolu_01".to_string(),
+                call_id: "toolu_01".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "file contents".to_string(),
+                    content: "file contents".to_owned(),
                     ..Default::default()
                 },
             },
@@ -430,7 +430,7 @@ mod sse_parsing {
     }
 
     async fn collect_chat_events(body: &str) -> Vec<ResponseEvent> {
-        let reader = ReaderStream::new(std::io::Cursor::new(body.to_string()))
+        let reader = ReaderStream::new(std::io::Cursor::new(body.to_owned()))
             .map_err(|err| savfox_http_client::TransportError::Network(err.to_string()));
         let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(64);
         tokio::spawn(savfox_api_client::sse::chat::process_chat_sse(
@@ -460,7 +460,7 @@ mod sse_parsing {
     }
 
     async fn collect_anthropic_events(body: &str) -> Vec<ResponseEvent> {
-        let reader = ReaderStream::new(std::io::Cursor::new(body.to_string()))
+        let reader = ReaderStream::new(std::io::Cursor::new(body.to_owned()))
             .map_err(|err| savfox_http_client::TransportError::Network(err.to_string()));
         let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(64);
         tokio::spawn(savfox_api_client::sse::anthropic::process_anthropic_sse(
@@ -944,7 +944,7 @@ mod provider_config {
     fn provider_url_with_query_params() {
         let mut p = openai_provider();
         let mut params = std::collections::HashMap::new();
-        params.insert("api-version".to_string(), "2025-04-01".to_string());
+        params.insert("api-version".to_owned(), "2025-04-01".to_owned());
         p.query_params = Some(params);
 
         let url = p.url_for_path("/responses");
@@ -1003,9 +1003,9 @@ mod provider_config {
     #[test]
     fn azure_detection_by_name() {
         let p = Provider {
-            id: "azure".to_string(),
-            name: "azure".to_string(),
-            base_url: "https://example.com".to_string(),
+            id: "azure".to_owned(),
+            name: "azure".to_owned(),
+            base_url: "https://example.com".to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -1018,9 +1018,9 @@ mod provider_config {
     #[test]
     fn azure_detection_by_url() {
         let p = Provider {
-            id: "custom".to_string(),
-            name: "custom".to_string(),
-            base_url: "https://foo.openai.azure.com/openai".to_string(),
+            id: "custom".to_owned(),
+            name: "custom".to_owned(),
+            base_url: "https://foo.openai.azure.com/openai".to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -1048,9 +1048,9 @@ mod provider_config {
     #[test]
     fn websocket_url_http_becomes_ws() {
         let p = Provider {
-            id: "local".to_string(),
-            name: "local".to_string(),
-            base_url: "http://localhost:8080/v1".to_string(),
+            id: "local".to_owned(),
+            name: "local".to_owned(),
+            base_url: "http://localhost:8080/v1".to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -1188,13 +1188,13 @@ mod round_trip {
     fn chat_request_with_image_content() {
         let input = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![
                 ContentItem::InputText {
-                    text: "What is in this image?".to_string(),
+                    text: "What is in this image?".to_owned(),
                 },
                 ContentItem::InputImage {
-                    image_url: "https://example.com/cat.jpg".to_string(),
+                    image_url: "https://example.com/cat.jpg".to_owned(),
                 },
             ],
             end_turn: None,
@@ -1226,9 +1226,9 @@ mod round_trip {
     fn anthropic_request_with_image_content_url() {
         let input = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputImage {
-                image_url: "https://example.com/cat.jpg".to_string(),
+                image_url: "https://example.com/cat.jpg".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -1252,9 +1252,9 @@ mod round_trip {
     fn anthropic_request_with_base64_image() {
         let input = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputImage {
-                image_url: "data:image/png;base64,iVBORw0KGgo=".to_string(),
+                image_url: "data:image/png;base64,iVBORw0KGgo=".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -1292,8 +1292,8 @@ mod round_trip {
             }),
             store: false,
             stream: true,
-            include: vec!["reasoning.encrypted_content".to_string()],
-            prompt_cache_key: Some("cache-1".to_string()),
+            include: vec!["reasoning.encrypted_content".to_owned()],
+            prompt_cache_key: Some("cache-1".to_owned()),
             text: None,
         };
 

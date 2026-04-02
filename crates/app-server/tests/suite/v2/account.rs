@@ -39,7 +39,7 @@ fn create_config_toml(savfox_home: &Path, params: CreateConfigTomlParams) -> std
     let config_toml = savfox_home.join("config.toml");
     let base_url = params
         .base_url
-        .unwrap_or_else(|| "http://127.0.0.1:0/v1".to_string());
+        .unwrap_or_else(|| "http://127.0.0.1:0/v1".to_owned());
     let forced_line = if let Some(method) = params.forced_method {
         format!("forced_login_method = \"{method}\"\n")
     } else {
@@ -51,7 +51,7 @@ fn create_config_toml(savfox_home: &Path, params: CreateConfigTomlParams) -> std
         String::new()
     };
     let requires_line = match params.requires_openai_auth {
-        Some(true) => "requires_openai_auth = true\n".to_string(),
+        Some(true) => "requires_openai_auth = true\n".to_owned(),
         Some(false) => String::new(),
         None => String::new(),
     };
@@ -155,7 +155,7 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
             .plan_type("pro")
             .chatgpt_account_id("org-embedded"),
     )?;
-    let access_token = "access-embedded".to_string();
+    let access_token = "access-embedded".to_owned();
 
     let mut mcp = McpProcess::new_with_env(savfox_home.path(), &[("OPENAI_API_KEY", None)]).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
@@ -197,7 +197,7 @@ async fn set_auth_token_updates_account_and_notifies() -> Result<()> {
         account,
         GetAccountResponse {
             account: Some(Account::Chatgpt {
-                email: "embedded@example.com".to_string(),
+                email: "embedded@example.com".to_owned(),
                 plan_type: AccountPlanType::Pro,
             }),
             requires_openai_auth: true,
@@ -230,7 +230,7 @@ async fn account_read_refresh_token_is_noop_in_external_mode() -> Result<()> {
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let set_id = mcp
-        .send_chatgpt_auth_tokens_login_request(id_token, "access-embedded".to_string())
+        .send_chatgpt_auth_tokens_login_request(id_token, "access-embedded".to_owned())
         .await?;
     let set_resp: JSONRPCResponse = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -260,7 +260,7 @@ async fn account_read_refresh_token_is_noop_in_external_mode() -> Result<()> {
         account,
         GetAccountResponse {
             account: Some(Account::Chatgpt {
-                email: "embedded@example.com".to_string(),
+                email: "embedded@example.com".to_owned(),
                 plan_type: AccountPlanType::Pro,
             }),
             requires_openai_auth: true,
@@ -295,8 +295,8 @@ async fn respond_to_refresh_request(
     };
     assert_eq!(params.reason, ChatgptAuthTokensRefreshReason::Unauthorized);
     let response = ChatgptAuthTokensRefreshResponse {
-        access_token: access_token.to_string(),
-        id_token: id_token.to_string(),
+        access_token: access_token.to_owned(),
+        id_token: id_token.to_owned(),
     };
     mcp.send_response(request_id, serde_json::to_value(response)?)
         .await?;
@@ -344,8 +344,8 @@ async fn external_auth_refreshes_on_unauthorized() -> Result<()> {
             .plan_type("pro")
             .chatgpt_account_id("org-refreshed"),
     )?;
-    let initial_access_token = "access-initial".to_string();
-    let refreshed_access_token = "access-refreshed".to_string();
+    let initial_access_token = "access-initial".to_owned();
+    let refreshed_access_token = "access-refreshed".to_owned();
 
     let mut mcp = McpProcess::new_with_env(savfox_home.path(), &[("OPENAI_API_KEY", None)]).await?;
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
@@ -371,7 +371,7 @@ async fn external_auth_refreshes_on_unauthorized() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(savfox_app_server_protocol::SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -386,7 +386,7 @@ async fn external_auth_refreshes_on_unauthorized() -> Result<()> {
         .send_turn_start_request(savfox_app_server_protocol::TurnStartParams {
             session_id: session.session.id,
             input: vec![savfox_app_server_protocol::UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -450,7 +450,7 @@ async fn external_auth_refresh_error_fails_turn() -> Result<()> {
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let set_id = mcp
-        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_string())
+        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_owned())
         .await?;
     let set_resp: JSONRPCResponse = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -467,7 +467,7 @@ async fn external_auth_refresh_error_fails_turn() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(savfox_app_server_protocol::SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -482,7 +482,7 @@ async fn external_auth_refresh_error_fails_turn() -> Result<()> {
         .send_turn_start_request(savfox_app_server_protocol::TurnStartParams {
             session_id: session.session.id.clone(),
             input: vec![savfox_app_server_protocol::UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -502,7 +502,7 @@ async fn external_auth_refresh_error_fails_turn() -> Result<()> {
         request_id,
         JSONRPCErrorError {
             code: -32_000,
-            message: "refresh failed".to_string(),
+            message: "refresh failed".to_owned(),
             data: None,
         },
     )
@@ -537,7 +537,7 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
     create_config_toml(
         savfox_home.path(),
         CreateConfigTomlParams {
-            forced_workspace_id: Some("org-expected".to_string()),
+            forced_workspace_id: Some("org-expected".to_owned()),
             requires_openai_auth: Some(true),
             base_url: Some(format!("{}/v1", mock_server.uri())),
             ..Default::default()
@@ -568,7 +568,7 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let set_id = mcp
-        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_string())
+        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_owned())
         .await?;
     let set_resp: JSONRPCResponse = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -585,7 +585,7 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(savfox_app_server_protocol::SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -600,7 +600,7 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
         .send_turn_start_request(savfox_app_server_protocol::TurnStartParams {
             session_id: session.session.id.clone(),
             input: vec![savfox_app_server_protocol::UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -619,7 +619,7 @@ async fn external_auth_refresh_mismatched_workspace_fails_turn() -> Result<()> {
     mcp.send_response(
         request_id,
         serde_json::to_value(ChatgptAuthTokensRefreshResponse {
-            access_token: "access-refreshed".to_string(),
+            access_token: "access-refreshed".to_owned(),
             id_token: refreshed_id_token,
         })?,
     )
@@ -678,7 +678,7 @@ async fn external_auth_refresh_invalid_id_token_fails_turn() -> Result<()> {
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let set_id = mcp
-        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_string())
+        .send_chatgpt_auth_tokens_login_request(initial_id_token, "access-initial".to_owned())
         .await?;
     let set_resp: JSONRPCResponse = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -695,7 +695,7 @@ async fn external_auth_refresh_invalid_id_token_fails_turn() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(savfox_app_server_protocol::SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -710,7 +710,7 @@ async fn external_auth_refresh_invalid_id_token_fails_turn() -> Result<()> {
         .send_turn_start_request(savfox_app_server_protocol::TurnStartParams {
             session_id: session.session.id.clone(),
             input: vec![savfox_app_server_protocol::UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -729,8 +729,8 @@ async fn external_auth_refresh_invalid_id_token_fails_turn() -> Result<()> {
     mcp.send_response(
         request_id,
         serde_json::to_value(ChatgptAuthTokensRefreshResponse {
-            access_token: "access-refreshed".to_string(),
-            id_token: "not-a-jwt".to_string(),
+            access_token: "access-refreshed".to_owned(),
+            id_token: "not-a-jwt".to_owned(),
         })?,
     )
     .await?;
@@ -815,7 +815,7 @@ async fn login_account_api_key_rejected_when_forced_chatgpt() -> Result<()> {
     create_config_toml(
         savfox_home.path(),
         CreateConfigTomlParams {
-            forced_method: Some("chatgpt".to_string()),
+            forced_method: Some("chatgpt".to_owned()),
             ..Default::default()
         },
     )?;
@@ -845,7 +845,7 @@ async fn login_account_chatgpt_rejected_when_forced_api() -> Result<()> {
     create_config_toml(
         savfox_home.path(),
         CreateConfigTomlParams {
-            forced_method: Some("api".to_string()),
+            forced_method: Some("api".to_owned()),
             ..Default::default()
         },
     )?;
@@ -965,7 +965,7 @@ async fn set_auth_token_cancels_active_chatgpt_login() -> Result<()> {
     // Set an external auth token instead of completing the ChatGPT login flow.
     // This should cancel the active login attempt.
     let set_id = mcp
-        .send_chatgpt_auth_tokens_login_request(id_token, "access-embedded".to_string())
+        .send_chatgpt_auth_tokens_login_request(id_token, "access-embedded".to_owned())
         .await?;
     let set_resp: JSONRPCResponse = timeout(
         DEFAULT_READ_TIMEOUT,
@@ -1006,7 +1006,7 @@ async fn login_account_chatgpt_includes_forced_workspace_query_param() -> Result
     create_config_toml(
         savfox_home.path(),
         CreateConfigTomlParams {
-            forced_workspace_id: Some("ws-forced".to_string()),
+            forced_workspace_id: Some("ws-forced".to_owned()),
             ..Default::default()
         },
     )?;
@@ -1176,7 +1176,7 @@ async fn get_account_with_chatgpt() -> Result<()> {
 
     let expected = GetAccountResponse {
         account: Some(Account::Chatgpt {
-            email: "user@example.com".to_string(),
+            email: "user@example.com".to_owned(),
             plan_type: AccountPlanType::Pro,
         }),
         requires_openai_auth: true,

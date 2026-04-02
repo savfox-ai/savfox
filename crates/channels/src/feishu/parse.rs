@@ -81,15 +81,15 @@ mod tests {
     fn parse_text_command_supports_commands_and_plain_text() {
         assert_eq!(
             parse_text_command("/savfox summarize"),
-            Some("summarize".to_string())
+            Some("summarize".to_owned())
         );
         assert_eq!(
             parse_text_command("!savfox summarize"),
-            Some("summarize".to_string())
+            Some("summarize".to_owned())
         );
         assert_eq!(
             parse_text_command("summarize this"),
-            Some("summarize this".to_string())
+            Some("summarize this".to_owned())
         );
         assert_eq!(parse_text_command("/savfox"), None);
         assert_eq!(parse_text_command("/savfoxtest hi"), None);
@@ -101,20 +101,20 @@ mod tests {
         let event = MessageEvent {
             sender: MessageSender {
                 sender_id: Some(MessageId {
-                    open_id: Some("ou_bot".to_string()),
+                    open_id: Some("ou_bot".to_owned()),
                     user_id: None,
                     union_id: None,
                 }),
-                sender_type: Some("app".to_string()),
+                sender_type: Some("app".to_owned()),
                 tenant_key: None,
             },
             message: Message {
-                message_id: Some("om_1".to_string()),
+                message_id: Some("om_1".to_owned()),
                 root_id: None,
                 parent_id: None,
                 create_time: None,
-                chat_id: Some("oc_1".to_string()),
-                message_type: Some("text".to_string()),
+                chat_id: Some("oc_1".to_owned()),
+                message_type: Some("text".to_owned()),
                 content: Some(json!({ "text": "hello" }).to_string()),
                 mentions: None,
             },
@@ -128,20 +128,20 @@ mod tests {
         let event = MessageEvent {
             sender: MessageSender {
                 sender_id: Some(MessageId {
-                    open_id: Some("ou_user".to_string()),
+                    open_id: Some("ou_user".to_owned()),
                     user_id: None,
                     union_id: None,
                 }),
-                sender_type: Some("user".to_string()),
+                sender_type: Some("user".to_owned()),
                 tenant_key: None,
             },
             message: Message {
-                message_id: Some("om_1".to_string()),
+                message_id: Some("om_1".to_owned()),
                 root_id: None,
                 parent_id: None,
                 create_time: None,
-                chat_id: Some("oc_1".to_string()),
-                message_type: Some("text".to_string()),
+                chat_id: Some("oc_1".to_owned()),
+                message_type: Some("text".to_owned()),
                 content: Some(json!({ "text": "hello world" }).to_string()),
                 mentions: None,
             },
@@ -150,8 +150,8 @@ mod tests {
         assert_eq!(
             extract_channel_action(&event),
             Some(ChannelAction::StartThread {
-                channel: "oc_1".to_string(),
-                prompt: "hello world".to_string(),
+                channel: "oc_1".to_owned(),
+                prompt: "hello world".to_owned(),
             })
         );
     }

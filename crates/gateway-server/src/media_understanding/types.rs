@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn capability_detects_pdf_documents() {
         let attachment =
-            MediaAttachment::from_bytes(vec![1, 2, 3], Some("application/pdf".to_string()), 0);
+            MediaAttachment::from_bytes(vec![1, 2, 3], Some("application/pdf".to_owned()), 0);
         assert_eq!(attachment.capability(), Some(MediaCapability::Document));
     }
 }

@@ -298,11 +298,11 @@ mod tests {
 
         #[cfg(not(unix))]
         let expected = vec![
-            "entry.txt".to_string(),
-            "nested/".to_string(),
-            "  child.txt".to_string(),
-            "  deeper/".to_string(),
-            "    grandchild.txt".to_string(),
+            "entry.txt".to_owned(),
+            "nested/".to_owned(),
+            "  child.txt".to_owned(),
+            "  deeper/".to_owned(),
+            "    grandchild.txt".to_owned(),
         ];
 
         assert_eq!(entries, expected);
@@ -321,7 +321,7 @@ mod tests {
             .expect_err("offset exceeds entries");
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("offset exceeds directory entry count".to_string())
+            FunctionCallError::RespondToModel("offset exceeds directory entry count".to_owned())
         );
     }
 
@@ -348,7 +348,7 @@ mod tests {
             .expect("list depth 1");
         assert_eq!(
             entries_depth_one,
-            vec!["nested/".to_string(), "root.txt".to_string(),]
+            vec!["nested/".to_owned(), "root.txt".to_owned(),]
         );
 
         let entries_depth_two = list_dir_slice(dir_path, 1, 20, 2)
@@ -357,10 +357,10 @@ mod tests {
         assert_eq!(
             entries_depth_two,
             vec![
-                "nested/".to_string(),
-                "  child.txt".to_string(),
-                "  deeper/".to_string(),
-                "root.txt".to_string(),
+                "nested/".to_owned(),
+                "  child.txt".to_owned(),
+                "  deeper/".to_owned(),
+                "root.txt".to_owned(),
             ]
         );
 
@@ -370,11 +370,11 @@ mod tests {
         assert_eq!(
             entries_depth_three,
             vec![
-                "nested/".to_string(),
-                "  child.txt".to_string(),
-                "  deeper/".to_string(),
-                "    grandchild.txt".to_string(),
-                "root.txt".to_string(),
+                "nested/".to_owned(),
+                "  child.txt".to_owned(),
+                "  deeper/".to_owned(),
+                "    grandchild.txt".to_owned(),
+                "root.txt".to_owned(),
             ]
         );
     }
@@ -402,9 +402,9 @@ mod tests {
         assert_eq!(
             first_page,
             vec![
-                "a/".to_string(),
-                "  a_child.txt".to_string(),
-                "More than 2 entries found".to_string()
+                "a/".to_owned(),
+                "  a_child.txt".to_owned(),
+                "More than 2 entries found".to_owned()
             ]
         );
 
@@ -413,7 +413,7 @@ mod tests {
             .expect("list page two");
         assert_eq!(
             second_page,
-            vec!["b/".to_string(), "  b_child.txt".to_string()]
+            vec!["b/".to_owned(), "  b_child.txt".to_owned()]
         );
     }
 
@@ -436,7 +436,7 @@ mod tests {
             .expect("list without overflow");
         assert_eq!(
             entries,
-            vec!["beta.txt".to_string(), "gamma.txt".to_string(),]
+            vec!["beta.txt".to_owned(), "gamma.txt".to_owned(),]
         );
     }
 
@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(entries.len(), 26);
         assert_eq!(
             entries.last(),
-            Some(&"More than 25 entries found".to_string())
+            Some(&"More than 25 entries found".to_owned())
         );
     }
 
@@ -478,10 +478,10 @@ mod tests {
         assert_eq!(
             entries_depth_three,
             vec![
-                "nested/".to_string(),
-                "  child.txt".to_string(),
-                "  deeper/".to_string(),
-                "More than 3 entries found".to_string()
+                "nested/".to_owned(),
+                "  child.txt".to_owned(),
+                "  deeper/".to_owned(),
+                "More than 3 entries found".to_owned()
             ]
         );
 

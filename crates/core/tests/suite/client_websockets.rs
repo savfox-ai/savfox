@@ -98,7 +98,7 @@ async fn responses_websocket_emits_reasoning_included_event() {
 
     let server = start_websocket_server_with_headers(vec![WebSocketConnectionConfig {
         requests: vec![vec![ev_response_created("resp-1"), ev_completed("resp-1")]],
-        response_headers: vec![("X-Reasoning-Included".to_string(), "true".to_string())],
+        response_headers: vec![("X-Reasoning-Included".to_owned(), "true".to_owned())],
     }])
     .await;
 
@@ -235,7 +235,7 @@ async fn websocket_harness(server: &WebSocketTestServer) -> WebsocketTestHarness
     let provider = websocket_provider(server);
     let savfox_home = TempDir::new().unwrap();
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model = Some(MODEL.to_string());
+    config.model = Some(MODEL.to_owned());
     config.features.enable(Feature::ResponsesWebsockets);
     let config = Arc::new(config);
     let model_info = ModelsManager::construct_model_info_offline(MODEL, &config);
@@ -252,10 +252,10 @@ async fn websocket_harness(server: &WebSocketTestServer) -> WebsocketTestHarness
         MODEL,
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         auth_manager.get_auth_mode(),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         SessionSource::Exec,
     )
     .with_metrics(metrics);

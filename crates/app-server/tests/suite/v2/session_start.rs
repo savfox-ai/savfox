@@ -29,7 +29,7 @@ async fn session_start_creates_session_and_emits_started() -> Result<()> {
     // Start a v2 session with an explicit model override.
     let req_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.1".to_string()),
+            model: Some("gpt-5.1".to_owned()),
             ..Default::default()
         })
         .await?;

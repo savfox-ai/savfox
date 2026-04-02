@@ -17,11 +17,11 @@ fn start_mock_issuer(chatgpt_account_id: &str) -> (SocketAddr, thread::JoinHandl
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tiny_http::Server::from_listener(listener, None).unwrap();
-    let chatgpt_account_id = chatgpt_account_id.to_string();
+    let chatgpt_account_id = chatgpt_account_id.to_owned();
 
     let handle = thread::spawn(move || {
         while let Ok(mut req) = server.recv() {
-            let url = req.url().to_string();
+            let url = req.url().to_owned();
             if url.starts_with("/oauth/token") {
                 // Read body
                 let mut body = String::new();
@@ -110,7 +110,7 @@ async fn end_to_end_login_flow_persists_openai_provider_store_file() -> Result<(
         serde_json::to_string_pretty(&stale_auth)?,
     )?;
 
-    let state = "test_state_123".to_string();
+    let state = "test_state_123".to_owned();
 
     // Run server in background
     let server_home = savfox_home.clone();
@@ -118,13 +118,13 @@ async fn end_to_end_login_flow_persists_openai_provider_store_file() -> Result<(
     let opts = ServerOptions {
         savfox_home: server_home,
         cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-        client_id: savfox_login_oauth::CLIENT_ID.to_string(),
+        client_id: savfox_login_oauth::CLIENT_ID.to_owned(),
         issuer,
         port: 0,
         open_browser: false,
         force_state: Some(state),
-        forced_chatgpt_workspace_id: Some(chatgpt_account_id.to_string()),
-        provider_name: "OpenAI".to_string(),
+        forced_chatgpt_workspace_id: Some(chatgpt_account_id.to_owned()),
+        provider_name: "OpenAI".to_owned(),
     };
     let server = run_login_server(opts)?;
     assert!(
@@ -176,20 +176,20 @@ async fn creates_missing_savfox_home_dir() -> Result<()> {
     let tmp = tempdir()?;
     let savfox_home = tmp.path().join("missing-subdir"); // does not exist
 
-    let state = "state2".to_string();
+    let state = "state2".to_owned();
 
     // Run server in background
     let server_home = savfox_home.clone();
     let opts = ServerOptions {
         savfox_home: server_home,
         cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-        client_id: savfox_login_oauth::CLIENT_ID.to_string(),
+        client_id: savfox_login_oauth::CLIENT_ID.to_owned(),
         issuer,
         port: 0,
         open_browser: false,
         force_state: Some(state),
         forced_chatgpt_workspace_id: None,
-        provider_name: "OpenAI".to_string(),
+        provider_name: "OpenAI".to_owned(),
     };
     let server = run_login_server(opts)?;
     let login_port = server.actual_port;
@@ -218,18 +218,18 @@ async fn forced_chatgpt_workspace_id_mismatch_blocks_login() -> Result<()> {
 
     let tmp = tempdir()?;
     let savfox_home = tmp.path().to_path_buf();
-    let state = "state-mismatch".to_string();
+    let state = "state-mismatch".to_owned();
 
     let opts = ServerOptions {
         savfox_home: savfox_home.clone(),
         cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-        client_id: savfox_login_oauth::CLIENT_ID.to_string(),
+        client_id: savfox_login_oauth::CLIENT_ID.to_owned(),
         issuer,
         port: 0,
         open_browser: false,
         force_state: Some(state.clone()),
-        forced_chatgpt_workspace_id: Some("org-required".to_string()),
-        provider_name: "OpenAI".to_string(),
+        forced_chatgpt_workspace_id: Some("org-required".to_owned()),
+        provider_name: "OpenAI".to_owned(),
     };
     let server = run_login_server(opts)?;
     assert!(
@@ -280,13 +280,13 @@ async fn cancels_previous_login_server_when_port_is_in_use() -> Result<()> {
     let first_opts = ServerOptions {
         savfox_home: first_savfox_home,
         cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-        client_id: savfox_login_oauth::CLIENT_ID.to_string(),
+        client_id: savfox_login_oauth::CLIENT_ID.to_owned(),
         issuer: issuer.clone(),
         port: 0,
         open_browser: false,
-        force_state: Some("cancel_state".to_string()),
+        force_state: Some("cancel_state".to_owned()),
         forced_chatgpt_workspace_id: None,
-        provider_name: "OpenAI".to_string(),
+        provider_name: "OpenAI".to_owned(),
     };
 
     let first_server = run_login_server(first_opts)?;
@@ -301,13 +301,13 @@ async fn cancels_previous_login_server_when_port_is_in_use() -> Result<()> {
     let second_opts = ServerOptions {
         savfox_home: second_savfox_home,
         cli_auth_credentials_store_mode: AuthCredentialsStoreMode::File,
-        client_id: savfox_login_oauth::CLIENT_ID.to_string(),
+        client_id: savfox_login_oauth::CLIENT_ID.to_owned(),
         issuer,
         port: login_port,
         open_browser: false,
-        force_state: Some("cancel_state_2".to_string()),
+        force_state: Some("cancel_state_2".to_owned()),
         forced_chatgpt_workspace_id: None,
-        provider_name: "OpenAI".to_string(),
+        provider_name: "OpenAI".to_owned(),
     };
 
     let second_server = run_login_server(second_opts)?;

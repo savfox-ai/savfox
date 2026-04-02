@@ -36,7 +36,7 @@ async fn session_resume_returns_original_session() -> Result<()> {
     // Start a session.
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.1-savfox-max".to_string()),
+            model: Some("gpt-5.1-savfox-max".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -140,7 +140,7 @@ async fn session_resume_returns_rollout_history() -> Result<()> {
             assert_eq!(
                 content,
                 &vec![UserInput::Text {
-                    text: preview.to_string(),
+                    text: preview.to_owned(),
                     text_elements: text_elements.clone().into_iter().map(Into::into).collect(),
                 }]
             );
@@ -183,7 +183,7 @@ async fn session_resume_without_overrides_does_not_change_updated_at_or_mtime() 
         .send_turn_start_request(TurnStartParams {
             session_id,
             input: vec![UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -218,7 +218,7 @@ async fn session_resume_with_overrides_defers_updated_at_until_turn_start() -> R
     let resume_id = mcp
         .send_session_resume_request(SessionResumeParams {
             session_id: rollout.conversation_id.clone(),
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -238,7 +238,7 @@ async fn session_resume_with_overrides_defers_updated_at_until_turn_start() -> R
         .send_turn_start_request(TurnStartParams {
             session_id: rollout.conversation_id,
             input: vec![UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -272,7 +272,7 @@ async fn session_resume_prefers_path_over_session_id() -> Result<()> {
 
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.1-savfox-max".to_string()),
+            model: Some("gpt-5.1-savfox-max".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -286,7 +286,7 @@ async fn session_resume_prefers_path_over_session_id() -> Result<()> {
     let session_path = session.path.clone().expect("session path");
     let resume_id = mcp
         .send_session_resume_request(SessionResumeParams {
-            session_id: "not-a-valid-session-id".to_string(),
+            session_id: "not-a-valid-session-id".to_owned(),
             path: Some(session_path),
             ..Default::default()
         })
@@ -328,7 +328,7 @@ async fn session_resume_supports_history_and_overrides() -> Result<()> {
     // Start a session.
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.1-savfox-max".to_string()),
+            model: Some("gpt-5.1-savfox-max".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -342,9 +342,9 @@ async fn session_resume_supports_history_and_overrides() -> Result<()> {
     let history_text = "Hello from history";
     let history = vec![ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
-            text: history_text.to_string(),
+            text: history_text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -355,8 +355,8 @@ async fn session_resume_supports_history_and_overrides() -> Result<()> {
         .send_session_resume_request(SessionResumeParams {
             session_id: session.id,
             history: Some(history),
-            model: Some("mock-model".to_string()),
-            model_provider: Some("mock_provider".to_string()),
+            model: Some("mock-model".to_owned()),
+            model_provider: Some("mock_provider".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -397,7 +397,7 @@ async fn session_resume_accepts_personality_override() -> Result<()> {
 
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.2-savfox".to_string()),
+            model: Some("gpt-5.2-savfox".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -411,7 +411,7 @@ async fn session_resume_accepts_personality_override() -> Result<()> {
     let resume_id = mcp
         .send_session_resume_request(SessionResumeParams {
             session_id: session.id.clone(),
-            model: Some("gpt-5.2-savfox".to_string()),
+            model: Some("gpt-5.2-savfox".to_owned()),
             personality: Some(Personality::Pragmatic),
             ..Default::default()
         })
@@ -427,7 +427,7 @@ async fn session_resume_accepts_personality_override() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id,
             input: vec![UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()

@@ -33,7 +33,7 @@ async fn session_rollback_drops_last_turns_and_persists_to_rollout() -> Result<(
     // Start a session.
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -50,7 +50,7 @@ async fn session_rollback_drops_last_turns_and_persists_to_rollout() -> Result<(
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: first_text.to_string(),
+                text: first_text.to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -71,7 +71,7 @@ async fn session_rollback_drops_last_turns_and_persists_to_rollout() -> Result<(
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Second".to_string(),
+                text: "Second".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -111,7 +111,7 @@ async fn session_rollback_drops_last_turns_and_persists_to_rollout() -> Result<(
             assert_eq!(
                 content,
                 &vec![V2UserInput::Text {
-                    text: first_text.to_string(),
+                    text: first_text.to_owned(),
                     text_elements: Vec::new(),
                 }]
             );
@@ -140,7 +140,7 @@ async fn session_rollback_drops_last_turns_and_persists_to_rollout() -> Result<(
             assert_eq!(
                 content,
                 &vec![V2UserInput::Text {
-                    text: first_text.to_string(),
+                    text: first_text.to_owned(),
                     text_elements: Vec::new(),
                 }]
             );

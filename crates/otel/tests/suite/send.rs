@@ -34,9 +34,9 @@ fn send_builds_payload_with_tags_and_histograms() -> Result<()> {
     };
 
     let expected_counter_attributes = BTreeMap::from([
-        ("service".to_string(), "savfox-cli".to_string()),
-        ("env".to_string(), "dev".to_string()),
-        ("model".to_string(), "gpt-5.1".to_string()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
+        ("env".to_owned(), "dev".to_owned()),
+        ("model".to_owned(), "gpt-5.1".to_owned()),
     ]);
     assert_eq!(counter_attributes, expected_counter_attributes);
 
@@ -64,9 +64,9 @@ fn send_builds_payload_with_tags_and_histograms() -> Result<()> {
         },
     );
     let expected_histogram_attributes = BTreeMap::from([
-        ("service".to_string(), "savfox-cli".to_string()),
-        ("env".to_string(), "prod".to_string()),
-        ("tool".to_string(), "shell".to_string()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
+        ("env".to_owned(), "prod".to_owned()),
+        ("tool".to_owned(), "shell".to_owned()),
     ]);
     assert_eq!(histogram_attrs, expected_histogram_attributes);
 
@@ -107,10 +107,10 @@ fn send_merges_default_tags_per_line() -> Result<()> {
     assert_eq!(alpha_point.value(), 1);
     let alpha_attrs = attributes_to_map(alpha_point.attributes());
     let expected_alpha_attrs = BTreeMap::from([
-        ("component".to_string(), "alpha".to_string()),
-        ("env".to_string(), "dev".to_string()),
-        ("region".to_string(), "us".to_string()),
-        ("service".to_string(), "savfox-cli".to_string()),
+        ("component".to_owned(), "alpha".to_owned()),
+        ("env".to_owned(), "dev".to_owned()),
+        ("region".to_owned(), "us".to_owned()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
     ]);
     assert_eq!(alpha_attrs, expected_alpha_attrs);
 
@@ -130,10 +130,10 @@ fn send_merges_default_tags_per_line() -> Result<()> {
     assert_eq!(beta_point.value(), 2);
     let beta_attrs = attributes_to_map(beta_point.attributes());
     let expected_beta_attrs = BTreeMap::from([
-        ("component".to_string(), "beta".to_string()),
-        ("env".to_string(), "prod".to_string()),
-        ("region".to_string(), "us".to_string()),
-        ("service".to_string(), "worker".to_string()),
+        ("component".to_owned(), "beta".to_owned()),
+        ("env".to_owned(), "prod".to_owned()),
+        ("region".to_owned(), "us".to_owned()),
+        ("service".to_owned(), "worker".to_owned()),
     ]);
     assert_eq!(beta_attrs, expected_beta_attrs);
 

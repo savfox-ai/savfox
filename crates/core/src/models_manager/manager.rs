@@ -907,7 +907,7 @@ mod tests {
         let savfox_home = tempdir().expect("temp dir");
         let auth_manager =
             AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"));
-        let provider = provider_for("http://example.test".to_string());
+        let provider = provider_for("http://example.test".to_owned());
         let mut manager =
             ModelsManager::with_provider(savfox_home.path().to_path_buf(), auth_manager, provider);
         manager.local_models = Vec::new();

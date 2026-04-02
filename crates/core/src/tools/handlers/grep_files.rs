@@ -159,7 +159,7 @@ mod tests {
         let parsed = parse_results(stdout, 10);
         assert_eq!(
             parsed,
-            vec!["/tmp/file_a.rs".to_string(), "/tmp/file_b.rs".to_string()]
+            vec!["/tmp/file_a.rs".to_owned(), "/tmp/file_b.rs".to_owned()]
         );
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let parsed = parse_results(stdout, 2);
         assert_eq!(
             parsed,
-            vec!["/tmp/file_a.rs".to_string(), "/tmp/file_b.rs".to_string()]
+            vec!["/tmp/file_a.rs".to_owned(), "/tmp/file_b.rs".to_owned()]
         );
     }
 

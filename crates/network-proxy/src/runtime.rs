@@ -528,8 +528,8 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_denied_wins_over_allowed() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
-            denied_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
+            denied_domains: vec!["example.com".to_owned()],
             ..NetworkPolicy::default()
         });
 
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_requires_allowlist_match() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             ..NetworkPolicy::default()
         });
 
@@ -561,7 +561,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_subdomain_wildcards_exclude_apex() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["*.openai.com".to_string()],
+            allowed_domains: vec!["*.openai.com".to_owned()],
             ..NetworkPolicy::default()
         });
 
@@ -578,7 +578,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_loopback_when_local_binding_disabled() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -596,7 +596,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_loopback_when_allowlist_is_wildcard() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["*".to_string()],
+            allowed_domains: vec!["*".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -610,7 +610,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_private_ip_literal_when_allowlist_is_wildcard() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["*".to_string()],
+            allowed_domains: vec!["*".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -624,7 +624,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_allows_loopback_when_explicitly_allowlisted_and_local_binding_disabled() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["localhost".to_string()],
+            allowed_domains: vec!["localhost".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -638,7 +638,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_allows_private_ip_literal_when_explicitly_allowlisted() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["10.0.0.1".to_string()],
+            allowed_domains: vec!["10.0.0.1".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -652,7 +652,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_scoped_ipv6_literal_when_not_allowlisted() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -666,7 +666,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_allows_scoped_ipv6_literal_when_explicitly_allowlisted() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["fe80::1%lo0".to_string()],
+            allowed_domains: vec!["fe80::1%lo0".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -680,7 +680,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_private_ip_literals_when_local_binding_disabled() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -708,7 +708,7 @@ mod tests {
     #[tokio::test]
     async fn host_blocked_rejects_allowlisted_hostname_when_dns_lookup_fails() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["does-not-resolve.invalid".to_string()],
+            allowed_domains: vec!["does-not-resolve.invalid".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -725,7 +725,7 @@ mod tests {
     #[test]
     fn validate_policy_against_constraints_disallows_widening_allowed_domains() {
         let constraints = NetworkProxyConstraints {
-            allowed_domains: Some(vec!["example.com".to_string()]),
+            allowed_domains: Some(vec!["example.com".to_owned()]),
             ..NetworkProxyConstraints::default()
         };
 
@@ -733,7 +733,7 @@ mod tests {
             network_proxy: NetworkProxySettings {
                 enabled: true,
                 policy: NetworkPolicy {
-                    allowed_domains: vec!["example.com".to_string(), "evil.com".to_string()],
+                    allowed_domains: vec!["example.com".to_owned(), "evil.com".to_owned()],
                     ..NetworkPolicy::default()
                 },
                 ..NetworkProxySettings::default()
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn validate_policy_against_constraints_allows_narrowing_wildcard_allowlist() {
         let constraints = NetworkProxyConstraints {
-            allowed_domains: Some(vec!["*.example.com".to_string()]),
+            allowed_domains: Some(vec!["*.example.com".to_owned()]),
             ..NetworkProxyConstraints::default()
         };
 
@@ -772,7 +772,7 @@ mod tests {
             network_proxy: NetworkProxySettings {
                 enabled: true,
                 policy: NetworkPolicy {
-                    allowed_domains: vec!["api.example.com".to_string()],
+                    allowed_domains: vec!["api.example.com".to_owned()],
                     ..NetworkPolicy::default()
                 },
                 ..NetworkProxySettings::default()
@@ -785,7 +785,7 @@ mod tests {
     #[test]
     fn validate_policy_against_constraints_rejects_widening_wildcard_allowlist() {
         let constraints = NetworkProxyConstraints {
-            allowed_domains: Some(vec!["*.example.com".to_string()]),
+            allowed_domains: Some(vec!["*.example.com".to_owned()]),
             ..NetworkProxyConstraints::default()
         };
 
@@ -793,7 +793,7 @@ mod tests {
             network_proxy: NetworkProxySettings {
                 enabled: true,
                 policy: NetworkPolicy {
-                    allowed_domains: vec!["**.example.com".to_string()],
+                    allowed_domains: vec!["**.example.com".to_owned()],
                     ..NetworkPolicy::default()
                 },
                 ..NetworkProxySettings::default()
@@ -806,7 +806,7 @@ mod tests {
     #[test]
     fn validate_policy_against_constraints_requires_managed_denied_domains_entries() {
         let constraints = NetworkProxyConstraints {
-            denied_domains: Some(vec!["evil.com".to_string()]),
+            denied_domains: Some(vec!["evil.com".to_owned()]),
             ..NetworkProxyConstraints::default()
         };
 
@@ -900,7 +900,7 @@ mod tests {
 
     #[test]
     fn compile_globset_is_case_insensitive() {
-        let patterns = vec!["ExAmPle.CoM".to_string()];
+        let patterns = vec!["ExAmPle.CoM".to_owned()];
         let set = compile_globset(&patterns).unwrap();
         assert!(set.is_match("example.com"));
         assert!(set.is_match("EXAMPLE.COM"));
@@ -908,7 +908,7 @@ mod tests {
 
     #[test]
     fn compile_globset_excludes_apex_for_subdomain_patterns() {
-        let patterns = vec!["*.openai.com".to_string()];
+        let patterns = vec!["*.openai.com".to_owned()];
         let set = compile_globset(&patterns).unwrap();
         assert!(set.is_match("api.openai.com"));
         assert!(!set.is_match("openai.com"));
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     fn compile_globset_includes_apex_for_double_wildcard_patterns() {
-        let patterns = vec!["**.openai.com".to_string()];
+        let patterns = vec!["**.openai.com".to_owned()];
         let set = compile_globset(&patterns).unwrap();
         assert!(set.is_match("openai.com"));
         assert!(set.is_match("api.openai.com"));
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn compile_globset_matches_all_with_star() {
-        let patterns = vec!["*".to_string()];
+        let patterns = vec!["*".to_owned()];
         let set = compile_globset(&patterns).unwrap();
         assert!(set.is_match("openai.com"));
         assert!(set.is_match("api.openai.com"));
@@ -934,7 +934,7 @@ mod tests {
 
     #[test]
     fn compile_globset_dedupes_patterns_without_changing_behavior() {
-        let patterns = vec!["example.com".to_string(), "example.com".to_string()];
+        let patterns = vec!["example.com".to_owned(), "example.com".to_owned()];
         let set = compile_globset(&patterns).unwrap();
         assert!(set.is_match("example.com"));
         assert!(set.is_match("EXAMPLE.COM"));
@@ -943,7 +943,7 @@ mod tests {
 
     #[test]
     fn compile_globset_rejects_invalid_patterns() {
-        let patterns = vec!["[".to_string()];
+        let patterns = vec!["[".to_owned()];
         assert!(compile_globset(&patterns).is_err());
     }
 
@@ -999,9 +999,9 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn unix_socket_allowlist_is_rejected_on_non_macos() {
-        let socket_path = "/tmp/example.sock".to_string();
+        let socket_path = "/tmp/example.sock".to_owned();
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             allow_unix_sockets: vec![socket_path.clone()],
             ..NetworkPolicy::default()
         });

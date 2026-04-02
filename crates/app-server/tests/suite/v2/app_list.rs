@@ -57,18 +57,18 @@ async fn list_apps_returns_empty_when_connectors_disabled() -> Result<()> {
 async fn list_apps_returns_connectors_with_accessible_flags() -> Result<()> {
     let connectors = vec![
         AppInfo {
-            id: "alpha".to_string(),
-            name: "Alpha".to_string(),
-            description: Some("Alpha connector".to_string()),
-            logo_url: Some("https://example.com/alpha.png".to_string()),
+            id: "alpha".to_owned(),
+            name: "Alpha".to_owned(),
+            description: Some("Alpha connector".to_owned()),
+            logo_url: Some("https://example.com/alpha.png".to_owned()),
             logo_url_dark: None,
             distribution_channel: None,
             install_url: None,
             is_accessible: false,
         },
         AppInfo {
-            id: "beta".to_string(),
-            name: "beta".to_string(),
+            id: "beta".to_owned(),
+            name: "beta".to_owned(),
             description: None,
             logo_url: None,
             logo_url_dark: None,
@@ -112,23 +112,23 @@ async fn list_apps_returns_connectors_with_accessible_flags() -> Result<()> {
 
     let expected = vec![
         AppInfo {
-            id: "beta".to_string(),
-            name: "Beta App".to_string(),
+            id: "beta".to_owned(),
+            name: "Beta App".to_owned(),
             description: None,
             logo_url: None,
             logo_url_dark: None,
             distribution_channel: None,
-            install_url: Some("https://savfox.ai/apps/beta/beta".to_string()),
+            install_url: Some("https://savfox.ai/apps/beta/beta".to_owned()),
             is_accessible: true,
         },
         AppInfo {
-            id: "alpha".to_string(),
-            name: "Alpha".to_string(),
-            description: Some("Alpha connector".to_string()),
-            logo_url: Some("https://example.com/alpha.png".to_string()),
+            id: "alpha".to_owned(),
+            name: "Alpha".to_owned(),
+            description: Some("Alpha connector".to_owned()),
+            logo_url: Some("https://example.com/alpha.png".to_owned()),
             logo_url_dark: None,
             distribution_channel: None,
-            install_url: Some("https://savfox.ai/apps/alpha/alpha".to_string()),
+            install_url: Some("https://savfox.ai/apps/alpha/alpha".to_owned()),
             is_accessible: false,
         },
     ];
@@ -144,9 +144,9 @@ async fn list_apps_returns_connectors_with_accessible_flags() -> Result<()> {
 async fn list_apps_paginates_results() -> Result<()> {
     let connectors = vec![
         AppInfo {
-            id: "alpha".to_string(),
-            name: "Alpha".to_string(),
-            description: Some("Alpha connector".to_string()),
+            id: "alpha".to_owned(),
+            name: "Alpha".to_owned(),
+            description: Some("Alpha connector".to_owned()),
             logo_url: None,
             logo_url_dark: None,
             distribution_channel: None,
@@ -154,8 +154,8 @@ async fn list_apps_paginates_results() -> Result<()> {
             is_accessible: false,
         },
         AppInfo {
-            id: "beta".to_string(),
-            name: "beta".to_string(),
+            id: "beta".to_owned(),
+            name: "beta".to_owned(),
             description: None,
             logo_url: None,
             logo_url_dark: None,
@@ -199,13 +199,13 @@ async fn list_apps_paginates_results() -> Result<()> {
     } = to_response(first_response)?;
 
     let expected_first = vec![AppInfo {
-        id: "beta".to_string(),
-        name: "Beta App".to_string(),
+        id: "beta".to_owned(),
+        name: "Beta App".to_owned(),
         description: None,
         logo_url: None,
         logo_url_dark: None,
         distribution_channel: None,
-        install_url: Some("https://savfox.ai/apps/beta/beta".to_string()),
+        install_url: Some("https://savfox.ai/apps/beta/beta".to_owned()),
         is_accessible: true,
     }];
 
@@ -229,13 +229,13 @@ async fn list_apps_paginates_results() -> Result<()> {
     } = to_response(second_response)?;
 
     let expected_second = vec![AppInfo {
-        id: "alpha".to_string(),
-        name: "Alpha".to_string(),
-        description: Some("Alpha connector".to_string()),
+        id: "alpha".to_owned(),
+        name: "Alpha".to_owned(),
+        description: Some("Alpha connector".to_owned()),
         logo_url: None,
         logo_url_dark: None,
         distribution_channel: None,
-        install_url: Some("https://savfox.ai/apps/alpha/alpha".to_string()),
+        install_url: Some("https://savfox.ai/apps/alpha/alpha".to_owned()),
         is_accessible: false,
     }];
 
@@ -291,8 +291,8 @@ async fn start_apps_server(
     tools: Vec<Tool>,
 ) -> Result<(String, JoinHandle<()>)> {
     let state = AppsServerState {
-        expected_bearer: "Bearer chatgpt-token".to_string(),
-        expected_account_id: "account-123".to_string(),
+        expected_bearer: "Bearer chatgpt-token".to_owned(),
+        expected_account_id: "account-123".to_owned(),
         response: json!({ "apps": connectors, "next_token": null }),
     };
     let state = Arc::new(state);
@@ -364,9 +364,9 @@ fn connector_tool(connector_id: &str, connector_name: &str) -> Result<Tool> {
 
     let mut meta = Meta::new();
     meta.0
-        .insert("connector_id".to_string(), json!(connector_id));
+        .insert("connector_id".to_owned(), json!(connector_id));
     meta.0
-        .insert("connector_name".to_string(), json!(connector_name));
+        .insert("connector_name".to_owned(), json!(connector_name));
     tool.meta = Some(meta);
     Ok(tool)
 }

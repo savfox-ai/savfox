@@ -164,9 +164,9 @@ mod tests {
     #[test]
     fn extracts_basic_powershell_command() {
         let cmd = vec![
-            "powershell".to_string(),
-            "-Command".to_string(),
-            "Write-Host hi".to_string(),
+            "powershell".to_owned(),
+            "-Command".to_owned(),
+            "Write-Host hi".to_owned(),
         ];
         let (_shell, script) = extract_powershell_command(&cmd).expect("extract");
         assert_eq!(script, "Write-Host hi");
@@ -175,10 +175,10 @@ mod tests {
     #[test]
     fn extracts_lowercase_flags() {
         let cmd = vec![
-            "powershell".to_string(),
-            "-nologo".to_string(),
-            "-command".to_string(),
-            "Write-Host hi".to_string(),
+            "powershell".to_owned(),
+            "-nologo".to_owned(),
+            "-command".to_owned(),
+            "Write-Host hi".to_owned(),
         ];
         let (_shell, script) = extract_powershell_command(&cmd).expect("extract");
         assert_eq!(script, "Write-Host hi");
@@ -187,11 +187,11 @@ mod tests {
     #[test]
     fn extracts_full_path_powershell_command() {
         let command = if cfg!(windows) {
-            "C:\\windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_string()
+            "C:\\windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe".to_owned()
         } else {
-            "/usr/local/bin/powershell.exe".to_string()
+            "/usr/local/bin/powershell.exe".to_owned()
         };
-        let cmd = vec![command, "-Command".to_string(), "Write-Host hi".to_string()];
+        let cmd = vec![command, "-Command".to_owned(), "Write-Host hi".to_owned()];
         let (_shell, script) = extract_powershell_command(&cmd).expect("extract");
         assert_eq!(script, "Write-Host hi");
     }
@@ -199,10 +199,10 @@ mod tests {
     #[test]
     fn extracts_with_noprofile_and_alias() {
         let cmd = vec![
-            "pwsh".to_string(),
-            "-NoProfile".to_string(),
-            "-c".to_string(),
-            "Get-ChildItem | Select-String foo".to_string(),
+            "pwsh".to_owned(),
+            "-NoProfile".to_owned(),
+            "-c".to_owned(),
+            "Get-ChildItem | Select-String foo".to_owned(),
         ];
         let (_shell, script) = extract_powershell_command(&cmd).expect("extract");
         assert_eq!(script, "Get-ChildItem | Select-String foo");

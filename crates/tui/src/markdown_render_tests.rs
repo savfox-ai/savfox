@@ -80,8 +80,8 @@ fn blockquote_soft_break() {
     assert_eq!(
         lines,
         vec![
-            "> This is a blockquote".to_string(),
-            "> with a soft break".to_string()
+            "> This is a blockquote".to_owned(),
+            "> with a soft break".to_owned()
         ]
     );
 }
@@ -194,11 +194,11 @@ fn blockquote_surrounded_by_blank_lines() {
     assert_eq!(
         lines,
         vec![
-            "foo".to_string(),
-            "".to_string(),
-            "> bar".to_string(),
-            "".to_string(),
-            "baz".to_string(),
+            "foo".to_owned(),
+            "".to_owned(),
+            "> bar".to_owned(),
+            "".to_owned(),
+            "baz".to_owned(),
         ]
     );
 }
@@ -219,7 +219,7 @@ fn blockquote_in_ordered_list_on_next_line() {
                 .collect::<String>()
         })
         .collect();
-    assert_eq!(lines, vec!["1. > quoted".to_string()]);
+    assert_eq!(lines, vec!["1. > quoted".to_owned()]);
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn blockquote_in_unordered_list_on_next_line() {
                 .collect::<String>()
         })
         .collect();
-    assert_eq!(lines, vec!["- > quoted".to_string()]);
+    assert_eq!(lines, vec!["- > quoted".to_owned()]);
 }
 
 #[test]
@@ -259,9 +259,9 @@ fn blockquote_two_paragraphs_inside_ordered_list_has_blank_line() {
     assert_eq!(
         lines,
         vec![
-            "1. > para 1".to_string(),
-            "   > ".to_string(),
-            "   > para 2".to_string(),
+            "1. > para 1".to_owned(),
+            "   > ".to_owned(),
+            "   > para 2".to_owned(),
         ],
         "expected blockquote content to stay aligned after list marker"
     );
@@ -353,9 +353,9 @@ fn blockquote_with_heading_and_paragraph() {
     assert_eq!(
         lines,
         vec![
-            "> # Heading".to_string(),
-            "> ".to_string(),
-            "> paragraph text".to_string(),
+            "> # Heading".to_owned(),
+            "> ".to_owned(),
+            "> paragraph text".to_owned(),
         ]
     );
 }
@@ -392,7 +392,7 @@ fn blockquote_with_code_block() {
                 .collect::<String>()
         })
         .collect();
-    assert_eq!(lines, vec!["> code".to_string()]);
+    assert_eq!(lines, vec!["> code".to_owned()]);
 }
 
 #[test]
@@ -445,12 +445,12 @@ fn nested_blockquote_with_inline_and_fenced_code() {
     assert_eq!(
         lines,
         vec![
-            "> Nested quote with code:".to_string(),
-            "> ".to_string(),
-            "> > Inner quote and inline code".to_string(),
-            "> > ".to_string(),
-            "> > # fenced code inside a quote".to_string(),
-            "> > echo \"hello from a quote\"".to_string(),
+            "> Nested quote with code:".to_owned(),
+            "> ".to_owned(),
+            "> > Inner quote and inline code".to_owned(),
+            "> > ".to_owned(),
+            "> > # fenced code inside a quote".to_owned(),
+            "> > echo \"hello from a quote\"".to_owned(),
         ]
     );
 }
@@ -724,13 +724,13 @@ Here is a code block that shows another fenced block:
     assert_eq!(
         lines,
         vec![
-            "Here is a code block that shows another fenced block:".to_string(),
+            "Here is a code block that shows another fenced block:".to_owned(),
             String::new(),
-            "```md".to_string(),
-            "# Inside fence".to_string(),
-            "- bullet".to_string(),
-            "- `inline code`".to_string(),
-            "```".to_string(),
+            "```md".to_owned(),
+            "# Inside fence".to_owned(),
+            "- bullet".to_owned(),
+            "- `inline code`".to_owned(),
+            "```".to_owned(),
         ]
     );
 }
@@ -874,11 +874,11 @@ fn ordered_item_with_code_block_and_nested_bullet() {
     assert_eq!(
         lines,
         vec![
-            "1. item 1".to_string(),
-            "2. item 2".to_string(),
+            "1. item 1".to_owned(),
+            "2. item 2".to_owned(),
             String::new(),
-            "   code".to_string(),
-            "    - PROCESS_START (a OnceLock<Instant>) keeps the start time for the entire process.".to_string(),
+            "   code".to_owned(),
+            "    - PROCESS_START (a OnceLock<Instant>) keeps the start time for the entire process.".to_owned(),
         ]
     );
 }
@@ -960,10 +960,10 @@ fn unordered_item_continuation_paragraph_is_indented() {
     assert_eq!(
         lines,
         vec![
-            "- Intro".to_string(),
+            "- Intro".to_owned(),
             String::new(),
-            "  Continuation paragraph line 1".to_string(),
-            "  Continuation paragraph line 2".to_string(),
+            "  Continuation paragraph line 1".to_owned(),
+            "  Continuation paragraph line 2".to_owned(),
         ]
     );
 }

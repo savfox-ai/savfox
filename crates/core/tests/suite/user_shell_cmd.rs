@@ -41,7 +41,7 @@ async fn user_shell_cmd_ls_and_cat_in_temp_dir() {
         .savfox;
 
     // 1) shell command should list the file
-    let list_cmd = "ls".to_string();
+    let list_cmd = "ls".to_owned();
     savfox
         .submit(Op::RunUserShellCommand { command: list_cmd })
         .await
@@ -94,7 +94,7 @@ async fn user_shell_cmd_can_be_interrupted() {
         .savfox;
 
     // Start a long-running command and then interrupt it.
-    let sleep_cmd = "sleep 5".to_string();
+    let sleep_cmd = "sleep 5".to_owned();
     savfox
         .submit(Op::RunUserShellCommand { command: sleep_cmd })
         .await
@@ -122,7 +122,7 @@ async fn user_shell_command_history_is_persisted_and_shared_with_model() -> anyh
     let test = builder.build(&server).await?;
 
     #[cfg(windows)]
-    let command = r#"$val = $env:SAVFOX_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_string();
+    let command = r#"$val = $env:SAVFOX_SANDBOX; if ([string]::IsNullOrEmpty($val)) { $val = 'not-set' } ; [System.Console]::Write($val)"#.to_owned();
     #[cfg(not(windows))]
     let command = r#"sh -c "printf '%s' \"${SAVFOX_SANDBOX:-not-set}\"""#.to_string();
 

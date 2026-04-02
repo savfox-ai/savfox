@@ -28,7 +28,7 @@ impl FixtureSseTransport {
 #[async_trait]
 impl HttpTransport for FixtureSseTransport {
     async fn execute(&self, _req: Request) -> Result<Response, TransportError> {
-        Err(TransportError::Build("execute should not run".to_string()))
+        Err(TransportError::Build("execute should not run".to_owned()))
     }
 
     async fn stream(&self, _req: Request) -> Result<StreamResponse, TransportError> {
@@ -54,9 +54,9 @@ impl AuthProvider for NoAuth {
 
 fn provider(name: &str, wire: WireApi) -> Provider {
     Provider {
-        id: name.to_string(),
-        name: name.to_string(),
-        base_url: "https://example.com/v1".to_string(),
+        id: name.to_owned(),
+        name: name.to_owned(),
+        base_url: "https://example.com/v1".to_owned(),
         query_params: None,
         wire,
         headers: HeaderMap::new(),

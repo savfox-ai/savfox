@@ -113,14 +113,14 @@ mod tests {
         let tmp = tempdir().expect("tmp");
         let p = tmp.path().join("a.txt");
         // Create an action with a single Add change
-        let action = ApplyPatchAction::new_add_for_test(&p, "hello".to_string());
+        let action = ApplyPatchAction::new_add_for_test(&p, "hello".to_owned());
 
         let got = convert_apply_patch_to_protocol(&action);
 
         assert_eq!(
             got.get(&p),
             Some(&FileChange::Add {
-                content: "hello".to_string()
+                content: "hello".to_owned()
             })
         );
     }

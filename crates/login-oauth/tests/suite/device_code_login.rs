@@ -97,7 +97,7 @@ fn server_opts(
 ) -> ServerOptions {
     let mut opts = ServerOptions::new(
         savfox_home.path().to_path_buf(),
-        "client-id".to_string(),
+        "client-id".to_owned(),
         None,
         cli_auth_credentials_store_mode,
     );
@@ -166,7 +166,7 @@ async fn device_code_login_rejects_workspace_mismatch() -> anyhow::Result<()> {
 
     let issuer = mock_server.uri();
     let mut opts = server_opts(&savfox_home, issuer, AuthCredentialsStoreMode::File);
-    opts.forced_chatgpt_workspace_id = Some("org-required".to_string());
+    opts.forced_chatgpt_workspace_id = Some("org-required".to_owned());
 
     let err = run_device_code_login(opts)
         .await
@@ -234,7 +234,7 @@ async fn device_code_login_integration_persists_without_api_key_on_exchange_fail
 
     let mut opts = ServerOptions::new(
         savfox_home.path().to_path_buf(),
-        "client-id".to_string(),
+        "client-id".to_owned(),
         None,
         AuthCredentialsStoreMode::File,
     );
@@ -284,7 +284,7 @@ async fn device_code_login_integration_handles_error_payload() -> anyhow::Result
 
     let mut opts = ServerOptions::new(
         savfox_home.path().to_path_buf(),
-        "client-id".to_string(),
+        "client-id".to_owned(),
         None,
         AuthCredentialsStoreMode::File,
     );

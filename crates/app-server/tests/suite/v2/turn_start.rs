@@ -46,16 +46,16 @@ async fn turn_start_sends_originator_header() -> Result<()> {
     timeout(
         DEFAULT_READ_TIMEOUT,
         mcp.initialize_with_client_info(ClientInfo {
-            name: TEST_ORIGINATOR.to_string(),
-            title: Some("Savfox VS Code Extension".to_string()),
-            version: "0.1.0".to_string(),
+            name: TEST_ORIGINATOR.to_owned(),
+            title: Some("Savfox VS Code Extension".to_owned()),
+            version: "0.1.0".to_owned(),
         }),
     )
     .await??;
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -70,7 +70,7 @@ async fn turn_start_sends_originator_header() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -122,7 +122,7 @@ async fn turn_start_emits_user_message_item_with_text_elements() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -135,13 +135,13 @@ async fn turn_start_emits_user_message_item_with_text_elements() -> Result<()> {
 
     let text_elements = vec![TextElement::new(
         ByteRange { start: 0, end: 5 },
-        Some("<note>".to_string()),
+        Some("<note>".to_owned()),
     )];
     let turn_req = mcp
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: text_elements.clone(),
             }],
             ..Default::default()
@@ -173,7 +173,7 @@ async fn turn_start_emits_user_message_item_with_text_elements() -> Result<()> {
             assert_eq!(
                 content,
                 vec![V2UserInput::Text {
-                    text: "Hello".to_string(),
+                    text: "Hello".to_owned(),
                     text_elements,
                 }]
             );
@@ -215,7 +215,7 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
     // Start a session (v2) and capture its id.
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -231,7 +231,7 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -264,10 +264,10 @@ async fn turn_start_emits_notifications_and_accepts_model_override() -> Result<(
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Second".to_string(),
+                text: "Second".to_owned(),
                 text_elements: Vec::new(),
             }],
-            model: Some("mock-model-override".to_string()),
+            model: Some("mock-model-override".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -329,7 +329,7 @@ async fn turn_start_accepts_collaboration_mode_override_v2() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("gpt-5.2-savfox".to_string()),
+            model: Some("gpt-5.2-savfox".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -343,7 +343,7 @@ async fn turn_start_accepts_collaboration_mode_override_v2() -> Result<()> {
     let collaboration_mode = CollaborationMode {
         mode: ModeKind::Custom,
         settings: Settings {
-            model: "mock-model-collab".to_string(),
+            model: "mock-model-collab".to_owned(),
             reasoning_effort: Some(ReasoningEffort::High),
             developer_instructions: None,
         },
@@ -353,10 +353,10 @@ async fn turn_start_accepts_collaboration_mode_override_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
-            model: Some("mock-model-override".to_string()),
+            model: Some("mock-model-override".to_owned()),
             effort: Some(ReasoningEffort::Low),
             summary: Some(ReasoningSummary::Auto),
             output_schema: None,
@@ -409,7 +409,7 @@ async fn turn_start_accepts_personality_override_v2() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("exp-savfox-personality".to_string()),
+            model: Some("exp-savfox-personality".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -424,7 +424,7 @@ async fn turn_start_accepts_personality_override_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             personality: Some(Personality::Pragmatic),
@@ -490,7 +490,7 @@ async fn turn_start_change_personality_mid_session_v2() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("exp-savfox-personality".to_string()),
+            model: Some("exp-savfox-personality".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -505,7 +505,7 @@ async fn turn_start_change_personality_mid_session_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             personality: None,
@@ -529,7 +529,7 @@ async fn turn_start_change_personality_mid_session_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello again".to_string(),
+                text: "Hello again".to_owned(),
                 text_elements: Vec::new(),
             }],
             personality: Some(Personality::Pragmatic),
@@ -595,7 +595,7 @@ async fn turn_start_accepts_local_image_input() -> Result<()> {
 
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -640,9 +640,9 @@ async fn turn_start_exec_approval_toggle_v2() -> Result<()> {
     let responses = vec![
         create_shell_command_sse_response(
             vec![
-                "python3".to_string(),
-                "-c".to_string(),
-                "print(42)".to_string(),
+                "python3".to_owned(),
+                "-c".to_owned(),
+                "print(42)".to_owned(),
             ],
             None,
             Some(5000),
@@ -651,9 +651,9 @@ async fn turn_start_exec_approval_toggle_v2() -> Result<()> {
         create_final_assistant_message_sse_response("done 1")?,
         create_shell_command_sse_response(
             vec![
-                "python3".to_string(),
-                "-c".to_string(),
-                "print(42)".to_string(),
+                "python3".to_owned(),
+                "-c".to_owned(),
+                "print(42)".to_owned(),
             ],
             None,
             Some(5000),
@@ -676,7 +676,7 @@ async fn turn_start_exec_approval_toggle_v2() -> Result<()> {
     // session/start
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -692,7 +692,7 @@ async fn turn_start_exec_approval_toggle_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "run python".to_string(),
+                text: "run python".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -738,12 +738,12 @@ async fn turn_start_exec_approval_toggle_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "run python again".to_string(),
+                text: "run python again".to_owned(),
                 text_elements: Vec::new(),
             }],
             approval_policy: Some(savfox_app_server_protocol::AskForApproval::Never),
             sandbox_policy: Some(savfox_app_server_protocol::SandboxPolicy::DangerFullAccess),
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             effort: Some(ReasoningEffort::Medium),
             summary: Some(ReasoningSummary::Auto),
             ..Default::default()
@@ -782,9 +782,9 @@ async fn turn_start_exec_approval_decline_v2() -> Result<()> {
     let responses = vec![
         create_shell_command_sse_response(
             vec![
-                "python3".to_string(),
-                "-c".to_string(),
-                "print(42)".to_string(),
+                "python3".to_owned(),
+                "-c".to_owned(),
+                "print(42)".to_owned(),
             ],
             None,
             Some(5000),
@@ -805,7 +805,7 @@ async fn turn_start_exec_approval_decline_v2() -> Result<()> {
 
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -820,7 +820,7 @@ async fn turn_start_exec_approval_decline_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "run python".to_string(),
+                text: "run python".to_owned(),
                 text_elements: Vec::new(),
             }],
             cwd: Some(workspace.clone()),
@@ -930,14 +930,14 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
 
     let responses = vec![
         create_shell_command_sse_response(
-            vec!["echo".to_string(), "first".to_string(), "turn".to_string()],
+            vec!["echo".to_owned(), "first".to_owned(), "turn".to_owned()],
             None,
             Some(5000),
             "call-first",
         )?,
         create_final_assistant_message_sse_response("done first")?,
         create_shell_command_sse_response(
-            vec!["echo".to_string(), "second".to_string(), "turn".to_string()],
+            vec!["echo".to_owned(), "second".to_owned(), "turn".to_owned()],
             None,
             Some(5000),
             "call-second",
@@ -958,7 +958,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
     // session/start
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -974,7 +974,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "first turn".to_string(),
+                text: "first turn".to_owned(),
                 text_elements: Vec::new(),
             }],
             cwd: Some(first_cwd.clone()),
@@ -985,7 +985,7 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
                 exclude_tmpdir_env_var: false,
                 exclude_slash_tmp: false,
             }),
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             effort: Some(ReasoningEffort::Medium),
             summary: Some(ReasoningSummary::Auto),
             personality: None,
@@ -1010,13 +1010,13 @@ async fn turn_start_updates_sandbox_and_cwd_between_turns_v2() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "second turn".to_string(),
+                text: "second turn".to_owned(),
                 text_elements: Vec::new(),
             }],
             cwd: Some(second_cwd.clone()),
             approval_policy: Some(savfox_app_server_protocol::AskForApproval::Never),
             sandbox_policy: Some(savfox_app_server_protocol::SandboxPolicy::DangerFullAccess),
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             effort: Some(ReasoningEffort::Medium),
             summary: Some(ReasoningSummary::Auto),
             personality: None,
@@ -1102,7 +1102,7 @@ async fn turn_start_file_change_approval_v2() -> Result<()> {
 
     let start_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             cwd: Some(workspace.to_string_lossy().into_owned()),
             ..Default::default()
         })
@@ -1175,7 +1175,7 @@ async fn turn_start_file_change_approval_v2() -> Result<()> {
         vec![savfox_app_server_protocol::FileUpdateChange {
             path: expected_readme_path.clone(),
             kind: PatchChangeKind::Add,
-            diff: "new line\n".to_string(),
+            diff: "new line\n".to_owned(),
         }]
     );
 
@@ -1284,7 +1284,7 @@ async fn turn_start_file_change_approval_accept_for_session_persists_v2() -> Res
 
     let start_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             cwd: Some(workspace.to_string_lossy().into_owned()),
             ..Default::default()
         })
@@ -1467,7 +1467,7 @@ async fn turn_start_file_change_approval_decline_v2() -> Result<()> {
 
     let start_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             cwd: Some(workspace.to_string_lossy().into_owned()),
             ..Default::default()
         })
@@ -1540,7 +1540,7 @@ async fn turn_start_file_change_approval_decline_v2() -> Result<()> {
         vec![savfox_app_server_protocol::FileUpdateChange {
             path: expected_readme_path_str.clone(),
             kind: PatchChangeKind::Add,
-            diff: "new line\n".to_string(),
+            diff: "new line\n".to_owned(),
         }]
     );
 
@@ -1612,7 +1612,7 @@ async fn command_execution_notifications_include_process_id() -> Result<()> {
 
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -1627,7 +1627,7 @@ async fn command_execution_notifications_include_process_id() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "run a command".to_string(),
+                text: "run a command".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()

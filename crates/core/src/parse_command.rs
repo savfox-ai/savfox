@@ -71,7 +71,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["git", "status"]),
             vec![ParsedCommand::Unknown {
-                cmd: "git status".to_string(),
+                cmd: "git status".to_owned(),
             }],
         );
     }
@@ -81,38 +81,38 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("git grep TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "git grep TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "git grep TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("git grep -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "git grep -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "git grep -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("git ls-files"),
             vec![ParsedCommand::ListFiles {
-                cmd: "git ls-files".to_string(),
+                cmd: "git ls-files".to_owned(),
                 path: None,
             }],
         );
         assert_parsed(
             &shlex_split_safe("git ls-files src"),
             vec![ParsedCommand::ListFiles {
-                cmd: "git ls-files src".to_string(),
-                path: Some("src".to_string()),
+                cmd: "git ls-files src".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("git ls-files --exclude target src"),
             vec![ParsedCommand::ListFiles {
-                cmd: "git ls-files --exclude target src".to_string(),
-                path: Some("src".to_string()),
+                cmd: "git ls-files --exclude target src".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -123,7 +123,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Unknown {
-                cmd: "git status".to_string(),
+                cmd: "git status".to_owned(),
             }],
         );
     }
@@ -134,7 +134,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Unknown {
-                cmd: "echo foo > bar".to_string(),
+                cmd: "echo foo > bar".to_owned(),
             }],
         );
     }
@@ -148,18 +148,18 @@ mod tests {
             vec![
                 // Expect commands in left-to-right execution order
                 ParsedCommand::Search {
-                    cmd: "rg --version".to_string(),
+                    cmd: "rg --version".to_owned(),
                     query: None,
                     path: None,
                 },
                 ParsedCommand::Unknown {
-                    cmd: "node -v".to_string(),
+                    cmd: "node -v".to_owned(),
                 },
                 ParsedCommand::Unknown {
-                    cmd: "pnpm -v".to_string(),
+                    cmd: "pnpm -v".to_owned(),
                 },
                 ParsedCommand::ListFiles {
-                    cmd: "rg --files".to_string(),
+                    cmd: "rg --files".to_owned(),
                     path: None,
                 },
             ],
@@ -172,8 +172,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Search {
-                cmd: "rg -n navigate-to-route -S".to_string(),
-                query: Some("navigate-to-route".to_string()),
+                cmd: "rg -n navigate-to-route -S".to_owned(),
+                query: Some("navigate-to-route".to_owned()),
                 path: None,
             }],
         );
@@ -186,8 +186,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Search {
-                cmd: "rg -n 'BUG|FIXME|TODO|XXX|HACK' -S".to_string(),
-                query: Some("BUG|FIXME|TODO|XXX|HACK".to_string()),
+                cmd: "rg -n 'BUG|FIXME|TODO|XXX|HACK' -S".to_owned(),
+                query: Some("BUG|FIXME|TODO|XXX|HACK".to_owned()),
                 path: None,
             }],
         );
@@ -199,8 +199,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files webview/src".to_string(),
-                path: Some("webview".to_string()),
+                cmd: "rg --files webview/src".to_owned(),
+                path: Some("webview".to_owned()),
             }],
         );
     }
@@ -211,7 +211,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -224,12 +224,12 @@ mod tests {
             &vec_str(&["bash", "-lc", inner]),
             vec![
                 ParsedCommand::Search {
-                    cmd: "rg -l QkBindingController presentation/src/main/java".to_string(),
-                    query: Some("QkBindingController".to_string()),
-                    path: Some("java".to_string()),
+                    cmd: "rg -l QkBindingController presentation/src/main/java".to_owned(),
+                    query: Some("QkBindingController".to_owned()),
+                    path: Some("java".to_owned()),
                 },
                 ParsedCommand::Unknown {
-                    cmd: "xargs perl -pi -e s/QkBindingController/QkController/g".to_string(),
+                    cmd: "xargs perl -pi -e s/QkBindingController/QkController/g".to_owned(),
                 },
             ],
         );
@@ -240,41 +240,41 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("rg -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rg -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rg -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("rg --files-with-matches TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rg --files-with-matches TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rg --files-with-matches TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("rg -L TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rg -L TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rg -L TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("rg --files-without-match TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rg --files-without-match TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rg --files-without-match TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("rga -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rga -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rga -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -285,8 +285,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("webview/README.md"),
             }],
         );
@@ -298,8 +298,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["zsh", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -311,8 +311,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -324,8 +324,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -337,8 +337,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -350,8 +350,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -362,8 +362,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("cd foo && cat foo.txt"),
             vec![ParsedCommand::Read {
-                cmd: "cat foo.txt".to_string(),
-                name: "foo.txt".to_string(),
+                cmd: "cat foo.txt".to_owned(),
+                name: "foo.txt".to_owned(),
                 path: PathBuf::from("foo/foo.txt"),
             }],
         );
@@ -374,8 +374,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("cd -- -weird && cat foo.txt"),
             vec![ParsedCommand::Read {
-                cmd: "cat foo.txt".to_string(),
-                name: "foo.txt".to_string(),
+                cmd: "cat foo.txt".to_owned(),
+                name: "foo.txt".to_owned(),
                 path: PathBuf::from("-weird/foo.txt"),
             }],
         );
@@ -386,8 +386,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("cd dir1 dir2 && cat foo.txt"),
             vec![ParsedCommand::Read {
-                cmd: "cat foo.txt".to_string(),
-                name: "foo.txt".to_string(),
+                cmd: "cat foo.txt".to_owned(),
+                name: "foo.txt".to_owned(),
                 path: PathBuf::from("dir2/foo.txt"),
             }],
         );
@@ -399,7 +399,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("bash -lc 'cd foo && bar'"),
             vec![ParsedCommand::Unknown {
-                cmd: "bar".to_string(),
+                cmd: "bar".to_owned(),
             }],
         );
     }
@@ -409,8 +409,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("bash -lc 'cd foo && cat foo.txt'"),
             vec![ParsedCommand::Read {
-                cmd: "cat foo.txt".to_string(),
-                name: "foo.txt".to_string(),
+                cmd: "cat foo.txt".to_owned(),
+                name: "foo.txt".to_owned(),
                 path: PathBuf::from("foo/foo.txt"),
             }],
         );
@@ -422,7 +422,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "ls -la".to_string(),
+                cmd: "ls -la".to_owned(),
                 path: None,
             }],
         );
@@ -433,29 +433,29 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("eza --color=always src"),
             vec![ParsedCommand::ListFiles {
-                cmd: "eza '--color=always' src".to_string(),
-                path: Some("src".to_string()),
+                cmd: "eza '--color=always' src".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("exa -I target ."),
             vec![ParsedCommand::ListFiles {
-                cmd: "exa -I target .".to_string(),
-                path: Some(".".to_string()),
+                cmd: "exa -I target .".to_owned(),
+                path: Some(".".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("tree -L 2 src"),
             vec![ParsedCommand::ListFiles {
-                cmd: "tree -L 2 src".to_string(),
-                path: Some("src".to_string()),
+                cmd: "tree -L 2 src".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("du -d 2 ."),
             vec![ParsedCommand::ListFiles {
-                cmd: "du -d 2 .".to_string(),
-                path: Some(".".to_string()),
+                cmd: "du -d 2 .".to_owned(),
+                path: Some(".".to_owned()),
             }],
         );
     }
@@ -466,8 +466,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: inner.to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -479,8 +479,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: inner.to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -492,8 +492,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: inner.to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("tui/Cargo.toml"),
             }],
         );
@@ -505,8 +505,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -519,8 +519,8 @@ mod tests {
         assert_eq!(
             out,
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }]
         );
@@ -532,8 +532,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "README.md".to_string(),
+                cmd: inner.to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -544,7 +544,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["npm", "run", "build"]),
             vec![ParsedCommand::Unknown {
-                cmd: "npm run build".to_string(),
+                cmd: "npm run build".to_owned(),
             }],
         );
     }
@@ -554,9 +554,9 @@ mod tests {
         assert_parsed(
             &vec_str(&["grep", "-R", "SAVFOX_SANDBOX_ENV_VAR", "-n", "."]),
             vec![ParsedCommand::Search {
-                cmd: "grep -R SAVFOX_SANDBOX_ENV_VAR -n .".to_string(),
-                query: Some("SAVFOX_SANDBOX_ENV_VAR".to_string()),
-                path: Some(".".to_string()),
+                cmd: "grep -R SAVFOX_SANDBOX_ENV_VAR -n .".to_owned(),
+                query: Some("SAVFOX_SANDBOX_ENV_VAR".to_owned()),
+                path: Some(".".to_owned()),
             }],
         );
     }
@@ -572,9 +572,9 @@ mod tests {
                 "core/src/spawn.rs",
             ]),
             vec![ParsedCommand::Search {
-                cmd: "grep -R SAVFOX_SANDBOX_ENV_VAR -n core/src/spawn.rs".to_string(),
-                query: Some("SAVFOX_SANDBOX_ENV_VAR".to_string()),
-                path: Some("spawn.rs".to_string()),
+                cmd: "grep -R SAVFOX_SANDBOX_ENV_VAR -n core/src/spawn.rs".to_owned(),
+                query: Some("SAVFOX_SANDBOX_ENV_VAR".to_owned()),
+                path: Some("spawn.rs".to_owned()),
             }],
         );
     }
@@ -584,17 +584,17 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("egrep -R TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "egrep -R TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "egrep -R TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("fgrep -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "fgrep -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "fgrep -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -604,33 +604,33 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("grep -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "grep -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "grep -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("grep --files-with-matches TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "grep --files-with-matches TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "grep --files-with-matches TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("grep -L TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "grep -L TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "grep -L TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("grep --files-without-match TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "grep --files-without-match TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "grep --files-without-match TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -642,9 +642,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("grep -R src/main.rs -n ."),
             vec![ParsedCommand::Search {
-                cmd: "grep -R src/main.rs -n .".to_string(),
-                query: Some("src/main.rs".to_string()),
-                path: Some(".".to_string()),
+                cmd: "grep -R src/main.rs -n .".to_owned(),
+                query: Some("src/main.rs".to_owned()),
+                path: Some(".".to_owned()),
             }],
         );
     }
@@ -654,8 +654,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("grep -R COD`EX_SANDBOX -n"),
             vec![ParsedCommand::Search {
-                cmd: "grep -R 'COD`EX_SANDBOX' -n".to_string(),
-                query: Some("COD`EX_SANDBOX".to_string()),
+                cmd: "grep -R 'COD`EX_SANDBOX' -n".to_owned(),
+                query: Some("COD`EX_SANDBOX".to_owned()),
                 path: None,
             }],
         );
@@ -666,7 +666,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("cd savfox-rs && rg --files"),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -679,9 +679,9 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Search {
-                cmd: "rg -n savfox_api savfox-rs -S".to_string(),
-                query: Some("savfox_api".to_string()),
-                path: Some("savfox-rs".to_string()),
+                cmd: "rg -n savfox_api savfox-rs -S".to_owned(),
+                query: Some("savfox_api".to_owned()),
+                path: Some("savfox-rs".to_owned()),
             }],
         );
     }
@@ -828,8 +828,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "parse_command.rs".to_string(),
+                cmd: inner.to_owned(),
+                name: "parse_command.rs".to_owned(),
                 path: PathBuf::from("core/src/parse_command.rs"),
             }],
         );
@@ -841,8 +841,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "history_cell.rs".to_string(),
+                cmd: inner.to_owned(),
+                name: "history_cell.rs".to_owned(),
                 path: PathBuf::from("tui/src/history_cell.rs"),
             }],
         );
@@ -854,8 +854,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: inner.to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: inner.to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -868,8 +868,8 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::Read {
-                cmd: "cat -- ansi-escape/Cargo.toml".to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: "cat -- ansi-escape/Cargo.toml".to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("ansi-escape/Cargo.toml"),
             }],
         );
@@ -882,7 +882,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -897,8 +897,8 @@ mod tests {
         assert_parsed(
             &args,
             vec![ParsedCommand::Read {
-                cmd: "sed -n '260,640p' exec/src/event_processor_with_human_output.rs".to_string(),
-                name: "event_processor_with_human_output.rs".to_string(),
+                cmd: "sed -n '260,640p' exec/src/event_processor_with_human_output.rs".to_owned(),
+                name: "event_processor_with_human_output.rs".to_owned(),
                 path: PathBuf::from("exec/src/event_processor_with_human_output.rs"),
             }],
         );
@@ -909,8 +909,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("yes | rg -n 'foo bar' -S"),
             vec![ParsedCommand::Search {
-                cmd: "rg -n 'foo bar' -S".to_string(),
-                query: Some("foo bar".to_string()),
+                cmd: "rg -n 'foo bar' -S".to_owned(),
+                query: Some("foo bar".to_owned()),
                 path: None,
             }],
         );
@@ -921,7 +921,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("ls -I '*.test.js'"),
             vec![ParsedCommand::ListFiles {
-                cmd: "ls -I '*.test.js'".to_string(),
+                cmd: "ls -I '*.test.js'".to_owned(),
                 path: None,
             }],
         );
@@ -933,12 +933,12 @@ mod tests {
             &shlex_split_safe("rg foo ; echo done"),
             vec![
                 ParsedCommand::Search {
-                    cmd: "rg foo".to_string(),
-                    query: Some("foo".to_string()),
+                    cmd: "rg foo".to_owned(),
+                    query: Some("foo".to_owned()),
                     path: None,
                 },
                 ParsedCommand::Unknown {
-                    cmd: "echo done".to_string(),
+                    cmd: "echo done".to_owned(),
                 },
             ],
         );
@@ -951,12 +951,12 @@ mod tests {
             &shlex_split_safe("rg foo || echo done"),
             vec![
                 ParsedCommand::Search {
-                    cmd: "rg foo".to_string(),
-                    query: Some("foo".to_string()),
+                    cmd: "rg foo".to_owned(),
+                    query: Some("foo".to_owned()),
                     path: None,
                 },
                 ParsedCommand::Unknown {
-                    cmd: "echo done".to_string(),
+                    cmd: "echo done".to_owned(),
                 },
             ],
         );
@@ -970,7 +970,7 @@ mod tests {
 
         let expected = vec![
             ParsedCommand::Unknown {
-                cmd: "pwd".to_string(),
+                cmd: "pwd".to_owned(),
             },
             ParsedCommand::ListFiles {
                 cmd: shlex_join(&shlex_split_safe("ls -la")),
@@ -982,13 +982,13 @@ mod tests {
             },
             ParsedCommand::Search {
                 cmd: shlex_join(&shlex_split_safe("rg -n '^\\[workspace\\]' -n Cargo.toml")),
-                query: Some("^\\[workspace\\]".to_string()),
-                path: Some("Cargo.toml".to_string()),
+                query: Some("^\\[workspace\\]".to_owned()),
+                path: Some("Cargo.toml".to_owned()),
             },
             ParsedCommand::Search {
                 cmd: shlex_join(&shlex_split_safe("rg -n '^\\[package\\]' -n */Cargo.toml")),
-                query: Some("^\\[package\\]".to_string()),
-                path: Some("Cargo.toml".to_string()),
+                query: Some("^\\[package\\]".to_owned()),
+                path: Some("Cargo.toml".to_owned()),
             },
             ParsedCommand::Unknown {
                 cmd: shlex_join(&shlex_split_safe("cargo --version")),
@@ -1012,7 +1012,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("true && rg --files"),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1020,7 +1020,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("rg --files && true"),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1032,7 +1032,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1041,7 +1041,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-lc", inner2]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1052,8 +1052,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe(r#"cat "pkg\src\main.rs""#),
             vec![ParsedCommand::Read {
-                cmd: r#"cat "pkg\\src\\main.rs""#.to_string(),
-                name: "main.rs".to_string(),
+                cmd: r#"cat "pkg\\src\\main.rs""#.to_owned(),
+                name: "main.rs".to_owned(),
                 path: PathBuf::from(r#"pkg\src\main.rs"#),
             }],
         );
@@ -1064,8 +1064,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("bash -lc 'head -n50 Cargo.toml'"),
             vec![ParsedCommand::Read {
-                cmd: "head -n50 Cargo.toml".to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: "head -n50 Cargo.toml".to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -1078,7 +1078,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["bash", "-c", inner]),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1089,8 +1089,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("bash -lc 'tail -n+10 README.md'"),
             vec![ParsedCommand::Read {
-                cmd: "tail -n+10 README.md".to_string(),
-                name: "README.md".to_string(),
+                cmd: "tail -n+10 README.md".to_owned(),
+                name: "README.md".to_owned(),
                 path: PathBuf::from("README.md"),
             }],
         );
@@ -1101,9 +1101,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("grep -R TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "grep -R TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "grep -R TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1113,33 +1113,33 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("ag TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "ag TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "ag TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("ack TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "ack TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "ack TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("pt TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "pt TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "pt TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("rga TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "rga TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rga TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1149,25 +1149,25 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("ag -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "ag -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "ag -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("ack -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "ack -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "ack -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
         assert_parsed(
             &shlex_split_safe("pt -l TODO src"),
             vec![ParsedCommand::Search {
-                cmd: "pt -l TODO src".to_string(),
-                query: Some("TODO".to_string()),
-                path: Some("src".to_string()),
+                cmd: "pt -l TODO src".to_owned(),
+                query: Some("TODO".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1177,9 +1177,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("rg --colors=never -n foo src"),
             vec![ParsedCommand::Search {
-                cmd: "rg '--colors=never' -n foo src".to_string(),
-                query: Some("foo".to_string()),
-                path: Some("src".to_string()),
+                cmd: "rg '--colors=never' -n foo src".to_owned(),
+                query: Some("foo".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1190,8 +1190,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("cat -- ./-strange-file-name"),
             vec![ParsedCommand::Read {
-                cmd: "cat -- ./-strange-file-name".to_string(),
-                name: "-strange-file-name".to_string(),
+                cmd: "cat -- ./-strange-file-name".to_owned(),
+                name: "-strange-file-name".to_owned(),
                 path: PathBuf::from("./-strange-file-name"),
             }],
         );
@@ -1200,8 +1200,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("sed -n '12,20p' Cargo.toml"),
             vec![ParsedCommand::Read {
-                cmd: "sed -n '12,20p' Cargo.toml".to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: "sed -n '12,20p' Cargo.toml".to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -1213,7 +1213,7 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("rg --files | nl -ba"),
             vec![ParsedCommand::ListFiles {
-                cmd: "rg --files".to_string(),
+                cmd: "rg --files".to_owned(),
                 path: None,
             }],
         );
@@ -1224,9 +1224,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("ls --time-style=long-iso ./dist"),
             vec![ParsedCommand::ListFiles {
-                cmd: "ls '--time-style=long-iso' ./dist".to_string(),
+                cmd: "ls '--time-style=long-iso' ./dist".to_owned(),
                 // short_display_path drops "dist" and shows "." as the last useful segment
-                path: Some(".".to_string()),
+                path: Some(".".to_owned()),
             }],
         );
     }
@@ -1236,8 +1236,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("fd -t f src/"),
             vec![ParsedCommand::ListFiles {
-                cmd: "fd -t f src/".to_string(),
-                path: Some("src".to_string()),
+                cmd: "fd -t f src/".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
 
@@ -1245,9 +1245,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("fd main src"),
             vec![ParsedCommand::Search {
-                cmd: "fd main src".to_string(),
-                query: Some("main".to_string()),
-                path: Some("src".to_string()),
+                cmd: "fd main src".to_owned(),
+                query: Some("main".to_owned()),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1257,9 +1257,9 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("find . -name '*.rs'"),
             vec![ParsedCommand::Search {
-                cmd: "find . -name '*.rs'".to_string(),
-                query: Some("*.rs".to_string()),
-                path: Some(".".to_string()),
+                cmd: "find . -name '*.rs'".to_owned(),
+                query: Some("*.rs".to_owned()),
+                path: Some(".".to_owned()),
             }],
         );
     }
@@ -1269,8 +1269,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("find src -type f"),
             vec![ParsedCommand::ListFiles {
-                cmd: "find src -type f".to_string(),
-                path: Some("src".to_string()),
+                cmd: "find src -type f".to_owned(),
+                path: Some("src".to_owned()),
             }],
         );
     }
@@ -1280,8 +1280,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("/bin/bash -lc 'sed -n '1,10p' Cargo.toml'"),
             vec![ParsedCommand::Read {
-                cmd: "sed -n '1,10p' Cargo.toml".to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: "sed -n '1,10p' Cargo.toml".to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -1291,8 +1291,8 @@ mod tests {
         assert_parsed(
             &shlex_split_safe("/bin/zsh -lc 'sed -n '1,10p' Cargo.toml'"),
             vec![ParsedCommand::Read {
-                cmd: "sed -n '1,10p' Cargo.toml".to_string(),
-                name: "Cargo.toml".to_string(),
+                cmd: "sed -n '1,10p' Cargo.toml".to_owned(),
+                name: "Cargo.toml".to_owned(),
                 path: PathBuf::from("Cargo.toml"),
             }],
         );
@@ -1303,7 +1303,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["powershell", "-Command", "Get-ChildItem"]),
             vec![ParsedCommand::Unknown {
-                cmd: "Get-ChildItem".to_string(),
+                cmd: "Get-ChildItem".to_owned(),
             }],
         );
     }
@@ -1313,7 +1313,7 @@ mod tests {
         assert_parsed(
             &vec_str(&["pwsh", "-NoProfile", "-c", "Write-Host hi"]),
             vec![ParsedCommand::Unknown {
-                cmd: "Write-Host hi".to_string(),
+                cmd: "Write-Host hi".to_owned(),
             }],
         );
     }
@@ -1329,7 +1329,7 @@ mod tests {
         assert_parsed(
             &vec_str(&[command, "-NoProfile", "-c", "Write-Host hi"]),
             vec![ParsedCommand::Unknown {
-                cmd: "Write-Host hi".to_string(),
+                cmd: "Write-Host hi".to_owned(),
             }],
         );
     }

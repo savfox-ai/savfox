@@ -480,7 +480,7 @@ gamma
         )?;
 
         let lines = read(temp.path(), 2, 2).await?;
-        assert_eq!(lines, vec!["L2: beta".to_string(), "L3: gamma".to_string()]);
+        assert_eq!(lines, vec!["L2: beta".to_owned(), "L3: gamma".to_owned()]);
         Ok(())
     }
 
@@ -495,7 +495,7 @@ gamma
             .expect_err("offset exceeds length");
         assert_eq!(
             err,
-            FunctionCallError::RespondToModel("offset exceeds file length".to_string())
+            FunctionCallError::RespondToModel("offset exceeds file length".to_owned())
         );
         Ok(())
     }
@@ -508,7 +508,7 @@ gamma
 
         let lines = read(temp.path(), 1, 2).await?;
         let expected_first = format!("L1: {}{}", '\u{FFFD}', '\u{FFFD}');
-        assert_eq!(lines, vec![expected_first, "L2: plain".to_string()]);
+        assert_eq!(lines, vec![expected_first, "L2: plain".to_owned()]);
         Ok(())
     }
 
@@ -519,7 +519,7 @@ gamma
         write!(temp, "one\r\ntwo\r\n")?;
 
         let lines = read(temp.path(), 1, 2).await?;
-        assert_eq!(lines, vec!["L1: one".to_string(), "L2: two".to_string()]);
+        assert_eq!(lines, vec!["L1: one".to_owned(), "L2: two".to_owned()]);
         Ok(())
     }
 
@@ -538,7 +538,7 @@ third
         let lines = read(temp.path(), 1, 2).await?;
         assert_eq!(
             lines,
-            vec!["L1: first".to_string(), "L2: second".to_string()]
+            vec!["L1: first".to_owned(), "L2: second".to_owned()]
         );
         Ok(())
     }
@@ -583,9 +583,9 @@ third
         assert_eq!(
             lines,
             vec![
-                "L2:     if cond {".to_string(),
-                "L3:         inner();".to_string(),
-                "L4:     }".to_string()
+                "L2:     if cond {".to_owned(),
+                "L3:         inner();".to_owned(),
+                "L4:     }".to_owned()
             ]
         );
         Ok(())
@@ -617,11 +617,11 @@ third
         assert_eq!(
             lines,
             vec![
-                "L2:     fn outer() {".to_string(),
-                "L3:         if cond {".to_string(),
-                "L4:             inner();".to_string(),
-                "L5:         }".to_string(),
-                "L6:     }".to_string(),
+                "L2:     fn outer() {".to_owned(),
+                "L3:         if cond {".to_owned(),
+                "L4:             inner();".to_owned(),
+                "L5:         }".to_owned(),
+                "L6:     }".to_owned(),
             ]
         );
 
@@ -630,13 +630,13 @@ third
         assert_eq!(
             expanded,
             vec![
-                "L1: mod root {".to_string(),
-                "L2:     fn outer() {".to_string(),
-                "L3:         if cond {".to_string(),
-                "L4:             inner();".to_string(),
-                "L5:         }".to_string(),
-                "L6:     }".to_string(),
-                "L7: }".to_string(),
+                "L1: mod root {".to_owned(),
+                "L2:     fn outer() {".to_owned(),
+                "L3:         if cond {".to_owned(),
+                "L4:             inner();".to_owned(),
+                "L5:         }".to_owned(),
+                "L6:     }".to_owned(),
+                "L7: }".to_owned(),
             ]
         );
         Ok(())
@@ -670,9 +670,9 @@ third
         assert_eq!(
             lines,
             vec![
-                "L2:     if first {".to_string(),
-                "L3:         do_first();".to_string(),
-                "L4:     }".to_string(),
+                "L2:     if first {".to_owned(),
+                "L3:         do_first();".to_owned(),
+                "L4:     }".to_owned(),
             ]
         );
 
@@ -681,12 +681,12 @@ third
         assert_eq!(
             with_siblings,
             vec![
-                "L2:     if first {".to_string(),
-                "L3:         do_first();".to_string(),
-                "L4:     }".to_string(),
-                "L5:     if second {".to_string(),
-                "L6:         do_second();".to_string(),
-                "L7:     }".to_string(),
+                "L2:     if first {".to_owned(),
+                "L3:         do_first();".to_owned(),
+                "L4:     }".to_owned(),
+                "L5:     if second {".to_owned(),
+                "L6:         do_second();".to_owned(),
+                "L7:     }".to_owned(),
             ]
         );
         Ok(())
@@ -724,13 +724,13 @@ class Bar:
         assert_eq!(
             lines,
             vec![
-                "L2:     def __init__(self, size):".to_string(),
-                "L3:         self.size = size".to_string(),
-                "L4:     def double(self, value):".to_string(),
-                "L5:         if value is None:".to_string(),
-                "L6:             return 0".to_string(),
-                "L7:         result = value * self.size".to_string(),
-                "L8:         return result".to_string(),
+                "L2:     def __init__(self, size):".to_owned(),
+                "L3:         self.size = size".to_owned(),
+                "L4:     def double(self, value):".to_owned(),
+                "L5:         if value is None:".to_owned(),
+                "L6:             return 0".to_owned(),
+                "L7:         result = value * self.size".to_owned(),
+                "L8:         return result".to_owned(),
             ]
         );
         Ok(())
@@ -780,15 +780,15 @@ export function other() {{
         assert_eq!(
             lines,
             vec![
-                "L10:         init() {".to_string(),
-                "L11:             console.log(\"init\");".to_string(),
-                "L12:         },".to_string(),
-                "L13:         run() {".to_string(),
-                "L14:             if (Math.random() > 0.5) {".to_string(),
-                "L15:                 return \"heads\";".to_string(),
-                "L16:             }".to_string(),
-                "L17:             return \"tails\";".to_string(),
-                "L18:         },".to_string(),
+                "L10:         init() {".to_owned(),
+                "L11:             console.log(\"init\");".to_owned(),
+                "L12:         },".to_owned(),
+                "L13:         run() {".to_owned(),
+                "L14:             if (Math.random() > 0.5) {".to_owned(),
+                "L15:                 return \"heads\";".to_owned(),
+                "L16:             }".to_owned(),
+                "L17:             return \"tails\";".to_owned(),
+                "L18:         },".to_owned(),
             ]
         );
         Ok(())
@@ -852,14 +852,14 @@ private:
         assert_eq!(
             lines,
             vec![
-                "L15:         switch (mode_) {".to_string(),
-                "L16:             case Mode::Fast:".to_string(),
-                "L17:                 return fast();".to_string(),
-                "L18:             case Mode::Slow:".to_string(),
-                "L19:                 return slow();".to_string(),
-                "L20:             default:".to_string(),
-                "L21:                 return fallback();".to_string(),
-                "L22:         }".to_string(),
+                "L15:         switch (mode_) {".to_owned(),
+                "L16:             case Mode::Fast:".to_owned(),
+                "L17:                 return fast();".to_owned(),
+                "L18:             case Mode::Slow:".to_owned(),
+                "L19:                 return slow();".to_owned(),
+                "L20:             default:".to_owned(),
+                "L21:                 return fallback();".to_owned(),
+                "L22:         }".to_owned(),
             ]
         );
         Ok(())
@@ -880,17 +880,17 @@ private:
         assert_eq!(
             lines,
             vec![
-                "L13:     // Run the code".to_string(),
-                "L14:     int run() const {".to_string(),
-                "L15:         switch (mode_) {".to_string(),
-                "L16:             case Mode::Fast:".to_string(),
-                "L17:                 return fast();".to_string(),
-                "L18:             case Mode::Slow:".to_string(),
-                "L19:                 return slow();".to_string(),
-                "L20:             default:".to_string(),
-                "L21:                 return fallback();".to_string(),
-                "L22:         }".to_string(),
-                "L23:     }".to_string(),
+                "L13:     // Run the code".to_owned(),
+                "L14:     int run() const {".to_owned(),
+                "L15:         switch (mode_) {".to_owned(),
+                "L16:             case Mode::Fast:".to_owned(),
+                "L17:                 return fast();".to_owned(),
+                "L18:             case Mode::Slow:".to_owned(),
+                "L19:                 return slow();".to_owned(),
+                "L20:             default:".to_owned(),
+                "L21:                 return fallback();".to_owned(),
+                "L22:         }".to_owned(),
+                "L23:     }".to_owned(),
             ]
         );
         Ok(())
@@ -912,16 +912,16 @@ private:
         assert_eq!(
             lines,
             vec![
-                "L14:     int run() const {".to_string(),
-                "L15:         switch (mode_) {".to_string(),
-                "L16:             case Mode::Fast:".to_string(),
-                "L17:                 return fast();".to_string(),
-                "L18:             case Mode::Slow:".to_string(),
-                "L19:                 return slow();".to_string(),
-                "L20:             default:".to_string(),
-                "L21:                 return fallback();".to_string(),
-                "L22:         }".to_string(),
-                "L23:     }".to_string(),
+                "L14:     int run() const {".to_owned(),
+                "L15:         switch (mode_) {".to_owned(),
+                "L16:             case Mode::Fast:".to_owned(),
+                "L17:                 return fast();".to_owned(),
+                "L18:             case Mode::Slow:".to_owned(),
+                "L19:                 return slow();".to_owned(),
+                "L20:             default:".to_owned(),
+                "L21:                 return fallback();".to_owned(),
+                "L22:         }".to_owned(),
+                "L23:     }".to_owned(),
             ]
         );
         Ok(())
@@ -943,23 +943,23 @@ private:
         assert_eq!(
             lines,
             vec![
-                "L7:     void setup() {".to_string(),
-                "L8:         if (enabled_) {".to_string(),
-                "L9:             init();".to_string(),
-                "L10:         }".to_string(),
-                "L11:     }".to_string(),
-                "L12: ".to_string(),
-                "L13:     // Run the code".to_string(),
-                "L14:     int run() const {".to_string(),
-                "L15:         switch (mode_) {".to_string(),
-                "L16:             case Mode::Fast:".to_string(),
-                "L17:                 return fast();".to_string(),
-                "L18:             case Mode::Slow:".to_string(),
-                "L19:                 return slow();".to_string(),
-                "L20:             default:".to_string(),
-                "L21:                 return fallback();".to_string(),
-                "L22:         }".to_string(),
-                "L23:     }".to_string(),
+                "L7:     void setup() {".to_owned(),
+                "L8:         if (enabled_) {".to_owned(),
+                "L9:             init();".to_owned(),
+                "L10:         }".to_owned(),
+                "L11:     }".to_owned(),
+                "L12: ".to_owned(),
+                "L13:     // Run the code".to_owned(),
+                "L14:     int run() const {".to_owned(),
+                "L15:         switch (mode_) {".to_owned(),
+                "L16:             case Mode::Fast:".to_owned(),
+                "L17:                 return fast();".to_owned(),
+                "L18:             case Mode::Slow:".to_owned(),
+                "L19:                 return slow();".to_owned(),
+                "L20:             default:".to_owned(),
+                "L21:                 return fallback();".to_owned(),
+                "L22:         }".to_owned(),
+                "L23:     }".to_owned(),
             ]
         );
         Ok(())

@@ -663,16 +663,16 @@ mod tests {
     fn unified_exec_env_injects_defaults() {
         let env = apply_unified_exec_env(HashMap::new());
         let expected = HashMap::from([
-            ("NO_COLOR".to_string(), "1".to_string()),
-            ("TERM".to_string(), "dumb".to_string()),
-            ("LANG".to_string(), "C.UTF-8".to_string()),
-            ("LC_CTYPE".to_string(), "C.UTF-8".to_string()),
-            ("LC_ALL".to_string(), "C.UTF-8".to_string()),
-            ("COLORTERM".to_string(), String::new()),
-            ("PAGER".to_string(), "cat".to_string()),
-            ("GIT_PAGER".to_string(), "cat".to_string()),
-            ("GH_PAGER".to_string(), "cat".to_string()),
-            ("SAVFOX_CI".to_string(), "1".to_string()),
+            ("NO_COLOR".to_owned(), "1".to_owned()),
+            ("TERM".to_owned(), "dumb".to_owned()),
+            ("LANG".to_owned(), "C.UTF-8".to_owned()),
+            ("LC_CTYPE".to_owned(), "C.UTF-8".to_owned()),
+            ("LC_ALL".to_owned(), "C.UTF-8".to_owned()),
+            ("COLORTERM".to_owned(), String::new()),
+            ("PAGER".to_owned(), "cat".to_owned()),
+            ("GIT_PAGER".to_owned(), "cat".to_owned()),
+            ("GH_PAGER".to_owned(), "cat".to_owned()),
+            ("SAVFOX_CI".to_owned(), "1".to_owned()),
         ]);
 
         assert_eq!(env, expected);
@@ -681,13 +681,13 @@ mod tests {
     #[test]
     fn unified_exec_env_overrides_existing_values() {
         let mut base = HashMap::new();
-        base.insert("NO_COLOR".to_string(), "0".to_string());
-        base.insert("PATH".to_string(), "/usr/bin".to_string());
+        base.insert("NO_COLOR".to_owned(), "0".to_owned());
+        base.insert("PATH".to_owned(), "/usr/bin".to_owned());
 
         let env = apply_unified_exec_env(base);
 
-        assert_eq!(env.get("NO_COLOR"), Some(&"1".to_string()));
-        assert_eq!(env.get("PATH"), Some(&"/usr/bin".to_string()));
+        assert_eq!(env.get("NO_COLOR"), Some(&"1".to_owned()));
+        assert_eq!(env.get("PATH"), Some(&"/usr/bin".to_owned()));
     }
 
     #[test]

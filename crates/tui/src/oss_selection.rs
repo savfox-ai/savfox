@@ -277,19 +277,6 @@ fn get_status_symbol_and_color(status: &ProviderStatus) -> (&'static str, Color)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unknown_provider_status_uses_cyan() {
-        assert_eq!(
-            get_status_symbol_and_color(&ProviderStatus::Unknown),
-            ("?", Color::Cyan)
-        );
-    }
-}
-
 pub async fn select_oss_provider(savfox_home: &std::path::Path) -> io::Result<String> {
     // Check provider statuses first
     let lmstudio_status = check_lmstudio_status().await;
@@ -372,5 +359,18 @@ async fn check_port_status(port: u16) -> io::Result<bool> {
     match client.get(&url).send().await {
         Ok(response) => Ok(response.status().is_success()),
         Err(_) => Ok(false), // Connection failed = not running
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_provider_status_uses_cyan() {
+        assert_eq!(
+            get_status_symbol_and_color(&ProviderStatus::Unknown),
+            ("?", Color::Cyan)
+        );
     }
 }

@@ -560,19 +560,19 @@ mod tests {
     fn summary_score_counts_fail_and_warn() {
         let checks = vec![
             SecurityAuditCheck {
-                name: "a".to_string(),
+                name: "a".to_owned(),
                 status: SecurityCheckStatus::Pass,
                 details: String::new(),
                 suggestion: None,
             },
             SecurityAuditCheck {
-                name: "b".to_string(),
+                name: "b".to_owned(),
                 status: SecurityCheckStatus::Warn,
                 details: String::new(),
                 suggestion: None,
             },
             SecurityAuditCheck {
-                name: "c".to_string(),
+                name: "c".to_owned(),
                 status: SecurityCheckStatus::Fail,
                 details: String::new(),
                 suggestion: None,

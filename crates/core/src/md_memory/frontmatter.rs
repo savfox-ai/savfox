@@ -75,10 +75,10 @@ Some content here.
     #[test]
     fn roundtrip() {
         let fm = MemoryFrontmatter {
-            tags: vec!["test".to_string()],
+            tags: vec!["test".to_owned()],
             priority: 7,
             pinned: false,
-            author: "agent".to_string(),
+            author: "agent".to_owned(),
             ..Default::default()
         };
         let body = "# Test\n\nHello world.";

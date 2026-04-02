@@ -155,9 +155,9 @@ mod tests {
     #[test]
     fn index_insert_and_search() {
         let mut idx = VectorIndex::new();
-        idx.insert("a".to_string(), vec![1.0, 0.0, 0.0]);
-        idx.insert("b".to_string(), vec![0.0, 1.0, 0.0]);
-        idx.insert("c".to_string(), vec![1.0, 1.0, 0.0]);
+        idx.insert("a".to_owned(), vec![1.0, 0.0, 0.0]);
+        idx.insert("b".to_owned(), vec![0.0, 1.0, 0.0]);
+        idx.insert("c".to_owned(), vec![1.0, 1.0, 0.0]);
 
         let results = idx.search(&[1.0, 0.0, 0.0], 2);
         assert_eq!(results.len(), 2);
@@ -169,8 +169,8 @@ mod tests {
     #[test]
     fn index_remove() {
         let mut idx = VectorIndex::new();
-        idx.insert("a".to_string(), vec![1.0, 0.0]);
-        idx.insert("b".to_string(), vec![0.0, 1.0]);
+        idx.insert("a".to_owned(), vec![1.0, 0.0]);
+        idx.insert("b".to_owned(), vec![0.0, 1.0]);
         assert_eq!(idx.len(), 2);
 
         idx.remove("a");
@@ -184,8 +184,8 @@ mod tests {
     #[test]
     fn index_insert_replaces_duplicate_id() {
         let mut idx = VectorIndex::new();
-        idx.insert("a".to_string(), vec![1.0, 0.0]);
-        idx.insert("a".to_string(), vec![0.0, 1.0]);
+        idx.insert("a".to_owned(), vec![1.0, 0.0]);
+        idx.insert("a".to_owned(), vec![0.0, 1.0]);
         assert_eq!(idx.len(), 1);
 
         // After replacement, "a" should be [0, 1].

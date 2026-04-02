@@ -170,9 +170,9 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     // Prior item: user message (should be delivered)
     let prior_user = savfox_protocol::models::ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![savfox_protocol::models::ContentItem::InputText {
-            text: "resumed user message".to_string(),
+            text: "resumed user message".to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -192,9 +192,9 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     // Prior item: system message (excluded from API history)
     let prior_system = savfox_protocol::models::ResponseItem::Message {
         id: None,
-        role: "system".to_string(),
+        role: "system".to_owned(),
         content: vec![savfox_protocol::models::ContentItem::OutputText {
-            text: "resumed system instruction".to_string(),
+            text: "resumed system instruction".to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -214,9 +214,9 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
     // Prior item: assistant message
     let prior_item = savfox_protocol::models::ResponseItem::Message {
         id: None,
-        role: "assistant".to_string(),
+        role: "assistant".to_owned(),
         content: vec![savfox_protocol::models::ContentItem::OutputText {
-            text: "resumed assistant message".to_string(),
+            text: "resumed assistant message".to_owned(),
         }],
         end_turn: None,
         phase: Some(MessagePhase::Commentary),
@@ -244,7 +244,7 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
         .with_home(savfox_home.clone())
         .with_config(|config| {
             // Ensure user instructions are NOT delivered on resume.
-            config.user_instructions = Some("be nice".to_string());
+            config.user_instructions = Some("be nice".to_owned());
         });
     let test = builder
         .resume(&server, savfox_home, session_path.clone())
@@ -297,7 +297,7 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
                 .first()?
                 .get("text")?
                 .as_str()?;
-            Some((role.to_string(), text.to_string()))
+            Some((role.to_owned(), text.to_owned()))
         })
         .collect();
     let pos_prior_user = messages
@@ -409,7 +409,7 @@ async fn includes_base_instructions_override_in_request() {
     let mut builder = test_savfox()
         .with_auth(SavfoxAuth::from_api_key("Test API Key"))
         .with_config(|config| {
-            config.base_instructions = Some("test instructions".to_string());
+            config.base_instructions = Some("test instructions".to_owned());
         });
     let savfox = builder
         .build(&server)
@@ -583,7 +583,7 @@ async fn includes_user_instructions_message_in_request() {
     let mut builder = test_savfox()
         .with_auth(SavfoxAuth::from_api_key("Test API Key"))
         .with_config(|config| {
-            config.user_instructions = Some("be nice".to_string());
+            config.user_instructions = Some("be nice".to_owned());
         });
     let savfox = builder
         .build(&server)
@@ -837,7 +837,7 @@ async fn user_turn_collaboration_mode_overrides_model_and_effort() -> anyhow::Re
     let collaboration_mode = CollaborationMode {
         mode: ModeKind::Custom,
         settings: Settings {
-            model: "gpt-5.1".to_string(),
+            model: "gpt-5.1".to_owned(),
             reasoning_effort: Some(ReasoningEffort::High),
             developer_instructions: None,
         },
@@ -1080,8 +1080,8 @@ async fn includes_developer_instructions_message_in_request() {
     let mut builder = test_savfox()
         .with_auth(SavfoxAuth::from_api_key("Test API Key"))
         .with_config(|config| {
-            config.user_instructions = Some("be nice".to_string());
-            config.developer_instructions = Some("be useful".to_string());
+            config.user_instructions = Some("be nice".to_owned());
+            config.developer_instructions = Some("be useful".to_owned());
         });
     let savfox = builder
         .build(&server)
@@ -1146,7 +1146,7 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         "data: {\"type\":\"response.created\",\"response\":{}}\n\n",
         "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
     );
-    let resp_mock = mount_sse_once(&server, sse_body.to_string()).await;
+    let resp_mock = mount_sse_once(&server, sse_body.to_owned()).await;
 
     let provider = ModelProviderInfo {
         id: "azure".into(),
@@ -1183,10 +1183,10 @@ async fn azure_responses_request_includes_store_and_reasoning_ids() {
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         auth_manager.get_auth_mode(),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         SessionSource::Exec,
     );
 
@@ -1565,7 +1565,7 @@ async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Res
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(|config| {
-            config.model = Some("gpt-5.1".to_string());
+            config.model = Some("gpt-5.1".to_owned());
             config.model_context_window = Some(272_000);
         })
         .build(&server)
@@ -1666,21 +1666,21 @@ async fn azure_overrides_assign_properties_used_for_responses_url() {
         .await;
 
     let provider = ModelProviderInfo {
-        id: "custom".to_string(),
-        name: "custom".to_string(),
+        id: "custom".to_owned(),
+        name: "custom".to_owned(),
         base_url: Some(format!("{}/openai", server.uri())),
         // Reuse the existing environment variable to avoid using unsafe code
-        env_key: Some(existing_env_var_with_random_value.to_string()),
+        env_key: Some(existing_env_var_with_random_value.to_owned()),
         experimental_bearer_token: None,
         query_params: Some(std::collections::HashMap::from([(
-            "api-version".to_string(),
-            "2025-04-01-preview".to_string(),
+            "api-version".to_owned(),
+            "2025-04-01-preview".to_owned(),
         )])),
         env_key_instructions: None,
         wire_api: WireApi::Responses,
         http_headers: Some(std::collections::HashMap::from([(
-            "Custom-Header".to_string(),
-            "Value".to_string(),
+            "Custom-Header".to_owned(),
+            "Value".to_owned(),
         )])),
         env_http_headers: None,
         request_max_retries: None,
@@ -1748,21 +1748,21 @@ async fn env_var_overrides_loaded_auth() {
         .await;
 
     let provider = ModelProviderInfo {
-        id: "custom".to_string(),
-        name: "custom".to_string(),
+        id: "custom".to_owned(),
+        name: "custom".to_owned(),
         base_url: Some(format!("{}/openai", server.uri())),
         // Reuse the existing environment variable to avoid using unsafe code
-        env_key: Some(existing_env_var_with_random_value.to_string()),
+        env_key: Some(existing_env_var_with_random_value.to_owned()),
         query_params: Some(std::collections::HashMap::from([(
-            "api-version".to_string(),
-            "2025-04-01-preview".to_string(),
+            "api-version".to_owned(),
+            "2025-04-01-preview".to_owned(),
         )])),
         env_key_instructions: None,
         experimental_bearer_token: None,
         wire_api: WireApi::Responses,
         http_headers: Some(std::collections::HashMap::from([(
-            "Custom-Header".to_string(),
-            "Value".to_string(),
+            "Custom-Header".to_owned(),
+            "Value".to_owned(),
         )])),
         env_http_headers: None,
         request_max_retries: None,

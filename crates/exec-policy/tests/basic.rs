@@ -109,7 +109,7 @@ prefix_rule(
             matched_rules: vec![RuleMatch::PrefixRuleMatch {
                 matched_prefix: tokens(&["rm"]),
                 decision: Decision::Forbidden,
-                justification: Some("destructive command".to_string()),
+                justification: Some("destructive command".to_owned()),
             }],
         },
         evaluation
@@ -137,7 +137,7 @@ prefix_rule(
             matched_rules: vec![RuleMatch::PrefixRuleMatch {
                 matched_prefix: tokens(&["ls"]),
                 decision: Decision::Allow,
-                justification: Some("safe and commonly used".to_string()),
+                justification: Some("safe and commonly used".to_owned()),
             }],
         },
         evaluation
@@ -242,7 +242,7 @@ prefix_rule(
             RuleSnapshot::Prefix(PrefixRule {
                 pattern: PrefixPattern {
                     first: Arc::from("git"),
-                    rest: vec![PatternToken::Single("commit".to_string())].into(),
+                    rest: vec![PatternToken::Single("commit".to_owned())].into(),
                 },
                 decision: Decision::Forbidden,
                 justification: None,
@@ -308,7 +308,7 @@ prefix_rule(
         vec![RuleSnapshot::Prefix(PrefixRule {
             pattern: PrefixPattern {
                 first: Arc::from("bash"),
-                rest: vec![PatternToken::Alts(vec!["-c".to_string(), "-l".to_string()])].into(),
+                rest: vec![PatternToken::Alts(vec!["-c".to_owned(), "-l".to_owned()])].into(),
             },
             decision: Decision::Allow,
             justification: None,
@@ -319,7 +319,7 @@ prefix_rule(
         vec![RuleSnapshot::Prefix(PrefixRule {
             pattern: PrefixPattern {
                 first: Arc::from("sh"),
-                rest: vec![PatternToken::Alts(vec!["-c".to_string(), "-l".to_string()])].into(),
+                rest: vec![PatternToken::Alts(vec!["-c".to_owned(), "-l".to_owned()])].into(),
             },
             decision: Decision::Allow,
             justification: None,
@@ -372,10 +372,10 @@ prefix_rule(
             pattern: PrefixPattern {
                 first: Arc::from("npm"),
                 rest: vec![
-                    PatternToken::Alts(vec!["i".to_string(), "install".to_string()]),
+                    PatternToken::Alts(vec!["i".to_owned(), "install".to_owned()]),
                     PatternToken::Alts(vec![
-                        "--legacy-peer-deps".to_string(),
-                        "--no-save".to_string(),
+                        "--legacy-peer-deps".to_owned(),
+                        "--no-save".to_owned(),
                     ]),
                 ]
                 .into(),

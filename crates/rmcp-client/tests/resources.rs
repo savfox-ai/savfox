@@ -63,11 +63,11 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
     assert_eq!(
         memo,
         &rmcp::model::RawResource {
-            uri: RESOURCE_URI.to_string(),
-            name: "example-note".to_string(),
-            title: Some("Example Note".to_string()),
-            description: Some("A sample MCP resource exposed for integration tests.".to_string()),
-            mime_type: Some("text/plain".to_string()),
+            uri: RESOURCE_URI.to_owned(),
+            name: "example-note".to_owned(),
+            title: Some("Example Note".to_owned()),
+            description: Some("A sample MCP resource exposed for integration tests.".to_owned()),
+            mime_type: Some("text/plain".to_owned()),
             size: None,
             icons: None,
             meta: None,
@@ -84,13 +84,13 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
             next_cursor: None,
             resource_templates: vec![
                 rmcp::model::RawResourceTemplate {
-                    uri_template: "memo://savfox/{slug}".to_string(),
-                    name: "savfox-memo".to_string(),
-                    title: Some("Savfox Memo".to_string()),
+                    uri_template: "memo://savfox/{slug}".to_owned(),
+                    name: "savfox-memo".to_owned(),
+                    title: Some("Savfox Memo".to_owned()),
                     description: Some(
-                        "Template for memo://savfox/{slug} resources used in tests.".to_string(),
+                        "Template for memo://savfox/{slug} resources used in tests.".to_owned(),
                     ),
-                    mime_type: Some("text/plain".to_string()),
+                    mime_type: Some("text/plain".to_owned()),
                     icons: None,
                 }
                 .no_annotation()
@@ -108,9 +108,9 @@ async fn rmcp_client_can_list_and_read_resources() -> anyhow::Result<()> {
     assert_eq!(
         text,
         &ResourceContents::TextResourceContents {
-            uri: RESOURCE_URI.to_string(),
-            mime_type: Some("text/plain".to_string()),
-            text: "This is a sample MCP resource served by the rmcp test server.".to_string(),
+            uri: RESOURCE_URI.to_owned(),
+            mime_type: Some("text/plain".to_owned()),
+            text: "This is a sample MCP resource served by the rmcp test server.".to_owned(),
             meta: None,
         }
     );

@@ -83,8 +83,8 @@ mod tests {
     #[test]
     fn test_user_instructions() {
         let user_instructions = UserInstructions {
-            directory: "test_directory".to_string(),
-            text: "test_text".to_string(),
+            directory: "test_directory".to_owned(),
+            text: "test_text".to_owned(),
         };
         let response_item: ResponseItem = user_instructions.into();
 
@@ -108,12 +108,12 @@ mod tests {
     fn test_is_user_instructions() {
         assert!(UserInstructions::is_user_instructions(
             &[ContentItem::InputText {
-                text: "# AGENTS.md instructions for test_directory\n\n<INSTRUCTIONS>\ntest_text\n</INSTRUCTIONS>".to_string(),
+                text: "# AGENTS.md instructions for test_directory\n\n<INSTRUCTIONS>\ntest_text\n</INSTRUCTIONS>".to_owned(),
             }]
         ));
         assert!(!UserInstructions::is_user_instructions(&[
             ContentItem::InputText {
-                text: "test_text".to_string(),
+                text: "test_text".to_owned(),
             }
         ]));
     }
@@ -121,9 +121,9 @@ mod tests {
     #[test]
     fn test_skill_instructions() {
         let skill_instructions = SkillInstructions {
-            name: "demo-skill".to_string(),
-            path: "skills/demo/SKILL.md".to_string(),
-            contents: "body".to_string(),
+            name: "demo-skill".to_owned(),
+            path: "skills/demo/SKILL.md".to_owned(),
+            contents: "body".to_owned(),
         };
         let response_item: ResponseItem = skill_instructions.into();
 
@@ -147,13 +147,12 @@ mod tests {
     fn test_is_skill_instructions() {
         assert!(SkillInstructions::is_skill_instructions(&[
             ContentItem::InputText {
-                text: "<skill>\n<name>demo-skill</name>\n<path>skills/demo/SKILL.md</path>\nbody\n</skill>"
-                    .to_string(),
+                text: "<skill>\n<name>demo-skill</name>\n<path>skills/demo/SKILL.md</path>\nbody\n</skill>".to_owned(),
             }
         ]));
         assert!(!SkillInstructions::is_skill_instructions(&[
             ContentItem::InputText {
-                text: "regular text".to_string(),
+                text: "regular text".to_owned(),
             }
         ]));
     }

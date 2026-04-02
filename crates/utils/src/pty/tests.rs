@@ -10,11 +10,9 @@ fn find_python() -> Option<String> {
         if let Ok(output) = std::process::Command::new(candidate)
             .arg("--version")
             .output()
-        {
-            if output.status.success() {
-                return Some(candidate.to_string());
+            && output.status.success() {
+                return Some(candidate.to_owned());
             }
-        }
     }
     None
 }
@@ -32,12 +30,12 @@ fn setsid_available() -> bool {
 
 fn shell_command(program: &str) -> (String, Vec<String>) {
     if cfg!(windows) {
-        let cmd = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-        (cmd, vec!["/C".to_string(), program.to_string()])
+        let cmd = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned());
+        (cmd, vec!["/C".to_owned(), program.to_owned()])
     } else {
         (
-            "/bin/sh".to_string(),
-            vec!["-c".to_string(), program.to_string()],
+            "/bin/sh".to_owned(),
+            vec!["-c".to_owned(), program.to_owned()],
         )
     }
 }
@@ -130,9 +128,9 @@ async fn pipe_process_round_trips_stdin() -> anyhow::Result<()> {
     };
 
     let args = vec![
-        "-u".to_string(),
-        "-c".to_string(),
-        "import sys; print(sys.stdin.readline().strip());".to_string(),
+        "-u".to_owned(),
+        "-c".to_owned(),
+        "import sys; print(sys.stdin.readline().strip());".to_owned(),
     ];
     let env_map: HashMap<String, String> = std::env::vars().collect();
     let spawned = spawn_pipe_process(&python, &args, Path::new("."), &env_map, &None).await?;
@@ -233,7 +231,7 @@ async fn pipe_drains_stderr_without_stdout_activity() -> anyhow::Result<()> {
     };
 
     let script = "import sys\nchunk = 'E' * 65536\nfor _ in range(64):\n    sys.stderr.write(chunk)\n    sys.stderr.flush()\n";
-    let args = vec!["-c".to_string(), script.to_string()];
+    let args = vec!["-c".to_owned(), script.to_owned()];
     let env_map: HashMap<String, String> = std::env::vars().collect();
     let spawned = spawn_pipe_process(&python, &args, Path::new("."), &env_map, &None).await?;
 

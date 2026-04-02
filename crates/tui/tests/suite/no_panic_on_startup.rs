@@ -60,11 +60,11 @@ async fn run_savfox_cli(
     let savfox_cli = savfox_utils::cargo_bin::cargo_bin("savfox")?;
     let mut env = HashMap::new();
     env.insert(
-        "SAVFOX_HOME".to_string(),
+        "SAVFOX_HOME".to_owned(),
         savfox_home.as_ref().display().to_string(),
     );
 
-    let args = vec!["-c".to_string(), "analytics.enabled=false".to_string()];
+    let args = vec!["-c".to_owned(), "analytics.enabled=false".to_owned()];
     let spawned = savfox_utils::pty::spawn_pty_process(
         savfox_cli.to_string_lossy().as_ref(),
         &args,

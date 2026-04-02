@@ -21,11 +21,11 @@ fn runtime_metrics_summary_collects_tool_api_and_streaming_metrics() -> Result<(
         SessionId::new(),
         "gpt-5.1",
         "gpt-5.1",
-        Some("account-id".to_string()),
+        Some("account-id".to_owned()),
         None,
         Some(AuthMode::ApiKey),
         true,
-        "tty".to_string(),
+        "tty".to_owned(),
         SessionSource::Cli,
     )
     .with_metrics(metrics);
@@ -46,8 +46,8 @@ fn runtime_metrics_summary_collects_tool_api_and_streaming_metrics() -> Result<(
         Option<std::result::Result<StreamEvent, eventsource_stream::EventStreamError<&str>>>,
         tokio::time::error::Elapsed,
     > = Ok(Some(Ok(StreamEvent {
-        event: "response.created".to_string(),
-        data: "{}".to_string(),
+        event: "response.created".to_owned(),
+        data: "{}".to_owned(),
         id: String::new(),
         retry: None,
     })));

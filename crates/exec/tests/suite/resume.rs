@@ -69,8 +69,7 @@ fn extract_conversation_id(path: &std::path::Path) -> String {
     meta.get("payload")
         .and_then(|p| p.get("id"))
         .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string()
+        .unwrap_or_default().to_owned()
 }
 
 fn last_user_image_count(path: &std::path::Path) -> usize {

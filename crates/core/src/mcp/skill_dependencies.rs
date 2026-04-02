@@ -417,8 +417,8 @@ mod tests {
 
     fn skill_with_tools(tools: Vec<SkillToolDependency>) -> SkillMetadata {
         SkillMetadata {
-            name: "skill".to_string(),
-            description: "skill".to_string(),
+            name: "skill".to_owned(),
+            description: "skill".to_owned(),
             short_description: None,
             interface: None,
             dependencies: Some(SkillDependencies { tools }),
@@ -429,17 +429,17 @@ mod tests {
 
     #[test]
     fn collect_missing_respects_canonical_installed_key() {
-        let url = "https://example.com/mcp".to_string();
+        let url = "https://example.com/mcp".to_owned();
         let skills = vec![skill_with_tools(vec![SkillToolDependency {
-            r#type: "mcp".to_string(),
-            value: "github".to_string(),
+            r#type: "mcp".to_owned(),
+            value: "github".to_owned(),
             description: None,
-            transport: Some("streamable_http".to_string()),
+            transport: Some("streamable_http".to_owned()),
             command: None,
             url: Some(url.clone()),
         }])];
         let installed = HashMap::from([(
-            "alias".to_string(),
+            "alias".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
                     url,
@@ -465,28 +465,28 @@ mod tests {
 
     #[test]
     fn collect_missing_dedupes_by_canonical_key_but_preserves_original_name() {
-        let url = "https://example.com/one".to_string();
+        let url = "https://example.com/one".to_owned();
         let skills = vec![skill_with_tools(vec![
             SkillToolDependency {
-                r#type: "mcp".to_string(),
-                value: "alias-one".to_string(),
+                r#type: "mcp".to_owned(),
+                value: "alias-one".to_owned(),
                 description: None,
-                transport: Some("streamable_http".to_string()),
+                transport: Some("streamable_http".to_owned()),
                 command: None,
                 url: Some(url.clone()),
             },
             SkillToolDependency {
-                r#type: "mcp".to_string(),
-                value: "alias-two".to_string(),
+                r#type: "mcp".to_owned(),
+                value: "alias-two".to_owned(),
                 description: None,
-                transport: Some("streamable_http".to_string()),
+                transport: Some("streamable_http".to_owned()),
                 command: None,
                 url: Some(url.clone()),
             },
         ])];
 
         let expected = HashMap::from([(
-            "alias-one".to_string(),
+            "alias-one".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
                     url,

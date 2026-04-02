@@ -244,7 +244,7 @@ mod tests {
                 .find(|r| r.request_id == request_id)
                 .expect("record");
             rec.status = PairingStatus::Approved;
-            rec.token = Some("tok".to_string());
+            rec.token = Some("tok".to_owned());
             let out = rec.clone();
             save_records_for_home(&home, &records).await.expect("save");
             out

@@ -65,7 +65,7 @@ fn parse_unified_exec_output(raw: &str) -> Result<ParsedUnifiedExecOutput> {
 
     let chunk_id = captures
         .name("chunk_id")
-        .map(|value| value.as_str().to_string());
+        .map(|value| value.as_str().to_owned());
 
     let wall_time_seconds = captures
         .name("wall_time")
@@ -86,7 +86,7 @@ fn parse_unified_exec_output(raw: &str) -> Result<ParsedUnifiedExecOutput> {
 
     let process_id = captures
         .name("process_id")
-        .map(|value| value.as_str().to_string());
+        .map(|value| value.as_str().to_owned());
 
     let original_token_count = captures
         .name("original_token_count")
@@ -101,8 +101,7 @@ fn parse_unified_exec_output(raw: &str) -> Result<ParsedUnifiedExecOutput> {
     let output = captures
         .name("output")
         .expect("output group present")
-        .as_str()
-        .to_string();
+        .as_str().to_owned();
 
     Ok(ParsedUnifiedExecOutput {
         chunk_id,
@@ -132,7 +131,7 @@ fn collect_tool_outputs(bodies: &[Value]) -> Result<HashMap<String, ParsedUnifie
                     let parsed = parse_unified_exec_output(content).with_context(|| {
                         format!("failed to parse unified exec output for {call_id}")
                     })?;
-                    outputs.insert(call_id.to_string(), parsed);
+                    outputs.insert(call_id.to_owned(), parsed);
                 }
             }
         }
@@ -289,8 +288,8 @@ async fn unified_exec_emits_exec_command_begin_event() -> Result<()> {
 
     let call_id = "uexec-begin-event";
     let args = json!({
-        "shell": "bash".to_string(),
-        "cmd": "/bin/echo hello unified exec".to_string(),
+        "shell": "bash".to_owned(),
+        "cmd": "/bin/echo hello unified exec".to_owned(),
         "yield_time_ms": 250,
     });
 
@@ -527,7 +526,7 @@ async fn unified_exec_emits_exec_command_end_event() -> Result<()> {
 
     let call_id = "uexec-end-event";
     let args = json!({
-        "cmd": "/bin/echo END-EVENT".to_string(),
+        "cmd": "/bin/echo END-EVENT".to_owned(),
         "yield_time_ms": 250,
     });
     let poll_call_id = "uexec-end-event-poll";
@@ -1099,8 +1098,8 @@ async fn unified_exec_emits_one_begin_and_one_end_event() -> Result<()> {
 
     let open_call_id = "uexec-open-session";
     let open_args = json!({
-        "shell": "bash".to_string(),
-        "cmd": "sleep 0.1".to_string(),
+        "shell": "bash".to_owned(),
+        "cmd": "sleep 0.1".to_owned(),
         "yield_time_ms": 10,
     });
 
@@ -1314,12 +1313,9 @@ async fn unified_exec_defaults_to_pipe() -> Result<()> {
     skip_if_sandbox!(Ok(()));
     skip_if_windows!(Ok(()));
 
-    let python = match which("python").or_else(|_| which("python3")) {
-        Ok(path) => path,
-        Err(_) => {
-            eprintln!("python not found in PATH, skipping tty default test.");
-            return Ok(());
-        }
+    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) { path } else {
+        eprintln!("python not found in PATH, skipping tty default test.");
+        return Ok(());
     };
 
     let server = start_mock_server().await;
@@ -1403,12 +1399,9 @@ async fn unified_exec_can_enable_tty() -> Result<()> {
     skip_if_sandbox!(Ok(()));
     skip_if_windows!(Ok(()));
 
-    let python = match which("python").or_else(|_| which("python3")) {
-        Ok(path) => path,
-        Err(_) => {
-            eprintln!("python not found in PATH, skipping tty enable test.");
-            return Ok(());
-        }
+    let python = if let Ok(path) = which("python").or_else(|_| which("python3")) { path } else {
+        eprintln!("python not found in PATH, skipping tty enable test.");
+        return Ok(());
     };
 
     let server = start_mock_server().await;

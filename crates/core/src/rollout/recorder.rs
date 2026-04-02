@@ -670,8 +670,8 @@ fn extract_session_cwd(head: &[serde_json::Value]) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use savfox_protocol::models::{ContentItem, ResponseItem};
-    use tempfile::tempdir;
+    use savfox_protocol::models::ContentItem;
+    
 
     use super::*;
 
@@ -690,15 +690,15 @@ mod tests {
 
     fn session_meta_line(timestamp: &str, session_id: SessionId) -> RolloutLine {
         RolloutLine {
-            timestamp: timestamp.to_string(),
+            timestamp: timestamp.to_owned(),
             item: RolloutItem::SessionMeta(SessionMetaLine {
                 meta: SessionMeta {
                     id: session_id,
                     forked_from_id: None,
-                    timestamp: timestamp.to_string(),
+                    timestamp: timestamp.to_owned(),
                     cwd: PathBuf::from("/tmp"),
-                    originator: "test".to_string(),
-                    cli_version: "0.0.0".to_string(),
+                    originator: "test".to_owned(),
+                    cli_version: "0.0.0".to_owned(),
                     source: SessionSource::Cli,
                     model: None,
                     model_provider: None,

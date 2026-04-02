@@ -497,18 +497,18 @@ description = "Demo"
         let mut registry = PluginRegistry::new();
         registry.register(
             PluginInfo {
-                id: "demo".to_string(),
-                name: "Demo".to_string(),
-                version: "0.1.0".to_string(),
-                description: "Demo plugin".to_string(),
+                id: "demo".to_owned(),
+                name: "Demo".to_owned(),
+                version: "0.1.0".to_owned(),
+                description: "Demo plugin".to_owned(),
                 author: None,
             },
             Some(PluginConfigSchema {
                 fields: vec![
                     PluginConfigField {
-                        name: "api_key".to_string(),
+                        name: "api_key".to_owned(),
                         field_type: ConfigFieldType::String,
-                        label: "API Key".to_string(),
+                        label: "API Key".to_owned(),
                         placeholder: None,
                         help_text: None,
                         is_sensitive: true,
@@ -517,15 +517,15 @@ description = "Demo"
                         options: None,
                     },
                     PluginConfigField {
-                        name: "mode".to_string(),
+                        name: "mode".to_owned(),
                         field_type: ConfigFieldType::Select,
-                        label: "Mode".to_string(),
+                        label: "Mode".to_owned(),
                         placeholder: None,
                         help_text: None,
                         is_sensitive: false,
                         required: false,
                         default_value: None,
-                        options: Some(vec!["safe".to_string(), "full".to_string()]),
+                        options: Some(vec!["safe".to_owned(), "full".to_owned()]),
                     },
                 ],
             }),

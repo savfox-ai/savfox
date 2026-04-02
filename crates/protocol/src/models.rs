@@ -990,7 +990,7 @@ mod tests {
         assert_eq!(
             items,
             vec![FunctionCallOutputContentItem::InputImage {
-                image_url: "data:image/png;base64,Zm9v".to_string(),
+                image_url: "data:image/png;base64,Zm9v".to_owned(),
             }]
         );
     }
@@ -1007,7 +1007,7 @@ mod tests {
         assert_eq!(
             items,
             vec![FunctionCallOutputContentItem::InputImage {
-                image_url: "data:image/png;base64,Zm9v".to_string(),
+                image_url: "data:image/png;base64,Zm9v".to_owned(),
             }]
         );
     }
@@ -1089,7 +1089,7 @@ mod tests {
         let mut exec_policy = Policy::empty();
         exec_policy
             .add_prefix_rule(
-                &["git".to_string(), "pull".to_string()],
+                &["git".to_owned(), "pull".to_owned()],
                 savfox_exec_policy::Decision::Allow,
             )
             .expect("add rule");
@@ -1111,12 +1111,12 @@ mod tests {
     #[test]
     fn render_command_prefix_list_sorts_by_len_then_total_len_then_alphabetical() {
         let prefixes = vec![
-            vec!["b".to_string(), "zz".to_string()],
-            vec!["aa".to_string()],
-            vec!["b".to_string()],
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            vec!["a".to_string()],
-            vec!["b".to_string(), "a".to_string()],
+            vec!["b".to_owned(), "zz".to_owned()],
+            vec!["aa".to_owned()],
+            vec!["b".to_owned()],
+            vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            vec!["a".to_owned()],
+            vec!["b".to_owned(), "a".to_owned()],
         ];
 
         let output = format_allow_prefixes(prefixes).expect("rendered list");
@@ -1127,8 +1127,7 @@ mod tests {
 - ["aa"]
 - ["b", "a"]
 - ["b", "zz"]
-- ["a", "b", "c"]"#
-                .to_string(),
+- ["a", "b", "c"]"#.to_owned(),
         );
     }
 
@@ -1409,8 +1408,8 @@ mod tests {
         let params: ShellToolCallParams = serde_json::from_str(json)?;
         assert_eq!(
             ShellToolCallParams {
-                command: vec!["ls".to_string(), "-l".to_string()],
-                workdir: Some("/tmp".to_string()),
+                command: vec!["ls".to_owned(), "-l".to_owned()],
+                workdir: Some("/tmp".to_owned()),
                 timeout_ms: Some(1000),
                 sandbox_permissions: None,
                 prefix_rule: None,
@@ -1423,7 +1422,7 @@ mod tests {
 
     #[test]
     fn wraps_image_user_input_with_tags() -> Result<()> {
-        let image_url = "data:image/png;base64,abc".to_string();
+        let image_url = "data:image/png;base64,abc".to_owned();
 
         let item = ResponseInputItem::from(vec![UserInput::Image {
             image_url: image_url.clone(),

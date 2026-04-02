@@ -21,7 +21,7 @@ use time::macros::format_description;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
 use uuid::Uuid;
 
-use crate::rollout::list::{Cursor, SessionItem, SessionSortKey, SessionsPage, get_sessions};
+use crate::rollout::list::{SessionSortKey, get_sessions};
 use crate::rollout::{INTERACTIVE_SESSION_SOURCES, rollout_date_parts};
 
 const NO_SOURCE_FILTER: &[SessionSource] = &[];
@@ -40,7 +40,7 @@ fn rollout_date_parts_extracts_directory_components() {
     let parts = rollout_date_parts(file_name);
     assert_eq!(
         parts,
-        Some(("1970".to_string(), "01".to_string(), "01".to_string()))
+        Some(("1970".to_owned(), "01".to_owned(), "01".to_owned()))
     );
 }
 
@@ -94,7 +94,7 @@ fn write_session_file_with_provider(
         payload["source"] = serde_json::to_value(source).unwrap();
     }
     if let Some(provider) = model_provider {
-        payload["model_provider"] = serde_json::Value::String(provider.to_string());
+        payload["model_provider"] = serde_json::Value::String(provider.to_owned());
     }
 
     let meta = serde_json::json!({
@@ -648,12 +648,12 @@ async fn test_updated_at_uses_file_mtime() -> Result<()> {
 
     let conversation_id = SessionId::from_string(&uuid.to_string())?;
     let meta_line = RolloutLine {
-        timestamp: ts.to_string(),
+        timestamp: ts.to_owned(),
         item: RolloutItem::SessionMeta(SessionMetaLine {
             meta: SessionMeta {
                 id: conversation_id,
                 forked_from_id: None,
-                timestamp: ts.to_string(),
+                timestamp: ts.to_owned(),
                 cwd: ".".into(),
                 originator: "test_originator".into(),
                 cli_version: "test_version".into(),
@@ -669,7 +669,7 @@ async fn test_updated_at_uses_file_mtime() -> Result<()> {
     writeln!(file, "{}", serde_json::to_string(&meta_line)?)?;
 
     let user_event_line = RolloutLine {
-        timestamp: ts.to_string(),
+        timestamp: ts.to_owned(),
         item: RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
             message: "hello".into(),
             images: None,

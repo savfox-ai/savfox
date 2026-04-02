@@ -59,14 +59,14 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         savfox_tools,
         vec![
-            "local_shell".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "local_shell".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "savfox-mini-latest should expose the local shell tool",
     );
@@ -75,15 +75,15 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt5_savfox_tools,
         vec![
-            "shell_command".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "apply_patch".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "shell_command".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "apply_patch".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "gpt-5-savfox should expose the apply_patch tool",
     );
@@ -92,15 +92,15 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt51_savfox_tools,
         vec![
-            "shell_command".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "apply_patch".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "shell_command".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "apply_patch".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "gpt-5.1-savfox should expose the apply_patch tool",
     );
@@ -109,14 +109,14 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt5_tools,
         vec![
-            "shell".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "shell".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "gpt-5 should expose the apply_patch tool",
     );
@@ -125,15 +125,15 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         gpt51_tools,
         vec![
-            "shell_command".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "apply_patch".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "shell_command".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "apply_patch".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "gpt-5.1 should expose the apply_patch tool",
     );
@@ -141,16 +141,16 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         exp_tools,
         vec![
-            "exec_command".to_string(),
-            "write_stdin".to_string(),
-            "list_mcp_resources".to_string(),
-            "list_mcp_resource_templates".to_string(),
-            "read_mcp_resource".to_string(),
-            "update_plan".to_string(),
-            "request_user_input".to_string(),
-            "apply_patch".to_string(),
-            "web_search".to_string(),
-            "view_image".to_string()
+            "exec_command".to_owned(),
+            "write_stdin".to_owned(),
+            "list_mcp_resources".to_owned(),
+            "list_mcp_resource_templates".to_owned(),
+            "read_mcp_resource".to_owned(),
+            "update_plan".to_owned(),
+            "request_user_input".to_owned(),
+            "apply_patch".to_owned(),
+            "web_search".to_owned(),
+            "view_image".to_owned()
         ],
         "exp-5.1 should expose the apply_patch tool",
     );

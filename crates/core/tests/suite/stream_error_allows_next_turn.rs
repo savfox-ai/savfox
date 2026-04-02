@@ -70,7 +70,7 @@ async fn continue_after_stream_error() {
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(move |config| {
-            config.base_instructions = Some("You are a helpful assistant".to_string());
+            config.base_instructions = Some("You are a helpful assistant".to_owned());
             config.model_provider = provider;
         })
         .build(&server)

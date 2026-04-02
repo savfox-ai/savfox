@@ -908,7 +908,7 @@ foo = "xyzzy"
         let normalized_toml_value = resolve_relative_paths_in_config_toml(user_config, base_dir)?;
         let mut expected_toml_value = toml::map::Map::new();
         expected_toml_value.insert(
-            "model_instructions_file".to_string(),
+            "model_instructions_file".to_owned(),
             TomlValue::String(
                 AbsolutePathBuf::resolve_path_against_base("./some_file.md", base_dir)?
                     .as_path()
@@ -918,15 +918,15 @@ foo = "xyzzy"
         );
         let mut model = toml::map::Map::new();
         model.insert(
-            "provider".to_string(),
-            TomlValue::String("openai".to_string()),
+            "provider".to_owned(),
+            TomlValue::String("openai".to_owned()),
         );
         model.insert(
-            "slug".to_string(),
-            TomlValue::String("gpt-1000".to_string()),
+            "slug".to_owned(),
+            TomlValue::String("gpt-1000".to_owned()),
         );
-        expected_toml_value.insert("model".to_string(), TomlValue::Table(model));
-        expected_toml_value.insert("foo".to_string(), TomlValue::String("xyzzy".to_string()));
+        expected_toml_value.insert("model".to_owned(), TomlValue::Table(model));
+        expected_toml_value.insert("foo".to_owned(), TomlValue::String("xyzzy".to_owned()));
         assert_eq!(normalized_toml_value, TomlValue::Table(expected_toml_value));
         Ok(())
     }

@@ -474,8 +474,8 @@ mod tests {
         assert_eq!(
             parsed.rooms_to_auto_join,
             vec![(
-                "!flat:matrix.org".to_string(),
-                Some("@savfox:matrix.org".to_string())
+                "!flat:matrix.org".to_owned(),
+                Some("@savfox:matrix.org".to_owned())
             )]
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$flat"));
@@ -523,8 +523,8 @@ mod tests {
         assert_eq!(
             parsed.rooms_to_auto_join,
             vec![(
-                "!invite:matrix.org".to_string(),
-                Some("@savfox:matrix.org".to_string())
+                "!invite:matrix.org".to_owned(),
+                Some("@savfox:matrix.org".to_owned())
             )]
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$joined"));

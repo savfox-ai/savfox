@@ -2873,25 +2873,25 @@ mod tests {
     #[test]
     fn core_turn_item_into_session_item_converts_supported_variants() {
         let user_item = TurnItem::UserMessage(UserMessageItem {
-            id: "user-1".to_string(),
+            id: "user-1".to_owned(),
             content: vec![
                 CoreUserInput::Text {
-                    text: "hello".to_string(),
+                    text: "hello".to_owned(),
                     text_elements: Vec::new(),
                 },
                 CoreUserInput::Image {
-                    image_url: "https://example.com/image.png".to_string(),
+                    image_url: "https://example.com/image.png".to_owned(),
                 },
                 CoreUserInput::LocalImage {
                     path: PathBuf::from("local/image.png"),
                 },
                 CoreUserInput::Skill {
-                    name: "skill-creator".to_string(),
+                    name: "skill-creator".to_owned(),
                     path: PathBuf::from("/repo/.savfox/skills/skill-creator/SKILL.md"),
                 },
                 CoreUserInput::Mention {
-                    name: "Demo App".to_string(),
-                    path: "app://demo-app".to_string(),
+                    name: "Demo App".to_owned(),
+                    path: "app://demo-app".to_owned(),
                 },
             ],
         });
@@ -2899,38 +2899,38 @@ mod tests {
         assert_eq!(
             SessionItem::from(user_item),
             SessionItem::UserMessage {
-                id: "user-1".to_string(),
+                id: "user-1".to_owned(),
                 content: vec![
                     UserInput::Text {
-                        text: "hello".to_string(),
+                        text: "hello".to_owned(),
                         text_elements: Vec::new(),
                     },
                     UserInput::Image {
-                        url: "https://example.com/image.png".to_string(),
+                        url: "https://example.com/image.png".to_owned(),
                     },
                     UserInput::LocalImage {
                         path: PathBuf::from("local/image.png"),
                     },
                     UserInput::Skill {
-                        name: "skill-creator".to_string(),
+                        name: "skill-creator".to_owned(),
                         path: PathBuf::from("/repo/.savfox/skills/skill-creator/SKILL.md"),
                     },
                     UserInput::Mention {
-                        name: "Demo App".to_string(),
-                        path: "app://demo-app".to_string(),
+                        name: "Demo App".to_owned(),
+                        path: "app://demo-app".to_owned(),
                     },
                 ],
             }
         );
 
         let agent_item = TurnItem::AgentMessage(AgentMessageItem {
-            id: "agent-1".to_string(),
+            id: "agent-1".to_owned(),
             content: vec![
                 AgentMessageContent::Text {
-                    text: "Hello ".to_string(),
+                    text: "Hello ".to_owned(),
                 },
                 AgentMessageContent::Text {
-                    text: "world".to_string(),
+                    text: "world".to_owned(),
                 },
             ],
         });
@@ -2938,31 +2938,31 @@ mod tests {
         assert_eq!(
             SessionItem::from(agent_item),
             SessionItem::AgentMessage {
-                id: "agent-1".to_string(),
-                text: "Hello world".to_string(),
+                id: "agent-1".to_owned(),
+                text: "Hello world".to_owned(),
             }
         );
 
         let reasoning_item = TurnItem::Reasoning(ReasoningItem {
-            id: "reasoning-1".to_string(),
-            summary_text: vec!["line one".to_string(), "line two".to_string()],
+            id: "reasoning-1".to_owned(),
+            summary_text: vec!["line one".to_owned(), "line two".to_owned()],
             raw_content: vec![],
         });
 
         assert_eq!(
             SessionItem::from(reasoning_item),
             SessionItem::Reasoning {
-                id: "reasoning-1".to_string(),
-                summary: vec!["line one".to_string(), "line two".to_string()],
+                id: "reasoning-1".to_owned(),
+                summary: vec!["line one".to_owned(), "line two".to_owned()],
                 content: vec![],
             }
         );
 
         let search_item = TurnItem::WebSearch(WebSearchItem {
-            id: "search-1".to_string(),
-            query: "docs".to_string(),
+            id: "search-1".to_owned(),
+            query: "docs".to_owned(),
             action: CoreWebSearchAction::Search {
-                query: Some("docs".to_string()),
+                query: Some("docs".to_owned()),
                 queries: None,
             },
         });
@@ -2970,10 +2970,10 @@ mod tests {
         assert_eq!(
             SessionItem::from(search_item),
             SessionItem::WebSearch {
-                id: "search-1".to_string(),
-                query: "docs".to_string(),
+                id: "search-1".to_owned(),
+                query: "docs".to_owned(),
                 action: Some(WebSearchAction::Search {
-                    query: Some("docs".to_string()),
+                    query: Some("docs".to_owned()),
                     queries: None,
                 }),
             }

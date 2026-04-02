@@ -46,7 +46,7 @@ const POST_AUTO_USER_MSG: &str = "post auto follow-up";
 pub(super) const COMPACT_WARNING_MESSAGE: &str = "Heads up: Long sessions and multiple compactions can cause the model to be less accurate. Start a new session when possible to keep sessions small and targeted.";
 
 fn auto_summary(summary: &str) -> String {
-    summary.to_string()
+    summary.to_owned()
 }
 
 fn summary_with_prefix(summary: &str) -> String {
@@ -71,7 +71,7 @@ fn drop_call_id(value: &mut serde_json::Value) {
 }
 
 fn set_test_compact_prompt(config: &mut Config) {
-    config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_string());
+    config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_owned());
 }
 
 fn body_contains_text(body: &str, text: &str) -> bool {
@@ -81,8 +81,7 @@ fn body_contains_text(body: &str, text: &str) -> bool {
 fn json_fragment(text: &str) -> String {
     serde_json::to_string(text)
         .expect("serialize text to JSON")
-        .trim_matches('"')
-        .to_string()
+        .trim_matches('"').to_owned()
 }
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
@@ -210,20 +209,18 @@ async fn summarize_context_three_requests_and_instructions() {
     let expected_summary_message = summary_with_prefix(SUMMARY_TEXT);
 
     for item in input3 {
-        if let Some("message") = item.get("type").and_then(|v| v.as_str()) {
+        if item.get("type").and_then(|v| v.as_str()) == Some("message") {
             let role = item
                 .get("role")
                 .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
+                .unwrap_or_default().to_owned();
             let text = item
                 .get("content")
                 .and_then(|v| v.as_array())
                 .and_then(|arr| arr.first())
                 .and_then(|entry| entry.get("text"))
                 .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
+                .unwrap_or_default().to_owned();
             messages.push((role, text));
         }
     }
@@ -314,7 +311,7 @@ async fn manual_compact_uses_custom_prompt() {
     let model_provider = non_openai_model_provider(&server);
     let mut builder = test_savfox().with_config(move |config| {
         config.model_provider = model_provider;
-        config.compact_prompt = Some(custom_prompt.to_string());
+        config.compact_prompt = Some(custom_prompt.to_owned());
     });
     let savfox = builder
         .build(&server)
@@ -1168,8 +1165,7 @@ async fn auto_compact_runs_after_token_limit_hit() {
     let baseline_instructions = body_first
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     assert_eq!(
         instructions, baseline_instructions,
         "auto compact should keep the standard developer instructions",
@@ -1419,15 +1415,15 @@ async fn auto_compact_runs_after_resume_when_token_usage_is_over_limit() {
     let compacted_history = vec![
         savfox_protocol::models::ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![savfox_protocol::models::ContentItem::OutputText {
-                text: remote_summary.to_string(),
+                text: remote_summary.to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         savfox_protocol::models::ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock =
@@ -2249,15 +2245,15 @@ async fn auto_compact_counts_encrypted_reasoning_before_last_user() {
     let compacted_history = vec![
         savfox_protocol::models::ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![savfox_protocol::models::ContentItem::OutputText {
-                text: "REMOTE_COMPACT_SUMMARY".to_string(),
+                text: "REMOTE_COMPACT_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         savfox_protocol::models::ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock =
@@ -2370,15 +2366,15 @@ async fn auto_compact_runs_when_reasoning_header_clears_between_turns() {
     let compacted_history = vec![
         savfox_protocol::models::ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![savfox_protocol::models::ContentItem::OutputText {
-                text: "REMOTE_COMPACT_SUMMARY".to_string(),
+                text: "REMOTE_COMPACT_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         savfox_protocol::models::ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock =

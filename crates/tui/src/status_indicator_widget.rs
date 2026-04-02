@@ -294,7 +294,7 @@ mod tests {
         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
         let mut w = StatusIndicatorWidget::new(tx, crate::tui::FrameRequester::test_dummy(), false);
-        w.update_details(Some("A man a plan a canal panama".to_string()));
+        w.update_details(Some("A man a plan a canal panama".to_owned()));
         w.set_interrupt_hint_visible(false);
 
         // Freeze time-dependent rendering (elapsed + spinner) to keep the snapshot stable.
@@ -337,7 +337,7 @@ mod tests {
         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
         let mut w = StatusIndicatorWidget::new(tx, crate::tui::FrameRequester::test_dummy(), true);
-        w.update_details(Some("abcd abcd abcd abcd".to_string()));
+        w.update_details(Some("abcd abcd abcd abcd".to_owned()));
 
         let lines = w.wrapped_details_lines(6);
         assert_eq!(lines.len(), DETAILS_MAX_LINES);

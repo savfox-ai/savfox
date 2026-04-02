@@ -72,10 +72,10 @@ async fn responses_stream_includes_subagent_header_on_review() {
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         Some(auth_mode),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         session_source.clone(),
     );
 
@@ -165,7 +165,7 @@ async fn responses_stream_includes_subagent_header_on_other() {
 
     let conversation_id = SessionId::new();
     let auth_mode = AuthMode::Chatgpt;
-    let session_source = SessionSource::SubAgent(SubAgentSource::Other("my-task".to_string()));
+    let session_source = SessionSource::SubAgent(SubAgentSource::Other("my-task".to_owned()));
     let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
 
     let otel_manager = OtelManager::new(
@@ -173,10 +173,10 @@ async fn responses_stream_includes_subagent_header_on_other() {
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         Some(auth_mode),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         session_source.clone(),
     );
 
@@ -314,7 +314,7 @@ async fn responses_respects_model_info_overrides_from_config() {
 
     let savfox_home = TempDir::new().expect("failed to create TempDir");
     let mut config = load_default_config_for_test(&savfox_home).await;
-    config.model = Some("gpt-3.5-turbo".to_string());
+    config.model = Some("gpt-3.5-turbo".to_owned());
     config.model_provider_id = provider.id.clone();
     config.model_provider = provider.clone();
     config.model_supports_reasoning_summaries = Some(true);
@@ -328,17 +328,17 @@ async fn responses_respects_model_info_overrides_from_config() {
     let auth_mode = AuthManager::from_auth_for_testing(SavfoxAuth::from_api_key("Test API Key"))
         .get_auth_mode();
     let session_source =
-        SessionSource::SubAgent(SubAgentSource::Other("override-check".to_string()));
+        SessionSource::SubAgent(SubAgentSource::Other("override-check".to_owned()));
     let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
     let otel_manager = OtelManager::new(
         conversation_id,
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         auth_mode,
         false,
-        "test".to_string(),
+        "test".to_owned(),
         session_source.clone(),
     );
 
@@ -435,17 +435,17 @@ async fn responses_stream_includes_turn_metadata_header_for_git_workspace_e2e() 
     let conversation_id = SessionId::new();
     let auth_mode = AuthMode::Chatgpt;
     let session_source =
-        SessionSource::SubAgent(SubAgentSource::Other("turn-metadata-e2e".to_string()));
+        SessionSource::SubAgent(SubAgentSource::Other("turn-metadata-e2e".to_owned()));
     let model_info = ModelsManager::construct_model_info_offline(model.as_str(), &config);
     let otel_manager = OtelManager::new(
         conversation_id,
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         Some(auth_mode),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         session_source.clone(),
     );
 
@@ -529,12 +529,10 @@ async fn responses_stream_includes_turn_metadata_header_for_git_workspace_e2e() 
 
     let expected_head = String::from_utf8(run_git(&["rev-parse", "HEAD"]).stdout)
         .expect("git rev-parse output should be valid UTF-8")
-        .trim()
-        .to_string();
+        .trim().to_owned();
     let expected_origin = String::from_utf8(run_git(&["remote", "get-url", "origin"]).stdout)
         .expect("git remote get-url output should be valid UTF-8")
-        .trim()
-        .to_string();
+        .trim().to_owned();
 
     let repo_root = std::fs::canonicalize(cwd)
         .unwrap_or_else(|_| cwd.to_path_buf())

@@ -233,8 +233,8 @@ mod tests {
         CwdPromptScreen::new(
             FrameRequester::test_dummy(),
             CwdPromptAction::Resume,
-            "/Users/example/current".to_string(),
-            "/Users/example/session".to_string(),
+            "/Users/example/current".to_owned(),
+            "/Users/example/session".to_owned(),
         )
     }
 
@@ -253,8 +253,8 @@ mod tests {
         let screen = CwdPromptScreen::new(
             FrameRequester::test_dummy(),
             CwdPromptAction::Fork,
-            "/Users/example/current".to_string(),
-            "/Users/example/session".to_string(),
+            "/Users/example/current".to_owned(),
+            "/Users/example/session".to_owned(),
         );
         let mut terminal = Terminal::new(VT100Backend::new(80, 14)).expect("terminal");
         terminal

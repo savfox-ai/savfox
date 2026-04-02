@@ -568,7 +568,7 @@ mod tests {
     fn trim_transcript_for_first_user_drops_user_and_newer_cells() {
         let mut cells: Vec<Arc<dyn HistoryCell>> = vec![
             Arc::new(UserHistoryCell {
-                message: "first user".to_string(),
+                message: "first user".to_owned(),
                 text_elements: Vec::new(),
                 local_image_paths: Vec::new(),
             }) as Arc<dyn HistoryCell>,
@@ -586,7 +586,7 @@ mod tests {
             Arc::new(AgentMessageCell::new(vec![Line::from("intro")], true))
                 as Arc<dyn HistoryCell>,
             Arc::new(UserHistoryCell {
-                message: "first".to_string(),
+                message: "first".to_owned(),
                 text_elements: Vec::new(),
                 local_image_paths: Vec::new(),
             }) as Arc<dyn HistoryCell>,
@@ -616,14 +616,14 @@ mod tests {
             Arc::new(AgentMessageCell::new(vec![Line::from("intro")], true))
                 as Arc<dyn HistoryCell>,
             Arc::new(UserHistoryCell {
-                message: "first".to_string(),
+                message: "first".to_owned(),
                 text_elements: Vec::new(),
                 local_image_paths: Vec::new(),
             }) as Arc<dyn HistoryCell>,
             Arc::new(AgentMessageCell::new(vec![Line::from("between")], false))
                 as Arc<dyn HistoryCell>,
             Arc::new(UserHistoryCell {
-                message: "second".to_string(),
+                message: "second".to_owned(),
                 text_elements: Vec::new(),
                 local_image_paths: Vec::new(),
             }) as Arc<dyn HistoryCell>,

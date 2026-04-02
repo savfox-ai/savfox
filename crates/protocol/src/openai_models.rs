@@ -585,8 +585,8 @@ mod tests {
 
     fn test_model(spec: Option<ModelMessages>) -> ModelInfo {
         ModelInfo {
-            slug: "test-model".to_string(),
-            name: "Test Model".to_string(),
+            slug: "test-model".to_owned(),
+            name: "Test Model".to_owned(),
             description: None,
             default_reasoning_level: None,
             supported_reasoning_levels: vec![],
@@ -595,7 +595,7 @@ mod tests {
             supported_in_api: true,
             priority: 1,
             upgrade: None,
-            base_instructions: "base".to_string(),
+            base_instructions: "base".to_owned(),
             model_messages: spec,
             supports_reasoning_summaries: false,
             support_verbosity: false,
@@ -613,16 +613,16 @@ mod tests {
 
     fn personality_variables() -> ModelInstructionsVariables {
         ModelInstructionsVariables {
-            personality_default: Some("default".to_string()),
-            personality_friendly: Some("friendly".to_string()),
-            personality_pragmatic: Some("pragmatic".to_string()),
+            personality_default: Some("default".to_owned()),
+            personality_friendly: Some("friendly".to_owned()),
+            personality_pragmatic: Some("pragmatic".to_owned()),
         }
     }
 
     #[test]
     fn get_model_instructions_uses_template_when_placeholder_present() {
         let model = test_model(Some(ModelMessages {
-            instructions_template: Some("Hello {{ personality }}".to_string()),
+            instructions_template: Some("Hello {{ personality }}".to_owned()),
             instructions_variables: Some(personality_variables()),
         }));
 
@@ -634,10 +634,10 @@ mod tests {
     #[test]
     fn get_model_instructions_always_strips_placeholder() {
         let model = test_model(Some(ModelMessages {
-            instructions_template: Some("Hello\n{{ personality }}".to_string()),
+            instructions_template: Some("Hello\n{{ personality }}".to_owned()),
             instructions_variables: Some(ModelInstructionsVariables {
                 personality_default: None,
-                personality_friendly: Some("friendly".to_string()),
+                personality_friendly: Some("friendly".to_owned()),
                 personality_pragmatic: None,
             }),
         }));
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(model.get_model_instructions(None), "Hello\n");
 
         let model_no_personality = test_model(Some(ModelMessages {
-            instructions_template: Some("Hello\n{{ personality }}".to_string()),
+            instructions_template: Some("Hello\n{{ personality }}".to_owned()),
             instructions_variables: Some(ModelInstructionsVariables {
                 personality_default: None,
                 personality_friendly: None,
@@ -691,7 +691,7 @@ mod tests {
         let personality_template = personality_variables();
         assert_eq!(
             personality_template.get_personality_message(None),
-            Some("default".to_string())
+            Some("default".to_owned())
         );
     }
 
@@ -700,19 +700,19 @@ mod tests {
         let personality_variables = personality_variables();
         assert_eq!(
             personality_variables.get_personality_message(Some(Personality::Friendly)),
-            Some("friendly".to_string())
+            Some("friendly".to_owned())
         );
         assert_eq!(
             personality_variables.get_personality_message(Some(Personality::Pragmatic)),
-            Some("pragmatic".to_string())
+            Some("pragmatic".to_owned())
         );
         assert_eq!(
             personality_variables.get_personality_message(None),
-            Some("default".to_string())
+            Some("default".to_owned())
         );
 
         let personality_variables = ModelInstructionsVariables {
-            personality_default: Some("default".to_string()),
+            personality_default: Some("default".to_owned()),
             personality_friendly: None,
             personality_pragmatic: None,
         };
@@ -726,21 +726,21 @@ mod tests {
         );
         assert_eq!(
             personality_variables.get_personality_message(None),
-            Some("default".to_string())
+            Some("default".to_owned())
         );
 
         let personality_variables = ModelInstructionsVariables {
             personality_default: None,
-            personality_friendly: Some("friendly".to_string()),
-            personality_pragmatic: Some("pragmatic".to_string()),
+            personality_friendly: Some("friendly".to_owned()),
+            personality_pragmatic: Some("pragmatic".to_owned()),
         };
         assert_eq!(
             personality_variables.get_personality_message(Some(Personality::Friendly)),
-            Some("friendly".to_string())
+            Some("friendly".to_owned())
         );
         assert_eq!(
             personality_variables.get_personality_message(Some(Personality::Pragmatic)),
-            Some("pragmatic".to_string())
+            Some("pragmatic".to_owned())
         );
         assert_eq!(personality_variables.get_personality_message(None), None);
     }

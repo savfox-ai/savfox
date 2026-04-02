@@ -248,13 +248,13 @@ mod tests {
         let lines = vec![
             SessionIndexEntry {
                 id: id1,
-                session_name: "same".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                session_name: "same".to_owned(),
+                updated_at: "2024-01-01T00:00:00Z".to_owned(),
             },
             SessionIndexEntry {
                 id: id2,
-                session_name: "same".to_string(),
-                updated_at: "2024-01-02T00:00:00Z".to_string(),
+                session_name: "same".to_owned(),
+                updated_at: "2024-01-02T00:00:00Z".to_owned(),
             },
         ];
         write_index(&path, &lines)?;
@@ -272,13 +272,13 @@ mod tests {
         let lines = vec![
             SessionIndexEntry {
                 id,
-                session_name: "first".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                session_name: "first".to_owned(),
+                updated_at: "2024-01-01T00:00:00Z".to_owned(),
             },
             SessionIndexEntry {
                 id,
-                session_name: "second".to_string(),
-                updated_at: "2024-01-02T00:00:00Z".to_string(),
+                session_name: "second".to_owned(),
+                updated_at: "2024-01-02T00:00:00Z".to_owned(),
             },
         ];
         write_index(&path, &lines)?;
@@ -286,7 +286,7 @@ mod tests {
         let found = scan_index_from_end_by_id(&path, &id)?;
         assert_eq!(
             found.map(|entry| entry.session_name),
-            Some("second".to_string())
+            Some("second".to_owned())
         );
         Ok(())
     }
@@ -298,8 +298,8 @@ mod tests {
         let id = SessionId::new();
         let lines = vec![SessionIndexEntry {
             id,
-            session_name: "present".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            session_name: "present".to_owned(),
+            updated_at: "2024-01-01T00:00:00Z".to_owned(),
         }];
         write_index(&path, &lines)?;
 
@@ -320,18 +320,18 @@ mod tests {
         let lines = vec![
             SessionIndexEntry {
                 id: id1,
-                session_name: "first".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                session_name: "first".to_owned(),
+                updated_at: "2024-01-01T00:00:00Z".to_owned(),
             },
             SessionIndexEntry {
                 id: id2,
-                session_name: "other".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                session_name: "other".to_owned(),
+                updated_at: "2024-01-01T00:00:00Z".to_owned(),
             },
             SessionIndexEntry {
                 id: id1,
-                session_name: "latest".to_string(),
-                updated_at: "2024-01-02T00:00:00Z".to_string(),
+                session_name: "latest".to_owned(),
+                updated_at: "2024-01-02T00:00:00Z".to_owned(),
             },
         ];
         write_index(&path, &lines)?;
@@ -341,8 +341,8 @@ mod tests {
         ids.insert(id2);
 
         let mut expected = HashMap::new();
-        expected.insert(id1, "latest".to_string());
-        expected.insert(id2, "other".to_string());
+        expected.insert(id1, "latest".to_owned());
+        expected.insert(id2, "other".to_owned());
 
         let found = find_session_names_by_ids(temp.path(), &ids).await?;
         assert_eq!(found, expected);
@@ -357,27 +357,27 @@ mod tests {
         let id_other = SessionId::new();
         let expected = SessionIndexEntry {
             id: id_target,
-            session_name: "target".to_string(),
-            updated_at: "2024-01-03T00:00:00Z".to_string(),
+            session_name: "target".to_owned(),
+            updated_at: "2024-01-03T00:00:00Z".to_owned(),
         };
         let expected_other = SessionIndexEntry {
             id: id_other,
-            session_name: "target".to_string(),
-            updated_at: "2024-01-02T00:00:00Z".to_string(),
+            session_name: "target".to_owned(),
+            updated_at: "2024-01-02T00:00:00Z".to_owned(),
         };
         // Resolution is based on append order (scan from end), not updated_at.
         let lines = vec![
             SessionIndexEntry {
                 id: id_target,
-                session_name: "target".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                session_name: "target".to_owned(),
+                updated_at: "2024-01-01T00:00:00Z".to_owned(),
             },
             expected_other.clone(),
             expected.clone(),
             SessionIndexEntry {
                 id: SessionId::new(),
-                session_name: "another".to_string(),
-                updated_at: "2024-01-04T00:00:00Z".to_string(),
+                session_name: "another".to_owned(),
+                updated_at: "2024-01-04T00:00:00Z".to_owned(),
             },
         ];
         write_index(&path, &lines)?;

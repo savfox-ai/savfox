@@ -1151,7 +1151,7 @@ mod tests {
                 .map(SessionId::from_string)
                 .map(Result::unwrap),
             session_name: session_name.map(str::to_string),
-            model_display: Some("gpt-5.3-codex xhigh".to_string()),
+            model_display: Some("gpt-5.3-codex xhigh".to_owned()),
             directory: Some(PathBuf::from("workspace")),
             update_action: None,
             exit_reason: ExitReason::UserRequested,
@@ -1178,15 +1178,15 @@ mod tests {
         let exit_info = sample_exit_info(Some("123e4567-e89b-12d3-a456-426614174000"), None);
         let lines = format_exit_messages(exit_info, false);
         let mut expected = vec![
-            "Token usage: total=2 input=0 output=2".to_string(),
+            "Token usage: total=2 input=0 output=2".to_owned(),
             String::new(),
         ];
         expected.extend(boxed_summary_lines(&[
             format!(">_ Savfox  (v{})", env!("CARGO_PKG_VERSION")),
             String::new(),
-            "model:     gpt-5.3-codex xhigh".to_string(),
-            "directory: workspace".to_string(),
-            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string(),
+            "model:     gpt-5.3-codex xhigh".to_owned(),
+            "directory: workspace".to_owned(),
+            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned(),
         ]));
         assert_eq!(lines, expected);
     }
@@ -1207,15 +1207,15 @@ mod tests {
         );
         let lines = format_exit_messages(exit_info, false);
         let mut expected = vec![
-            "Token usage: total=2 input=0 output=2".to_string(),
+            "Token usage: total=2 input=0 output=2".to_owned(),
             String::new(),
         ];
         expected.extend(boxed_summary_lines(&[
             format!(">_ Savfox  (v{})", env!("CARGO_PKG_VERSION")),
             String::new(),
-            "model:     gpt-5.3-codex xhigh".to_string(),
-            "directory: workspace".to_string(),
-            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string(),
+            "model:     gpt-5.3-codex xhigh".to_owned(),
+            "directory: workspace".to_owned(),
+            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned(),
         ]));
         assert_eq!(lines, expected);
     }
@@ -1228,7 +1228,7 @@ mod tests {
                 SessionId::from_string("123e4567-e89b-12d3-a456-426614174000")
                     .expect("valid session id"),
             ),
-            session_name: Some("my-session".to_string()),
+            session_name: Some("my-session".to_owned()),
             model_display: None,
             directory: None,
             update_action: None,
@@ -1238,7 +1238,7 @@ mod tests {
         let expected = boxed_summary_lines(&[
             format!(">_ Savfox  (v{})", env!("CARGO_PKG_VERSION")),
             String::new(),
-            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string(),
+            "resume:    savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned(),
         ]);
         assert_eq!(lines, expected);
     }
@@ -1436,15 +1436,15 @@ mod tests {
     #[test]
     fn feature_toggles_known_features_generate_overrides() {
         let toggles = FeatureToggles {
-            enable: vec!["web_search_request".to_string()],
-            disable: vec!["unified_exec".to_string()],
+            enable: vec!["web_search_request".to_owned()],
+            disable: vec!["unified_exec".to_owned()],
         };
         let overrides = toggles.to_overrides().expect("valid features");
         assert_eq!(
             overrides,
             vec![
-                "features.web_search_request=true".to_string(),
-                "features.unified_exec=false".to_string(),
+                "features.web_search_request=true".to_owned(),
+                "features.unified_exec=false".to_owned(),
             ]
         );
     }
@@ -1452,7 +1452,7 @@ mod tests {
     #[test]
     fn feature_toggles_unknown_feature_errors() {
         let toggles = FeatureToggles {
-            enable: vec!["does_not_exist".to_string()],
+            enable: vec!["does_not_exist".to_owned()],
             disable: Vec::new(),
         };
         let err = toggles

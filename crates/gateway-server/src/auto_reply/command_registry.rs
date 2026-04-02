@@ -788,13 +788,13 @@ mod tests {
 
     fn sample_ctx() -> CommandContext {
         CommandContext {
-            sender_id: "u1".to_string(),
-            channel_id: "discord:chan".to_string(),
-            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e160".to_string()),
+            sender_id: "u1".to_owned(),
+            channel_id: "discord:chan".to_owned(),
+            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e160".to_owned()),
             is_authorized: true,
             is_mentioned: true,
             is_group: true,
-            metadata: HashMap::from([("model".to_string(), "openai/gpt-4o".to_string())]),
+            metadata: HashMap::from([("model".to_owned(), "openai/gpt-4o".to_owned())]),
         }
     }
 
@@ -855,12 +855,12 @@ mod tests {
             .register_plugin_command(
                 "echo_plugin",
                 Command {
-                    name: "echo".to_string(),
-                    description: "Echo from plugin".to_string(),
-                    aliases: vec!["say".to_string()],
+                    name: "echo".to_owned(),
+                    description: "Echo from plugin".to_owned(),
+                    aliases: vec!["say".to_owned()],
                     args: CommandArgsSchema {
                         positional: vec![PositionalArg {
-                            name: "who".to_string(),
+                            name: "who".to_owned(),
                             required: false,
                         }],
                         named: vec![],
@@ -884,8 +884,8 @@ mod tests {
             .register_plugin_command(
                 "echo_plugin",
                 Command {
-                    name: "help".to_string(),
-                    description: "Should fail".to_string(),
+                    name: "help".to_owned(),
+                    description: "Should fail".to_owned(),
                     aliases: vec![],
                     args: CommandArgsSchema::none(),
                     handler: plugin_echo_handler,
@@ -902,9 +902,9 @@ mod tests {
             .register_plugin_command(
                 "echo_plugin",
                 Command {
-                    name: "echo".to_string(),
-                    description: "Echo from plugin".to_string(),
-                    aliases: vec!["say".to_string()],
+                    name: "echo".to_owned(),
+                    description: "Echo from plugin".to_owned(),
+                    aliases: vec!["say".to_owned()],
                     args: CommandArgsSchema::none(),
                     handler: plugin_echo_handler,
                 },

@@ -407,14 +407,14 @@ mod tests {
 
         let entries = vec![
             HistoryEntry {
-                session_id: "first-session".to_string(),
+                session_id: "first-session".to_owned(),
                 ts: 1,
-                text: "first".to_string(),
+                text: "first".to_owned(),
             },
             HistoryEntry {
-                session_id: "second-session".to_string(),
+                session_id: "second-session".to_owned(),
                 ts: 2,
-                text: "second".to_string(),
+                text: "second".to_owned(),
             },
         ];
 
@@ -442,14 +442,14 @@ mod tests {
         let history_path = temp_dir.path().join(HISTORY_FILENAME);
 
         let initial = HistoryEntry {
-            session_id: "first-session".to_string(),
+            session_id: "first-session".to_owned(),
             ts: 1,
-            text: "first".to_string(),
+            text: "first".to_owned(),
         };
         let appended = HistoryEntry {
-            session_id: "second-session".to_string(),
+            session_id: "second-session".to_owned(),
             ts: 2,
-            text: "second".to_string(),
+            text: "second".to_owned(),
         };
 
         let mut file = File::create(&history_path).expect("create history file");

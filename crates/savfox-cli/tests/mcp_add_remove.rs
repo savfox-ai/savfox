@@ -36,7 +36,7 @@ async fn add_and_remove_server_updates_global_config() -> Result<()> {
             cwd,
         } => {
             assert_eq!(command, "echo");
-            assert_eq!(args, &vec!["hello".to_string()]);
+            assert_eq!(args, &vec!["hello".to_owned()]);
             assert!(env.is_none());
             assert!(env_vars.is_empty());
             assert!(cwd.is_none());
@@ -97,8 +97,8 @@ async fn add_with_env_preserves_key_order_and_values() -> Result<()> {
     };
 
     assert_eq!(env.len(), 2);
-    assert_eq!(env.get("FOO"), Some(&"bar".to_string()));
-    assert_eq!(env.get("ALPHA"), Some(&"beta".to_string()));
+    assert_eq!(env.get("FOO"), Some(&"bar".to_owned()));
+    assert_eq!(env.get("ALPHA"), Some(&"beta".to_owned()));
     assert!(envy.enabled);
 
     Ok(())

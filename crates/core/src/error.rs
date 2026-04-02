@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn model_cap_error_formats_message() {
         let err = ModelCapError {
-            model: "boomslang".to_string(),
+            model: "boomslang".to_owned(),
             reset_after_seconds: Some(120),
         };
         assert_eq!(
@@ -731,7 +731,7 @@ mod tests {
     #[test]
     fn model_cap_error_formats_message_without_reset() {
         let err = ModelCapError {
-            model: "boomslang".to_string(),
+            model: "boomslang".to_owned(),
             reset_after_seconds: None,
         };
         assert_eq!(
@@ -743,13 +743,13 @@ mod tests {
     #[test]
     fn model_cap_error_maps_to_protocol() {
         let err = SavfoxError::ModelCap(ModelCapError {
-            model: "boomslang".to_string(),
+            model: "boomslang".to_owned(),
             reset_after_seconds: Some(30),
         });
         assert_eq!(
             err.to_savfox_protocol_error(),
             SavfoxErrorInfo::ModelCap {
-                model: "boomslang".to_string(),
+                model: "boomslang".to_owned(),
                 reset_after_seconds: Some(30),
             }
         );
@@ -761,7 +761,7 @@ mod tests {
             exit_code: 77,
             stdout: StreamOutput::new(String::new()),
             stderr: StreamOutput::new(String::new()),
-            aggregated_output: StreamOutput::new("aggregate detail".to_string()),
+            aggregated_output: StreamOutput::new("aggregate detail".to_owned()),
             duration: Duration::from_millis(10),
             timed_out: false,
         };
@@ -775,8 +775,8 @@ mod tests {
     fn sandbox_denied_reports_both_streams_when_available() {
         let output = ExecToolCallOutput {
             exit_code: 9,
-            stdout: StreamOutput::new("stdout detail".to_string()),
-            stderr: StreamOutput::new("stderr detail".to_string()),
+            stdout: StreamOutput::new("stdout detail".to_owned()),
+            stderr: StreamOutput::new("stderr detail".to_owned()),
             aggregated_output: StreamOutput::new(String::new()),
             duration: Duration::from_millis(10),
             timed_out: false,
@@ -791,7 +791,7 @@ mod tests {
     fn sandbox_denied_reports_stdout_when_no_stderr() {
         let output = ExecToolCallOutput {
             exit_code: 11,
-            stdout: StreamOutput::new("stdout only".to_string()),
+            stdout: StreamOutput::new("stdout only".to_owned()),
             stderr: StreamOutput::new(String::new()),
             aggregated_output: StreamOutput::new(String::new()),
             duration: Duration::from_millis(8),
@@ -813,10 +813,10 @@ mod tests {
         let source = Response::from(response).error_for_status_ref().unwrap_err();
         let err = SavfoxError::ResponseStreamFailed(ResponseStreamFailed {
             source,
-            request_id: Some("req-123".to_string()),
+            request_id: Some("req-123".to_owned()),
         });
 
-        let event = err.to_error_event(Some("prefix".to_string()));
+        let event = err.to_error_event(Some("prefix".to_owned()));
 
         assert_eq!(
             event.message,
@@ -978,10 +978,9 @@ mod tests {
     fn unexpected_status_cloudflare_html_is_simplified() {
         let err = UnexpectedResponseError {
             status: StatusCode::FORBIDDEN,
-            body: "<html><body>Cloudflare error: Sorry, you have been blocked</body></html>"
-                .to_string(),
-            url: Some("http://example.com/blocked".to_string()),
-            request_id: Some("ray-id".to_string()),
+            body: "<html><body>Cloudflare error: Sorry, you have been blocked</body></html>".to_owned(),
+            url: Some("http://example.com/blocked".to_owned()),
+            request_id: Some("ray-id".to_owned()),
         };
         let status = StatusCode::FORBIDDEN.to_string();
         let url = "http://example.com/blocked";
@@ -997,8 +996,8 @@ mod tests {
     fn unexpected_status_non_html_is_unchanged() {
         let err = UnexpectedResponseError {
             status: StatusCode::FORBIDDEN,
-            body: "plain text error".to_string(),
-            url: Some("http://example.com/plain".to_string()),
+            body: "plain text error".to_owned(),
+            url: Some("http://example.com/plain".to_owned()),
             request_id: None,
         };
         let status = StatusCode::FORBIDDEN.to_string();
@@ -1074,7 +1073,7 @@ mod tests {
                 resets_at: Some(resets_at),
                 rate_limits: Some(rate_limit_snapshot()),
                 promo_message: Some(
-                    "To continue using Savfox, start a free trial of <PLAN> today".to_string(),
+                    "To continue using Savfox, start a free trial of <PLAN> today".to_owned(),
                 ),
             };
             let expected = format!(

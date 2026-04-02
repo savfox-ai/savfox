@@ -235,9 +235,9 @@ mod tests {
 
     fn group_ctx() -> CommandContext {
         CommandContext {
-            sender_id: "u1".to_string(),
-            channel_id: "discord:chan".to_string(),
-            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e161".to_string()),
+            sender_id: "u1".to_owned(),
+            channel_id: "discord:chan".to_owned(),
+            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e161".to_owned()),
             is_authorized: true,
             is_mentioned: false,
             is_group: true,
@@ -249,7 +249,7 @@ mod tests {
     async fn mention_mode_requires_mention() {
         let mut cfg = AutoReplyConfig::default();
         cfg.group_activation = GroupActivation::Mention;
-        cfg.status_format = Some("active".to_string());
+        cfg.status_format = Some("active".to_owned());
         let handler = AutoReplyHandler::new(cfg);
 
         let result = handler.handle_message("hello", group_ctx()).await;
@@ -265,8 +265,8 @@ mod tests {
     async fn keyword_mode_uses_keywords() {
         let mut cfg = AutoReplyConfig::default();
         cfg.group_activation = GroupActivation::Keyword;
-        cfg.group_keywords = vec!["savfox".to_string()];
-        cfg.status_format = Some("matched".to_string());
+        cfg.group_keywords = vec!["savfox".to_owned()];
+        cfg.status_format = Some("matched".to_owned());
         let handler = AutoReplyHandler::new(cfg);
 
         let result = handler.handle_message("hi savfox bot", group_ctx()).await;
@@ -277,7 +277,7 @@ mod tests {
     async fn always_mode_responds_without_mention() {
         let mut cfg = AutoReplyConfig::default();
         cfg.group_activation = GroupActivation::Always;
-        cfg.status_format = Some("always".to_string());
+        cfg.status_format = Some("always".to_owned());
         let handler = AutoReplyHandler::new(cfg);
 
         let result = handler.handle_message("hello", group_ctx()).await;
@@ -288,7 +288,7 @@ mod tests {
     async fn command_mode_only_responds_to_commands() {
         let mut cfg = AutoReplyConfig::default();
         cfg.group_activation = GroupActivation::Command;
-        cfg.status_format = Some("status".to_string());
+        cfg.status_format = Some("status".to_owned());
         let handler = AutoReplyHandler::new(cfg);
 
         let result = handler.handle_message("hello", group_ctx()).await;
@@ -304,8 +304,8 @@ mod tests {
         let mut cfg = AutoReplyConfig::default();
         cfg.group_activation = GroupActivation::Always;
         cfg.group_activation_overrides
-            .insert("discord:chan".to_string(), GroupActivation::Command);
-        cfg.status_format = Some("always".to_string());
+            .insert("discord:chan".to_owned(), GroupActivation::Command);
+        cfg.status_format = Some("always".to_owned());
         let handler = AutoReplyHandler::new(cfg);
 
         let result = handler.handle_message("hello", group_ctx()).await;

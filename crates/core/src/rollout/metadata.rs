@@ -295,14 +295,14 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
-    use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
+    
     use pretty_assertions::assert_eq;
     use savfox_protocol::SessionId;
     use savfox_protocol::protocol::{
         CompactedItem, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine, SessionModel,
         SessionSource,
     };
-    use savfox_state::SessionMetadataBuilder;
+    
     use tempfile::tempdir;
     use uuid::Uuid;
 
@@ -318,13 +318,13 @@ mod tests {
         let session_meta = SessionMeta {
             id,
             forked_from_id: None,
-            timestamp: "2026-01-27T12:34:56Z".to_string(),
+            timestamp: "2026-01-27T12:34:56Z".to_owned(),
             cwd: dir.path().to_path_buf(),
-            originator: "cli".to_string(),
-            cli_version: "0.0.0".to_string(),
+            originator: "cli".to_owned(),
+            cli_version: "0.0.0".to_owned(),
             source: SessionSource::default(),
             model: Some(SessionModel {
-                provider: "openai".to_string(),
+                provider: "openai".to_owned(),
                 model_slug: String::new(),
             }),
             model_provider: None,
@@ -336,7 +336,7 @@ mod tests {
             git: None,
         };
         let rollout_line = RolloutLine {
-            timestamp: "2026-01-27T12:34:56Z".to_string(),
+            timestamp: "2026-01-27T12:34:56Z".to_owned(),
             item: RolloutItem::SessionMeta(session_meta_line.clone()),
         };
         let json = serde_json::to_string(&rollout_line).expect("rollout json");
@@ -363,7 +363,7 @@ mod tests {
         let uuid = Uuid::now_v7();
         let path = dir.path().join(format!("{uuid}.jsonl"));
         let items = vec![RolloutItem::Compacted(CompactedItem {
-            message: "noop".to_string(),
+            message: "noop".to_owned(),
             replacement_history: None,
         })];
 

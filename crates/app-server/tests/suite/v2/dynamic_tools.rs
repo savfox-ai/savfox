@@ -42,8 +42,8 @@ async fn session_start_injects_dynamic_tools_into_model_requests() -> Result<()>
         "additionalProperties": false,
     });
     let dynamic_tool = DynamicToolSpec {
-        name: "demo_tool".to_string(),
-        description: "Demo dynamic tool".to_string(),
+        name: "demo_tool".to_owned(),
+        description: "Demo dynamic tool".to_owned(),
         input_schema: input_schema.clone(),
     };
 
@@ -66,7 +66,7 @@ async fn session_start_injects_dynamic_tools_into_model_requests() -> Result<()>
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Hello".to_string(),
+                text: "Hello".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -128,8 +128,8 @@ async fn dynamic_tool_call_round_trip_sends_output_to_model() -> Result<()> {
     timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
 
     let dynamic_tool = DynamicToolSpec {
-        name: tool_name.to_string(),
-        description: "Demo dynamic tool".to_string(),
+        name: tool_name.to_owned(),
+        description: "Demo dynamic tool".to_owned(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -158,7 +158,7 @@ async fn dynamic_tool_call_round_trip_sends_output_to_model() -> Result<()> {
         .send_turn_start_request(TurnStartParams {
             session_id: session.id.clone(),
             input: vec![V2UserInput::Text {
-                text: "Run the tool".to_string(),
+                text: "Run the tool".to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()
@@ -185,15 +185,15 @@ async fn dynamic_tool_call_round_trip_sends_output_to_model() -> Result<()> {
     let expected = DynamicToolCallParams {
         session_id: session.id,
         turn_id: turn.id,
-        call_id: call_id.to_string(),
-        tool: tool_name.to_string(),
+        call_id: call_id.to_owned(),
+        tool: tool_name.to_owned(),
         arguments: tool_args.clone(),
     };
     assert_eq!(params, expected);
 
     // Respond to the tool call so the model receives a function_call_output.
     let response = DynamicToolCallResponse {
-        output: "dynamic-ok".to_string(),
+        output: "dynamic-ok".to_owned(),
         success: true,
     };
     mcp.send_response(request_id, serde_json::to_value(response)?)

@@ -63,13 +63,13 @@ mod tests {
 
     fn make_entry(slug: &str, body: &str, tags: &[&str]) -> MdMemoryEntry {
         MdMemoryEntry {
-            slug: slug.to_string(),
+            slug: slug.to_owned(),
             layer: MemoryLayer::Global,
             frontmatter: MemoryFrontmatter {
                 tags: tags.iter().map(|s| s.to_string()).collect(),
                 ..Default::default()
             },
-            body: body.to_string(),
+            body: body.to_owned(),
             file_path: None,
             body_bytes: body.len(),
         }

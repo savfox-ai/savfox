@@ -868,9 +868,9 @@ mod tests {
     ) -> ExecToolCallOutput {
         ExecToolCallOutput {
             exit_code,
-            stdout: StreamOutput::new(stdout.to_string()),
-            stderr: StreamOutput::new(stderr.to_string()),
-            aggregated_output: StreamOutput::new(aggregated.to_string()),
+            stdout: StreamOutput::new(stdout.to_owned()),
+            stderr: StreamOutput::new(stderr.to_owned()),
+            aggregated_output: StreamOutput::new(aggregated.to_owned()),
             duration: Duration::from_millis(1),
             timed_out: false,
         }
@@ -1126,11 +1126,11 @@ mod tests {
     #[cfg(windows)]
     fn long_running_command() -> Vec<String> {
         vec![
-            "powershell.exe".to_string(),
-            "-NonInteractive".to_string(),
-            "-NoLogo".to_string(),
-            "-Command".to_string(),
-            "Start-Sleep -Seconds 30".to_string(),
+            "powershell.exe".to_owned(),
+            "-NonInteractive".to_owned(),
+            "-NoLogo".to_owned(),
+            "-Command".to_owned(),
+            "Start-Sleep -Seconds 30".to_owned(),
         ]
     }
 }

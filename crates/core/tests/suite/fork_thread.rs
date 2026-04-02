@@ -42,7 +42,7 @@ async fn fork_session_twice_drops_to_first_message() {
         savfox
             .submit(Op::UserInput {
                 items: vec![UserInput::Text {
-                    text: text.to_string(),
+                    text: text.to_owned(),
                     text_elements: Vec::new(),
                 }],
                 final_output_json_schema: None,

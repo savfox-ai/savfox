@@ -24,7 +24,7 @@ async fn session_unarchive_moves_rollout_back_into_sessions_directory() -> Resul
 
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;

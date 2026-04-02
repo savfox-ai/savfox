@@ -30,7 +30,7 @@ fn permissions_texts(input: &[serde_json::Value]) -> Vec<String> {
                 .get("text")?
                 .as_str()?;
             if text.contains("<permissions instructions>") {
-                Some(text.to_string())
+                Some(text.to_owned())
             } else {
                 None
             }

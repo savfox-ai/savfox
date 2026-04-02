@@ -255,11 +255,11 @@ mod tests {
     fn parse_text_command_matches_feishu_style() {
         assert_eq!(
             parse_text_command("/savfox summarize"),
-            Some("summarize".to_string())
+            Some("summarize".to_owned())
         );
         assert_eq!(
             parse_text_command("!savfox summarize"),
-            Some("summarize".to_string())
+            Some("summarize".to_owned())
         );
         assert_eq!(parse_text_command("/savfox"), None);
         assert_eq!(parse_text_command("/savfoxtest hi"), None);
@@ -281,8 +281,8 @@ mod tests {
         assert_eq!(
             parsed.action,
             ChannelAction::StartThread {
-                channel: "https://oapi.dingtalk.com/robot/send?session=abc".to_string(),
-                prompt: "summarize this".to_string(),
+                channel: "https://oapi.dingtalk.com/robot/send?session=abc".to_owned(),
+                prompt: "summarize this".to_owned(),
             }
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("dingtalk:msg-1"));

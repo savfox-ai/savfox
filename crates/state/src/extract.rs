@@ -135,13 +135,13 @@ mod tests {
     fn extracts_user_message_text() {
         let item = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![
                 ContentItem::InputText {
                     text: format!("<prior context> {USER_MESSAGE_BEGIN}actual question"),
                 },
                 ContentItem::InputImage {
-                    image_url: "https://example.com/image.png".to_string(),
+                    image_url: "https://example.com/image.png".to_owned(),
                 },
             ],
             end_turn: None,
@@ -160,12 +160,12 @@ mod tests {
             rollout_path: PathBuf::from("/tmp/a.jsonl"),
             created_at,
             updated_at: created_at,
-            source: "cli".to_string(),
-            model_provider: "openai".to_string(),
+            source: "cli".to_owned(),
+            model_provider: "openai".to_owned(),
             cwd: PathBuf::from("/tmp"),
-            title: "hello".to_string(),
-            sandbox_policy: "read-only".to_string(),
-            approval_mode: "on-request".to_string(),
+            title: "hello".to_owned(),
+            sandbox_policy: "read-only".to_owned(),
+            approval_mode: "on-request".to_owned(),
             tokens_used: 1,
             has_user_event: false,
             archived_at: None,
@@ -175,7 +175,7 @@ mod tests {
         };
         let mut other = base.clone();
         other.tokens_used = 2;
-        other.title = "world".to_string();
+        other.title = "world".to_owned();
         let diffs = base.diff_fields(&other);
         assert_eq!(diffs, vec!["title", "tokens_used"]);
     }

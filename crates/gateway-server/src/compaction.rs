@@ -546,7 +546,7 @@ mod tests {
     fn memory_flush_contains_session_layer_and_metrics() {
         let svc = CompactionService::new(CompactionConfig {
             memory_flush_enabled: true,
-            memory_flush_prompt: Some("Keep short summary".to_string()),
+            memory_flush_prompt: Some("Keep short summary".to_owned()),
             ..Default::default()
         });
         let msgs = sample_messages();

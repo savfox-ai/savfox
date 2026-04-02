@@ -590,15 +590,15 @@ mod tests {
         let tx = AppEventSender::new(tx_raw);
         let items = vec![
             SelectionItem {
-                name: "Read Only".to_string(),
-                description: Some("Savfox can read files".to_string()),
+                name: "Read Only".to_owned(),
+                description: Some("Savfox can read files".to_owned()),
                 is_current: true,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "Full Access".to_string(),
-                description: Some("Savfox can edit files".to_string()),
+                name: "Full Access".to_owned(),
+                description: Some("Savfox can edit files".to_owned()),
                 is_current: false,
                 dismiss_on_select: true,
                 ..Default::default()
@@ -606,7 +606,7 @@ mod tests {
         ];
         ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Select Approval Mode".to_string()),
+                title: Some("Select Approval Mode".to_owned()),
                 subtitle: subtitle.map(str::to_string),
                 footer_hint: Some(standard_popup_hint_line()),
                 items,
@@ -663,8 +663,8 @@ mod tests {
         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
         let items = vec![SelectionItem {
-            name: "Read Only".to_string(),
-            description: Some("Savfox can read files".to_string()),
+            name: "Read Only".to_owned(),
+            description: Some("Savfox can read files".to_owned()),
             is_current: true,
             dismiss_on_select: true,
             ..Default::default()
@@ -676,7 +676,7 @@ mod tests {
         ]);
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Select Approval Mode".to_string()),
+                title: Some("Select Approval Mode".to_owned()),
                 footer_note: Some(footer_note),
                 footer_hint: Some(standard_popup_hint_line()),
                 items,
@@ -695,24 +695,24 @@ mod tests {
         let (tx_raw, _rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx_raw);
         let items = vec![SelectionItem {
-            name: "Read Only".to_string(),
-            description: Some("Savfox can read files".to_string()),
+            name: "Read Only".to_owned(),
+            description: Some("Savfox can read files".to_owned()),
             is_current: false,
             dismiss_on_select: true,
             ..Default::default()
         }];
         let mut view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Select Approval Mode".to_string()),
+                title: Some("Select Approval Mode".to_owned()),
                 footer_hint: Some(standard_popup_hint_line()),
                 items,
                 is_searchable: true,
-                search_placeholder: Some("Type to search branches".to_string()),
+                search_placeholder: Some("Type to search branches".to_owned()),
                 ..Default::default()
             },
             tx,
         );
-        view.set_search_query("filters".to_string());
+        view.set_search_query("filters".to_owned());
 
         let lines = render_lines(&view);
         assert!(
@@ -727,19 +727,19 @@ mod tests {
         let tx = AppEventSender::new(tx_raw);
         let items = vec![
             SelectionItem {
-                name: "Yes, proceed".to_string(),
+                name: "Yes, proceed".to_owned(),
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "Yes, and don't ask again for commands that start with `python -mpre_commit run --files eslint-plugin/no-mixed-const-enum-exports.js`".to_string(),
+                name: "Yes, and don't ask again for commands that start with `python -mpre_commit run --files eslint-plugin/no-mixed-const-enum-exports.js`".to_owned(),
                 dismiss_on_select: true,
                 ..Default::default()
             },
         ];
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Approval".to_string()),
+                title: Some("Approval".to_owned()),
                 items,
                 ..Default::default()
             },
@@ -768,28 +768,26 @@ mod tests {
         let tx = AppEventSender::new(tx_raw);
         let items = vec![
             SelectionItem {
-                name: "gpt-5.1-savfox".to_string(),
+                name: "gpt-5.1-savfox".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Balance of reasoning quality and coding ability."
-                        .to_string(),
+                    "Optimized for Savfox. Balance of reasoning quality and coding ability.".to_owned(),
                 ),
                 is_current: true,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "gpt-5.1-savfox-mini".to_string(),
+                name: "gpt-5.1-savfox-mini".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Cheaper, faster, but less capable.".to_string(),
+                    "Optimized for Savfox. Cheaper, faster, but less capable.".to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "gpt-4.1-savfox".to_string(),
+                name: "gpt-4.1-savfox".to_owned(),
                 description: Some(
-                    "Legacy model. Use when you need compatibility with older automations."
-                        .to_string(),
+                    "Legacy model. Use when you need compatibility with older automations.".to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()
@@ -797,7 +795,7 @@ mod tests {
         ];
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Select Model and Effort".to_string()),
+                title: Some("Select Model and Effort".to_owned()),
                 items,
                 ..Default::default()
             },
@@ -831,7 +829,7 @@ mod tests {
             .collect();
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Debug".to_string()),
+                title: Some("Debug".to_owned()),
                 items,
                 ..Default::default()
             },
@@ -850,28 +848,26 @@ mod tests {
         let tx = AppEventSender::new(tx_raw);
         let items = vec![
             SelectionItem {
-                name: "gpt-5.1-savfox".to_string(),
+                name: "gpt-5.1-savfox".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Balance of reasoning quality and coding ability."
-                        .to_string(),
+                    "Optimized for Savfox. Balance of reasoning quality and coding ability.".to_owned(),
                 ),
                 is_current: true,
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "gpt-5.1-savfox-mini".to_string(),
+                name: "gpt-5.1-savfox-mini".to_owned(),
                 description: Some(
-                    "Optimized for Savfox. Cheaper, faster, but less capable.".to_string(),
+                    "Optimized for Savfox. Cheaper, faster, but less capable.".to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()
             },
             SelectionItem {
-                name: "gpt-4.1-savfox".to_string(),
+                name: "gpt-4.1-savfox".to_owned(),
                 description: Some(
-                    "Legacy model. Use when you need compatibility with older automations."
-                        .to_string(),
+                    "Legacy model. Use when you need compatibility with older automations.".to_owned(),
                 ),
                 dismiss_on_select: true,
                 ..Default::default()
@@ -879,7 +875,7 @@ mod tests {
         ];
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Select Model and Effort".to_string()),
+                title: Some("Select Model and Effort".to_owned()),
                 items,
                 ..Default::default()
             },
@@ -906,7 +902,7 @@ mod tests {
             .collect();
         let view = ListSelectionView::new(
             SelectionViewParams {
-                title: Some("Debug".to_string()),
+                title: Some("Debug".to_owned()),
                 items,
                 ..Default::default()
             },

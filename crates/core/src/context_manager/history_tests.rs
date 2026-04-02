@@ -16,9 +16,9 @@ const EXEC_FORMAT_MAX_TOKENS: usize = 2_500;
 fn assistant_msg(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "assistant".to_string(),
+        role: "assistant".to_owned(),
         content: vec![ContentItem::OutputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -36,9 +36,9 @@ fn create_history_with_items(items: Vec<ResponseItem>) -> ContextManager {
 fn user_msg(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::OutputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -48,9 +48,9 @@ fn user_msg(text: &str) -> ResponseItem {
 fn user_input_text_msg(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -59,9 +59,9 @@ fn user_input_text_msg(text: &str) -> ResponseItem {
 
 fn function_call_output(call_id: &str, content: &str) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
-        call_id: call_id.to_string(),
+        call_id: call_id.to_owned(),
         output: FunctionCallOutputPayload {
-            content: content.to_string(),
+            content: content.to_owned(),
             ..Default::default()
         },
     }
@@ -69,8 +69,8 @@ fn function_call_output(call_id: &str, content: &str) -> ResponseItem {
 
 fn custom_tool_call_output(call_id: &str, output: &str) -> ResponseItem {
     ResponseItem::CustomToolCallOutput {
-        call_id: call_id.to_string(),
-        output: output.to_string(),
+        call_id: call_id.to_owned(),
+        output: output.to_owned(),
     }
 }
 
@@ -78,10 +78,10 @@ fn reasoning_msg(text: &str) -> ResponseItem {
     ResponseItem::Reasoning {
         id: String::new(),
         summary: vec![ReasoningItemReasoningSummary::SummaryText {
-            text: "summary".to_string(),
+            text: "summary".to_owned(),
         }],
         content: Some(vec![ReasoningItemContent::ReasoningText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }]),
         encrypted_content: None,
     }
@@ -91,7 +91,7 @@ fn reasoning_with_encrypted_content(len: usize) -> ResponseItem {
     ResponseItem::Reasoning {
         id: String::new(),
         summary: vec![ReasoningItemReasoningSummary::SummaryText {
-            text: "summary".to_string(),
+            text: "summary".to_owned(),
         }],
         content: None,
         encrypted_content: Some("a".repeat(len)),
@@ -109,9 +109,9 @@ fn filters_non_api_messages() {
     // System message is not API messages; Other is ignored.
     let system = ResponseItem::Message {
         id: None,
-        role: "system".to_string(),
+        role: "system".to_owned(),
         content: vec![ContentItem::OutputText {
-            text: "ignored".to_string(),
+            text: "ignored".to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -131,27 +131,27 @@ fn filters_non_api_messages() {
             ResponseItem::Reasoning {
                 id: String::new(),
                 summary: vec![ReasoningItemReasoningSummary::SummaryText {
-                    text: "summary".to_string(),
+                    text: "summary".to_owned(),
                 }],
                 content: Some(vec![ReasoningItemContent::ReasoningText {
-                    text: "thinking...".to_string(),
+                    text: "thinking...".to_owned(),
                 }]),
                 encrypted_content: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "hi".to_string()
+                    text: "hi".to_owned()
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "hello".to_string()
+                    text: "hello".to_owned()
                 }],
                 end_turn: None,
                 phase: None,
@@ -206,9 +206,9 @@ fn trailing_savfox_generated_tokens_stop_at_first_non_generated_item() {
 fn trailing_savfox_generated_tokens_exclude_function_call_tail() {
     let history = create_history_with_items(vec![ResponseItem::FunctionCall {
         id: None,
-        name: "not-generated".to_string(),
-        arguments: "{}".to_string(),
-        call_id: "call-tail".to_string(),
+        name: "not-generated".to_owned(),
+        arguments: "{}".to_owned(),
+        call_id: "call-tail".to_owned(),
     }]);
 
     assert_eq!(history.get_trailing_savfox_generated_items_tokens(), 0);
@@ -242,7 +242,7 @@ fn total_token_usage_includes_only_trailing_savfox_generated_items() {
 #[test]
 fn get_history_for_prompt_drops_ghost_commits() {
     let items = vec![ResponseItem::GhostSnapshot {
-        ghost_commit: GhostCommit::new("ghost-1".to_string(), None, Vec::new(), Vec::new()),
+        ghost_commit: GhostCommit::new("ghost-1".to_owned(), None, Vec::new(), Vec::new()),
     }];
     let history = create_history_with_items(items);
     let filtered = history.for_prompt();
@@ -254,14 +254,14 @@ fn remove_first_item_removes_matching_output_for_function_call() {
     let items = vec![
         ResponseItem::FunctionCall {
             id: None,
-            name: "do_it".to_string(),
-            arguments: "{}".to_string(),
-            call_id: "call-1".to_string(),
+            name: "do_it".to_owned(),
+            arguments: "{}".to_owned(),
+            call_id: "call-1".to_owned(),
         },
         ResponseItem::FunctionCallOutput {
-            call_id: "call-1".to_string(),
+            call_id: "call-1".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 ..Default::default()
             },
         },
@@ -275,17 +275,17 @@ fn remove_first_item_removes_matching_output_for_function_call() {
 fn remove_first_item_removes_matching_call_for_output() {
     let items = vec![
         ResponseItem::FunctionCallOutput {
-            call_id: "call-2".to_string(),
+            call_id: "call-2".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 ..Default::default()
             },
         },
         ResponseItem::FunctionCall {
             id: None,
-            name: "do_it".to_string(),
-            arguments: "{}".to_string(),
-            call_id: "call-2".to_string(),
+            name: "do_it".to_owned(),
+            arguments: "{}".to_owned(),
+            call_id: "call-2".to_owned(),
         },
     ];
     let mut h = create_history_with_items(items);
@@ -299,14 +299,14 @@ fn remove_last_item_removes_matching_call_for_output() {
         user_msg("before tool call"),
         ResponseItem::FunctionCall {
             id: None,
-            name: "do_it".to_string(),
-            arguments: "{}".to_string(),
-            call_id: "call-delete-last".to_string(),
+            name: "do_it".to_owned(),
+            arguments: "{}".to_owned(),
+            call_id: "call-delete-last".to_owned(),
         },
         ResponseItem::FunctionCallOutput {
-            call_id: "call-delete-last".to_string(),
+            call_id: "call-delete-last".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 ..Default::default()
             },
         },
@@ -322,11 +322,11 @@ fn replace_last_turn_images_replaces_tool_output_images() {
     let items = vec![
         user_input_text_msg("hi"),
         ResponseItem::FunctionCallOutput {
-            call_id: "call-1".to_string(),
+            call_id: "call-1".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 content_items: Some(vec![FunctionCallOutputContentItem::InputImage {
-                    image_url: "data:image/png;base64,AAA".to_string(),
+                    image_url: "data:image/png;base64,AAA".to_owned(),
                 }]),
                 success: Some(true),
             },
@@ -341,11 +341,11 @@ fn replace_last_turn_images_replaces_tool_output_images() {
         vec![
             user_input_text_msg("hi"),
             ResponseItem::FunctionCallOutput {
-                call_id: "call-1".to_string(),
+                call_id: "call-1".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "ok".to_string(),
+                    content: "ok".to_owned(),
                     content_items: Some(vec![FunctionCallOutputContentItem::InputText {
-                        text: "Invalid image".to_string(),
+                        text: "Invalid image".to_owned(),
                     }]),
                     success: Some(true),
                 },
@@ -358,9 +358,9 @@ fn replace_last_turn_images_replaces_tool_output_images() {
 fn replace_last_turn_images_does_not_touch_user_images() {
     let items = vec![ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputImage {
-            image_url: "data:image/png;base64,AAA".to_string(),
+            image_url: "data:image/png;base64,AAA".to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -376,10 +376,10 @@ fn remove_first_item_handles_local_shell_pair() {
     let items = vec![
         ResponseItem::LocalShellCall {
             id: None,
-            call_id: Some("call-3".to_string()),
+            call_id: Some("call-3".to_owned()),
             status: LocalShellStatus::Completed,
             action: LocalShellAction::Exec(LocalShellExecAction {
-                command: vec!["echo".to_string(), "hi".to_string()],
+                command: vec!["echo".to_owned(), "hi".to_owned()],
                 timeout_ms: None,
                 working_directory: None,
                 env: None,
@@ -387,9 +387,9 @@ fn remove_first_item_handles_local_shell_pair() {
             }),
         },
         ResponseItem::FunctionCallOutput {
-            call_id: "call-3".to_string(),
+            call_id: "call-3".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 ..Default::default()
             },
         },
@@ -526,13 +526,13 @@ fn remove_first_item_handles_custom_tool_pair() {
         ResponseItem::CustomToolCall {
             id: None,
             status: None,
-            call_id: "tool-1".to_string(),
-            name: "my_tool".to_string(),
-            input: "{}".to_string(),
+            call_id: "tool-1".to_owned(),
+            name: "my_tool".to_owned(),
+            input: "{}".to_owned(),
         },
         ResponseItem::CustomToolCallOutput {
-            call_id: "tool-1".to_string(),
-            output: "ok".to_string(),
+            call_id: "tool-1".to_owned(),
+            output: "ok".to_owned(),
         },
     ];
     let mut h = create_history_with_items(items);
@@ -545,10 +545,10 @@ fn normalization_retains_local_shell_outputs() {
     let items = vec![
         ResponseItem::LocalShellCall {
             id: None,
-            call_id: Some("shell-1".to_string()),
+            call_id: Some("shell-1".to_owned()),
             status: LocalShellStatus::Completed,
             action: LocalShellAction::Exec(LocalShellExecAction {
-                command: vec!["echo".to_string(), "hi".to_string()],
+                command: vec!["echo".to_owned(), "hi".to_owned()],
                 timeout_ms: None,
                 working_directory: None,
                 env: None,
@@ -556,9 +556,9 @@ fn normalization_retains_local_shell_outputs() {
             }),
         },
         ResponseItem::FunctionCallOutput {
-            call_id: "shell-1".to_string(),
+            call_id: "shell-1".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "Total output lines: 1\n\nok".to_string(),
+                content: "Total output lines: 1\n\nok".to_owned(),
                 ..Default::default()
             },
         },
@@ -578,7 +578,7 @@ fn record_items_truncates_function_call_output_content() {
     let long_line = "a very long line to trigger truncation\n";
     let long_output = long_line.repeat(2_500);
     let item = ResponseItem::FunctionCallOutput {
-        call_id: "call-100".to_string(),
+        call_id: "call-100".to_owned(),
         output: FunctionCallOutputPayload {
             content: long_output.clone(),
             success: Some(true),
@@ -614,7 +614,7 @@ fn record_items_truncates_custom_tool_call_output_content() {
     let line = "custom output that is very long\n";
     let long_output = line.repeat(2_500);
     let item = ResponseItem::CustomToolCallOutput {
-        call_id: "tool-200".to_string(),
+        call_id: "tool-200".to_owned(),
         output: long_output.clone(),
     };
 
@@ -643,7 +643,7 @@ fn record_items_respects_custom_token_limit() {
     let policy = TruncationPolicy::Tokens(10);
     let long_output = "tokenized content repeated many times ".repeat(200);
     let item = ResponseItem::FunctionCallOutput {
-        call_id: "call-custom-limit".to_string(),
+        call_id: "call-custom-limit".to_owned(),
         output: FunctionCallOutputPayload {
             content: long_output,
             success: Some(true),
@@ -995,9 +995,9 @@ fn normalize_mixed_inserts_and_removals() {
 fn normalize_adds_missing_output_for_function_call_inserts_output() {
     let items = vec![ResponseItem::FunctionCall {
         id: None,
-        name: "do_it".to_string(),
-        arguments: "{}".to_string(),
-        call_id: "call-x".to_string(),
+        name: "do_it".to_owned(),
+        arguments: "{}".to_owned(),
+        call_id: "call-x".to_owned(),
     }];
     let mut h = create_history_with_items(items);
     h.normalize_history();
@@ -1006,14 +1006,14 @@ fn normalize_adds_missing_output_for_function_call_inserts_output() {
         vec![
             ResponseItem::FunctionCall {
                 id: None,
-                name: "do_it".to_string(),
-                arguments: "{}".to_string(),
-                call_id: "call-x".to_string(),
+                name: "do_it".to_owned(),
+                arguments: "{}".to_owned(),
+                call_id: "call-x".to_owned(),
             },
             ResponseItem::FunctionCallOutput {
-                call_id: "call-x".to_string(),
+                call_id: "call-x".to_owned(),
                 output: FunctionCallOutputPayload {
-                    content: "aborted".to_string(),
+                    content: "aborted".to_owned(),
                     ..Default::default()
                 },
             },
@@ -1028,9 +1028,9 @@ fn normalize_adds_missing_output_for_custom_tool_call_panics_in_debug() {
     let items = vec![ResponseItem::CustomToolCall {
         id: None,
         status: None,
-        call_id: "tool-x".to_string(),
-        name: "custom".to_string(),
-        input: "{}".to_string(),
+        call_id: "tool-x".to_owned(),
+        name: "custom".to_owned(),
+        input: "{}".to_owned(),
     }];
     let mut h = create_history_with_items(items);
     h.normalize_history();
@@ -1042,10 +1042,10 @@ fn normalize_adds_missing_output_for_custom_tool_call_panics_in_debug() {
 fn normalize_adds_missing_output_for_local_shell_call_with_id_panics_in_debug() {
     let items = vec![ResponseItem::LocalShellCall {
         id: None,
-        call_id: Some("shell-1".to_string()),
+        call_id: Some("shell-1".to_owned()),
         status: LocalShellStatus::Completed,
         action: LocalShellAction::Exec(LocalShellExecAction {
-            command: vec!["echo".to_string(), "hi".to_string()],
+            command: vec!["echo".to_owned(), "hi".to_owned()],
             timeout_ms: None,
             working_directory: None,
             env: None,
@@ -1061,9 +1061,9 @@ fn normalize_adds_missing_output_for_local_shell_call_with_id_panics_in_debug() 
 #[should_panic]
 fn normalize_removes_orphan_function_call_output_panics_in_debug() {
     let items = vec![ResponseItem::FunctionCallOutput {
-        call_id: "orphan-1".to_string(),
+        call_id: "orphan-1".to_owned(),
         output: FunctionCallOutputPayload {
-            content: "ok".to_string(),
+            content: "ok".to_owned(),
             ..Default::default()
         },
     }];
@@ -1076,8 +1076,8 @@ fn normalize_removes_orphan_function_call_output_panics_in_debug() {
 #[should_panic]
 fn normalize_removes_orphan_custom_tool_call_output_panics_in_debug() {
     let items = vec![ResponseItem::CustomToolCallOutput {
-        call_id: "orphan-2".to_string(),
-        output: "ok".to_string(),
+        call_id: "orphan-2".to_owned(),
+        output: "ok".to_owned(),
     }];
     let mut h = create_history_with_items(items);
     h.normalize_history();
@@ -1090,30 +1090,30 @@ fn normalize_mixed_inserts_and_removals_panics_in_debug() {
     let items = vec![
         ResponseItem::FunctionCall {
             id: None,
-            name: "f1".to_string(),
-            arguments: "{}".to_string(),
-            call_id: "c1".to_string(),
+            name: "f1".to_owned(),
+            arguments: "{}".to_owned(),
+            call_id: "c1".to_owned(),
         },
         ResponseItem::FunctionCallOutput {
-            call_id: "c2".to_string(),
+            call_id: "c2".to_owned(),
             output: FunctionCallOutputPayload {
-                content: "ok".to_string(),
+                content: "ok".to_owned(),
                 ..Default::default()
             },
         },
         ResponseItem::CustomToolCall {
             id: None,
             status: None,
-            call_id: "t1".to_string(),
-            name: "tool".to_string(),
-            input: "{}".to_string(),
+            call_id: "t1".to_owned(),
+            name: "tool".to_owned(),
+            input: "{}".to_owned(),
         },
         ResponseItem::LocalShellCall {
             id: None,
-            call_id: Some("s1".to_string()),
+            call_id: Some("s1".to_owned()),
             status: LocalShellStatus::Completed,
             action: LocalShellAction::Exec(LocalShellExecAction {
-                command: vec!["echo".to_string()],
+                command: vec!["echo".to_owned()],
                 timeout_ms: None,
                 working_directory: None,
                 env: None,

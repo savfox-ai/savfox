@@ -44,10 +44,10 @@ async fn write_rollout_with_user_event(dir: &Path, session_id: SessionId) -> io:
         meta: SessionMeta {
             id: session_id,
             forked_from_id: None,
-            timestamp: TEST_TIMESTAMP.to_string(),
+            timestamp: TEST_TIMESTAMP.to_owned(),
             cwd: std::path::PathBuf::from("."),
-            originator: "test_originator".to_string(),
-            cli_version: "test_version".to_string(),
+            originator: "test_originator".to_owned(),
+            cli_version: "test_version".to_owned(),
             source: SessionSource::Cli,
             model: None,
             model_provider: None,
@@ -57,13 +57,13 @@ async fn write_rollout_with_user_event(dir: &Path, session_id: SessionId) -> io:
         git: None,
     };
     let meta_line = RolloutLine {
-        timestamp: TEST_TIMESTAMP.to_string(),
+        timestamp: TEST_TIMESTAMP.to_owned(),
         item: RolloutItem::SessionMeta(session_meta),
     };
     let user_event = RolloutLine {
-        timestamp: TEST_TIMESTAMP.to_string(),
+        timestamp: TEST_TIMESTAMP.to_owned(),
         item: RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
-            message: "hello".to_string(),
+            message: "hello".to_owned(),
             images: None,
             local_images: Vec::new(),
             text_elements: Vec::new(),

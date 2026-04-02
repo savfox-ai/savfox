@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::Stdio {
-                command: "echo".to_string(),
+                command: "echo".to_owned(),
                 args: vec![],
                 env: None,
                 env_vars: Vec::new(),
@@ -726,8 +726,8 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::Stdio {
-                command: "echo".to_string(),
-                args: vec!["hello".to_string(), "world".to_string()],
+                command: "echo".to_owned(),
+                args: vec!["hello".to_owned(), "world".to_owned()],
                 env: None,
                 env_vars: Vec::new(),
                 cwd: None,
@@ -750,9 +750,9 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::Stdio {
-                command: "echo".to_string(),
-                args: vec!["hello".to_string(), "world".to_string()],
-                env: Some(HashMap::from([("FOO".to_string(), "BAR".to_string())])),
+                command: "echo".to_owned(),
+                args: vec!["hello".to_owned(), "world".to_owned()],
+                env: Some(HashMap::from([("FOO".to_owned(), "BAR".to_owned())])),
                 env_vars: Vec::new(),
                 cwd: None,
             }
@@ -773,10 +773,10 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::Stdio {
-                command: "echo".to_string(),
+                command: "echo".to_owned(),
                 args: vec![],
                 env: None,
-                env_vars: vec!["FOO".to_string(), "BAR".to_string()],
+                env_vars: vec!["FOO".to_owned(), "BAR".to_owned()],
                 cwd: None,
             }
         );
@@ -795,7 +795,7 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::Stdio {
-                command: "echo".to_string(),
+                command: "echo".to_owned(),
                 args: vec![],
                 env: None,
                 env_vars: Vec::new(),
@@ -829,7 +829,7 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::StreamableHttp {
-                url: "https://example.com/mcp".to_string(),
+                url: "https://example.com/mcp".to_owned(),
                 bearer_token_env_var: None,
                 http_headers: None,
                 env_http_headers: None,
@@ -851,8 +851,8 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::StreamableHttp {
-                url: "https://example.com/mcp".to_string(),
-                bearer_token_env_var: Some("GITHUB_TOKEN".to_string()),
+                url: "https://example.com/mcp".to_owned(),
+                bearer_token_env_var: Some("GITHUB_TOKEN".to_owned()),
                 http_headers: None,
                 env_http_headers: None,
             }
@@ -874,12 +874,12 @@ mod tests {
         assert_eq!(
             cfg.transport,
             McpServerTransportConfig::StreamableHttp {
-                url: "https://example.com/mcp".to_string(),
+                url: "https://example.com/mcp".to_owned(),
                 bearer_token_env_var: None,
-                http_headers: Some(HashMap::from([("X-Foo".to_string(), "bar".to_string())])),
+                http_headers: Some(HashMap::from([("X-Foo".to_owned(), "bar".to_owned())])),
                 env_http_headers: Some(HashMap::from([(
-                    "X-Token".to_string(),
-                    "TOKEN_ENV".to_string()
+                    "X-Token".to_owned(),
+                    "TOKEN_ENV".to_owned()
                 )])),
             }
         );
@@ -896,8 +896,8 @@ mod tests {
         )
         .expect("should deserialize tool filters");
 
-        assert_eq!(cfg.enabled_tools, Some(vec!["allowed".to_string()]));
-        assert_eq!(cfg.disabled_tools, Some(vec!["blocked".to_string()]));
+        assert_eq!(cfg.enabled_tools, Some(vec!["allowed".to_owned()]));
+        assert_eq!(cfg.disabled_tools, Some(vec!["blocked".to_owned()]));
     }
 
     #[test]

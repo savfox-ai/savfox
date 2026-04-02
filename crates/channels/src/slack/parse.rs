@@ -183,8 +183,8 @@ mod tests {
 
     fn resolve_command_name(command: &str) -> Option<String> {
         match command.trim_start_matches('/') {
-            "status" => Some("status".to_string()),
-            "help" => Some("help".to_string()),
+            "status" => Some("status".to_owned()),
+            "help" => Some("help".to_owned()),
             _ => None,
         }
     }

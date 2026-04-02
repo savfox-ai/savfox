@@ -825,7 +825,7 @@ mod tests {
             .output()
             .await
             .expect("Failed to get branch");
-        let branch = String::from_utf8(output.stdout).unwrap().trim().to_string();
+        let branch = String::from_utf8(output.stdout).unwrap().trim().to_owned();
 
         Command::new("git")
             .args(["push", "-u", "origin", &branch])
@@ -900,8 +900,7 @@ mod tests {
         // whatever URL Git reports instead of a fixed placeholder.
         let expected_remote = String::from_utf8(remote_url_output.stdout)
             .unwrap()
-            .trim()
-            .to_string();
+            .trim().to_owned();
 
         // Should have repository URL
         assert_eq!(git_info.repository_url, Some(expected_remote));
@@ -919,7 +918,7 @@ mod tests {
             .output()
             .await
             .expect("Failed to get HEAD");
-        let commit_hash = String::from_utf8(output.stdout).unwrap().trim().to_string();
+        let commit_hash = String::from_utf8(output.stdout).unwrap().trim().to_owned();
 
         // Checkout the commit directly (detached HEAD)
         Command::new("git")
@@ -958,7 +957,7 @@ mod tests {
             .expect("Should collect git info from repo");
 
         // Should have the new branch name
-        assert_eq!(git_info.branch, Some("feature-branch".to_string()));
+        assert_eq!(git_info.branch, Some("feature-branch".to_owned()));
     }
 
     #[tokio::test]
@@ -974,8 +973,7 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim()
-            .to_string();
+            .trim().to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -1001,8 +999,7 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim()
-            .to_string();
+            .trim().to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -1045,8 +1042,7 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim()
-            .to_string();
+            .trim().to_owned();
 
         let state = git_diff_to_remote(&repo_path)
             .await
@@ -1138,8 +1134,7 @@ mod tests {
             .expect("Failed to rev-parse remote");
         let remote_sha = String::from_utf8(remote_sha.stdout)
             .unwrap()
-            .trim()
-            .to_string();
+            .trim().to_owned();
 
         fs::write(repo_path.join("test.txt"), "updated").unwrap();
         Command::new("git")
@@ -1165,9 +1160,9 @@ mod tests {
     #[test]
     fn test_git_info_serialization() {
         let git_info = GitInfo {
-            commit_hash: Some("abc123def456".to_string()),
-            branch: Some("main".to_string()),
-            repository_url: Some("https://github.com/example/repo.git".to_string()),
+            commit_hash: Some("abc123def456".to_owned()),
+            branch: Some("main".to_owned()),
+            repository_url: Some("https://github.com/example/repo.git".to_owned()),
         };
 
         let json = serde_json::to_string(&git_info).expect("Should serialize GitInfo");

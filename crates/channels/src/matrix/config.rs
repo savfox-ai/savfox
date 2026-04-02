@@ -332,10 +332,10 @@ mod tests {
         config: Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: id.to_string(),
-            kind: kind.to_string(),
+            id: id.to_owned(),
+            kind: kind.to_owned(),
             slug: String::new(),
-            name: id.to_string(),
+            name: id.to_owned(),
             enabled,
             config,
             router: None,
@@ -371,9 +371,9 @@ mod tests {
         assert_eq!(
             parsed.rooms,
             vec![
-                "!room-a:example.org".to_string(),
-                "!room-b:example.org".to_string(),
-                "!room-c:example.org".to_string()
+                "!room-a:example.org".to_owned(),
+                "!room-b:example.org".to_owned(),
+                "!room-c:example.org".to_owned()
             ]
         );
     }
@@ -425,13 +425,13 @@ mod tests {
     fn outbound_selection_prefers_room_match_then_default() {
         let configs = vec![
             MatrixChannelConfig {
-                id: "default".to_string(),
+                id: "default".to_owned(),
                 mode: MatrixMode::User,
-                homeserver: "https://matrix.example".to_string(),
-                access_token: Some("token-a".to_string()),
+                homeserver: "https://matrix.example".to_owned(),
+                access_token: Some("token-a".to_owned()),
                 password: None,
                 device_name: None,
-                user_id: Some("@bot:example.org".to_string()),
+                user_id: Some("@bot:example.org".to_owned()),
                 rooms: Vec::new(),
                 server_name: None,
                 public_url: None,
@@ -443,14 +443,14 @@ mod tests {
                 alias_prefix: default_appservice_alias_prefix(),
             },
             MatrixChannelConfig {
-                id: "room-specific".to_string(),
+                id: "room-specific".to_owned(),
                 mode: MatrixMode::User,
-                homeserver: "https://matrix.example".to_string(),
-                access_token: Some("token-b".to_string()),
+                homeserver: "https://matrix.example".to_owned(),
+                access_token: Some("token-b".to_owned()),
                 password: None,
                 device_name: None,
-                user_id: Some("@bot:example.org".to_string()),
-                rooms: vec!["!ops:example.org".to_string()],
+                user_id: Some("@bot:example.org".to_owned()),
+                rooms: vec!["!ops:example.org".to_owned()],
                 server_name: None,
                 public_url: None,
                 appservice_id: None,

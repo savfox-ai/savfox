@@ -238,7 +238,7 @@ mod tests {
 
         let client = LMStudioClient::from_host_root(server.uri());
         let models = client.fetch_models().await.expect("fetch models");
-        assert!(models.contains(&"openai/gpt-oss-20b".to_string()));
+        assert!(models.contains(&"openai/gpt-oss-20b".to_owned()));
     }
 
     #[tokio::test]

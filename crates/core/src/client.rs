@@ -1278,41 +1278,6 @@ where
     ResponseStream { rx_event }
 }
 
-#[cfg(test)]
-mod tests {
-    use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
-
-    use super::normalize_reasoning_effort;
-
-    fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
-        ReasoningEffortPreset {
-            effort,
-            description: effort.to_string(),
-        }
-    }
-
-    #[test]
-    fn normalize_reasoning_effort_binary_mode_maps_non_off_to_on() {
-        let supported = vec![preset(ReasoningEffort::None), preset(ReasoningEffort::High)];
-        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::Minimal), &supported);
-        assert_eq!(normalized, Some(ReasoningEffort::High));
-    }
-
-    #[test]
-    fn normalize_reasoning_effort_binary_mode_keeps_off() {
-        let supported = vec![preset(ReasoningEffort::None), preset(ReasoningEffort::High)];
-        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::None), &supported);
-        assert_eq!(normalized, Some(ReasoningEffort::None));
-    }
-
-    #[test]
-    fn normalize_reasoning_effort_chooses_nearest_supported_level() {
-        let supported = vec![preset(ReasoningEffort::Low), preset(ReasoningEffort::High)];
-        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::XHigh), &supported);
-        assert_eq!(normalized, Some(ReasoningEffort::High));
-    }
-}
-
 /// Handles a 401 response by optionally refreshing ChatGPT tokens once.
 ///
 /// When refresh succeeds, the caller should retry the API call; otherwise
@@ -1399,5 +1364,40 @@ impl WebsocketTelemetry for ApiTelemetry {
         duration: Duration,
     ) {
         self.otel_manager.record_websocket_event(result, duration);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
+
+    use super::normalize_reasoning_effort;
+
+    fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
+        ReasoningEffortPreset {
+            effort,
+            description: effort.to_string(),
+        }
+    }
+
+    #[test]
+    fn normalize_reasoning_effort_binary_mode_maps_non_off_to_on() {
+        let supported = vec![preset(ReasoningEffort::None), preset(ReasoningEffort::High)];
+        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::Minimal), &supported);
+        assert_eq!(normalized, Some(ReasoningEffort::High));
+    }
+
+    #[test]
+    fn normalize_reasoning_effort_binary_mode_keeps_off() {
+        let supported = vec![preset(ReasoningEffort::None), preset(ReasoningEffort::High)];
+        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::None), &supported);
+        assert_eq!(normalized, Some(ReasoningEffort::None));
+    }
+
+    #[test]
+    fn normalize_reasoning_effort_chooses_nearest_supported_level() {
+        let supported = vec![preset(ReasoningEffort::Low), preset(ReasoningEffort::High)];
+        let normalized = normalize_reasoning_effort(Some(ReasoningEffort::XHigh), &supported);
+        assert_eq!(normalized, Some(ReasoningEffort::High));
     }
 }

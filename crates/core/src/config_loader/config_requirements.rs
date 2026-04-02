@@ -393,8 +393,8 @@ mod tests {
         )?;
 
         let source_location = RequirementSource::MdmManagedPreferences {
-            domain: "com.savfox".to_string(),
-            key: "allowed_approval_policies".to_string(),
+            domain: "com.savfox".to_owned(),
+            key: "allowed_approval_policies".to_owned(),
         };
 
         let mut empty_target = ConfigRequirementsWithSources::default();
@@ -432,8 +432,8 @@ mod tests {
             "#,
         )?;
         let source_location = RequirementSource::MdmManagedPreferences {
-            domain: "com.savfox".to_string(),
-            key: "allowed_approval_policies".to_string(),
+            domain: "com.savfox".to_owned(),
+            key: "allowed_approval_policies".to_owned(),
         };
         populated_target.merge_unset_fields(source_location, source);
 
@@ -653,18 +653,18 @@ mod tests {
             Some(Sourced::new(
                 BTreeMap::from([
                     (
-                        "docs".to_string(),
+                        "docs".to_owned(),
                         McpServerRequirement {
                             identity: McpServerIdentity::Command {
-                                command: "savfox-mcp".to_string(),
+                                command: "savfox-mcp".to_owned(),
                             },
                         },
                     ),
                     (
-                        "remote".to_string(),
+                        "remote".to_owned(),
                         McpServerRequirement {
                             identity: McpServerIdentity::Url {
-                                url: "https://example.com/mcp".to_string(),
+                                url: "https://example.com/mcp".to_owned(),
                             },
                         },
                     ),
@@ -728,7 +728,7 @@ mod tests {
             err,
             ConstraintError::ExecPolicyParse {
                 requirement_source: source_location,
-                reason: "rules prefix_rule at index 0 is missing a decision".to_string(),
+                reason: "rules prefix_rule at index 0 is missing a decision".to_owned(),
             }
         );
 

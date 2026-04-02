@@ -56,8 +56,8 @@ async fn refresh_token_succeeds_updates_storage() -> Result<()> {
         .context("refresh should succeed")?;
 
     let refreshed_tokens = TokenData {
-        access_token: "new-access-token".to_string(),
-        refresh_token: "new-refresh-token".to_string(),
+        access_token: "new-access-token".to_owned(),
+        refresh_token: "new-refresh-token".to_owned(),
         ..initial_tokens.clone()
     };
     let stored = ctx.load_auth()?;
@@ -164,8 +164,8 @@ async fn refreshes_token_when_last_refresh_is_stale() -> Result<()> {
         .await
         .context("auth should be cached")?;
     let refreshed_tokens = TokenData {
-        access_token: "new-access-token".to_string(),
-        refresh_token: "new-refresh-token".to_string(),
+        access_token: "new-access-token".to_owned(),
+        refresh_token: "new-refresh-token".to_owned(),
         ..initial_tokens.clone()
     };
     let cached = cached_auth
@@ -361,8 +361,8 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
     recovery.next().await?;
 
     let refreshed_tokens = TokenData {
-        access_token: "recovered-access-token".to_string(),
-        refresh_token: "recovered-refresh-token".to_string(),
+        access_token: "recovered-access-token".to_owned(),
+        refresh_token: "recovered-refresh-token".to_owned(),
         ..disk_tokens.clone()
     };
     let stored = ctx.load_auth()?;
@@ -412,10 +412,10 @@ async fn unauthorized_recovery_skips_reload_on_account_mismatch() -> Result<()> 
     ctx.write_auth(&initial_auth)?;
 
     let mut disk_tokens = build_tokens("disk-access-token", "disk-refresh-token");
-    disk_tokens.account_id = Some("other-account".to_string());
+    disk_tokens.account_id = Some("other-account".to_owned());
     let expected_tokens = TokenData {
-        access_token: "recovered-access-token".to_string(),
-        refresh_token: "recovered-refresh-token".to_string(),
+        access_token: "recovered-access-token".to_owned(),
+        refresh_token: "recovered-refresh-token".to_owned(),
         ..disk_tokens.clone()
     };
     let disk_auth = AuthDotJson {
@@ -484,7 +484,7 @@ async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
     let ctx = RefreshTokenTestContext::new(&server)?;
     let auth = AuthDotJson {
         auth_mode: Some(AuthMode::ApiKey),
-        openai_api_key: Some("sk-test".to_string()),
+        openai_api_key: Some("sk-test".to_owned()),
         tokens: None,
         last_refresh: None,
     };
@@ -615,8 +615,8 @@ fn build_tokens(access_token: &str, refresh_token: &str) -> TokenData {
     id_token.raw_jwt = minimal_jwt();
     TokenData {
         id_token,
-        access_token: access_token.to_string(),
-        refresh_token: refresh_token.to_string(),
-        account_id: Some("account-id".to_string()),
+        access_token: access_token.to_owned(),
+        refresh_token: refresh_token.to_owned(),
+        account_id: Some("account-id".to_owned()),
     }
 }

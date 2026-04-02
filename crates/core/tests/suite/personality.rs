@@ -50,7 +50,7 @@ async fn base_instructions_override_disables_personality_template() {
     let mut config = load_default_config_for_test(&savfox_home).await;
     config.features.enable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
-    config.base_instructions = Some("override instructions".to_string());
+    config.base_instructions = Some("override instructions".to_owned());
 
     let model_info = ModelsManager::construct_model_info_offline("gpt-5.2-savfox", &config);
 
@@ -468,9 +468,9 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
     let remote_slug = "gpt-5.2-savfox";
     let remote_personality_message = "Friendly from remote template";
     let remote_model = ModelInfo {
-        slug: remote_slug.to_string(),
-        name: "Remote personality test".to_string(),
-        description: Some("Remote model with personality template".to_string()),
+        slug: remote_slug.to_owned(),
+        name: "Remote personality test".to_owned(),
+        description: Some("Remote model with personality template".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -481,12 +481,12 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
         supported_in_api: true,
         priority: 1,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: Some(ModelMessages {
-            instructions_template: Some("Base instructions\n{{ personality }}\n".to_string()),
+            instructions_template: Some("Base instructions\n{{ personality }}\n".to_owned()),
             instructions_variables: Some(ModelInstructionsVariables {
                 personality_default: None,
-                personality_friendly: Some(remote_personality_message.to_string()),
+                personality_friendly: Some(remote_personality_message.to_owned()),
                 personality_pragmatic: None,
             }),
         }),
@@ -518,7 +518,7 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
-            config.model = Some(remote_slug.to_string());
+            config.model = Some(remote_slug.to_owned());
             config.personality = Some(Personality::Friendly);
         });
     let test = builder.build(&server).await?;
@@ -540,7 +540,7 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
             cwd: test.cwd_path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
-            model: remote_slug.to_string(),
+            model: remote_slug.to_owned(),
             effort: test.config.model_reasoning_effort,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -584,9 +584,9 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
     let default_personality_message = "Default from remote template";
     let friendly_personality_message = "Friendly variant";
     let remote_model = ModelInfo {
-        slug: remote_slug.to_string(),
-        name: "Remote default personality test".to_string(),
-        description: Some("Remote model with default personality template".to_string()),
+        slug: remote_slug.to_owned(),
+        name: "Remote default personality test".to_owned(),
+        description: Some("Remote model with default personality template".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -597,13 +597,13 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
         supported_in_api: true,
         priority: 1,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: Some(ModelMessages {
-            instructions_template: Some("Base instructions\n{{ personality }}\n".to_string()),
+            instructions_template: Some("Base instructions\n{{ personality }}\n".to_owned()),
             instructions_variables: Some(ModelInstructionsVariables {
-                personality_default: Some(default_personality_message.to_string()),
-                personality_friendly: Some(friendly_personality_message.to_string()),
-                personality_pragmatic: Some("Pragmatic variant".to_string()),
+                personality_default: Some(default_personality_message.to_owned()),
+                personality_friendly: Some(friendly_personality_message.to_owned()),
+                personality_pragmatic: Some("Pragmatic variant".to_owned()),
             }),
         }),
         supports_reasoning_summaries: false,
@@ -634,7 +634,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
-            config.model = Some(remote_slug.to_string());
+            config.model = Some(remote_slug.to_owned());
             config.personality = Some(Personality::Friendly);
         });
     let test = builder.build(&server).await?;
@@ -656,7 +656,7 @@ async fn remote_model_friendly_personality_instructions_with_feature() -> anyhow
             cwd: test.cwd_path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
-            model: remote_slug.to_string(),
+            model: remote_slug.to_owned(),
             effort: test.config.model_reasoning_effort,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,
@@ -695,9 +695,9 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
     let remote_friendly_message = "Friendly from remote template";
     let remote_pragmatic_message = "Pragmatic from remote template";
     let remote_model = ModelInfo {
-        slug: remote_slug.to_string(),
-        name: "Remote personality test".to_string(),
-        description: Some("Remote model with personality template".to_string()),
+        slug: remote_slug.to_owned(),
+        name: "Remote personality test".to_owned(),
+        description: Some("Remote model with personality template".to_owned()),
         default_reasoning_level: Some(ReasoningEffort::Medium),
         supported_reasoning_levels: vec![ReasoningEffortPreset {
             effort: ReasoningEffort::Medium,
@@ -708,13 +708,13 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
         supported_in_api: true,
         priority: 1,
         upgrade: None,
-        base_instructions: "base instructions".to_string(),
+        base_instructions: "base instructions".to_owned(),
         model_messages: Some(ModelMessages {
-            instructions_template: Some("Base instructions\n{{ personality }}\n".to_string()),
+            instructions_template: Some("Base instructions\n{{ personality }}\n".to_owned()),
             instructions_variables: Some(ModelInstructionsVariables {
                 personality_default: None,
-                personality_friendly: Some(remote_friendly_message.to_string()),
-                personality_pragmatic: Some(remote_pragmatic_message.to_string()),
+                personality_friendly: Some(remote_friendly_message.to_owned()),
+                personality_pragmatic: Some(remote_pragmatic_message.to_owned()),
             }),
         }),
         supports_reasoning_summaries: false,
@@ -749,7 +749,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
-            config.model = Some("gpt-5.2-savfox".to_string());
+            config.model = Some("gpt-5.2-savfox".to_owned());
         });
     let test = builder.build(&server).await?;
 
@@ -786,7 +786,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some(remote_slug.to_string()),
+            model: Some(remote_slug.to_owned()),
             effort: None,
             summary: None,
             collaboration_mode: None,
@@ -805,7 +805,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
             cwd: test.cwd_path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
-            model: remote_slug.to_string(),
+            model: remote_slug.to_owned(),
             effort: test.config.model_reasoning_effort,
             summary: ReasoningSummary::Auto,
             collaboration_mode: None,

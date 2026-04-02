@@ -826,7 +826,7 @@ query_params = { api-version = "2025-04-01-preview" }
             experimental_bearer_token: None,
             wire_api: WireApi::Chat,
             query_params: Some(maplit::hashmap! {
-                "api-version".to_string() => "2025-04-01-preview".to_string(),
+                "api-version".to_owned() => "2025-04-01-preview".to_owned(),
             }),
             http_headers: None,
             env_http_headers: None,
@@ -861,10 +861,10 @@ env_http_headers = { "x-api-key" = "ANTHROPIC_API_KEY" }
             wire_api: WireApi::Anthropic,
             query_params: None,
             http_headers: Some(maplit::hashmap! {
-                "anthropic-version".to_string() => "2023-06-01".to_string(),
+                "anthropic-version".to_owned() => "2023-06-01".to_owned(),
             }),
             env_http_headers: Some(maplit::hashmap! {
-                "x-api-key".to_string() => "ANTHROPIC_API_KEY".to_string(),
+                "x-api-key".to_owned() => "ANTHROPIC_API_KEY".to_owned(),
             }),
             request_max_retries: None,
             stream_max_retries: None,
@@ -897,10 +897,10 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
             wire_api: WireApi::Chat,
             query_params: None,
             http_headers: Some(maplit::hashmap! {
-                "X-Example-Header".to_string() => "example-value".to_string(),
+                "X-Example-Header".to_owned() => "example-value".to_owned(),
             }),
             env_http_headers: Some(maplit::hashmap! {
-                "X-Example-Env-Header".to_string() => "EXAMPLE_ENV_VAR".to_string(),
+                "X-Example-Env-Header".to_owned() => "EXAMPLE_ENV_VAR".to_owned(),
             }),
             request_max_retries: None,
             stream_max_retries: None,
@@ -997,10 +997,10 @@ env_key = "GEMINI_API_KEY"
         inject_provider_auth_overrides_from_store(tmp.path());
 
         let provider = ModelProviderInfo {
-            id: "zhipuai".to_string(),
-            name: "ZhipuAI".to_string(),
-            base_url: Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
-            env_key: Some(env_key.to_string()),
+            id: "zhipuai".to_owned(),
+            name: "ZhipuAI".to_owned(),
+            base_url: Some("https://open.bigmodel.cn/api/paas/v4".to_owned()),
+            env_key: Some(env_key.to_owned()),
             env_key_instructions: None,
             experimental_bearer_token: None,
             wire_api: WireApi::Chat,
@@ -1016,11 +1016,11 @@ env_key = "GEMINI_API_KEY"
 
         assert_eq!(
             provider.api_key().expect("api key resolves"),
-            Some(api_key.to_string())
+            Some(api_key.to_owned())
         );
         assert_eq!(
             get_bearer_token_override(provider_id),
-            Some(api_key.to_string())
+            Some(api_key.to_owned())
         );
 
         // Cleanup global override maps to avoid cross-test leakage.
@@ -1076,8 +1076,8 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_uses_known_provider_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
-            id: "anthropic".to_string(),
-            name: "Anthropic".to_string(),
+            id: "anthropic".to_owned(),
+            name: "Anthropic".to_owned(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,
@@ -1101,8 +1101,8 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_uses_known_provider_alias_default_base_url_when_missing() {
         let provider = ModelProviderInfo {
-            id: "qwen".to_string(),
-            name: "Qwen".to_string(),
+            id: "qwen".to_owned(),
+            name: "Qwen".to_owned(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,
@@ -1129,8 +1129,8 @@ env_key = "GEMINI_API_KEY"
     #[test]
     fn to_api_provider_errors_when_provider_has_no_base_url_and_no_default() {
         let provider = ModelProviderInfo {
-            id: "other".to_string(),
-            name: "Other".to_string(),
+            id: "other".to_owned(),
+            name: "Other".to_owned(),
             base_url: None,
             env_key: None,
             env_key_instructions: None,

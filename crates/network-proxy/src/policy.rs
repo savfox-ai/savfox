@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn compile_globset_normalizes_trailing_dots() {
-        let set = compile_globset(&["Example.COM.".to_string()]).unwrap();
+        let set = compile_globset(&["Example.COM.".to_owned()]).unwrap();
 
         assert_eq!(true, set.is_match("example.com"));
         assert_eq!(false, set.is_match("api.example.com"));
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn compile_globset_normalizes_wildcards() {
-        let set = compile_globset(&["*.Example.COM.".to_string()]).unwrap();
+        let set = compile_globset(&["*.Example.COM.".to_owned()]).unwrap();
 
         assert_eq!(true, set.is_match("api.example.com"));
         assert_eq!(false, set.is_match("example.com"));
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn compile_globset_normalizes_apex_and_subdomains() {
-        let set = compile_globset(&["**.Example.COM.".to_string()]).unwrap();
+        let set = compile_globset(&["**.Example.COM.".to_owned()]).unwrap();
 
         assert_eq!(true, set.is_match("example.com"));
         assert_eq!(true, set.is_match("api.example.com"));
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn compile_globset_normalizes_bracketed_ipv6_literals() {
-        let set = compile_globset(&["[::1]".to_string()]).unwrap();
+        let set = compile_globset(&["[::1]".to_owned()]).unwrap();
 
         assert_eq!(true, set.is_match("::1"));
     }

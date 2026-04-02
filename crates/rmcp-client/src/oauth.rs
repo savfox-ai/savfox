@@ -905,23 +905,23 @@ mod tests {
 
     fn sample_tokens() -> StoredOAuthTokens {
         let mut response = OAuthTokenResponse::new(
-            AccessToken::new("access-token".to_string()),
+            AccessToken::new("access-token".to_owned()),
             BasicTokenType::Bearer,
             VendorExtraTokenFields::default(),
         );
-        response.set_refresh_token(Some(RefreshToken::new("refresh-token".to_string())));
+        response.set_refresh_token(Some(RefreshToken::new("refresh-token".to_owned())));
         response.set_scopes(Some(vec![
-            Scope::new("scope-a".to_string()),
-            Scope::new("scope-b".to_string()),
+            Scope::new("scope-a".to_owned()),
+            Scope::new("scope-b".to_owned()),
         ]));
         let expires_in = Duration::from_secs(3600);
         response.set_expires_in(Some(&expires_in));
         let expires_at = super::compute_expires_at_millis(&response);
 
         StoredOAuthTokens {
-            server_name: "test-server".to_string(),
-            url: "https://example.test".to_string(),
-            client_id: "client-id".to_string(),
+            server_name: "test-server".to_owned(),
+            url: "https://example.test".to_owned(),
+            client_id: "client-id".to_owned(),
             token_response: WrappedOAuthTokenResponse(response),
             expires_at,
         }

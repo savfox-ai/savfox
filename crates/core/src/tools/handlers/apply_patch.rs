@@ -349,7 +349,7 @@ mod tests {
 -old content
 +new content
 *** End Patch"#;
-        let argv = vec!["apply_patch".to_string(), patch.to_string()];
+        let argv = vec!["apply_patch".to_owned(), patch.to_owned()];
         let action = match savfox_apply_patch::maybe_parse_apply_patch_verified(&argv, cwd) {
             MaybeApplyPatchVerified::Body(action) => action,
             other => panic!("expected patch body, got: {other:?}"),

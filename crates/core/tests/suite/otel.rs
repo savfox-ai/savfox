@@ -44,7 +44,7 @@ async fn responses_api_emits_api_request_event() {
             .iter()
             .find(|line| line.contains("savfox.api_request"))
             .map(|_| Ok(()))
-            .unwrap_or_else(|| Err("expected savfox.api_request event".to_string()))
+            .unwrap_or_else(|| Err("expected savfox.api_request event".to_owned()))
     });
 
     logs_assert(|lines: &[&str]| {
@@ -52,7 +52,7 @@ async fn responses_api_emits_api_request_event() {
             .iter()
             .find(|line| line.contains("savfox.conversation_starts"))
             .map(|_| Ok(()))
-            .unwrap_or_else(|| Err("expected savfox.conversation_starts event".to_string()))
+            .unwrap_or_else(|| Err("expected savfox.conversation_starts event".to_owned()))
     });
 }
 
@@ -90,7 +90,7 @@ async fn process_sse_emits_tracing_for_output_item() {
                     && line.contains("event.kind=response.output_item.done")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing response.output_item.done event".to_string()))
+            .unwrap_or(Err("missing response.output_item.done event".to_owned()))
     });
 }
 
@@ -99,7 +99,7 @@ async fn process_sse_emits_tracing_for_output_item() {
 async fn process_sse_emits_failed_event_on_parse_error() {
     let server = start_mock_server().await;
 
-    mount_sse_once(&server, "data: not-json\n\n".to_string()).await;
+    mount_sse_once(&server, "data: not-json\n\n".to_owned()).await;
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(move |config| {
@@ -131,7 +131,7 @@ async fn process_sse_emits_failed_event_on_parse_error() {
                     && line.contains("expected ident at line 1 column 2")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -172,7 +172,7 @@ async fn process_sse_records_failed_event_when_stream_closes_without_completed()
                     && line.contains("stream closed before response.completed")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -234,7 +234,7 @@ async fn process_sse_failed_event_records_response_error_message() {
                     && line.contains("boom")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -290,7 +290,7 @@ async fn process_sse_failed_event_logs_parse_error() {
                 line.contains("savfox.sse_event") && line.contains("event.kind=response.failed")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -336,7 +336,7 @@ async fn process_sse_failed_event_logs_missing_error() {
                 line.contains("savfox.sse_event") && line.contains("event.kind=response.failed")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -394,7 +394,7 @@ async fn process_sse_failed_event_logs_response_completed_parse_error() {
                     && line.contains("failed to parse ResponseCompleted")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing savfox.sse_event".to_string()))
+            .unwrap_or(Err("missing savfox.sse_event".to_owned()))
     });
 }
 
@@ -449,7 +449,7 @@ async fn process_sse_emits_completed_telemetry() {
                     && line.contains("tool_token_count=9")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("missing response.completed telemetry".to_string()))
+            .unwrap_or(Err("missing response.completed telemetry".to_owned()))
     });
 }
 
@@ -658,19 +658,19 @@ async fn handle_response_item_records_tool_result_for_custom_tool_call() {
             .find(|line| {
                 line.contains("savfox.tool_result") && line.contains("call_id=custom-tool-call")
             })
-            .ok_or_else(|| "missing savfox.tool_result event".to_string())?;
+            .ok_or_else(|| "missing savfox.tool_result event".to_owned())?;
 
         if !line.contains("tool_name=unsupported_tool") {
-            return Err("missing tool_name field".to_string());
+            return Err("missing tool_name field".to_owned());
         }
         if !line.contains("arguments={\"key\":\"value\"}") {
-            return Err("missing arguments field".to_string());
+            return Err("missing arguments field".to_owned());
         }
         if !line.contains("output=unsupported custom tool call: unsupported_tool") {
-            return Err("missing output field".to_string());
+            return Err("missing output field".to_owned());
         }
         if !line.contains("success=false") {
-            return Err("missing success field".to_string());
+            return Err("missing success field".to_owned());
         }
 
         Ok(())
@@ -727,19 +727,19 @@ async fn handle_response_item_records_tool_result_for_function_call() {
             .find(|line| {
                 line.contains("savfox.tool_result") && line.contains("call_id=function-call")
             })
-            .ok_or_else(|| "missing savfox.tool_result event".to_string())?;
+            .ok_or_else(|| "missing savfox.tool_result event".to_owned())?;
 
         if !line.contains("tool_name=nonexistent") {
-            return Err("missing tool_name field".to_string());
+            return Err("missing tool_name field".to_owned());
         }
         if !line.contains("arguments={\"value\":1}") {
-            return Err("missing arguments field".to_string());
+            return Err("missing arguments field".to_owned());
         }
         if !line.contains("output=unsupported call: nonexistent") {
-            return Err("missing output field".to_string());
+            return Err("missing output field".to_owned());
         }
         if !line.contains("success=false") {
-            return Err("missing success field".to_string());
+            return Err("missing success field".to_owned());
         }
 
         Ok(())
@@ -805,13 +805,13 @@ async fn handle_response_item_records_tool_result_for_local_shell_missing_ids() 
             .iter()
             .find(|line| {
                 line.contains("savfox.tool_result")
-                    && line.contains(&"tool_name=local_shell".to_string())
+                    && line.contains(&"tool_name=local_shell".to_owned())
                     && line.contains("output=LocalShellCall without call_id or id")
             })
-            .ok_or_else(|| "missing savfox.tool_result event".to_string())?;
+            .ok_or_else(|| "missing savfox.tool_result event".to_owned())?;
 
         if !line.contains("success=false") {
-            return Err("missing success field".to_string());
+            return Err("missing success field".to_owned());
         }
 
         Ok(())
@@ -894,9 +894,9 @@ fn tool_decision_assertion<'a>(
     expected_decision: &'a str,
     expected_source: &'a str,
 ) -> impl Fn(&[&str]) -> Result<(), String> + 'a {
-    let call_id = call_id.to_string();
-    let expected_decision = expected_decision.to_string();
-    let expected_source = expected_source.to_string();
+    let call_id = call_id.to_owned();
+    let expected_decision = expected_decision.to_owned();
+    let expected_source = expected_source.to_owned();
 
     move |lines: &[&str]| {
         let line = lines
@@ -909,7 +909,7 @@ fn tool_decision_assertion<'a>(
 
         let lower = line.to_lowercase();
         if !lower.contains("tool_name=local_shell") {
-            return Err("missing tool_name for local_shell".to_string());
+            return Err("missing tool_name for local_shell".to_owned());
         }
         if !lower.contains(&format!("decision={expected_decision}")) {
             return Err(format!("unexpected decision for {call_id}"));

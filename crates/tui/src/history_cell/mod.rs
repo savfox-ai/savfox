@@ -1991,7 +1991,7 @@ mod tests {
     }
 
     fn image_block(data: &str) -> serde_json::Value {
-        serde_json::to_value(Content::image(data.to_string(), "image/png"))
+        serde_json::to_value(Content::image(data.to_owned(), "image/png"))
             .expect("image content should serialize")
     }
 
@@ -2006,8 +2006,8 @@ mod tests {
         description: Option<&str>,
     ) -> serde_json::Value {
         serde_json::to_value(Content::resource_link(rmcp::model::RawResource {
-            uri: uri.to_string(),
-            name: name.to_string(),
+            uri: uri.to_owned(),
+            name: name.to_owned(),
             title: title.map(str::to_string),
             description: description.map(str::to_string),
             mime_type: None,
@@ -2025,8 +2025,8 @@ mod tests {
             session_id: savfox_protocol::SessionId::new(),
             forked_from_id: None,
             session_name: None,
-            model: "test-model".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "test-model".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/tmp/project"),
@@ -2048,8 +2048,8 @@ mod tests {
             session_id: savfox_protocol::SessionId::new(),
             forked_from_id: None,
             session_name: None,
-            model: "test-model".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "test-model".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/tmp/project"),
@@ -2070,7 +2070,7 @@ mod tests {
     #[test]
     fn unified_exec_interaction_cell_renders_input() {
         let cell =
-            new_unified_exec_interaction(Some("echo hello".to_string()), "ls\npwd".to_string());
+            new_unified_exec_interaction(Some("echo hello".to_owned()), "ls\npwd".to_owned());
         let lines = render_transcript(&cell);
         assert_eq!(
             lines,
@@ -2148,12 +2148,12 @@ mod tests {
     fn ps_output_multiline_snapshot() {
         let cell = new_unified_exec_processes_output(vec![
             UnifiedExecProcessDetails {
-                command_display: "echo hello\nand then some extra text".to_string(),
-                recent_chunks: vec!["hello".to_string(), "done".to_string()],
+                command_display: "echo hello\nand then some extra text".to_owned(),
+                recent_chunks: vec!["hello".to_owned(), "done".to_owned()],
             },
             UnifiedExecProcessDetails {
-                command_display: "rg \"foo\" src".to_string(),
-                recent_chunks: vec!["src/main.rs:12:foo".to_string()],
+                command_display: "rg \"foo\" src".to_owned(),
+                recent_chunks: vec!["src/main.rs:12:foo".to_owned()],
             },
         ]);
         let rendered = render_lines(&cell.display_lines(40)).join("\n");
@@ -2166,7 +2166,7 @@ mod tests {
             command_display: String::from(
                 "rg \"foo\" src --glob '**/*.rs' --max-count 1000 --no-ignore --hidden --follow --glob '!target/**'",
             ),
-            recent_chunks: vec!["searching...".to_string()],
+            recent_chunks: vec!["searching...".to_owned()],
         }]);
         let rendered = render_lines(&cell.display_lines(36)).join("\n");
         insta::assert_snapshot!(rendered);
@@ -2189,10 +2189,10 @@ mod tests {
     #[test]
     fn ps_output_chunk_leading_whitespace_snapshot() {
         let cell = new_unified_exec_processes_output(vec![UnifiedExecProcessDetails {
-            command_display: "just fix".to_string(),
+            command_display: "just fix".to_owned(),
             recent_chunks: vec![
-                "  indented first".to_string(),
-                "    more indented".to_string(),
+                "  indented first".to_owned(),
+                "    more indented".to_owned(),
             ],
         }]);
         let rendered = render_lines(&cell.display_lines(60)).join("\n");
@@ -2203,13 +2203,13 @@ mod tests {
     async fn mcp_tools_output_masks_sensitive_values() {
         let mut config = test_config().await;
         let mut env = HashMap::new();
-        env.insert("TOKEN".to_string(), "secret".to_string());
+        env.insert("TOKEN".to_owned(), "secret".to_owned());
         let stdio_config = McpServerConfig {
             transport: McpServerTransportConfig::Stdio {
-                command: "docs-server".to_string(),
+                command: "docs-server".to_owned(),
                 args: vec![],
                 env: Some(env),
-                env_vars: vec!["APP_TOKEN".to_string()],
+                env_vars: vec!["APP_TOKEN".to_owned()],
                 cwd: None,
             },
             enabled: true,
@@ -2221,16 +2221,16 @@ mod tests {
             scopes: None,
         };
         let mut servers = config.mcp_servers.get().clone();
-        servers.insert("docs".to_string(), stdio_config);
+        servers.insert("docs".to_owned(), stdio_config);
 
         let mut headers = HashMap::new();
-        headers.insert("Authorization".to_string(), "Bearer secret".to_string());
+        headers.insert("Authorization".to_owned(), "Bearer secret".to_owned());
         let mut env_headers = HashMap::new();
-        env_headers.insert("X-API-Key".to_string(), "API_KEY_ENV".to_string());
+        env_headers.insert("X-API-Key".to_owned(), "API_KEY_ENV".to_owned());
         let http_config = McpServerConfig {
             transport: McpServerTransportConfig::StreamableHttp {
-                url: "https://example.com/mcp".to_string(),
-                bearer_token_env_var: Some("MCP_TOKEN".to_string()),
+                url: "https://example.com/mcp".to_owned(),
+                bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
                 http_headers: Some(headers),
                 env_http_headers: Some(env_headers),
             },
@@ -2242,7 +2242,7 @@ mod tests {
             disabled_tools: None,
             scopes: None,
         };
-        servers.insert("http".to_string(), http_config);
+        servers.insert("http".to_owned(), http_config);
         config
             .mcp_servers
             .set(servers)
@@ -2250,10 +2250,10 @@ mod tests {
 
         let mut tools: HashMap<String, Tool> = HashMap::new();
         tools.insert(
-            "mcp__docs__list".to_string(),
+            "mcp__docs__list".to_owned(),
             Tool {
                 description: None,
-                name: "list".to_string(),
+                name: "list".to_owned(),
                 title: None,
                 input_schema: serde_json::json!({"type": "object", "properties": {}}),
                 output_schema: None,
@@ -2263,10 +2263,10 @@ mod tests {
             },
         );
         tools.insert(
-            "mcp__http__ping".to_string(),
+            "mcp__http__ping".to_owned(),
             Tool {
                 description: None,
-                name: "ping".to_string(),
+                name: "ping".to_owned(),
                 title: None,
                 input_schema: serde_json::json!({"type": "object", "properties": {}}),
                 output_schema: None,
@@ -2310,11 +2310,11 @@ mod tests {
         assert_eq!(
             rendered,
             vec![
-                "✔ You approved savfox to".to_string(),
-                "  run echo something".to_string(),
-                "  really long to ensure".to_string(),
-                "  wrapping happens this".to_string(),
-                "  time".to_string(),
+                "✔ You approved savfox to".to_owned(),
+                "  run echo something".to_owned(),
+                "  really long to ensure".to_owned(),
+                "  wrapping happens this".to_owned(),
+                "  time".to_owned(),
             ]
         );
     }
@@ -2322,9 +2322,9 @@ mod tests {
     #[test]
     fn web_search_history_cell_snapshot() {
         let query =
-            "example search query with several generic words to exercise wrapping".to_string();
+            "example search query with several generic words to exercise wrapping".to_owned();
         let cell = new_web_search_call(
-            "call-1".to_string(),
+            "call-1".to_owned(),
             query.clone(),
             WebSearchAction::Search {
                 query: Some(query),
@@ -2339,9 +2339,9 @@ mod tests {
     #[test]
     fn web_search_history_cell_wraps_with_indented_continuation() {
         let query =
-            "example search query with several generic words to exercise wrapping".to_string();
+            "example search query with several generic words to exercise wrapping".to_owned();
         let cell = new_web_search_call(
-            "call-1".to_string(),
+            "call-1".to_owned(),
             query.clone(),
             WebSearchAction::Search {
                 query: Some(query),
@@ -2353,17 +2353,17 @@ mod tests {
         assert_eq!(
             rendered,
             vec![
-                "• Searched example search query with several generic words to".to_string(),
-                "  exercise wrapping".to_string(),
+                "• Searched example search query with several generic words to".to_owned(),
+                "  exercise wrapping".to_owned(),
             ]
         );
     }
 
     #[test]
     fn web_search_history_cell_short_query_does_not_wrap() {
-        let query = "short query".to_string();
+        let query = "short query".to_owned();
         let cell = new_web_search_call(
-            "call-1".to_string(),
+            "call-1".to_owned(),
             query.clone(),
             WebSearchAction::Search {
                 query: Some(query),
@@ -2372,15 +2372,15 @@ mod tests {
         );
         let rendered = render_lines(&cell.display_lines(64));
 
-        assert_eq!(rendered, vec!["• Searched short query".to_string()]);
+        assert_eq!(rendered, vec!["• Searched short query".to_owned()]);
     }
 
     #[test]
     fn web_search_history_cell_transcript_snapshot() {
         let query =
-            "example search query with several generic words to exercise wrapping".to_string();
+            "example search query with several generic words to exercise wrapping".to_owned();
         let cell = new_web_search_call(
-            "call-1".to_string(),
+            "call-1".to_owned(),
             query.clone(),
             WebSearchAction::Search {
                 query: Some(query),
@@ -2647,7 +2647,7 @@ mod tests {
     #[test]
     fn session_header_includes_reasoning_level_when_present() {
         let cell = SessionHeaderHistoryCell::new(
-            "gpt-4o".to_string(),
+            "gpt-4o".to_owned(),
             Some(ReasoningEffortConfig::High),
             std::env::temp_dir(),
             "test",
@@ -2665,7 +2665,7 @@ mod tests {
     #[test]
     fn startup_session_header_uses_ascii_logo_and_centers_card() {
         let cell = SessionHeaderHistoryCell::new_startup_with_style(
-            "loading".to_string(),
+            "loading".to_owned(),
             Style::default().add_modifier(Modifier::DIM | Modifier::ITALIC),
             None,
             std::env::temp_dir(),
@@ -2717,7 +2717,7 @@ mod tests {
     #[test]
     fn coalesces_sequential_reads_within_one_call() {
         // Build one exec cell with a Search followed by two Reads
-        let call_id = "c1".to_string();
+        let call_id = "c1".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2759,7 +2759,7 @@ mod tests {
     fn coalesces_reads_across_multiple_calls() {
         let mut cell = ExecCell::new(
             ExecCall {
-                call_id: "c1".to_string(),
+                call_id: "c1".to_owned(),
                 command: vec!["bash".into(), "-lc".into(), "echo".into()],
                 parsed: vec![ParsedCommand::Search {
                     query: Some("shimmer_spans".into()),
@@ -2816,7 +2816,7 @@ mod tests {
     fn coalesced_reads_dedupe_names() {
         let mut cell = ExecCell::new(
             ExecCall {
-                call_id: "c1".to_string(),
+                call_id: "c1".to_owned(),
                 command: vec!["bash".into(), "-lc".into(), "echo".into()],
                 parsed: vec![
                     ParsedCommand::Read {
@@ -2852,8 +2852,8 @@ mod tests {
     #[test]
     fn multiline_command_wraps_with_extra_indent_on_subsequent_lines() {
         // Create a completed exec cell with a multiline command
-        let cmd = "set -o pipefail\ncargo test --all-features --quiet".to_string();
-        let call_id = "c1".to_string();
+        let cmd = "set -o pipefail\ncargo test --all-features --quiet".to_owned();
+        let call_id = "c1".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2879,7 +2879,7 @@ mod tests {
 
     #[test]
     fn single_line_command_compact_when_fits() {
-        let call_id = "c1".to_string();
+        let call_id = "c1".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2902,8 +2902,8 @@ mod tests {
 
     #[test]
     fn single_line_command_wraps_with_four_space_continuation() {
-        let call_id = "c1".to_string();
-        let long = "a_very_long_token_without_spaces_to_force_wrapping".to_string();
+        let call_id = "c1".to_owned();
+        let long = "a_very_long_token_without_spaces_to_force_wrapping".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2925,8 +2925,8 @@ mod tests {
 
     #[test]
     fn multiline_command_without_wrap_uses_branch_then_eight_spaces() {
-        let call_id = "c1".to_string();
-        let cmd = "echo one\necho two".to_string();
+        let call_id = "c1".to_owned();
+        let cmd = "echo one\necho two".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2948,9 +2948,8 @@ mod tests {
 
     #[test]
     fn multiline_command_both_lines_wrap_with_correct_prefixes() {
-        let call_id = "c1".to_string();
-        let cmd = "first_token_is_long_enough_to_wrap\nsecond_token_is_also_long_enough_to_wrap"
-            .to_string();
+        let call_id = "c1".to_owned();
+        let cmd = "first_token_is_long_enough_to_wrap\nsecond_token_is_also_long_enough_to_wrap".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -2974,7 +2973,7 @@ mod tests {
     fn stderr_tail_more_than_five_lines_snapshot() {
         // Build an exec cell with a non-zero exit and 10 lines on stderr to exercise
         // the head/tail rendering and gutter prefixes.
-        let call_id = "c_err".to_string();
+        let call_id = "c_err".to_owned();
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
@@ -3022,13 +3021,13 @@ mod tests {
         // command long enough that it must render on its own line under the
         // header, and include a couple of stderr lines to verify the output
         // block prefixes and wrapping.
-        let call_id = "c_wrap_err".to_string();
+        let call_id = "c_wrap_err".to_owned();
         let long_cmd =
             "echo this_is_a_very_long_single_token_that_will_wrap_across_the_available_width";
         let mut cell = ExecCell::new(
             ExecCall {
                 call_id: call_id.clone(),
-                command: vec!["bash".into(), "-lc".into(), long_cmd.to_string()],
+                command: vec!["bash".into(), "-lc".into(), long_cmd.to_owned()],
                 parsed: Vec::new(),
                 output: None,
                 source: ExecCommandSource::Agent,
@@ -3039,7 +3038,7 @@ mod tests {
             true,
         );
 
-        let stderr = "error: first line on stderr\nerror: second line on stderr".to_string();
+        let stderr = "error: first line on stderr\nerror: second line on stderr".to_owned();
         cell.complete_call(
             &call_id,
             CommandOutput {
@@ -3069,7 +3068,7 @@ mod tests {
     fn user_history_cell_wraps_and_prefixes_each_line_snapshot() {
         let msg = "one two three four five six seven";
         let cell = UserHistoryCell {
-            message: msg.to_string(),
+            message: msg.to_owned(),
             text_elements: Vec::new(),
             local_image_paths: Vec::new(),
         };
@@ -3089,8 +3088,7 @@ mod tests {
         // alignment.
         let update = UpdatePlanArgs {
             explanation: Some(
-                "I’ll update Grafana call error handling by adding retries and clearer messages when the backend is unreachable."
-                    .to_string(),
+                "I’ll update Grafana call error handling by adding retries and clearer messages when the backend is unreachable.".to_owned(),
             ),
             plan: vec![
                 PlanItemArg {
@@ -3139,7 +3137,7 @@ mod tests {
     #[test]
     fn reasoning_summary_block() {
         let cell = new_reasoning_summary_block(
-            "**High level reasoning**\n\nDetailed reasoning goes here.".to_string(),
+            "**High level reasoning**\n\nDetailed reasoning goes here.".to_owned(),
         );
 
         let rendered_display = render_lines(&cell.display_lines(80));
@@ -3151,7 +3149,7 @@ mod tests {
 
     #[test]
     fn reasoning_summary_block_returns_reasoning_cell_when_feature_disabled() {
-        let cell = new_reasoning_summary_block("Detailed reasoning goes here.".to_string());
+        let cell = new_reasoning_summary_block("Detailed reasoning goes here.".to_owned());
 
         let rendered = render_transcript(cell.as_ref());
         assert_eq!(rendered, vec!["• Detailed reasoning goes here."]);
@@ -3160,10 +3158,10 @@ mod tests {
     #[tokio::test]
     async fn reasoning_summary_block_respects_config_overrides() {
         let mut config = test_config().await;
-        config.model = Some("gpt-3.5-turbo".to_string());
+        config.model = Some("gpt-3.5-turbo".to_owned());
         config.model_supports_reasoning_summaries = Some(true);
         let cell = new_reasoning_summary_block(
-            "**High level reasoning**\n\nDetailed reasoning goes here.".to_string(),
+            "**High level reasoning**\n\nDetailed reasoning goes here.".to_owned(),
         );
 
         let rendered_display = render_lines(&cell.display_lines(80));
@@ -3173,7 +3171,7 @@ mod tests {
     #[test]
     fn reasoning_summary_block_falls_back_when_header_is_missing() {
         let cell =
-            new_reasoning_summary_block("**High level reasoning without closing".to_string());
+            new_reasoning_summary_block("**High level reasoning without closing".to_owned());
 
         let rendered = render_transcript(cell.as_ref());
         assert_eq!(rendered, vec!["• **High level reasoning without closing"]);
@@ -3182,13 +3180,13 @@ mod tests {
     #[test]
     fn reasoning_summary_block_falls_back_when_summary_is_missing() {
         let cell =
-            new_reasoning_summary_block("**High level reasoning without closing**".to_string());
+            new_reasoning_summary_block("**High level reasoning without closing**".to_owned());
 
         let rendered = render_transcript(cell.as_ref());
         assert_eq!(rendered, vec!["• High level reasoning without closing"]);
 
         let cell = new_reasoning_summary_block(
-            "**High level reasoning without closing**\n\n  ".to_string(),
+            "**High level reasoning without closing**\n\n  ".to_owned(),
         );
 
         let rendered = render_transcript(cell.as_ref());
@@ -3198,7 +3196,7 @@ mod tests {
     #[test]
     fn reasoning_summary_block_splits_header_and_summary_when_present() {
         let cell = new_reasoning_summary_block(
-            "**High level plan**\n\nWe should fix the bug next.".to_string(),
+            "**High level plan**\n\nWe should fix the bug next.".to_owned(),
         );
 
         let rendered_display = render_lines(&cell.display_lines(80));
@@ -3211,16 +3209,16 @@ mod tests {
     #[test]
     fn deprecation_notice_renders_summary_with_details() {
         let cell = new_deprecation_notice(
-            "Feature flag `foo`".to_string(),
-            Some("Use flag `bar` instead.".to_string()),
+            "Feature flag `foo`".to_owned(),
+            Some("Use flag `bar` instead.".to_owned()),
         );
         let lines = cell.display_lines(80);
         let rendered = render_lines(&lines);
         assert_eq!(
             rendered,
             vec![
-                "⚠ Feature flag `foo`".to_string(),
-                "Use flag `bar` instead.".to_string(),
+                "⚠ Feature flag `foo`".to_owned(),
+                "Use flag `bar` instead.".to_owned(),
             ]
         );
     }

@@ -118,7 +118,7 @@ async fn session_read_can_include_turns() -> Result<()> {
             assert_eq!(
                 content,
                 &vec![UserInput::Text {
-                    text: preview.to_string(),
+                    text: preview.to_owned(),
                     text_elements: text_elements.clone().into_iter().map(Into::into).collect(),
                 }]
             );

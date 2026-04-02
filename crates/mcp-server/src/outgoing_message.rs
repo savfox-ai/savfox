@@ -231,7 +231,7 @@ mod tests {
     fn outgoing_request_serializes_as_jsonrpc_request() {
         let msg: OutgoingJsonRpcMessage = OutgoingMessage::Request(OutgoingRequest {
             id: RequestId::Number(1),
-            method: "elicitation/create".to_string(),
+            method: "elicitation/create".to_owned(),
             params: Some(json!({ "k": "v" })),
         })
         .into();
@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn outgoing_notification_serializes_as_jsonrpc_notification() {
         let msg: OutgoingJsonRpcMessage = OutgoingMessage::Notification(OutgoingNotification {
-            method: "notifications/initialized".to_string(),
+            method: "notifications/initialized".to_owned(),
             params: None,
         })
         .into();
@@ -277,13 +277,13 @@ mod tests {
         let session_id = SessionId::new();
         let rollout_file = NamedTempFile::new()?;
         let event = Event {
-            id: "1".to_string(),
+            id: "1".to_owned(),
             msg: EventMsg::SessionConfigured(SessionConfiguredEvent {
                 session_id,
                 forked_from_id: None,
                 session_name: None,
-                model: "gpt-4o".to_string(),
-                model_provider_id: "test-provider".to_string(),
+                model: "gpt-4o".to_owned(),
+                model_provider_id: "test-provider".to_owned(),
                 approval_policy: AskForApproval::Never,
                 sandbox_policy: SandboxPolicy::ReadOnly,
                 cwd: PathBuf::from("/home/user/project"),
@@ -323,8 +323,8 @@ mod tests {
             session_id: conversation_id,
             forked_from_id: None,
             session_name: None,
-            model: "gpt-4o".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "gpt-4o".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/home/user/project"),
@@ -335,7 +335,7 @@ mod tests {
             rollout_path: Some(rollout_file.path().to_path_buf()),
         };
         let event = Event {
-            id: "1".to_string(),
+            id: "1".to_owned(),
             msg: EventMsg::SessionConfigured(session_configured_event.clone()),
         };
         let meta = OutgoingNotificationMeta {
@@ -385,11 +385,11 @@ mod tests {
         let session_id = SessionId::new();
         let rollout_file = NamedTempFile::new()?;
         let session_configured_event = SessionConfiguredEvent {
-            session_id: session_id.clone(),
+            session_id: session_id,
             forked_from_id: None,
             session_name: None,
-            model: "gpt-4o".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "gpt-4o".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/home/user/project"),
@@ -400,7 +400,7 @@ mod tests {
             rollout_path: Some(rollout_file.path().to_path_buf()),
         };
         let event = Event {
-            id: "1".to_string(),
+            id: "1".to_owned(),
             msg: EventMsg::SessionConfigured(session_configured_event.clone()),
         };
         let meta = OutgoingNotificationMeta {

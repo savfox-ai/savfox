@@ -775,8 +775,8 @@ mod tests {
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: id.to_string(),
-            kind: kind.to_string(),
+            id: id.to_owned(),
+            kind: kind.to_owned(),
             slug: String::new(),
             name: format!("{kind}-test"),
             enabled,
@@ -986,9 +986,9 @@ mod tests {
             ),
         ];
         let started = HashSet::from([
-            "matrix-running".to_string(),
-            "matrix-disabled".to_string(),
-            "matrix-incomplete".to_string(),
+            "matrix-running".to_owned(),
+            "matrix-disabled".to_owned(),
+            "matrix-incomplete".to_owned(),
         ]);
 
         assert_eq!(started_saved_channel_count("matrix", &saved, &started), 1);
@@ -1130,15 +1130,15 @@ mod tests {
     #[test]
     fn cron_job_summary_value_matches_wire_shape() {
         let job = savfox_core::cron::CronJob {
-            id: "job-1".to_string(),
-            name: "Daily Summary".to_string(),
-            agent_id: Some("writer".to_string()),
+            id: "job-1".to_owned(),
+            name: "Daily Summary".to_owned(),
+            agent_id: Some("writer".to_owned()),
             schedule: savfox_core::cron::CronSchedule::Every {
                 interval_secs: 3_600,
                 anchor_ms: 0,
             },
             payload: savfox_core::cron::CronPayload::SystemEvent {
-                text: "summarize the latest notes".to_string(),
+                text: "summarize the latest notes".to_owned(),
             },
             delivery: savfox_core::cron::CronDelivery::default(),
             session_target: savfox_core::cron::CronSessionTarget::Main,
@@ -1146,7 +1146,7 @@ mod tests {
                 enabled: true,
                 next_run_at_ms: Some(1_700_000_000_000),
                 last_run_at_ms: Some(1_699_999_900_000),
-                last_status: Some("ok".to_string()),
+                last_status: Some("ok".to_owned()),
                 consecutive_errors: 0,
                 main_session_id: Some(uuid::Uuid::now_v7().to_string()),
             },
@@ -1179,13 +1179,13 @@ mod tests {
         assert_eq!(status_value["job_count"], json!(3));
 
         let run = savfox_core::cron::CronRunEntry {
-            job_id: "job-1".to_string(),
-            job_name: "Daily Summary".to_string(),
+            job_id: "job-1".to_owned(),
+            job_name: "Daily Summary".to_owned(),
             started_at_ms: 1_700_000_000_000,
             finished_at_ms: 1_700_000_015_250,
-            status: "ok".to_string(),
+            status: "ok".to_owned(),
             error: None,
-            result_preview: Some("done".to_string()),
+            result_preview: Some("done".to_owned()),
         };
         let run_value = cron_run_summary_value(&run);
         assert_eq!(run_value["job_id"], json!("job-1"));

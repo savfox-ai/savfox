@@ -439,7 +439,7 @@ mod tests {
 
     fn make_skill(name: &str, path: &str) -> SkillMetadata {
         SkillMetadata {
-            name: name.to_string(),
+            name: name.to_owned(),
             description: format!("{name} skill"),
             short_description: None,
             interface: None,
@@ -573,7 +573,7 @@ mod tests {
         let beta = make_skill("beta-skill", "/tmp/beta");
         let skills = vec![beta.clone(), alpha.clone()];
         let inputs = vec![UserInput::Text {
-            text: "first $alpha-skill then $beta-skill".to_string(),
+            text: "first $alpha-skill then $beta-skill".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -591,11 +591,11 @@ mod tests {
         let skills = vec![alpha.clone(), beta];
         let inputs = vec![
             UserInput::Text {
-                text: "please run $alpha-skill".to_string(),
+                text: "please run $alpha-skill".to_owned(),
                 text_elements: Vec::new(),
             },
             UserInput::Skill {
-                name: "beta-skill".to_string(),
+                name: "beta-skill".to_owned(),
                 path: PathBuf::from("/tmp/beta"),
             },
         ];
@@ -611,7 +611,7 @@ mod tests {
         let alpha = make_skill("alpha-skill", "/tmp/alpha");
         let skills = vec![alpha.clone()];
         let inputs = vec![UserInput::Text {
-            text: "use [$alpha-skill](/tmp/alpha) and [$alpha-skill](/tmp/alpha)".to_string(),
+            text: "use [$alpha-skill](/tmp/alpha) and [$alpha-skill](/tmp/alpha)".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -627,7 +627,7 @@ mod tests {
         let beta = make_skill("demo-skill", "/tmp/beta");
         let skills = vec![alpha, beta];
         let inputs = vec![UserInput::Text {
-            text: "use $demo-skill and again $demo-skill".to_string(),
+            text: "use $demo-skill and again $demo-skill".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -643,7 +643,7 @@ mod tests {
         let beta = make_skill("demo-skill", "/tmp/beta");
         let skills = vec![alpha, beta.clone()];
         let inputs = vec![UserInput::Text {
-            text: "use $demo-skill and [$demo-skill](/tmp/beta)".to_string(),
+            text: "use $demo-skill and [$demo-skill](/tmp/beta)".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -658,10 +658,10 @@ mod tests {
         let alpha = make_skill("alpha-skill", "/tmp/alpha");
         let skills = vec![alpha];
         let inputs = vec![UserInput::Text {
-            text: "use $alpha-skill".to_string(),
+            text: "use $alpha-skill".to_owned(),
             text_elements: Vec::new(),
         }];
-        let connector_counts = HashMap::from([("alpha-skill".to_string(), 1)]);
+        let connector_counts = HashMap::from([("alpha-skill".to_owned(), 1)]);
 
         let selected = collect_mentions(&inputs, &skills, &HashSet::new(), &connector_counts);
 
@@ -673,10 +673,10 @@ mod tests {
         let alpha = make_skill("alpha-skill", "/tmp/alpha");
         let skills = vec![alpha.clone()];
         let inputs = vec![UserInput::Text {
-            text: "use [$alpha-skill](/tmp/alpha)".to_string(),
+            text: "use [$alpha-skill](/tmp/alpha)".to_owned(),
             text_elements: Vec::new(),
         }];
-        let connector_counts = HashMap::from([("alpha-skill".to_string(), 1)]);
+        let connector_counts = HashMap::from([("alpha-skill".to_owned(), 1)]);
 
         let selected = collect_mentions(&inputs, &skills, &HashSet::new(), &connector_counts);
 
@@ -689,7 +689,7 @@ mod tests {
         let beta = make_skill("demo-skill", "/tmp/beta");
         let skills = vec![alpha, beta];
         let inputs = vec![UserInput::Text {
-            text: "use [$demo-skill](/tmp/alpha)".to_string(),
+            text: "use [$demo-skill](/tmp/alpha)".to_owned(),
             text_elements: Vec::new(),
         }];
         let disabled = HashSet::from([PathBuf::from("/tmp/alpha")]);
@@ -706,7 +706,7 @@ mod tests {
         let beta = make_skill("demo-skill", "/tmp/beta");
         let skills = vec![alpha, beta.clone()];
         let inputs = vec![UserInput::Text {
-            text: "use [$demo-skill](/tmp/beta)".to_string(),
+            text: "use [$demo-skill](/tmp/beta)".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -722,7 +722,7 @@ mod tests {
         let beta = make_skill("demo-skill", "/tmp/beta");
         let skills = vec![alpha, beta];
         let inputs = vec![UserInput::Text {
-            text: "use [$demo-skill](/tmp/missing)".to_string(),
+            text: "use [$demo-skill](/tmp/missing)".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();
@@ -737,7 +737,7 @@ mod tests {
         let alpha = make_skill("demo-skill", "/tmp/alpha");
         let skills = vec![alpha];
         let inputs = vec![UserInput::Text {
-            text: "use [$demo-skill](/tmp/missing)".to_string(),
+            text: "use [$demo-skill](/tmp/missing)".to_owned(),
             text_elements: Vec::new(),
         }];
         let connector_counts = HashMap::new();

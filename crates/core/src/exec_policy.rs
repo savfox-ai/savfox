@@ -597,12 +597,12 @@ mod tests {
             .expect("manager result");
         let policy = manager.current();
 
-        let commands = [vec!["rm".to_string()]];
+        let commands = [vec!["rm".to_owned()]];
         assert_eq!(
             Evaluation {
                 decision: Decision::Allow,
                 matched_rules: vec![RuleMatch::HeuristicsRuleMatch {
-                    command: vec!["rm".to_string()],
+                    command: vec!["rm".to_owned()],
                     decision: Decision::Allow
                 }],
             },
@@ -638,12 +638,12 @@ mod tests {
         let policy = load_exec_policy(&config_stack)
             .await
             .expect("policy result");
-        let command = [vec!["rm".to_string()]];
+        let command = [vec!["rm".to_owned()]];
         assert_eq!(
             Evaluation {
                 decision: Decision::Forbidden,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["rm".to_string()],
+                    matched_prefix: vec!["rm".to_owned()],
                     decision: Decision::Forbidden,
                     justification: None,
                 }],
@@ -665,12 +665,12 @@ mod tests {
         let policy = load_exec_policy(&config_stack)
             .await
             .expect("policy result");
-        let command = [vec!["ls".to_string()]];
+        let command = [vec!["ls".to_owned()]];
         assert_eq!(
             Evaluation {
                 decision: Decision::Allow,
                 matched_rules: vec![RuleMatch::HeuristicsRuleMatch {
-                    command: vec!["ls".to_string()],
+                    command: vec!["ls".to_owned()],
                     decision: Decision::Allow
                 }],
             },
@@ -708,12 +708,12 @@ mod tests {
             Evaluation {
                 decision: Decision::Forbidden,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["ls".to_string()],
+                    matched_prefix: vec!["ls".to_owned()],
                     decision: Decision::Forbidden,
                     justification: None,
                 }],
             },
-            policy.check_multiple([vec!["ls".to_string()]].iter(), &|_| Decision::Allow)
+            policy.check_multiple([vec!["ls".to_owned()]].iter(), &|_| Decision::Allow)
         );
 
         Ok(())
@@ -767,23 +767,23 @@ mod tests {
             Evaluation {
                 decision: Decision::Forbidden,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["rm".to_string()],
+                    matched_prefix: vec!["rm".to_owned()],
                     decision: Decision::Forbidden,
                     justification: None,
                 }],
             },
-            policy.check_multiple([vec!["rm".to_string()]].iter(), &|_| Decision::Allow)
+            policy.check_multiple([vec!["rm".to_owned()]].iter(), &|_| Decision::Allow)
         );
         assert_eq!(
             Evaluation {
                 decision: Decision::Prompt,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["ls".to_string()],
+                    matched_prefix: vec!["ls".to_owned()],
                     decision: Decision::Prompt,
                     justification: None,
                 }],
             },
-            policy.check_multiple([vec!["ls".to_string()]].iter(), &|_| Decision::Allow)
+            policy.check_multiple([vec!["ls".to_owned()]].iter(), &|_| Decision::Allow)
         );
         Ok(())
     }
@@ -800,9 +800,9 @@ prefix_rule(pattern=["rm"], decision="forbidden")
         let policy = Arc::new(parser.build());
 
         let forbidden_script = vec![
-            "bash".to_string(),
-            "-lc".to_string(),
-            "rm -rf /some/important/folder".to_string(),
+            "bash".to_owned(),
+            "-lc".to_owned(),
+            "rm -rf /some/important/folder".to_owned(),
         ];
 
         let manager = ExecPolicyManager::new(policy);
@@ -820,7 +820,7 @@ prefix_rule(pattern=["rm"], decision="forbidden")
         assert_eq!(
             requirement,
             ExecApprovalRequirement::Forbidden {
-                reason: "`bash -lc 'rm -rf /some/important/folder'` rejected: policy forbids commands starting with `rm`".to_string()
+                reason: "`bash -lc 'rm -rf /some/important/folder'` rejected: policy forbids commands starting with `rm`".to_owned()
             }
         );
     }
@@ -845,9 +845,9 @@ prefix_rule(
             .create_exec_approval_requirement_for_command(ExecApprovalRequest {
                 features: &Features::with_defaults(),
                 command: &[
-                    "rm".to_string(),
-                    "-rf".to_string(),
-                    "/some/important/folder".to_string(),
+                    "rm".to_owned(),
+                    "-rf".to_owned(),
+                    "/some/important/folder".to_owned(),
                 ],
                 approval_policy: AskForApproval::OnRequest,
                 sandbox_policy: &SandboxPolicy::DangerFullAccess,
@@ -859,7 +859,7 @@ prefix_rule(
         assert_eq!(
             requirement,
             ExecApprovalRequirement::Forbidden {
-                reason: "`rm -rf /some/important/folder` rejected: destructive command".to_string()
+                reason: "`rm -rf /some/important/folder` rejected: destructive command".to_owned()
             }
         );
     }
@@ -872,7 +872,7 @@ prefix_rule(
             .parse("test.rules", policy_src)
             .expect("parse policy");
         let policy = Arc::new(parser.build());
-        let command = vec!["rm".to_string()];
+        let command = vec!["rm".to_owned()];
 
         let manager = ExecPolicyManager::new(policy);
         let requirement = manager
@@ -889,7 +889,7 @@ prefix_rule(
         assert_eq!(
             requirement,
             ExecApprovalRequirement::NeedsApproval {
-                reason: Some("`rm` requires approval by policy".to_string()),
+                reason: Some("`rm` requires approval by policy".to_owned()),
                 proposed_execpolicy_amendment: None,
             }
         );
@@ -903,7 +903,7 @@ prefix_rule(
             .parse("test.rules", policy_src)
             .expect("parse policy");
         let policy = Arc::new(parser.build());
-        let command = vec!["rm".to_string()];
+        let command = vec!["rm".to_owned()];
 
         let manager = ExecPolicyManager::new(policy);
         let requirement = manager
@@ -920,14 +920,14 @@ prefix_rule(
         assert_eq!(
             requirement,
             ExecApprovalRequirement::Forbidden {
-                reason: PROMPT_CONFLICT_REASON.to_string()
+                reason: PROMPT_CONFLICT_REASON.to_owned()
             }
         );
     }
 
     #[tokio::test]
     async fn exec_approval_requirement_falls_back_to_heuristics() {
-        let command = vec!["cargo".to_string(), "build".to_string()];
+        let command = vec!["cargo".to_owned(), "build".to_owned()];
 
         let manager = ExecPolicyManager::default();
         let requirement = manager
@@ -953,9 +953,9 @@ prefix_rule(
     #[tokio::test]
     async fn request_rule_uses_prefix_rule() {
         let command = vec![
-            "cargo".to_string(),
-            "install".to_string(),
-            "cargo-insta".to_string(),
+            "cargo".to_owned(),
+            "install".to_owned(),
+            "cargo-insta".to_owned(),
         ];
         let manager = ExecPolicyManager::default();
         let mut features = Features::with_defaults();
@@ -968,7 +968,7 @@ prefix_rule(
                 approval_policy: AskForApproval::OnRequest,
                 sandbox_policy: &SandboxPolicy::ReadOnly,
                 sandbox_permissions: SandboxPermissions::RequireEscalated,
-                prefix_rule: Some(vec!["cargo".to_string(), "install".to_string()]),
+                prefix_rule: Some(vec!["cargo".to_owned(), "install".to_owned()]),
             })
             .await;
 
@@ -977,8 +977,8 @@ prefix_rule(
             ExecApprovalRequirement::NeedsApproval {
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "cargo".to_string(),
-                    "install".to_string(),
+                    "cargo".to_owned(),
+                    "install".to_owned(),
                 ])),
             }
         );
@@ -993,9 +993,9 @@ prefix_rule(
             .expect("parse policy");
         let policy = Arc::new(parser.build());
         let command = vec![
-            "bash".to_string(),
-            "-lc".to_string(),
-            "apple | orange".to_string(),
+            "bash".to_owned(),
+            "-lc".to_owned(),
+            "apple | orange".to_owned(),
         ];
 
         assert_eq!(
@@ -1012,7 +1012,7 @@ prefix_rule(
             ExecApprovalRequirement::NeedsApproval {
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "orange".to_string()
+                    "orange".to_owned()
                 ]))
             }
         );
@@ -1021,7 +1021,7 @@ prefix_rule(
     #[tokio::test]
     async fn append_execpolicy_amendment_updates_policy_and_file() {
         let savfox_home = tempdir().expect("create temp dir");
-        let prefix = vec!["echo".to_string(), "hello".to_string()];
+        let prefix = vec!["echo".to_owned(), "hello".to_owned()];
         let manager = ExecPolicyManager::default();
 
         manager
@@ -1031,7 +1031,7 @@ prefix_rule(
         let updated_policy = manager.current();
 
         let evaluation = updated_policy.check(
-            &["echo".to_string(), "hello".to_string(), "world".to_string()],
+            &["echo".to_owned(), "hello".to_owned(), "world".to_owned()],
             &|_| Decision::Allow,
         );
         assert!(matches!(
@@ -1071,7 +1071,7 @@ prefix_rule(
 
     #[tokio::test]
     async fn proposed_execpolicy_amendment_is_present_for_single_command_without_policy_match() {
-        let command = vec!["cargo".to_string(), "build".to_string()];
+        let command = vec!["cargo".to_owned(), "build".to_owned()];
 
         let manager = ExecPolicyManager::default();
         let requirement = manager
@@ -1096,7 +1096,7 @@ prefix_rule(
 
     #[tokio::test]
     async fn proposed_execpolicy_amendment_is_disabled_when_execpolicy_feature_disabled() {
-        let command = vec!["cargo".to_string(), "build".to_string()];
+        let command = vec!["cargo".to_owned(), "build".to_owned()];
 
         let mut features = Features::with_defaults();
         features.disable(Feature::ExecPolicy);
@@ -1130,7 +1130,7 @@ prefix_rule(
             .parse("test.rules", policy_src)
             .expect("parse policy");
         let policy = Arc::new(parser.build());
-        let command = vec!["rm".to_string()];
+        let command = vec!["rm".to_owned()];
 
         let manager = ExecPolicyManager::new(policy);
         let requirement = manager
@@ -1147,7 +1147,7 @@ prefix_rule(
         assert_eq!(
             requirement,
             ExecApprovalRequirement::NeedsApproval {
-                reason: Some("`rm` requires approval by policy".to_string()),
+                reason: Some("`rm` requires approval by policy".to_owned()),
                 proposed_execpolicy_amendment: None,
             }
         );
@@ -1156,9 +1156,9 @@ prefix_rule(
     #[tokio::test]
     async fn proposed_execpolicy_amendment_is_present_for_multi_command_scripts() {
         let command = vec![
-            "bash".to_string(),
-            "-lc".to_string(),
-            "cargo build && echo ok".to_string(),
+            "bash".to_owned(),
+            "-lc".to_owned(),
+            "cargo build && echo ok".to_owned(),
         ];
         let manager = ExecPolicyManager::default();
         let requirement = manager
@@ -1177,8 +1177,8 @@ prefix_rule(
             ExecApprovalRequirement::NeedsApproval {
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "cargo".to_string(),
-                    "build".to_string()
+                    "cargo".to_owned(),
+                    "build".to_owned()
                 ])),
             }
         );
@@ -1194,9 +1194,9 @@ prefix_rule(
         let policy = Arc::new(parser.build());
 
         let command = vec![
-            "bash".to_string(),
-            "-lc".to_string(),
-            "cat && apple".to_string(),
+            "bash".to_owned(),
+            "-lc".to_owned(),
+            "cat && apple".to_owned(),
         ];
 
         assert_eq!(
@@ -1213,7 +1213,7 @@ prefix_rule(
             ExecApprovalRequirement::NeedsApproval {
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "apple".to_string()
+                    "apple".to_owned()
                 ])),
             }
         );
@@ -1221,7 +1221,7 @@ prefix_rule(
 
     #[tokio::test]
     async fn proposed_execpolicy_amendment_is_present_when_heuristics_allow() {
-        let command = vec!["echo".to_string(), "safe".to_string()];
+        let command = vec!["echo".to_owned(), "safe".to_owned()];
 
         let manager = ExecPolicyManager::default();
         let requirement = manager
@@ -1252,7 +1252,7 @@ prefix_rule(
             .parse("test.rules", policy_src)
             .expect("parse policy");
         let policy = Arc::new(parser.build());
-        let command = vec!["echo".to_string(), "safe".to_string()];
+        let command = vec!["echo".to_owned(), "safe".to_owned()];
 
         let manager = ExecPolicyManager::new(policy);
         let requirement = manager
@@ -1389,7 +1389,7 @@ prefix_rule(
         // AskForApproval::Never.
         assert_eq!(
             ExecApprovalRequirement::Forbidden {
-                reason: "`rm -rf /important/data` rejected: blocked by policy".to_string(),
+                reason: "`rm -rf /important/data` rejected: blocked by policy".to_owned(),
             },
             policy
                 .create_exec_approval_requirement_for_command(ExecApprovalRequest {

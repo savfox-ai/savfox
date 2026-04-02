@@ -244,31 +244,31 @@ mod tests {
     #[test]
     fn non_empty_finds_first_matching_key() {
         let mut map = Map::new();
-        map.insert("bot_token".to_string(), json!("secret-123"));
-        map.insert("token".to_string(), json!("fallback"));
+        map.insert("bot_token".to_owned(), json!("secret-123"));
+        map.insert("token".to_owned(), json!("fallback"));
 
         assert_eq!(
             non_empty(&map, &["bot_token", "token"]),
-            Some("secret-123".to_string())
+            Some("secret-123".to_owned())
         );
     }
 
     #[test]
     fn non_empty_skips_empty_strings() {
         let mut map = Map::new();
-        map.insert("bot_token".to_string(), json!(""));
-        map.insert("token".to_string(), json!("fallback"));
+        map.insert("bot_token".to_owned(), json!(""));
+        map.insert("token".to_owned(), json!("fallback"));
 
         assert_eq!(
             non_empty(&map, &["bot_token", "token"]),
-            Some("fallback".to_string())
+            Some("fallback".to_owned())
         );
     }
 
     #[test]
     fn non_empty_skips_whitespace_only() {
         let mut map = Map::new();
-        map.insert("token".to_string(), json!("   "));
+        map.insert("token".to_owned(), json!("   "));
 
         assert_eq!(non_empty(&map, &["token"]), None);
     }
@@ -282,8 +282,8 @@ mod tests {
     #[test]
     fn non_empty_trims_whitespace() {
         let mut map = Map::new();
-        map.insert("token".to_string(), json!("  abc  "));
+        map.insert("token".to_owned(), json!("  abc  "));
 
-        assert_eq!(non_empty(&map, &["token"]), Some("abc".to_string()));
+        assert_eq!(non_empty(&map, &["token"]), Some("abc".to_owned()));
     }
 }

@@ -385,12 +385,12 @@ mod tests {
     async fn shell_command_handler_to_exec_params_uses_session_shell_and_turn_context() {
         let (session, turn_context) = make_session_and_context().await;
 
-        let command = "echo hello".to_string();
-        let workdir = Some("subdir".to_string());
+        let command = "echo hello".to_owned();
+        let workdir = Some("subdir".to_owned());
         let login = None;
         let timeout_ms = Some(1234);
         let sandbox_permissions = SandboxPermissions::RequireEscalated;
-        let justification = Some("because tests".to_string());
+        let justification = Some("because tests".to_owned());
 
         let expected_command = session.user_shell().derive_exec_args(&command, true);
         let expected_cwd = turn_context.resolve_path(workdir.clone());

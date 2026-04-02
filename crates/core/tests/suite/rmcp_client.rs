@@ -60,14 +60,14 @@ async fn stdio_server_round_trip() -> anyhow::Result<()> {
         .with_config(move |config| {
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
                         command: rmcp_test_server_bin,
                         args: Vec::new(),
                         env: Some(HashMap::from([(
-                            "MCP_TEST_VALUE".to_string(),
-                            expected_env_value.to_string(),
+                            "MCP_TEST_VALUE".to_owned(),
+                            expected_env_value.to_owned(),
                         )])),
                         env_vars: Vec::new(),
                         cwd: None,
@@ -204,14 +204,14 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
         .with_config(move |config| {
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
                         command: rmcp_test_server_bin,
                         args: Vec::new(),
                         env: Some(HashMap::from([(
-                            "MCP_TEST_IMAGE_DATA_URL".to_string(),
-                            OPENAI_PNG.to_string(),
+                            "MCP_TEST_IMAGE_DATA_URL".to_owned(),
+                            OPENAI_PNG.to_owned(),
                         )])),
                         env_vars: Vec::new(),
                         cwd: None,
@@ -264,10 +264,10 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
     assert_eq!(
         begin,
         McpToolCallBeginEvent {
-            call_id: call_id.to_string(),
+            call_id: call_id.to_owned(),
             invocation: McpInvocation {
-                server: server_name.to_string(),
-                tool: "image".to_string(),
+                server: server_name.to_owned(),
+                tool: "image".to_owned(),
                 arguments: Some(json!({})),
             },
         },
@@ -284,8 +284,8 @@ async fn stdio_image_responses_round_trip() -> anyhow::Result<()> {
     assert_eq!(
         end.invocation,
         McpInvocation {
-            server: server_name.to_string(),
-            tool: "image".to_string(),
+            server: server_name.to_owned(),
+            tool: "image".to_owned(),
             arguments: Some(json!({})),
         }
     );
@@ -401,14 +401,14 @@ async fn stdio_image_completions_round_trip() -> anyhow::Result<()> {
             config.model_provider.wire_api = savfox_core::WireApi::Chat;
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
                         command: rmcp_test_server_bin,
                         args: Vec::new(),
                         env: Some(HashMap::from([(
-                            "MCP_TEST_IMAGE_DATA_URL".to_string(),
-                            OPENAI_PNG.to_string(),
+                            "MCP_TEST_IMAGE_DATA_URL".to_owned(),
+                            OPENAI_PNG.to_owned(),
                         )])),
                         env_vars: Vec::new(),
                         cwd: None,
@@ -460,10 +460,10 @@ async fn stdio_image_completions_round_trip() -> anyhow::Result<()> {
     assert_eq!(
         begin,
         McpToolCallBeginEvent {
-            call_id: call_id.to_string(),
+            call_id: call_id.to_owned(),
             invocation: McpInvocation {
-                server: server_name.to_string(),
-                tool: "image".to_string(),
+                server: server_name.to_owned(),
+                tool: "image".to_owned(),
                 arguments: Some(json!({})),
             },
         },
@@ -554,13 +554,13 @@ async fn stdio_server_propagates_whitelisted_env_vars() -> anyhow::Result<()> {
         .with_config(move |config| {
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
                         command: rmcp_test_server_bin,
                         args: Vec::new(),
                         env: None,
-                        env_vars: vec!["MCP_TEST_VALUE".to_string()],
+                        env_vars: vec!["MCP_TEST_VALUE".to_owned()],
                         cwd: None,
                     },
                     enabled: true,
@@ -716,7 +716,7 @@ async fn streamable_http_tool_call_round_trip() -> anyhow::Result<()> {
         .with_config(move |config| {
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::StreamableHttp {
                         url: server_url,
@@ -910,7 +910,7 @@ async fn streamable_http_with_oauth_round_trip() -> anyhow::Result<()> {
         .with_config(move |config| {
             let mut servers = config.mcp_servers.get().clone();
             servers.insert(
-                server_name.to_string(),
+                server_name.to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::StreamableHttp {
                         url: server_url,

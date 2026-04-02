@@ -385,6 +385,6 @@ mod tests {
 
     #[test]
     fn invalid_traceparent_returns_none() {
-        assert!(extract_traceparent_context("not-a-traceparent".to_string(), None).is_none());
+        assert!(extract_traceparent_context("not-a-traceparent".to_owned(), None).is_none());
     }
 }

@@ -46,9 +46,9 @@ fn snapshot_collects_metrics_without_shutdown() -> Result<()> {
     };
 
     let expected = BTreeMap::from([
-        ("service".to_string(), "savfox-cli".to_string()),
-        ("success".to_string(), "true".to_string()),
-        ("tool".to_string(), "shell".to_string()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
+        ("success".to_owned(), "true".to_owned()),
+        ("tool".to_owned(), "shell".to_owned()),
     ]);
     assert_eq!(attrs, expected);
 
@@ -72,11 +72,11 @@ fn manager_snapshot_metrics_collects_without_shutdown() -> Result<()> {
         SessionId::new(),
         "gpt-5.1",
         "gpt-5.1",
-        Some("account-id".to_string()),
+        Some("account-id".to_owned()),
         None,
         Some(AuthMode::ApiKey),
         true,
-        "tty".to_string(),
+        "tty".to_owned(),
         SessionSource::Cli,
     )
     .with_metrics(metrics);
@@ -103,15 +103,15 @@ fn manager_snapshot_metrics_collects_without_shutdown() -> Result<()> {
 
     let expected = BTreeMap::from([
         (
-            "app.version".to_string(),
-            env!("CARGO_PKG_VERSION").to_string(),
+            "app.version".to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
         ),
-        ("auth_mode".to_string(), AuthMode::ApiKey.to_string()),
-        ("model".to_string(), "gpt-5.1".to_string()),
-        ("service".to_string(), "savfox-cli".to_string()),
-        ("session_source".to_string(), "cli".to_string()),
-        ("success".to_string(), "true".to_string()),
-        ("tool".to_string(), "shell".to_string()),
+        ("auth_mode".to_owned(), AuthMode::ApiKey.to_string()),
+        ("model".to_owned(), "gpt-5.1".to_owned()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
+        ("session_source".to_owned(), "cli".to_owned()),
+        ("success".to_owned(), "true".to_owned()),
+        ("tool".to_owned(), "shell".to_owned()),
     ]);
     assert_eq!(attrs, expected);
 

@@ -209,7 +209,7 @@ mod tests {
     async fn send_prompt_errors_when_manager_dropped() {
         let control = AgentControl::default();
         let err = control
-            .send_prompt(SessionId::new(), "hello".to_string())
+            .send_prompt(SessionId::new(), "hello".to_owned())
             .await
             .expect_err("send_prompt should fail without a manager");
         assert_eq!(
@@ -237,20 +237,20 @@ mod tests {
     #[tokio::test]
     async fn on_event_updates_status_from_task_complete() {
         let status = agent_status_from_event(&EventMsg::TurnComplete(TurnCompleteEvent {
-            last_agent_message: Some("done".to_string()),
+            last_agent_message: Some("done".to_owned()),
         }));
-        let expected = AgentStatus::Completed(Some("done".to_string()));
+        let expected = AgentStatus::Completed(Some("done".to_owned()));
         assert_eq!(status, Some(expected));
     }
 
     #[tokio::test]
     async fn on_event_updates_status_from_error() {
         let status = agent_status_from_event(&EventMsg::Error(ErrorEvent {
-            message: "boom".to_string(),
+            message: "boom".to_owned(),
             savfox_error_info: None,
         }));
 
-        let expected = AgentStatus::Errored("boom".to_string());
+        let expected = AgentStatus::Errored("boom".to_owned());
         assert_eq!(status, Some(expected));
     }
 
@@ -260,7 +260,7 @@ mod tests {
             reason: TurnAbortReason::Interrupted,
         }));
 
-        let expected = AgentStatus::Errored("Interrupted".to_string());
+        let expected = AgentStatus::Errored("Interrupted".to_owned());
         assert_eq!(status, Some(expected));
     }
 
@@ -275,7 +275,7 @@ mod tests {
         let control = AgentControl::default();
         let (_home, config) = test_config().await;
         let err = control
-            .spawn_agent(config, "hello".to_string(), None)
+            .spawn_agent(config, "hello".to_owned(), None)
             .await
             .expect_err("spawn_agent should fail without a manager");
         assert_eq!(
@@ -290,7 +290,7 @@ mod tests {
         let session_id = SessionId::new();
         let err = harness
             .control
-            .send_prompt(session_id, "hello".to_string())
+            .send_prompt(session_id, "hello".to_owned())
             .await
             .expect_err("send_prompt should fail for missing session");
         assert_matches!(err, SavfoxError::SessionNotFound(id) if id == session_id);
@@ -350,7 +350,7 @@ mod tests {
 
         let submission_id = harness
             .control
-            .send_prompt(session_id, "hello from tests".to_string())
+            .send_prompt(session_id, "hello from tests".to_owned())
             .await
             .expect("send_prompt should succeed");
         assert!(!submission_id.is_empty());
@@ -358,7 +358,7 @@ mod tests {
             session_id,
             Op::UserInput {
                 items: vec![UserInput::Text {
-                    text: "hello from tests".to_string(),
+                    text: "hello from tests".to_owned(),
                     text_elements: Vec::new(),
                 }],
                 final_output_json_schema: None,
@@ -377,7 +377,7 @@ mod tests {
         let harness = AgentControlHarness::new().await;
         let session_id = harness
             .control
-            .spawn_agent(harness.config.clone(), "spawned".to_string(), None)
+            .spawn_agent(harness.config.clone(), "spawned".to_owned(), None)
             .await
             .expect("spawn_agent should succeed");
         let _session = harness
@@ -389,7 +389,7 @@ mod tests {
             session_id,
             Op::UserInput {
                 items: vec![UserInput::Text {
-                    text: "spawned".to_string(),
+                    text: "spawned".to_owned(),
                     text_elements: Vec::new(),
                 }],
                 final_output_json_schema: None,
@@ -407,7 +407,7 @@ mod tests {
     async fn spawn_agent_respects_max_sessions_limit() {
         let max_sessions = 1usize;
         let (_home, config) = test_config_with_cli_overrides(vec![(
-            "agents.max_sessions".to_string(),
+            "agents.max_sessions".to_owned(),
             TomlValue::Integer(max_sessions as i64),
         )])
         .await;
@@ -424,12 +424,12 @@ mod tests {
             .expect("start session");
 
         let first_agent_id = control
-            .spawn_agent(config.clone(), "hello".to_string(), None)
+            .spawn_agent(config.clone(), "hello".to_owned(), None)
             .await
             .expect("spawn_agent should succeed");
 
         let err = control
-            .spawn_agent(config, "hello again".to_string(), None)
+            .spawn_agent(config, "hello again".to_owned(), None)
             .await
             .expect_err("spawn_agent should respect max sessions");
         let SavfoxError::AgentLimitReached {
@@ -450,7 +450,7 @@ mod tests {
     async fn spawn_agent_releases_slot_after_shutdown() {
         let max_sessions = 1usize;
         let (_home, config) = test_config_with_cli_overrides(vec![(
-            "agents.max_sessions".to_string(),
+            "agents.max_sessions".to_owned(),
             TomlValue::Integer(max_sessions as i64),
         )])
         .await;
@@ -462,7 +462,7 @@ mod tests {
         let control = manager.agent_control();
 
         let first_agent_id = control
-            .spawn_agent(config.clone(), "hello".to_string(), None)
+            .spawn_agent(config.clone(), "hello".to_owned(), None)
             .await
             .expect("spawn_agent should succeed");
         let _ = control
@@ -471,7 +471,7 @@ mod tests {
             .expect("shutdown agent");
 
         let second_agent_id = control
-            .spawn_agent(config.clone(), "hello again".to_string(), None)
+            .spawn_agent(config.clone(), "hello again".to_owned(), None)
             .await
             .expect("spawn_agent should succeed after shutdown");
         let _ = control
@@ -484,7 +484,7 @@ mod tests {
     async fn spawn_agent_limit_shared_across_clones() {
         let max_sessions = 1usize;
         let (_home, config) = test_config_with_cli_overrides(vec![(
-            "agents.max_sessions".to_string(),
+            "agents.max_sessions".to_owned(),
             TomlValue::Integer(max_sessions as i64),
         )])
         .await;
@@ -497,12 +497,12 @@ mod tests {
         let cloned = control.clone();
 
         let first_agent_id = cloned
-            .spawn_agent(config.clone(), "hello".to_string(), None)
+            .spawn_agent(config.clone(), "hello".to_owned(), None)
             .await
             .expect("spawn_agent should succeed");
 
         let err = control
-            .spawn_agent(config, "hello again".to_string(), None)
+            .spawn_agent(config, "hello again".to_owned(), None)
             .await
             .expect_err("spawn_agent should respect shared guard");
         let SavfoxError::AgentLimitReached { max_sessions } = err else {

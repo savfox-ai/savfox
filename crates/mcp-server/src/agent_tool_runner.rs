@@ -385,7 +385,7 @@ mod tests {
     #[test]
     fn call_tool_result_includes_session_id_in_structured_content() {
         let session_id = SessionId::new();
-        let result = create_call_tool_result_with_session_id(session_id, "done".to_string(), None);
+        let result = create_call_tool_result_with_session_id(session_id, "done".to_owned(), None);
         assert_eq!(
             result.structured_content,
             Some(json!({

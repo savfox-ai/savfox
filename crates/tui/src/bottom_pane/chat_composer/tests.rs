@@ -15,7 +15,7 @@
             true,
             sender,
             enhanced_keys_supported,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         setup(&mut composer);
@@ -38,7 +38,7 @@
             true,
             sender,
             true,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_alt_screen_active(true);
@@ -194,7 +194,7 @@
             setup_collab_footer(composer, 98, None);
             composer.set_steer_enabled(true);
             composer.set_task_running(true);
-            composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+            composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
         });
         snapshot_composer_state_with_width(
             "footer_collapse_queue_short_with_context",
@@ -204,7 +204,7 @@
                 setup_collab_footer(composer, 98, None);
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -215,7 +215,7 @@
                 setup_collab_footer(composer, 98, None);
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -226,7 +226,7 @@
                 setup_collab_footer(composer, 98, None);
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -237,7 +237,7 @@
                 setup_collab_footer(composer, 98, None);
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
 
@@ -250,7 +250,7 @@
                 setup_collab_footer(composer, 98, Some(CollaborationModeIndicator::Plan));
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -261,7 +261,7 @@
                 setup_collab_footer(composer, 98, Some(CollaborationModeIndicator::Plan));
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -272,7 +272,7 @@
                 setup_collab_footer(composer, 98, Some(CollaborationModeIndicator::Plan));
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -283,7 +283,7 @@
                 setup_collab_footer(composer, 98, Some(CollaborationModeIndicator::Plan));
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
         snapshot_composer_state_with_width(
@@ -294,7 +294,7 @@
                 setup_collab_footer(composer, 98, Some(CollaborationModeIndicator::Plan));
                 composer.set_steer_enabled(true);
                 composer.set_task_running(true);
-                composer.set_text_content("Test".to_string(), Vec::new(), Vec::new());
+                composer.set_text_content("Test".to_owned(), Vec::new(), Vec::new());
             },
         );
     }
@@ -309,7 +309,7 @@
             true,
             sender,
             true,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -336,7 +336,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -359,7 +359,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -368,13 +368,13 @@
         composer.set_steer_enabled(true);
         composer.set_steer_enabled(true);
 
-        composer.set_text_content("draft text".to_string(), Vec::new(), Vec::new());
-        assert_eq!(composer.clear_for_ctrl_c(), Some("draft text".to_string()));
+        composer.set_text_content("draft text".to_owned(), Vec::new(), Vec::new());
+        assert_eq!(composer.clear_for_ctrl_c(), Some("draft text".to_owned()));
         assert!(composer.is_empty());
 
         assert_eq!(
             composer.history.navigate_up(&composer.app_event_tx),
-            Some(HistoryEntry::from_text("draft text".to_string()))
+            Some(HistoryEntry::from_text("draft text".to_owned()))
         );
     }
 
@@ -390,7 +390,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -437,7 +437,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -472,7 +472,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -493,41 +493,41 @@
     fn test_current_at_token_basic_cases() {
         let test_cases = vec![
             // Valid @ tokens
-            ("@hello", 3, Some("hello".to_string()), "Basic ASCII token"),
+            ("@hello", 3, Some("hello".to_owned()), "Basic ASCII token"),
             (
                 "@file.txt",
                 4,
-                Some("file.txt".to_string()),
+                Some("file.txt".to_owned()),
                 "ASCII with extension",
             ),
             (
                 "hello @world test",
                 8,
-                Some("world".to_string()),
+                Some("world".to_owned()),
                 "ASCII token in middle",
             ),
             (
                 "@test123",
                 5,
-                Some("test123".to_string()),
+                Some("test123".to_owned()),
                 "ASCII with numbers",
             ),
             // Unicode examples
-            ("@İstanbul", 3, Some("İstanbul".to_string()), "Turkish text"),
+            ("@İstanbul", 3, Some("İstanbul".to_owned()), "Turkish text"),
             (
                 "@testЙЦУ.rs",
                 8,
-                Some("testЙЦУ.rs".to_string()),
+                Some("testЙЦУ.rs".to_owned()),
                 "Mixed ASCII and Cyrillic",
             ),
-            ("@诶", 2, Some("诶".to_string()), "Chinese character"),
-            ("@👍", 2, Some("👍".to_string()), "Emoji token"),
+            ("@诶", 2, Some("诶".to_owned()), "Chinese character"),
+            ("@👍", 2, Some("👍".to_owned()), "Emoji token"),
             // Invalid cases (should return None)
             ("hello", 2, None, "No @ symbol"),
             (
                 "@",
                 1,
-                Some("".to_string()),
+                Some("".to_owned()),
                 "Only @ symbol triggers empty query",
             ),
             ("@ hello", 2, None, "@ followed by space"),
@@ -551,20 +551,20 @@
     fn test_current_at_token_cursor_positions() {
         let test_cases = vec![
             // Different cursor positions within a token
-            ("@test", 0, Some("test".to_string()), "Cursor at @"),
-            ("@test", 1, Some("test".to_string()), "Cursor after @"),
-            ("@test", 5, Some("test".to_string()), "Cursor at end"),
+            ("@test", 0, Some("test".to_owned()), "Cursor at @"),
+            ("@test", 1, Some("test".to_owned()), "Cursor after @"),
+            ("@test", 5, Some("test".to_owned()), "Cursor at end"),
             // Multiple tokens - cursor determines which token
-            ("@file1 @file2", 0, Some("file1".to_string()), "First token"),
+            ("@file1 @file2", 0, Some("file1".to_owned()), "First token"),
             (
                 "@file1 @file2",
                 8,
-                Some("file2".to_string()),
+                Some("file2".to_owned()),
                 "Second token",
             ),
             // Edge cases
-            ("@", 0, Some("".to_string()), "Only @ symbol"),
-            ("@a", 2, Some("a".to_string()), "Single character after @"),
+            ("@", 0, Some("".to_owned()), "Only @ symbol"),
+            ("@a", 2, Some("a".to_owned()), "Single character after @"),
             ("", 0, None, "Empty input"),
         ];
 
@@ -594,33 +594,33 @@
             (
                 "aaa @aaa",
                 5,
-                Some("aaa".to_string()),
+                Some("aaa".to_owned()),
                 "@ token after space",
             ),
             (
                 "test @file.txt",
                 7,
-                Some("file.txt".to_string()),
+                Some("file.txt".to_owned()),
                 "@ token after space",
             ),
             // Full-width space boundaries
             (
                 "test　@İstanbul",
                 8,
-                Some("İstanbul".to_string()),
+                Some("İstanbul".to_owned()),
                 "@ token after full-width space",
             ),
             (
                 "@ЙЦУ　@诶",
                 10,
-                Some("诶".to_string()),
+                Some("诶".to_owned()),
                 "Full-width space between Unicode tokens",
             ),
             // Tab and newline boundaries
             (
                 "test\t@file",
                 6,
-                Some("file".to_string()),
+                Some("file".to_owned()),
                 "@ token after tab",
             ),
         ];
@@ -651,7 +651,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -684,7 +684,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -710,7 +710,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -741,7 +741,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -787,7 +787,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -822,7 +822,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -878,7 +878,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -905,7 +905,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -938,7 +938,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -969,14 +969,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
         composer.set_steer_enabled(true);
         composer.set_steer_enabled(true);
 
-        let needs_redraw = composer.handle_paste("hello".to_string());
+        let needs_redraw = composer.handle_paste("hello".to_owned());
         assert!(needs_redraw);
         assert_eq!(composer.textarea.text(), "hello");
         assert!(composer.pending_pastes.is_empty());
@@ -999,7 +999,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1029,7 +1029,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1065,7 +1065,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1093,7 +1093,7 @@
 
         let test_cases = vec![
             ("empty", None),
-            ("small", Some("short".to_string())),
+            ("small", Some("short".to_owned())),
             ("large", Some("z".repeat(LARGE_PASTE_CHAR_THRESHOLD + 5))),
             ("multiple_pastes", None),
             ("backspace_after_pastes", None),
@@ -1105,7 +1105,7 @@
                 true,
                 sender.clone(),
                 false,
-                "Ask Savfox to do anything".to_string(),
+                "Ask Savfox to do anything".to_owned(),
                 false,
             );
 
@@ -1117,7 +1117,7 @@
                 // Second large paste
                 composer.handle_paste("y".repeat(LARGE_PASTE_CHAR_THRESHOLD + 7));
                 // Small paste
-                composer.handle_paste(" another short paste".to_string());
+                composer.handle_paste(" another short paste".to_owned());
             } else if name == "backspace_after_pastes" {
                 // Three large pastes
                 composer.handle_paste("a".repeat(LARGE_PASTE_CHAR_THRESHOLD + 2));
@@ -1160,7 +1160,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1189,7 +1189,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1221,7 +1221,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1247,7 +1247,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         type_chars_humanlike(&mut composer, &['/', 'r', 'e', 's']);
@@ -1291,7 +1291,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1332,7 +1332,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_task_running(true);
@@ -1373,7 +1373,7 @@
         assert_eq!(
             args,
             vec![PromptArg {
-                text: "docs/My File.md".to_string(),
+                text: "docs/My File.md".to_owned(),
                 text_elements: Vec::new(),
             }]
         );
@@ -1390,11 +1390,11 @@
             args,
             vec![
                 PromptArg {
-                    text: "with spaces".to_string(),
+                    text: "with spaces".to_owned(),
                     text_elements: Vec::new(),
                 },
                 PromptArg {
-                    text: "simple".to_string(),
+                    text: "simple".to_owned(),
                     text_elements: Vec::new(),
                 }
             ]
@@ -1411,7 +1411,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1436,7 +1436,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1474,14 +1474,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_collaboration_modes_enabled(true);
 
         type_chars_humanlike(&mut composer, &['/', 'p', 'l', 'a', 'n', ' ']);
 
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         let elements = composer.textarea.text_elements();
         assert_eq!(text, "/plan ");
         assert_eq!(elements.len(), 1);
@@ -1496,14 +1496,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_collaboration_modes_enabled(true);
 
         type_chars_humanlike(&mut composer, &['/', 'U', 's', 'e', 'r', 's', ' ']);
 
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         let elements = composer.textarea.text_elements();
         assert_eq!(text, "/Users ");
         assert!(elements.is_empty());
@@ -1517,13 +1517,13 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         type_chars_humanlike(&mut composer, &['/', 'r', 'e', 'v', 'i', 'e', 'w', ' ']);
 
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         let elements = composer.textarea.text_elements();
         assert_eq!(text, "/review ");
         assert_eq!(elements.len(), 1);
@@ -1531,7 +1531,7 @@
         composer.textarea.set_cursor(0);
         type_chars_humanlike(&mut composer, &['x']);
 
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         let elements = composer.textarea.text_elements();
         assert_eq!(text, "x/review ");
         assert!(elements.is_empty());
@@ -1547,7 +1547,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1586,7 +1586,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_collaboration_modes_enabled(true);
@@ -1624,7 +1624,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1632,7 +1632,7 @@
         // Define test cases: (paste content, is_large)
         let test_cases = [
             ("x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 3), true),
-            (" and ".to_string(), false),
+            (" and ".to_owned(), false),
             ("y".repeat(LARGE_PASTE_CHAR_THRESHOLD + 7), true),
         ];
 
@@ -1702,14 +1702,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         // Define test cases: (content, is_large)
         let test_cases = [
             ("a".repeat(LARGE_PASTE_CHAR_THRESHOLD + 5), true),
-            (" and ".to_string(), false),
+            (" and ".to_owned(), false),
             ("b".repeat(LARGE_PASTE_CHAR_THRESHOLD + 6), true),
         ];
 
@@ -1726,7 +1726,7 @@
                     current_pos += content.len();
                 }
                 (
-                    composer.textarea.text().to_string(),
+                    composer.textarea.text().to_owned(),
                     composer.pending_pastes.len(),
                     current_pos,
                 )
@@ -1740,7 +1740,7 @@
         composer.textarea.set_cursor(states[0].2);
         composer.handle_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         deletion_states.push((
-            composer.textarea.text().to_string(),
+            composer.textarea.text().to_owned(),
             composer.pending_pastes.len(),
         ));
 
@@ -1748,7 +1748,7 @@
         composer.textarea.set_cursor(composer.textarea.text().len());
         composer.handle_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         deletion_states.push((
-            composer.textarea.text().to_string(),
+            composer.textarea.text().to_owned(),
             composer.pending_pastes.len(),
         ));
 
@@ -1756,8 +1756,8 @@
         assert_eq!(
             deletion_states,
             vec![
-                (" and [Pasted Content 1006 chars]".to_string(), 1),
-                (" and ".to_string(), 0),
+                (" and [Pasted Content 1006 chars]".to_owned(), 1),
+                (" and ".to_owned(), 0),
             ]
         );
     }
@@ -1774,7 +1774,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1811,7 +1811,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1849,7 +1849,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1897,7 +1897,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1936,7 +1936,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -1967,7 +1967,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -1989,7 +1989,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2033,7 +2033,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2051,7 +2051,7 @@
                 text,
                 text_elements,
             } => {
-                let trimmed = large_content.trim().to_string();
+                let trimmed = large_content.trim().to_owned();
                 assert_eq!(text, format!("{trimmed} [Image #1]"));
                 assert_eq!(text_elements.len(), 1);
                 assert_eq!(text_elements[0].placeholder(&text), Some("[Image #1]"));
@@ -2077,12 +2077,12 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
-        let pasted = "line1\r\nline2\r\n".to_string();
+        let pasted = "line1\r\nline2\r\n".to_owned();
         composer.handle_paste(pasted);
         composer.handle_paste(" ".into());
         let path = PathBuf::from("/tmp/image_crlf.png");
@@ -2121,7 +2121,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2168,7 +2168,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2208,7 +2208,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         let path = PathBuf::from("/tmp/image_dup.png");
@@ -2216,7 +2216,7 @@
         composer.handle_paste(" ".into());
         composer.attach_image(path);
 
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         assert!(text.contains("[Image #1]"));
         assert!(text.contains("[Image #2]"));
         assert_eq!(composer.attached_images[0].placeholder, "[Image #1]");
@@ -2231,7 +2231,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         let path = PathBuf::from("/tmp/image3.png");
@@ -2269,7 +2269,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -2295,7 +2295,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -2309,7 +2309,7 @@
 
         let placeholder1 = composer.attached_images[0].placeholder.clone();
         let placeholder2 = composer.attached_images[1].placeholder.clone();
-        let text = composer.textarea.text().to_string();
+        let text = composer.textarea.text().to_owned();
         let start1 = text.find(&placeholder1).expect("first placeholder present");
         let end1 = start1 + placeholder1.len();
         composer.textarea.set_cursor(end1);
@@ -2317,7 +2317,7 @@
         // Backspace should delete the first placeholder and its mapping.
         composer.handle_key_event(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
 
-        let new_text = composer.textarea.text().to_string();
+        let new_text = composer.textarea.text().to_owned();
         assert_eq!(
             1,
             new_text.matches(&placeholder1).count(),
@@ -2336,7 +2336,7 @@
         assert_eq!(
             vec![AttachedImage {
                 path: path2,
-                placeholder: "[Image #1]".to_string()
+                placeholder: "[Image #1]".to_owned()
             }],
             composer.attached_images,
             "one image mapping remains"
@@ -2353,7 +2353,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -2414,7 +2414,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -2452,7 +2452,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -2474,16 +2474,16 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         // Inject prompts as if received via event.
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2514,15 +2514,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes on $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes on $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2550,15 +2550,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Pair $USER with $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Pair $USER with $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2588,15 +2588,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $IMG".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $IMG".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2642,15 +2642,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $IMG".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $IMG".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2661,7 +2661,7 @@
         composer.textarea.set_cursor(composer.textarea.text().len());
         let path = PathBuf::from("/tmp/image_prompt_quoted.png");
         composer.attach_image(path);
-        composer.handle_paste("\"".to_string());
+        composer.handle_paste("\"".to_owned());
 
         let (result, _needs_redraw) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -2697,15 +2697,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review changes".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review changes".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2744,16 +2744,16 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         // Create a custom prompt with positional args (no named args like $USER)
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "code-review".to_string(),
-            path: "/tmp/code-review.md".to_string().into(),
-            content: "Please review the following code:\n\n$1".to_string(),
+            name: "code-review".to_owned(),
+            path: "/tmp/code-review.md".to_owned().into(),
+            content: "Please review the following code:\n\n$1".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2807,15 +2807,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $IMG\n\n$CODE".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $IMG\n\n$CODE".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2826,7 +2826,7 @@
         composer.textarea.set_cursor(composer.textarea.text().len());
         let path = PathBuf::from("/tmp/image_prompt_combo.png");
         composer.attach_image(path);
-        composer.handle_paste(" CODE=".to_string());
+        composer.handle_paste(" CODE=".to_owned());
         let large_content = "x".repeat(LARGE_PASTE_CHAR_THRESHOLD + 5);
         composer.handle_paste(large_content.clone());
 
@@ -2864,7 +2864,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2899,7 +2899,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
@@ -2932,14 +2932,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -2982,14 +2982,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes on $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes on $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3037,15 +3037,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3061,7 +3061,7 @@
         let (result, _needs_redraw) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        let expected = "Header: foo\nArgs: foo bar\nNinth: \n".to_string();
+        let expected = "Header: foo\nArgs: foo bar\nNinth: \n".to_owned();
         assert!(matches!(
             result,
             InputResult::Submitted { text, .. } if text == expected
@@ -3076,15 +3076,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Hello".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Hello".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3115,15 +3115,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Hello $1".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Hello $1".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3159,15 +3159,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Echo: $1".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Echo: $1".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3200,15 +3200,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(false);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Hello $1".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Hello $1".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3238,9 +3238,9 @@
         let prompt_text = "Header: $1\nArgs: $ARGUMENTS\n";
 
         let prompt = CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         };
@@ -3273,15 +3273,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "elegant".to_string(),
-            path: "/tmp/elegant.md".to_string().into(),
-            content: "Echo: $ARGUMENTS".to_string(),
+            name: "elegant".to_owned(),
+            path: "/tmp/elegant.md".to_owned().into(),
+            content: "Echo: $ARGUMENTS".to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3310,14 +3310,14 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "p".to_string(),
-            path: "/tmp/p.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "p".to_owned(),
+            path: "/tmp/p.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3346,15 +3346,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "price".to_string(),
-            path: "/tmp/price.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "price".to_owned(),
+            path: "/tmp/price.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3385,15 +3385,15 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
         composer.set_steer_enabled(true);
 
         composer.set_custom_prompts(vec![CustomPrompt {
-            name: "repeat".to_string(),
-            path: "/tmp/repeat.md".to_string().into(),
-            content: prompt_text.to_string(),
+            name: "repeat".to_owned(),
+            path: "/tmp/repeat.md".to_owned().into(),
+            content: prompt_text.to_owned(),
             description: None,
             argument_hint: None,
         }]);
@@ -3408,7 +3408,7 @@
         let (result, _needs_redraw) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        let expected = "First: one two\nSecond: one two".to_string();
+        let expected = "First: one two\nSecond: one two".to_owned();
         assert!(matches!(
             result,
             InputResult::Submitted { text, .. } if text == expected
@@ -3427,7 +3427,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3454,7 +3454,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3501,7 +3501,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3540,7 +3540,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3563,12 +3563,12 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         // Simulate history-like content: "/ test"
-        composer.set_text_content("/ test".to_string(), Vec::new(), Vec::new());
+        composer.set_text_content("/ test".to_owned(), Vec::new(), Vec::new());
 
         // After set_text_content -> sync_popups is called; popup should NOT be Command.
         assert!(
@@ -3593,26 +3593,26 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
         // Case 1: bare "/"
-        composer.set_text_content("/".to_string(), Vec::new(), Vec::new());
+        composer.set_text_content("/".to_owned(), Vec::new(), Vec::new());
         assert!(
             matches!(composer.active_popup, ActivePopup::Command(_)),
             "bare '/' should activate slash popup"
         );
 
         // Case 2: valid prefix "/re" (matches /review, /resume, etc.)
-        composer.set_text_content("/re".to_string(), Vec::new(), Vec::new());
+        composer.set_text_content("/re".to_owned(), Vec::new(), Vec::new());
         assert!(
             matches!(composer.active_popup, ActivePopup::Command(_)),
             "'/re' should activate slash popup via prefix match"
         );
 
         // Case 3: fuzzy match "/ac" (subsequence of /compact and /feedback)
-        composer.set_text_content("/ac".to_string(), Vec::new(), Vec::new());
+        composer.set_text_content("/ac".to_owned(), Vec::new(), Vec::new());
         assert!(
             matches!(composer.active_popup, ActivePopup::Command(_)),
             "'/ac' should activate slash popup via fuzzy match"
@@ -3621,7 +3621,7 @@
         // Case 4: invalid prefix "/zzz" – still allowed to open popup if it
         // matches no built-in command; our current logic will not open popup.
         // Verify that explicitly.
-        composer.set_text_content("/zzz".to_string(), Vec::new(), Vec::new());
+        composer.set_text_content("/zzz".to_owned(), Vec::new(), Vec::new());
         assert!(
             matches!(composer.active_popup, ActivePopup::None),
             "'/zzz' should not activate slash popup because it is not a prefix of any built-in command"
@@ -3636,7 +3636,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3648,7 +3648,7 @@
         });
         composer
             .pending_pastes
-            .push(("[Pasted]".to_string(), "data".to_string()));
+            .push(("[Pasted]".to_owned(), "data".to_owned()));
 
         composer.apply_external_edit(format!("Edited {placeholder} text"));
 
@@ -3670,7 +3670,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3681,9 +3681,9 @@
             path: PathBuf::from("img.png"),
         });
 
-        composer.apply_external_edit("No images here".to_string());
+        composer.apply_external_edit("No images here".to_owned());
 
-        assert_eq!(composer.current_text(), "No images here".to_string());
+        assert_eq!(composer.current_text(), "No images here".to_owned());
         assert!(composer.attached_images.is_empty());
     }
 
@@ -3695,19 +3695,19 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
-        let placeholder = "[Pasted Content 5 chars]".to_string();
+        let placeholder = "[Pasted Content 5 chars]".to_owned();
         composer.textarea.insert_element(&placeholder);
         composer
             .pending_pastes
-            .push((placeholder.clone(), "hello".to_string()));
+            .push((placeholder.clone(), "hello".to_owned()));
 
         assert_eq!(
             composer.current_text_with_pending(),
-            "hello".to_string(),
+            "hello".to_owned(),
             "placeholder should expand to actual text"
         );
     }
@@ -3720,7 +3720,7 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -3750,12 +3750,12 @@
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
-        composer.set_text_content("hello".to_string(), Vec::new(), Vec::new());
-        composer.set_input_enabled(false, Some("Input disabled for test.".to_string()));
+        composer.set_text_content("hello".to_owned(), Vec::new(), Vec::new());
+        composer.set_input_enabled(false, Some("Input disabled for test.".to_owned()));
 
         let (result, needs_redraw) =
             composer.handle_key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));

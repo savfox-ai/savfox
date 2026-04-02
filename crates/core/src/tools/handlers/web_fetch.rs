@@ -590,10 +590,10 @@ mod tests {
         assert_eq!(key, "http://example.com");
 
         write_cache(
-            "test_key".to_string(),
-            "test_value".to_string(),
+            "test_key".to_owned(),
+            "test_value".to_owned(),
             Duration::from_secs(60),
         );
-        assert_eq!(read_cache("test_key"), Some("test_value".to_string()));
+        assert_eq!(read_cache("test_key"), Some("test_value".to_owned()));
     }
 }

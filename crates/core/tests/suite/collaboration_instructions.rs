@@ -23,7 +23,7 @@ fn collab_mode_with_mode_and_instructions(
     CollaborationMode {
         mode,
         settings: Settings {
-            model: "gpt-5.1".to_string(),
+            model: "gpt-5.1".to_owned(),
             reasoning_effort: None,
             developer_instructions: instructions.map(str::to_string),
         },
@@ -48,7 +48,7 @@ fn developer_texts(input: &[Value]) -> Vec<String> {
                 .first()?
                 .get("text")?
                 .as_str()?;
-            Some(text.to_string())
+            Some(text.to_owned())
         })
         .collect()
 }

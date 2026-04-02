@@ -1276,7 +1276,7 @@ mod tests {
         let model = config
             .model
             .clone()
-            .unwrap_or_else(|| "gpt-5.1".to_string());
+            .unwrap_or_else(|| "gpt-5.1".to_owned());
         TurnContextItem {
             cwd,
             approval_policy: config.approval_policy.value(),
@@ -1305,11 +1305,11 @@ mod tests {
         let rollout_path = temp_dir.path().join("rollout.jsonl");
         let lines = vec![
             RolloutLine {
-                timestamp: "t0".to_string(),
+                timestamp: "t0".to_owned(),
                 item: RolloutItem::TurnContext(build_turn_context(&config, first)),
             },
             RolloutLine {
-                timestamp: "t1".to_string(),
+                timestamp: "t1".to_owned(),
                 item: RolloutItem::TurnContext(build_turn_context(&config, second.clone())),
             },
         ];
@@ -1342,14 +1342,14 @@ mod tests {
         };
         let lines = vec![
             RolloutLine {
-                timestamp: "t0".to_string(),
+                timestamp: "t0".to_owned(),
                 item: RolloutItem::SessionMeta(SessionMetaLine {
                     meta: session_meta,
                     git: None,
                 }),
             },
             RolloutLine {
-                timestamp: "t1".to_string(),
+                timestamp: "t1".to_owned(),
                 item: RolloutItem::TurnContext(build_turn_context(&config, latest.clone())),
             },
         ];
@@ -1431,7 +1431,7 @@ trust_level = "untrusted"
             ..SessionMeta::default()
         };
         let meta_line = RolloutLine {
-            timestamp: "t0".to_string(),
+            timestamp: "t0".to_owned(),
             item: RolloutItem::SessionMeta(SessionMetaLine {
                 meta: session_meta,
                 git: None,
@@ -1491,8 +1491,8 @@ trust_level = "untrusted"
 
         let config_toml = ConfigToml {
             model: Some(SelectedModel {
-                slug: "missing-model".to_string(),
-                provider: "missing-provider".to_string(),
+                slug: "missing-model".to_owned(),
+                provider: "missing-provider".to_owned(),
                 reasoning_effort: None,
             }),
             ..ConfigToml::default()
@@ -1507,7 +1507,7 @@ trust_level = "untrusted"
         .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
-            Some("zhipuai-coding-plan/glm-5".to_string())
+            Some("zhipuai-coding-plan/glm-5".to_owned())
         );
         Ok(())
     }
@@ -1528,8 +1528,8 @@ trust_level = "untrusted"
 
         let config_toml = ConfigToml {
             model: Some(SelectedModel {
-                slug: "does-not-exist".to_string(),
-                provider: "zhipuai-coding-plan".to_string(),
+                slug: "does-not-exist".to_owned(),
+                provider: "zhipuai-coding-plan".to_owned(),
                 reasoning_effort: None,
             }),
             ..ConfigToml::default()
@@ -1544,7 +1544,7 @@ trust_level = "untrusted"
         .expect("parse updated config");
         assert_eq!(
             updated.model.as_ref().and_then(SelectedModel::to_model_id),
-            Some("zhipuai-coding-plan/glm-4.5".to_string())
+            Some("zhipuai-coding-plan/glm-4.5".to_owned())
         );
         Ok(())
     }

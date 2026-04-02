@@ -541,25 +541,25 @@ mod tests {
 
     #[test]
     fn provider_capabilities_surface_expected_features() {
-        let openai = OpenAIMediaProvider::new("test".to_string());
+        let openai = OpenAIMediaProvider::new("test".to_owned());
         assert_eq!(openai.id(), "openai");
         assert!(openai.capabilities().contains(&MediaCapability::Image));
         assert!(openai.capabilities().contains(&MediaCapability::Audio));
 
-        let anthropic = AnthropicMediaProvider::new("test".to_string());
+        let anthropic = AnthropicMediaProvider::new("test".to_owned());
         assert_eq!(anthropic.id(), "anthropic");
         assert_eq!(anthropic.capabilities(), vec![MediaCapability::Image]);
 
-        let google = GoogleMediaProvider::new("test".to_string());
+        let google = GoogleMediaProvider::new("test".to_owned());
         assert_eq!(google.id(), "google");
         assert!(google.capabilities().contains(&MediaCapability::Image));
         assert!(google.capabilities().contains(&MediaCapability::Video));
 
-        let deepgram = DeepgramMediaProvider::new("test".to_string());
+        let deepgram = DeepgramMediaProvider::new("test".to_owned());
         assert_eq!(deepgram.id(), "deepgram");
         assert_eq!(deepgram.capabilities(), vec![MediaCapability::Audio]);
 
-        let groq = GroqMediaProvider::new("test".to_string());
+        let groq = GroqMediaProvider::new("test".to_owned());
         assert_eq!(groq.id(), "groq");
         assert_eq!(groq.capabilities(), vec![MediaCapability::Audio]);
     }

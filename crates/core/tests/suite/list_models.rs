@@ -69,10 +69,10 @@ fn expected_models_for_chatgpt() -> Vec<ModelPreset> {
 
 fn gpt_52_savfox() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.2-savfox".to_string(),
-        slug: "gpt-5.2-savfox".to_string(),
-        name: "gpt-5.2-savfox".to_string(),
-        description: "Latest frontier agentic coding model.".to_string(),
+        id: "gpt-5.2-savfox".to_owned(),
+        slug: "gpt-5.2-savfox".to_owned(),
+        name: "gpt-5.2-savfox".to_owned(),
+        description: "Latest frontier agentic coding model.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -103,10 +103,10 @@ fn gpt_52_savfox() -> ModelPreset {
 
 fn gpt_5_1_savfox_max() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.1-savfox-max".to_string(),
-        slug: "gpt-5.1-savfox-max".to_string(),
-        name: "gpt-5.1-savfox-max".to_string(),
-        description: "Savfox-optimized flagship for deep and fast reasoning.".to_string(),
+        id: "gpt-5.1-savfox-max".to_owned(),
+        slug: "gpt-5.1-savfox-max".to_owned(),
+        name: "gpt-5.1-savfox-max".to_owned(),
+        description: "Savfox-optimized flagship for deep and fast reasoning.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -147,10 +147,10 @@ fn gpt_5_1_savfox_max() -> ModelPreset {
 
 fn gpt_5_1_savfox_mini() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.1-savfox-mini".to_string(),
-        slug: "gpt-5.1-savfox-mini".to_string(),
-        name: "gpt-5.1-savfox-mini".to_string(),
-        description: "Optimized for savfox. Cheaper, faster, but less capable.".to_string(),
+        id: "gpt-5.1-savfox-mini".to_owned(),
+        slug: "gpt-5.1-savfox-mini".to_owned(),
+        name: "gpt-5.1-savfox-mini".to_owned(),
+        description: "Optimized for savfox. Cheaper, faster, but less capable.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -183,12 +183,11 @@ fn gpt_5_1_savfox_mini() -> ModelPreset {
 
 fn gpt_5_2() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.2".to_string(),
-        slug: "gpt-5.2".to_string(),
-        name: "gpt-5.2".to_string(),
+        id: "gpt-5.2".to_owned(),
+        slug: "gpt-5.2".to_owned(),
+        name: "gpt-5.2".to_owned(),
         description:
-            "Latest frontier model with improvements across knowledge, reasoning and coding"
-                .to_string(),
+            "Latest frontier model with improvements across knowledge, reasoning and coding".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -229,10 +228,10 @@ fn gpt_5_2() -> ModelPreset {
 
 fn bengalfox() -> ModelPreset {
     ModelPreset {
-        id: "bengalfox".to_string(),
-        slug: "bengalfox".to_string(),
-        name: "bengalfox".to_string(),
-        description: "bengalfox".to_string(),
+        id: "bengalfox".to_owned(),
+        slug: "bengalfox".to_owned(),
+        name: "bengalfox".to_owned(),
+        description: "bengalfox".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -263,10 +262,10 @@ fn bengalfox() -> ModelPreset {
 
 fn boomslang() -> ModelPreset {
     ModelPreset {
-        id: "boomslang".to_string(),
-        slug: "boomslang".to_string(),
-        name: "boomslang".to_string(),
-        description: "boomslang".to_string(),
+        id: "boomslang".to_owned(),
+        slug: "boomslang".to_owned(),
+        name: "boomslang".to_owned(),
+        description: "boomslang".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -297,10 +296,10 @@ fn boomslang() -> ModelPreset {
 
 fn gpt_5_savfox() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5-savfox".to_string(),
-        slug: "gpt-5-savfox".to_string(),
-        name: "gpt-5-savfox".to_string(),
-        description: "Optimized for savfox.".to_string(),
+        id: "gpt-5-savfox".to_owned(),
+        slug: "gpt-5-savfox".to_owned(),
+        name: "gpt-5-savfox".to_owned(),
+        description: "Optimized for savfox.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -337,10 +336,10 @@ fn gpt_5_savfox() -> ModelPreset {
 
 fn gpt_5_savfox_mini() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5-savfox-mini".to_string(),
-        slug: "gpt-5-savfox-mini".to_string(),
-        name: "gpt-5-savfox-mini".to_string(),
-        description: "Optimized for savfox. Cheaper, faster, but less capable.".to_string(),
+        id: "gpt-5-savfox-mini".to_owned(),
+        slug: "gpt-5-savfox-mini".to_owned(),
+        name: "gpt-5-savfox-mini".to_owned(),
+        description: "Optimized for savfox. Cheaper, faster, but less capable.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -373,10 +372,10 @@ fn gpt_5_savfox_mini() -> ModelPreset {
 
 fn gpt_5_1_savfox() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.1-savfox".to_string(),
-        slug: "gpt-5.1-savfox".to_string(),
-        name: "gpt-5.1-savfox".to_string(),
-        description: "Optimized for savfox.".to_string(),
+        id: "gpt-5.1-savfox".to_owned(),
+        slug: "gpt-5.1-savfox".to_owned(),
+        name: "gpt-5.1-savfox".to_owned(),
+        description: "Optimized for savfox.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -413,10 +412,10 @@ fn gpt_5_1_savfox() -> ModelPreset {
 
 fn gpt_5() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5".to_string(),
-        slug: "gpt-5".to_string(),
-        name: "gpt-5".to_string(),
-        description: "Broad world knowledge with strong general reasoning.".to_string(),
+        id: "gpt-5".to_owned(),
+        slug: "gpt-5".to_owned(),
+        name: "gpt-5".to_owned(),
+        description: "Broad world knowledge with strong general reasoning.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -457,10 +456,10 @@ fn gpt_5() -> ModelPreset {
 
 fn gpt_5_1() -> ModelPreset {
     ModelPreset {
-        id: "gpt-5.1".to_string(),
-        slug: "gpt-5.1".to_string(),
-        name: "gpt-5.1".to_string(),
-        description: "Broad world knowledge with strong general reasoning.".to_string(),
+        id: "gpt-5.1".to_owned(),
+        slug: "gpt-5.1".to_owned(),
+        name: "gpt-5.1".to_owned(),
+        description: "Broad world knowledge with strong general reasoning.".to_owned(),
         default_reasoning_effort: ReasoningEffort::Medium,
         supported_reasoning_efforts: vec![
             effort(
@@ -500,20 +499,19 @@ fn gpt52_savfox_upgrade(
     reasoning_effort_mapping: HashMap<ReasoningEffort, ReasoningEffort>,
 ) -> ModelUpgrade {
     ModelUpgrade {
-        id: "gpt-5.2-savfox".to_string(),
+        id: "gpt-5.2-savfox".to_owned(),
         reasoning_effort_mapping: Some(reasoning_effort_mapping),
-        migration_config_key: migration_config_key.to_string(),
+        migration_config_key: migration_config_key.to_owned(),
         model_link: None,
         upgrade_copy: None,
         migration_markdown: Some(
-            indoc! {r#"
+            r#"
                 **Savfox just got an upgrade. Introducing {model_to}.**
 
                 Savfox is now powered by {model_to}, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox
 
                 You can continue using {model_from} if you prefer.
-            "#}
-            .to_string(),
+            "#.to_owned(),
         ),
     }
 }
@@ -521,6 +519,6 @@ fn gpt52_savfox_upgrade(
 fn effort(reasoning_effort: ReasoningEffort, description: &str) -> ReasoningEffortPreset {
     ReasoningEffortPreset {
         effort: reasoning_effort,
-        description: description.to_string(),
+        description: description.to_owned(),
     }
 }

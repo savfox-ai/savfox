@@ -994,9 +994,9 @@ mod tests {
     fn user_message(text: &str) -> ResponseItem {
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: text.to_string(),
+                text: text.to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -1005,8 +1005,8 @@ mod tests {
 
     fn make_connector(id: &str, name: &str) -> AppInfo {
         AppInfo {
-            id: id.to_string(),
-            name: name.to_string(),
+            id: id.to_owned(),
+            name: name.to_owned(),
             description: None,
             logo_url: None,
             logo_url_dark: None,
@@ -1106,7 +1106,7 @@ mod tests {
         let connectors = vec![make_connector("one", "Todoist")];
         let input = vec![user_message("use $todoist")];
         let explicit_app_paths = Vec::new();
-        let skill_name_counts_lower = HashMap::from([("todoist".to_string(), 1)]);
+        let skill_name_counts_lower = HashMap::from([("todoist".to_owned(), 1)]);
 
         let selected = tool_orchestrator::filter_connectors_for_input(
             connectors,
@@ -1275,18 +1275,18 @@ mod tests {
         let turn_1 = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "turn 1 user".to_string(),
+                    text: "turn 1 user".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "turn 1 assistant".to_string(),
+                    text: "turn 1 assistant".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
@@ -1297,18 +1297,18 @@ mod tests {
         let turn_2 = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "turn 2 user".to_string(),
+                    text: "turn 2 user".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "turn 2 assistant".to_string(),
+                    text: "turn 2 assistant".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
@@ -1316,7 +1316,7 @@ mod tests {
         ];
         sess.record_into_history(&turn_2, tc.as_ref()).await;
 
-        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_string(), 1).await;
+        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_owned(), 1).await;
 
         let rollback_event = wait_for_session_rolled_back(&rx).await;
         assert_eq!(rollback_event.num_turns, 1);
@@ -1339,16 +1339,16 @@ mod tests {
 
         let turn_1 = vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "turn 1 user".to_string(),
+                text: "turn 1 user".to_owned(),
             }],
             end_turn: None,
             phase: None,
         }];
         sess.record_into_history(&turn_1, tc.as_ref()).await;
 
-        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_string(), 99).await;
+        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_owned(), 99).await;
 
         let rollback_event = wait_for_session_rolled_back(&rx).await;
         assert_eq!(rollback_event.num_turns, 99);
@@ -1366,7 +1366,7 @@ mod tests {
             .await;
 
         *sess.active_turn.lock().await = Some(crate::state::ActiveTurn::default());
-        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_string(), 1).await;
+        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_owned(), 1).await;
 
         let error_event = wait_for_session_rollback_failed(&rx).await;
         assert_eq!(
@@ -1386,7 +1386,7 @@ mod tests {
         sess.record_into_history(&initial_context, tc.as_ref())
             .await;
 
-        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_string(), 0).await;
+        task_coordinator::handlers::session_rollback(&sess, "sub-1".to_owned(), 0).await;
 
         let error_event = wait_for_session_rollback_failed(&rx).await;
         assert_eq!(error_event.message, "num_turns must be >= 1");
@@ -1414,7 +1414,7 @@ mod tests {
 
         let current_mode = sess.current_collaboration_mode().await;
         let updated_mode =
-            current_mode.with_updates(Some("zhipuai-coding-plan/glm-5".to_string()), None, None);
+            current_mode.with_updates(Some("zhipuai-coding-plan/glm-5".to_owned()), None, None);
         sess.update_settings(SessionSettingsUpdate {
             collaboration_mode: Some(updated_mode),
             ..Default::default()
@@ -1487,7 +1487,7 @@ mod tests {
             credits: Some(CreditsSnapshot {
                 has_credits: true,
                 unlimited: false,
-                balance: Some("10.00".to_string()),
+                balance: Some("10.00".to_owned()),
             }),
             plan_type: Some(savfox_protocol::account::PlanType::Plus),
         };
@@ -1575,7 +1575,7 @@ mod tests {
             credits: Some(CreditsSnapshot {
                 has_credits: true,
                 unlimited: false,
-                balance: Some("15.00".to_string()),
+                balance: Some("15.00".to_owned()),
             }),
             plan_type: Some(savfox_protocol::account::PlanType::Plus),
         };
@@ -1636,7 +1636,7 @@ mod tests {
             exit_code: 0,
             stdout: StreamOutput::new(String::new()),
             stderr: StreamOutput::new(String::new()),
-            aggregated_output: StreamOutput::new("Command output".to_string()),
+            aggregated_output: StreamOutput::new("Command output".to_owned()),
             duration: StdDuration::from_secs(1),
             timed_out: true,
         };
@@ -1773,10 +1773,10 @@ mod tests {
             ModelsManager::get_model_offline(config.model.as_deref()).as_str(),
             model_info.slug.as_str(),
             None,
-            Some("test@test.com".to_string()),
+            Some("test@test.com".to_owned()),
             Some(AuthMode::Chatgpt),
             false,
-            "test".to_string(),
+            "test".to_owned(),
             session_source,
         )
     }
@@ -1877,7 +1877,7 @@ mod tests {
             per_turn_config,
             model_info,
             conversation_id,
-            "turn_id".to_string(),
+            "turn_id".to_owned(),
             services.transport_manager.clone(),
         );
 
@@ -1998,7 +1998,7 @@ mod tests {
             per_turn_config,
             model_info,
             conversation_id,
-            "turn_id".to_string(),
+            "turn_id".to_owned(),
             services.transport_manager.clone(),
         ));
 
@@ -2083,7 +2083,7 @@ mod tests {
                 assert_eq!(
                     content,
                     &vec![ContentItem::InputText {
-                        text: "Warning: too many unified exec processes".to_string(),
+                        text: "Warning: too many unified exec processes".to_owned(),
                     }]
                 );
             }
@@ -2125,7 +2125,7 @@ mod tests {
     async fn abort_regular_task_emits_turn_aborted_only() {
         let (sess, tc, rx) = make_session_and_context_with_rx().await;
         let input = vec![UserInput::Text {
-            text: "hello".to_string(),
+            text: "hello".to_owned(),
             text_elements: Vec::new(),
         }];
         sess.spawn_task(
@@ -2158,7 +2158,7 @@ mod tests {
     async fn abort_gracefuly_emits_turn_aborted_only() {
         let (sess, tc, rx) = make_session_and_context_with_rx().await;
         let input = vec![UserInput::Text {
-            text: "hello".to_string(),
+            text: "hello".to_owned(),
             text_elements: Vec::new(),
         }];
         sess.spawn_task(
@@ -2191,7 +2191,7 @@ mod tests {
     async fn abort_review_task_emits_exited_then_aborted_and_records_history() {
         let (sess, tc, rx) = make_session_and_context_with_rx().await;
         let input = vec![UserInput::Text {
-            text: "start review".to_string(),
+            text: "start review".to_owned(),
             text_elements: Vec::new(),
         }];
         sess.spawn_task(Arc::clone(&tc), input, ReviewTask::new())
@@ -2291,9 +2291,9 @@ mod tests {
         let item = ResponseItem::CustomToolCall {
             id: None,
             status: None,
-            call_id: "call-1".to_string(),
-            name: "shell".to_string(),
-            input: "{}".to_string(),
+            call_id: "call-1".to_owned(),
+            name: "shell".to_owned(),
+            input: "{}".to_owned(),
         };
 
         let call = ToolRouter::build_tool_call(session.as_ref(), item.clone())
@@ -2334,9 +2334,9 @@ mod tests {
 
         let user1 = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "first user".to_string(),
+                text: "first user".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2346,9 +2346,9 @@ mod tests {
 
         let assistant1 = ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "assistant reply one".to_string(),
+                text: "assistant reply one".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2366,15 +2366,15 @@ mod tests {
         );
         live_history.replace(rebuilt1);
         rollout_items.push(RolloutItem::Compacted(CompactedItem {
-            message: summary1.to_string(),
+            message: summary1.to_owned(),
             replacement_history: None,
         }));
 
         let user2 = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "second user".to_string(),
+                text: "second user".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2384,9 +2384,9 @@ mod tests {
 
         let assistant2 = ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "assistant reply two".to_string(),
+                text: "assistant reply two".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2404,15 +2404,15 @@ mod tests {
         );
         live_history.replace(rebuilt2);
         rollout_items.push(RolloutItem::Compacted(CompactedItem {
-            message: summary2.to_string(),
+            message: summary2.to_owned(),
             replacement_history: None,
         }));
 
         let user3 = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "third user".to_string(),
+                text: "third user".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2422,9 +2422,9 @@ mod tests {
 
         let assistant3 = ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "assistant reply three".to_string(),
+                text: "assistant reply three".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -2455,15 +2455,15 @@ mod tests {
         let params = ExecParams {
             command: if cfg!(windows) {
                 vec![
-                    "cmd.exe".to_string(),
-                    "/C".to_string(),
-                    "echo hi".to_string(),
+                    "cmd.exe".to_owned(),
+                    "/C".to_owned(),
+                    "echo hi".to_owned(),
                 ]
             } else {
                 vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "echo hi".to_string(),
+                    "/bin/sh".to_owned(),
+                    "-c".to_owned(),
+                    "echo hi".to_owned(),
                 ]
             },
             cwd: turn_context.cwd.clone(),
@@ -2471,7 +2471,7 @@ mod tests {
             env: HashMap::new(),
             sandbox_permissions,
             windows_sandbox_level: turn_context.windows_sandbox_level,
-            justification: Some("test".to_string()),
+            justification: Some("test".to_owned()),
             arg0: None,
         };
 
@@ -2489,7 +2489,7 @@ mod tests {
         let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(TurnDiffTracker::new()));
 
         let tool_name = "shell";
-        let call_id = "test-call".to_string();
+        let call_id = "test-call".to_owned();
 
         let handler = ShellHandler;
         let resp = handler
@@ -2498,7 +2498,7 @@ mod tests {
                 turn: Arc::clone(&turn_context),
                 tracker: Arc::clone(&turn_diff_tracker),
                 call_id,
-                tool_name: tool_name.to_string(),
+                tool_name: tool_name.to_owned(),
                 payload: ToolPayload::Function {
                     arguments: serde_json::json!({
                         "command": params.command.clone(),
@@ -2534,8 +2534,8 @@ mod tests {
                 session: Arc::clone(&session),
                 turn: Arc::clone(&turn_context),
                 tracker: Arc::clone(&turn_diff_tracker),
-                call_id: "test-call-2".to_string(),
-                tool_name: tool_name.to_string(),
+                call_id: "test-call-2".to_owned(),
+                tool_name: tool_name.to_owned(),
                 payload: ToolPayload::Function {
                     arguments: serde_json::json!({
                         "command": params2.command.clone(),
@@ -2589,8 +2589,8 @@ mod tests {
                 session: Arc::clone(&session),
                 turn: Arc::clone(&turn_context),
                 tracker: Arc::clone(&tracker),
-                call_id: "exec-call".to_string(),
-                tool_name: "exec_command".to_string(),
+                call_id: "exec-call".to_owned(),
+                tool_name: "exec_command".to_owned(),
                 payload: ToolPayload::Function {
                     arguments: serde_json::json!({
                         "cmd": "echo hi",

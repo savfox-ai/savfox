@@ -50,7 +50,7 @@ pub(crate) fn attributes_to_map<'a>(
     attributes: impl Iterator<Item = &'a KeyValue>,
 ) -> BTreeMap<String, String> {
     attributes
-        .map(|kv| (kv.key.as_str().to_string(), kv.value.as_str().to_string()))
+        .map(|kv| (kv.key.as_str().to_owned(), kv.value.as_str().to_string()))
         .collect()
 }
 

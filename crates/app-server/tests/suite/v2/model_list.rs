@@ -42,27 +42,26 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
 
     let expected_models = vec![
         Model {
-            id: "gpt-5.2-codex".to_string(),
-            slug: "gpt-5.2-codex".to_string(),
-            name: "gpt-5.2-codex".to_string(),
-            description: "Latest frontier agentic coding model.".to_string(),
+            id: "gpt-5.2-codex".to_owned(),
+            slug: "gpt-5.2-codex".to_owned(),
+            name: "gpt-5.2-codex".to_owned(),
+            description: "Latest frontier agentic coding model.".to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Low,
-                    description: "Fast responses with lighter reasoning".to_string(),
+                    description: "Fast responses with lighter reasoning".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Medium,
-                    description: "Balances speed and reasoning depth for everyday tasks"
-                        .to_string(),
+                    description: "Balances speed and reasoning depth for everyday tasks".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Greater reasoning depth for complex problems".to_string(),
+                    description: "Greater reasoning depth for complex problems".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_string(),
+                    description: "Extra high reasoning depth for complex problems".to_owned(),
                 },
             ],
             default_reasoning_effort: ReasoningEffort::Medium,
@@ -71,27 +70,26 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
             is_default: true,
         },
         Model {
-            id: "gpt-5.1-codex-max".to_string(),
-            slug: "gpt-5.1-codex-max".to_string(),
-            name: "gpt-5.1-codex-max".to_string(),
-            description: "Codex-optimized flagship for deep and fast reasoning.".to_string(),
+            id: "gpt-5.1-codex-max".to_owned(),
+            slug: "gpt-5.1-codex-max".to_owned(),
+            name: "gpt-5.1-codex-max".to_owned(),
+            description: "Codex-optimized flagship for deep and fast reasoning.".to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Low,
-                    description: "Fast responses with lighter reasoning".to_string(),
+                    description: "Fast responses with lighter reasoning".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Medium,
-                    description: "Balances speed and reasoning depth for everyday tasks"
-                        .to_string(),
+                    description: "Balances speed and reasoning depth for everyday tasks".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Greater reasoning depth for complex problems".to_string(),
+                    description: "Greater reasoning depth for complex problems".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_string(),
+                    description: "Extra high reasoning depth for complex problems".to_owned(),
                 },
             ],
             default_reasoning_effort: ReasoningEffort::Medium,
@@ -100,19 +98,18 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
             is_default: false,
         },
         Model {
-            id: "gpt-5.1-codex-mini".to_string(),
-            slug: "gpt-5.1-codex-mini".to_string(),
-            name: "gpt-5.1-codex-mini".to_string(),
-            description: "Optimized for codex. Cheaper, faster, but less capable.".to_string(),
+            id: "gpt-5.1-codex-mini".to_owned(),
+            slug: "gpt-5.1-codex-mini".to_owned(),
+            name: "gpt-5.1-codex-mini".to_owned(),
+            description: "Optimized for codex. Cheaper, faster, but less capable.".to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Medium,
-                    description: "Dynamically adjusts reasoning based on the task".to_string(),
+                    description: "Dynamically adjusts reasoning based on the task".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems"
-                        .to_string(),
+                    description: "Maximizes reasoning depth for complex or ambiguous problems".to_owned(),
                 },
             ],
             default_reasoning_effort: ReasoningEffort::Medium,
@@ -121,33 +118,29 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
             is_default: false,
         },
         Model {
-            id: "gpt-5.2".to_string(),
-            slug: "gpt-5.2".to_string(),
-            name: "gpt-5.2".to_string(),
+            id: "gpt-5.2".to_owned(),
+            slug: "gpt-5.2".to_owned(),
+            name: "gpt-5.2".to_owned(),
             description:
-                "Latest frontier model with improvements across knowledge, reasoning and coding"
-                    .to_string(),
+                "Latest frontier model with improvements across knowledge, reasoning and coding".to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Low,
                     description: "Balances speed with some reasoning; useful for straightforward \
-                                   queries and short explanations"
-                        .to_string(),
+                                   queries and short explanations".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::Medium,
                     description: "Provides a solid balance of reasoning depth and latency for \
-                         general-purpose tasks"
-                        .to_string(),
+                         general-purpose tasks".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems"
-                        .to_string(),
+                    description: "Maximizes reasoning depth for complex or ambiguous problems".to_owned(),
                 },
                 ReasoningEffortOption {
                     reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_string(),
+                    description: "Extra high reasoning depth for complex problems".to_owned(),
                 },
             ],
             default_reasoning_effort: ReasoningEffort::Medium,
@@ -271,7 +264,7 @@ async fn list_models_rejects_invalid_cursor() -> Result<()> {
     let request_id = mcp
         .send_list_models_request(ModelListParams {
             limit: None,
-            cursor: Some("invalid".to_string()),
+            cursor: Some("invalid".to_owned()),
         })
         .await?;
 

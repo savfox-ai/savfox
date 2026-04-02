@@ -48,7 +48,7 @@ async fn plan_mode_uses_proposed_plan_block_for_plan_item() -> Result<()> {
 
     let expected_plan = SessionItem::Plan {
         id: format!("{}-plan", turn.id),
-        text: "# Final plan\n- first\n- second\n".to_string(),
+        text: "# Final plan\n- first\n- second\n".to_owned(),
     };
     let expected_plan_id = format!("{}-plan", turn.id);
     let streamed_plan = plan_deltas
@@ -111,7 +111,7 @@ async fn plan_mode_without_proposed_plan_does_not_emit_plan_item() -> Result<()>
 async fn start_plan_mode_turn(mcp: &mut McpProcess) -> Result<savfox_app_server_protocol::Turn> {
     let session_req = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -125,7 +125,7 @@ async fn start_plan_mode_turn(mcp: &mut McpProcess) -> Result<savfox_app_server_
     let collaboration_mode = CollaborationMode {
         mode: ModeKind::Plan,
         settings: Settings {
-            model: "mock-model".to_string(),
+            model: "mock-model".to_owned(),
             reasoning_effort: None,
             developer_instructions: None,
         },
@@ -134,7 +134,7 @@ async fn start_plan_mode_turn(mcp: &mut McpProcess) -> Result<savfox_app_server_
         .send_turn_start_request(TurnStartParams {
             session_id: session.id,
             input: vec![V2UserInput::Text {
-                text: "Plan this".to_string(),
+                text: "Plan this".to_owned(),
                 text_elements: Vec::new(),
             }],
             collaboration_mode: Some(collaboration_mode),

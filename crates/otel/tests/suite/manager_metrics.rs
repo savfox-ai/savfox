@@ -18,11 +18,11 @@ fn manager_attaches_metadata_tags_to_metrics() -> Result<()> {
         SessionId::new(),
         "gpt-5.1",
         "gpt-5.1",
-        Some("account-id".to_string()),
+        Some("account-id".to_owned()),
         None,
         Some(AuthMode::ApiKey),
         true,
-        "tty".to_string(),
+        "tty".to_owned(),
         SessionSource::Cli,
     )
     .with_metrics(metrics);
@@ -47,14 +47,14 @@ fn manager_attaches_metadata_tags_to_metrics() -> Result<()> {
 
     let expected = BTreeMap::from([
         (
-            "app.version".to_string(),
-            env!("CARGO_PKG_VERSION").to_string(),
+            "app.version".to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
         ),
-        ("auth_mode".to_string(), AuthMode::ApiKey.to_string()),
-        ("model".to_string(), "gpt-5.1".to_string()),
-        ("service".to_string(), "savfox-cli".to_string()),
-        ("session_source".to_string(), "cli".to_string()),
-        ("source".to_string(), "tui".to_string()),
+        ("auth_mode".to_owned(), AuthMode::ApiKey.to_string()),
+        ("model".to_owned(), "gpt-5.1".to_owned()),
+        ("service".to_owned(), "savfox-cli".to_owned()),
+        ("session_source".to_owned(), "cli".to_owned()),
+        ("source".to_owned(), "tui".to_owned()),
     ]);
     assert_eq!(attrs, expected);
 
@@ -69,11 +69,11 @@ fn manager_allows_disabling_metadata_tags() -> Result<()> {
         SessionId::new(),
         "gpt-4o",
         "gpt-4o",
-        Some("account-id".to_string()),
+        Some("account-id".to_owned()),
         None,
         Some(AuthMode::ApiKey),
         true,
-        "tty".to_string(),
+        "tty".to_owned(),
         SessionSource::Cli,
     )
     .with_metrics_without_metadata_tags(metrics);
@@ -96,7 +96,7 @@ fn manager_allows_disabling_metadata_tags() -> Result<()> {
         _ => panic!("unexpected counter data type"),
     };
 
-    let expected = BTreeMap::from([("source".to_string(), "tui".to_string())]);
+    let expected = BTreeMap::from([("source".to_owned(), "tui".to_owned())]);
     assert_eq!(attrs, expected);
 
     Ok(())

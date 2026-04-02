@@ -460,7 +460,7 @@ mod tests {
                     .map(|s| s.content.as_ref())
                     .collect::<String>()
             })
-            .map(|s| s.trim_end().to_string())
+            .map(|s| s.trim_end().to_owned())
             .collect::<Vec<_>>()
             .join("\n");
         assert_snapshot!(name, text);
@@ -558,7 +558,7 @@ mod tests {
         changes.insert(
             PathBuf::from("b.txt"),
             FileChange::Add {
-                content: "new\n".to_string(),
+                content: "new\n".to_owned(),
             },
         );
 
@@ -573,7 +573,7 @@ mod tests {
         changes.insert(
             PathBuf::from("new_file.txt"),
             FileChange::Add {
-                content: "alpha\nbeta\n".to_string(),
+                content: "alpha\nbeta\n".to_owned(),
             },
         );
 
@@ -588,7 +588,7 @@ mod tests {
         changes.insert(
             PathBuf::from("tmp_delete_example.txt"),
             FileChange::Delete {
-                content: "first\nsecond\nthird\n".to_string(),
+                content: "first\nsecond\nthird\n".to_owned(),
             },
         );
 

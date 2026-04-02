@@ -13,9 +13,9 @@ struct MockMessage {
 impl MockMessage {
     fn new(channel: &str, sender: &str, text: &str) -> Self {
         Self {
-            channel: channel.to_string(),
-            sender: sender.to_string(),
-            text: text.to_string(),
+            channel: channel.to_owned(),
+            sender: sender.to_owned(),
+            text: text.to_owned(),
         }
     }
 }
@@ -83,7 +83,7 @@ async fn rate_limiting_simulation() {
 
     // In a real implementation, tokens would refill based on elapsed time
     let elapsed = start.elapsed();
-    let refilled = (elapsed.as_millis() / refill_rate.as_millis() as u128) as u32;
+    let refilled = (elapsed.as_millis() / refill_rate.as_millis()) as u32;
     tokens = tokens.saturating_add(refilled).min(capacity);
 
     assert!(tokens > 0, "tokens should have refilled");

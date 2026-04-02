@@ -60,7 +60,7 @@ impl RecordingTransport {
 #[async_trait]
 impl HttpTransport for RecordingTransport {
     async fn execute(&self, _req: Request) -> Result<Response, TransportError> {
-        Err(TransportError::Build("execute should not run".to_string()))
+        Err(TransportError::Build("execute should not run".to_owned()))
     }
 
     async fn stream(&self, req: Request) -> Result<StreamResponse, TransportError> {
@@ -93,8 +93,8 @@ struct StaticAuth {
 impl StaticAuth {
     fn new(token: &str, account_id: &str) -> Self {
         Self {
-            token: token.to_string(),
-            account_id: account_id.to_string(),
+            token: token.to_owned(),
+            account_id: account_id.to_owned(),
         }
     }
 }
@@ -111,9 +111,9 @@ impl AuthProvider for StaticAuth {
 
 fn provider(name: &str, wire: WireApi) -> Provider {
     Provider {
-        id: name.to_string(),
-        name: name.to_string(),
-        base_url: "https://example.com/v1".to_string(),
+        id: name.to_owned(),
+        name: name.to_owned(),
+        base_url: "https://example.com/v1".to_owned(),
         query_params: None,
         wire,
         headers: HeaderMap::new(),
@@ -157,7 +157,7 @@ impl FlakyTransport {
 #[async_trait]
 impl HttpTransport for FlakyTransport {
     async fn execute(&self, _req: Request) -> Result<Response, TransportError> {
-        Err(TransportError::Build("execute should not run".to_string()))
+        Err(TransportError::Build("execute should not run".to_owned()))
     }
 
     async fn stream(&self, _req: Request) -> Result<StreamResponse, TransportError> {
@@ -168,7 +168,7 @@ impl HttpTransport for FlakyTransport {
         *attempts += 1;
 
         if *attempts == 1 {
-            return Err(TransportError::Network("first attempt fails".to_string()));
+            return Err(TransportError::Network("first attempt fails".to_owned()));
         }
 
         let stream = futures::stream::iter(vec![Ok(Bytes::from(
@@ -292,12 +292,12 @@ async fn streaming_client_retries_on_transport_error() -> Result<()> {
     let client = ResponsesClient::new(transport.clone(), provider, NoAuth);
 
     let prompt = savfox_api_client::Prompt {
-        instructions: "Say hi".to_string(),
+        instructions: "Say hi".to_owned(),
         input: vec![ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "hi".to_string(),
+                text: "hi".to_owned(),
             }],
             end_turn: None,
             phase: None,

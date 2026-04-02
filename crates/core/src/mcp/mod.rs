@@ -330,7 +330,7 @@ mod tests {
 
     fn make_tool(name: &str) -> Tool {
         Tool {
-            name: name.to_string(),
+            name: name.to_owned(),
             title: None,
             description: None,
             input_schema: serde_json::json!({"type": "object", "properties": {}}),
@@ -345,7 +345,7 @@ mod tests {
     fn split_qualified_tool_name_returns_server_and_tool() {
         assert_eq!(
             split_qualified_tool_name("mcp__alpha__do_thing"),
-            Some(("alpha".to_string(), "do_thing".to_string()))
+            Some(("alpha".to_owned(), "do_thing".to_owned()))
         );
     }
 
@@ -358,23 +358,23 @@ mod tests {
     #[test]
     fn group_tools_by_server_strips_prefix_and_groups() {
         let mut tools = HashMap::new();
-        tools.insert("mcp__alpha__do_thing".to_string(), make_tool("do_thing"));
+        tools.insert("mcp__alpha__do_thing".to_owned(), make_tool("do_thing"));
         tools.insert(
-            "mcp__alpha__nested__op".to_string(),
+            "mcp__alpha__nested__op".to_owned(),
             make_tool("nested__op"),
         );
-        tools.insert("mcp__beta__do_other".to_string(), make_tool("do_other"));
+        tools.insert("mcp__beta__do_other".to_owned(), make_tool("do_other"));
 
         let mut expected_alpha = HashMap::new();
-        expected_alpha.insert("do_thing".to_string(), make_tool("do_thing"));
-        expected_alpha.insert("nested__op".to_string(), make_tool("nested__op"));
+        expected_alpha.insert("do_thing".to_owned(), make_tool("do_thing"));
+        expected_alpha.insert("nested__op".to_owned(), make_tool("nested__op"));
 
         let mut expected_beta = HashMap::new();
-        expected_beta.insert("do_other".to_string(), make_tool("do_other"));
+        expected_beta.insert("do_other".to_owned(), make_tool("do_other"));
 
         let mut expected = HashMap::new();
-        expected.insert("alpha".to_string(), expected_alpha);
-        expected.insert("beta".to_string(), expected_beta);
+        expected.insert("alpha".to_owned(), expected_alpha);
+        expected.insert("beta".to_owned(), expected_beta);
 
         assert_eq!(group_tools_by_server(&tools), expected);
     }

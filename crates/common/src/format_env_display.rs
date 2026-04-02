@@ -36,15 +36,15 @@ mod tests {
     #[test]
     fn formats_sorted_env_pairs() {
         let mut env = HashMap::new();
-        env.insert("B".to_string(), "two".to_string());
-        env.insert("A".to_string(), "one".to_string());
+        env.insert("B".to_owned(), "two".to_owned());
+        env.insert("A".to_owned(), "one".to_owned());
 
         assert_eq!(format_env_display(Some(&env), &[]), "A=*****, B=*****");
     }
 
     #[test]
     fn formats_env_vars_with_dollar_prefix() {
-        let vars = vec!["TOKEN".to_string(), "PATH".to_string()];
+        let vars = vec!["TOKEN".to_owned(), "PATH".to_owned()];
 
         assert_eq!(format_env_display(None, &vars), "TOKEN=*****, PATH=*****");
     }
@@ -52,8 +52,8 @@ mod tests {
     #[test]
     fn combines_env_pairs_and_vars() {
         let mut env = HashMap::new();
-        env.insert("HOME".to_string(), "/tmp".to_string());
-        let vars = vec!["TOKEN".to_string()];
+        env.insert("HOME".to_owned(), "/tmp".to_owned());
+        let vars = vec!["TOKEN".to_owned()];
 
         assert_eq!(
             format_env_display(Some(&env), &vars),

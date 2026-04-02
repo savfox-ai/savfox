@@ -107,7 +107,7 @@ async fn copy_paste_local_image_persists_rollout_request_shape() -> anyhow::Resu
                     path: abs_path.clone(),
                 },
                 UserInput::Text {
-                    text: "pasted image".to_string(),
+                    text: "pasted image".to_owned(),
                     text_elements: Vec::new(),
                 },
             ],
@@ -135,7 +135,7 @@ async fn copy_paste_local_image_persists_rollout_request_shape() -> anyhow::Resu
     let image_url = extract_image_url(&actual).expect("expected image url in rollout");
     let expected = ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![
             ContentItem::InputText {
                 text: savfox_protocol::models::local_image_open_tag_text(1),
@@ -145,7 +145,7 @@ async fn copy_paste_local_image_persists_rollout_request_shape() -> anyhow::Resu
                 text: savfox_protocol::models::image_close_tag_text(),
             },
             ContentItem::InputText {
-                text: "pasted image".to_string(),
+                text: "pasted image".to_owned(),
             },
         ],
         end_turn: None,
@@ -171,7 +171,7 @@ async fn drag_drop_image_persists_rollout_request_shape() -> anyhow::Result<()> 
         ..
     } = test_savfox().build(&server).await?;
 
-    let image_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=".to_string();
+    let image_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=".to_owned();
 
     let response = sse(vec![
         ev_response_created("resp-1"),
@@ -189,7 +189,7 @@ async fn drag_drop_image_persists_rollout_request_shape() -> anyhow::Result<()> 
                     image_url: image_url.clone(),
                 },
                 UserInput::Text {
-                    text: "dropped image".to_string(),
+                    text: "dropped image".to_owned(),
                     text_elements: Vec::new(),
                 },
             ],
@@ -217,7 +217,7 @@ async fn drag_drop_image_persists_rollout_request_shape() -> anyhow::Result<()> 
     let image_url = extract_image_url(&actual).expect("expected image url in rollout");
     let expected = ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![
             ContentItem::InputText {
                 text: savfox_protocol::models::image_open_tag_text(),
@@ -227,7 +227,7 @@ async fn drag_drop_image_persists_rollout_request_shape() -> anyhow::Result<()> 
                 text: savfox_protocol::models::image_close_tag_text(),
             },
             ContentItem::InputText {
-                text: "dropped image".to_string(),
+                text: "dropped image".to_owned(),
             },
         ],
         end_turn: None,

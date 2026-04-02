@@ -764,8 +764,8 @@ mod tests {
     fn footer_uses_channel_template_and_max_length() {
         let mut cfg = ResponseFooterConfig::default();
         cfg.channel_templates
-            .insert("telegram".to_string(), "m:{model} t:{tokens}".to_string());
-        cfg.channel_max_length.insert("telegram".to_string(), 14);
+            .insert("telegram".to_owned(), "m:{model} t:{tokens}".to_owned());
+        cfg.channel_max_length.insert("telegram".to_owned(), 14);
 
         let usage = TokenUsage {
             input_tokens: 0,

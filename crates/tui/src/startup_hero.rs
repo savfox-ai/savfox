@@ -195,7 +195,7 @@ mod tests {
                 .bold(true)
                 .center(true),
             logo_image: None,
-            tooltip: Some("Test tooltip".to_string()),
+            tooltip: Some("Test tooltip".to_owned()),
         };
         let area = Rect::new(0, 0, 80, 20);
         let mut buf = Buffer::empty(area);

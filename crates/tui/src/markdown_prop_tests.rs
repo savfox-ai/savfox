@@ -31,14 +31,14 @@ fn nested_list_input() -> impl Strategy<Value = String> {
 fn mixed_inline_styles() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
-            Just("**bold**".to_string()),
-            Just("_italic_".to_string()),
-            Just("~~strikethrough~~".to_string()),
-            Just("`code`".to_string()),
-            Just("[link](url)".to_string()),
-            Just("plain text".to_string()),
-            Just("**_nested bold italic_**".to_string()),
-            Just("**_~~all three~~_**".to_string()),
+            Just("**bold**".to_owned()),
+            Just("_italic_".to_owned()),
+            Just("~~strikethrough~~".to_owned()),
+            Just("`code`".to_owned()),
+            Just("[link](url)".to_owned()),
+            Just("plain text".to_owned()),
+            Just("**_nested bold italic_**".to_owned()),
+            Just("**_~~all three~~_**".to_owned()),
         ],
         1..=20,
     )
@@ -49,12 +49,12 @@ fn mixed_inline_styles() -> impl Strategy<Value = String> {
 fn cjk_input() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
-            Just("你好世界".to_string()),
-            Just("# 标题".to_string()),
-            Just("- 列表项".to_string()),
-            Just("**粗体**".to_string()),
-            Just("普通文本和English混合".to_string()),
-            Just("> 引用块".to_string()),
+            Just("你好世界".to_owned()),
+            Just("# 标题".to_owned()),
+            Just("- 列表项".to_owned()),
+            Just("**粗体**".to_owned()),
+            Just("普通文本和English混合".to_owned()),
+            Just("> 引用块".to_owned()),
         ],
         1..=10,
     )
@@ -65,11 +65,11 @@ fn cjk_input() -> impl Strategy<Value = String> {
 fn emoji_input() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop_oneof![
-            Just("😀😁😂🤣😃".to_string()),
-            Just("# 🎉 Title".to_string()),
-            Just("- 🔥 item".to_string()),
-            Just("**🚀 bold emoji**".to_string()),
-            Just("🏠🏡🏢🏣🏤🏥🏦🏧🏨🏩".to_string()),
+            Just("😀😁😂🤣😃".to_owned()),
+            Just("# 🎉 Title".to_owned()),
+            Just("- 🔥 item".to_owned()),
+            Just("**🚀 bold emoji**".to_owned()),
+            Just("🏠🏡🏢🏣🏤🏥🏦🏧🏨🏩".to_owned()),
         ],
         1..=8,
     )

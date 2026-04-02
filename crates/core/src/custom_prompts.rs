@@ -180,7 +180,7 @@ mod tests {
         fs::write(dir.join("init.md"), b"ignored").unwrap();
         fs::write(dir.join("foo.md"), b"ok").unwrap();
         let mut exclude = HashSet::new();
-        exclude.insert("init".to_string());
+        exclude.insert("init".to_owned());
         let found = discover_prompts_in_excluding(dir, &exclude).await;
         let names: Vec<String> = found.into_iter().map(|e| e.name).collect();
         assert_eq!(names, vec!["foo"]);

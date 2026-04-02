@@ -23,7 +23,7 @@ async fn session_archive_moves_rollout_into_archived_directory() -> Result<()> {
     // Start a session.
     let start_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;

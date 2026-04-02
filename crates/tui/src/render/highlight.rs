@@ -165,7 +165,7 @@ mod tests {
             .flat_map(|l| l.spans.iter())
             .filter(|sp| sp.style.add_modifier.contains(Modifier::DIM))
             .map(|sp| sp.content.clone().into_owned())
-            .map(|token| token.trim().to_string())
+            .map(|token| token.trim().to_owned())
             .filter(|token| !token.is_empty())
             .collect()
     }
@@ -177,9 +177,9 @@ mod tests {
         assert_eq!(reconstructed(&lines), s);
 
         let dimmed = dimmed_tokens(&lines);
-        assert!(dimmed.contains(&"&&".to_string()));
-        assert!(dimmed.contains(&"|".to_string()));
-        assert!(!dimmed.contains(&"echo".to_string()));
+        assert!(dimmed.contains(&"&&".to_owned()));
+        assert!(dimmed.contains(&"|".to_owned()));
+        assert!(!dimmed.contains(&"echo".to_owned()));
     }
 
     #[test]
@@ -189,9 +189,9 @@ mod tests {
         assert_eq!(reconstructed(&lines), s);
 
         let dimmed = dimmed_tokens(&lines);
-        assert!(dimmed.contains(&">".to_string()));
-        assert!(dimmed.contains(&"\"hi\"".to_string()));
-        assert!(dimmed.contains(&"'ok'".to_string()));
+        assert!(dimmed.contains(&">".to_owned()));
+        assert!(dimmed.contains(&"\"hi\"".to_owned()));
+        assert!(dimmed.contains(&"'ok'".to_owned()));
     }
 
     #[test]

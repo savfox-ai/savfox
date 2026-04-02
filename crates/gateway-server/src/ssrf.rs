@@ -364,8 +364,8 @@ mod tests {
     #[test]
     fn blocklist_overrides_allowlist() {
         let cfg = SsrfConfig {
-            allowlist: vec!["*.example.com".to_string()],
-            blocklist: vec!["api.example.com".to_string()],
+            allowlist: vec!["*.example.com".to_owned()],
+            blocklist: vec!["api.example.com".to_owned()],
             ..SsrfConfig::default()
         };
         assert!(host_blocked_by_policy("api.example.com", &cfg));

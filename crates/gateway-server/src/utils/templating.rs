@@ -69,8 +69,8 @@ mod tests {
     #[test]
     fn test_simple_substitution() {
         let mut ctx = TemplateContext::new();
-        ctx.insert("name".to_string(), json!("Alice"));
-        ctx.insert("count".to_string(), json!(42));
+        ctx.insert("name".to_owned(), json!("Alice"));
+        ctx.insert("count".to_owned(), json!(42));
 
         let result = apply_template("Hello, {{name}}! You have {{count}} messages.", &ctx);
         assert_eq!(result, "Hello, Alice! You have 42 messages.");
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn test_array_formatting() {
         let mut ctx = TemplateContext::new();
-        ctx.insert("items".to_string(), json!(["apple", "banana", "cherry"]));
+        ctx.insert("items".to_owned(), json!(["apple", "banana", "cherry"]));
 
         let result = apply_template("Items: {{items}}", &ctx);
         assert_eq!(result, "Items: apple, banana, cherry");
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_whitespace_in_placeholder() {
         let mut ctx = TemplateContext::new();
-        ctx.insert("name".to_string(), json!("Bob"));
+        ctx.insert("name".to_owned(), json!("Bob"));
 
         let result = apply_template("Hello, {{  name  }}!", &ctx);
         assert_eq!(result, "Hello, Bob!");

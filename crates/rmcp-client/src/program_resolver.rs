@@ -162,16 +162,16 @@ mod tests {
 
             // Build a clean environment with the temp dir in the PATH.
             let mut extra_env = HashMap::new();
-            extra_env.insert("PATH".to_string(), Self::build_path(dir_path));
+            extra_env.insert("PATH".to_owned(), Self::build_path(dir_path));
 
             #[cfg(windows)]
-            extra_env.insert("PATHEXT".to_string(), Self::ensure_cmd_extension());
+            extra_env.insert("PATHEXT".to_owned(), Self::ensure_cmd_extension());
 
             let mcp_env = create_env_for_mcp_server(Some(extra_env), &[]);
 
             Ok(Self {
                 _temp_dir: temp_dir,
-                program_name: Self::TEST_PROGRAM.to_string(),
+                program_name: Self::TEST_PROGRAM.to_owned(),
                 mcp_env,
             })
         }

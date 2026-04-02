@@ -562,9 +562,9 @@ mod tests {
 
     fn make_exec_request() -> ApprovalRequest {
         ApprovalRequest::Exec {
-            id: "test".to_string(),
-            command: vec!["echo".to_string(), "hi".to_string()],
-            reason: Some("reason".to_string()),
+            id: "test".to_owned(),
+            command: vec!["echo".to_owned(), "hi".to_owned()],
+            reason: Some("reason".to_owned()),
             proposed_execpolicy_amendment: None,
         }
     }
@@ -604,11 +604,11 @@ mod tests {
         let tx = AppEventSender::new(tx);
         let mut view = ApprovalOverlay::new(
             ApprovalRequest::Exec {
-                id: "test".to_string(),
-                command: vec!["echo".to_string()],
+                id: "test".to_owned(),
+                command: vec!["echo".to_owned()],
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "echo".to_string(),
+                    "echo".to_owned(),
                 ])),
             },
             tx,
@@ -622,7 +622,7 @@ mod tests {
                     decision,
                     ReviewDecision::ApprovedExecpolicyAmendment {
                         proposed_execpolicy_amendment: ExecPolicyAmendment::new(vec![
-                            "echo".to_string()
+                            "echo".to_owned()
                         ])
                     }
                 );
@@ -642,11 +642,11 @@ mod tests {
         let tx = AppEventSender::new(tx);
         let mut view = ApprovalOverlay::new(
             ApprovalRequest::Exec {
-                id: "test".to_string(),
-                command: vec!["echo".to_string()],
+                id: "test".to_owned(),
+                command: vec!["echo".to_owned()],
                 reason: None,
                 proposed_execpolicy_amendment: Some(ExecPolicyAmendment::new(vec![
-                    "echo".to_string(),
+                    "echo".to_owned(),
                 ])),
             },
             tx,
@@ -681,7 +681,7 @@ mod tests {
         let rendered: Vec<String> = (0..buf.area.height)
             .map(|row| {
                 (0..buf.area.width)
-                    .map(|col| buf[(col, row)].symbol().to_string())
+                    .map(|col| buf[(col, row)].symbol().to_owned())
                     .collect()
             })
             .collect();
@@ -712,10 +712,10 @@ mod tests {
             })
             .collect();
         let expected = vec![
-            "✔ You approved savfox to run".to_string(),
-            "  git add tui/src/render/".to_string(),
-            "  mod.rs tui/src/render/".to_string(),
-            "  renderable.rs this time".to_string(),
+            "✔ You approved savfox to run".to_owned(),
+            "  git add tui/src/render/".to_owned(),
+            "  mod.rs tui/src/render/".to_owned(),
+            "  renderable.rs this time".to_owned(),
         ];
         assert_eq!(rendered, expected);
     }
@@ -764,8 +764,8 @@ mod tests {
         let (tx, mut rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx);
         let request = ApprovalRequest::ApplyPatch {
-            id: "patch-1".to_string(),
-            reason: Some("refactor".to_string()),
+            id: "patch-1".to_owned(),
+            reason: Some("refactor".to_owned()),
             cwd: std::path::PathBuf::from("/tmp"),
             changes: HashMap::new(),
         };
@@ -796,11 +796,11 @@ mod tests {
         let (tx, _rx) = unbounded_channel::<AppEvent>();
         let tx = AppEventSender::new(tx);
         let dangerous_request = ApprovalRequest::Exec {
-            id: "rm".to_string(),
+            id: "rm".to_owned(),
             command: vec![
-                "/bin/bash".to_string(),
-                "-lc".to_string(),
-                "rm -rf /tmp/data".to_string(),
+                "/bin/bash".to_owned(),
+                "-lc".to_owned(),
+                "rm -rf /tmp/data".to_owned(),
             ],
             reason: None,
             proposed_execpolicy_amendment: None,

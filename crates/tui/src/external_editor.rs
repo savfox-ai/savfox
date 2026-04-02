@@ -134,7 +134,7 @@ mod tests {
             env::set_var("EDITOR", "ed");
         }
         let cmd = resolve_editor_command().unwrap();
-        assert_eq!(cmd, vec!["vis".to_string()]);
+        assert_eq!(cmd, vec!["vis".to_owned()]);
     }
 
     #[test]

@@ -276,7 +276,7 @@ to_date = "2000-01-01"
         "#;
 
         assert_eq!(
-            Some("latest match".to_string()),
+            Some("latest match".to_owned()),
             parse_announcement_tip_toml(toml)
         );
 
@@ -296,7 +296,7 @@ to_date = "2000-01-01"
         "#;
 
         assert_eq!(
-            Some("latest match".to_string()),
+            Some("latest match".to_owned()),
             parse_announcement_tip_toml(toml)
         );
     }
@@ -353,7 +353,7 @@ content = "This is a test announcement"
         "#;
 
         assert_eq!(
-            Some("This is a test announcement".to_string()),
+            Some("This is a test announcement".to_owned()),
             parse_announcement_tip_toml(toml)
         );
     }

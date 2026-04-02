@@ -931,7 +931,7 @@ mod tests {
             .output()
             .expect("git command");
         assert!(output.status.success(), "git command failed: {args:?}");
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
     /// Initializes a repository with consistent settings for cross-platform tests.

@@ -40,8 +40,7 @@ fn body_contains_text(body: &str, text: &str) -> bool {
 fn json_fragment(text: &str) -> String {
     serde_json::to_string(text)
         .expect("serialize text to JSON")
-        .trim_matches('"')
-        .to_string()
+        .trim_matches('"').to_owned()
 }
 
 fn filter_out_ghost_snapshot_entries(items: &[Value]) -> Vec<Value> {
@@ -71,7 +70,7 @@ fn normalize_line_endings_str(text: &str) -> String {
     if text.contains('\r') {
         text.replace("\r\n", "\n").replace('\r', "\n")
     } else {
-        text.to_string()
+        text.to_owned()
     }
 }
 
@@ -196,30 +195,24 @@ async fn compact_resume_and_fork_preserve_model_history_view() {
 
     let expected_model = requests[0]["model"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let prompt = requests[0]["instructions"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let permissions_message = requests[0]["input"][0].clone();
     let user_instructions = requests[0]["input"][1]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let environment_context = requests[0]["input"][2]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let tool_calls = json!(requests[0]["tools"].as_array());
     let prompt_cache_key = requests[0]["prompt_cache_key"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let fork_prompt_cache_key = requests[requests.len() - 1]["prompt_cache_key"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let summary_after_compact = extract_summary_message(&requests[2], SUMMARY_TEXT);
     let summary_after_resume = extract_summary_message(&requests[3], SUMMARY_TEXT);
     let summary_after_fork = extract_summary_message(&requests[4], SUMMARY_TEXT);
@@ -722,17 +715,14 @@ async fn compact_resume_after_second_compaction_preserves_history() {
     // hard coded test
     let prompt = requests[0]["instructions"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let permissions_message = requests[0]["input"][0].clone();
     let user_instructions = requests[0]["input"][1]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     let environment_instructions = requests[0]["input"][2]["content"][0]["text"]
         .as_str()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
 
     // Build expected final request input: initial context + forked user message +
     // compacted summary + post-compact user message + resumed user message.
@@ -953,9 +943,9 @@ async fn start_test_conversation(
     let base_url = format!("{}/v1", server.uri());
     let model = model.map(str::to_string);
     let mut builder = test_savfox().with_config(move |config| {
-        config.model_provider.name = "Non-OpenAI Model provider".to_string();
+        config.model_provider.name = "Non-OpenAI Model provider".to_owned();
         config.model_provider.base_url = Some(base_url);
-        config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_string());
+        config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_owned());
         if let Some(model) = model {
             config.model = Some(model);
         }

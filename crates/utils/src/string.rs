@@ -80,7 +80,7 @@ mod tests {
     fn normalize_slug_compacts_separators() {
         assert_eq!(
             normalize_slug("  Matrix Home / Main_Server "),
-            Some("matrix-home-main-server".to_string())
+            Some("matrix-home-main-server".to_owned())
         );
     }
 

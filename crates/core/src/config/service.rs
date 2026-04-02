@@ -676,8 +676,8 @@ fn find_effective_layer(
 mod tests {
     use anyhow::Result;
     use pretty_assertions::assert_eq;
-    use savfox_app_server_protocol::AskForApproval;
-    use savfox_utils::absolute_path::AbsolutePathBuf;
+    
+    
     use tempfile::tempdir;
 
     use super::*;
@@ -751,7 +751,7 @@ unified_exec = true
         service
             .write_value(ConfigValueWriteParams {
                 file_path: Some(tmp.path().join(CONFIG_TOML_FILE).display().to_string()),
-                key_path: "features.remote_compaction".to_string(),
+                key_path: "features.remote_compaction".to_owned(),
                 value: serde_json::json!(true),
                 merge_strategy: MergeStrategy::Replace,
                 expected_version: None,
@@ -787,10 +787,10 @@ remote_compaction = true
         let error = service
             .write_value(ConfigValueWriteParams {
                 file_path: Some(tmp.path().join(CONFIG_TOML_FILE).display().to_string()),
-                key_path: "model".to_string(),
+                key_path: "model".to_owned(),
                 value: serde_json::json!("gpt-5"),
                 merge_strategy: MergeStrategy::Replace,
-                expected_version: Some("sha256:bogus".to_string()),
+                expected_version: Some("sha256:bogus".to_owned()),
             })
             .await
             .expect_err("should fail");
@@ -810,7 +810,7 @@ remote_compaction = true
         service
             .write_value(ConfigValueWriteParams {
                 file_path: None,
-                key_path: "model".to_string(),
+                key_path: "model".to_owned(),
                 value: serde_json::json!({
                     "provider": "openai",
                     "slug": "gpt-new"
@@ -852,7 +852,7 @@ remote_compaction = true
         let error = service
             .write_value(ConfigValueWriteParams {
                 file_path: Some(tmp.path().join(CONFIG_TOML_FILE).display().to_string()),
-                key_path: "approval_policy".to_string(),
+                key_path: "approval_policy".to_owned(),
                 value: serde_json::json!("bogus"),
                 merge_strategy: MergeStrategy::Replace,
                 expected_version: None,
@@ -902,7 +902,7 @@ alpha = "a"
         service
             .write_value(ConfigValueWriteParams {
                 file_path: Some(path.display().to_string()),
-                key_path: "mcp_servers.linear".to_string(),
+                key_path: "mcp_servers.linear".to_owned(),
                 value: overlay.clone(),
                 merge_strategy: MergeStrategy::Upsert,
                 expected_version: None,
@@ -932,7 +932,7 @@ beta = "b"
         service
             .write_value(ConfigValueWriteParams {
                 file_path: Some(path.display().to_string()),
-                key_path: "mcp_servers.linear".to_string(),
+                key_path: "mcp_servers.linear".to_owned(),
                 value: overlay,
                 merge_strategy: MergeStrategy::Replace,
                 expected_version: None,

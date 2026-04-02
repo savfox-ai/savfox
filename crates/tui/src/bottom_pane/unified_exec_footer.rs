@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn render_more_sessions() {
         let mut footer = UnifiedExecFooter::new();
-        footer.set_processes(vec!["rg \"foo\" src".to_string()]);
+        footer.set_processes(vec!["rg \"foo\" src".to_owned()]);
         let width = 50;
         let height = footer.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));

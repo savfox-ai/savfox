@@ -883,16 +883,16 @@ mod tests {
         let registry = PluginRegistryDoc {
             plugins: vec![
                 RegistryPluginEntry {
-                    id: "a".to_string(),
-                    version: "1.0.0".to_string(),
-                    url: "https://example.invalid/a.zip".to_string(),
+                    id: "a".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    url: "https://example.invalid/a.zip".to_owned(),
                     sha256: None,
-                    dependencies: vec![PluginDependencySpec::Id("b".to_string())],
+                    dependencies: vec![PluginDependencySpec::Id("b".to_owned())],
                 },
                 RegistryPluginEntry {
-                    id: "b".to_string(),
-                    version: "1.0.0".to_string(),
-                    url: "https://example.invalid/b.zip".to_string(),
+                    id: "b".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    url: "https://example.invalid/b.zip".to_owned(),
                     sha256: None,
                     dependencies: vec![],
                 },
@@ -900,7 +900,7 @@ mod tests {
         };
 
         let order = resolve_registry_install_order(&registry, "a").expect("order");
-        assert_eq!(order, vec!["b".to_string(), "a".to_string()]);
+        assert_eq!(order, vec!["b".to_owned(), "a".to_owned()]);
     }
 
     #[test]
@@ -923,19 +923,19 @@ mod tests {
         let registry = PluginRegistryDoc {
             plugins: vec![
                 RegistryPluginEntry {
-                    id: "a".to_string(),
-                    version: "1.0.0".to_string(),
-                    url: "https://example.invalid/a.zip".to_string(),
+                    id: "a".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    url: "https://example.invalid/a.zip".to_owned(),
                     sha256: None,
                     dependencies: vec![PluginDependencySpec::Detailed {
-                        id: "b".to_string(),
-                        version: Some("^2.0".to_string()),
+                        id: "b".to_owned(),
+                        version: Some("^2.0".to_owned()),
                     }],
                 },
                 RegistryPluginEntry {
-                    id: "b".to_string(),
-                    version: "2.1.0".to_string(),
-                    url: "https://example.invalid/b.zip".to_string(),
+                    id: "b".to_owned(),
+                    version: "2.1.0".to_owned(),
+                    url: "https://example.invalid/b.zip".to_owned(),
                     sha256: None,
                     dependencies: vec![],
                 },
@@ -943,6 +943,6 @@ mod tests {
         };
 
         let order = resolve_registry_install_order(&registry, "a").expect("valid dependencies");
-        assert_eq!(order, vec!["b".to_string(), "a".to_string()]);
+        assert_eq!(order, vec!["b".to_owned(), "a".to_owned()]);
     }
 }

@@ -140,7 +140,7 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
 
     let server = start_mock_server().await;
     let mut builder = test_savfox().with_config(|config| {
-        config.model = Some("gpt-5.2".to_string());
+        config.model = Some("gpt-5.2".to_owned());
     });
     let initial = builder.build(&server).await?;
     let savfox = Arc::clone(&initial.savfox);
@@ -173,8 +173,7 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     let initial_instructions = initial_body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
 
     let resumed_sse = sse(vec![
         ev_response_created("resp-resume"),
@@ -184,7 +183,7 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     let resumed_mock = mount_sse_once(&server, resumed_sse).await;
 
     let mut resume_builder = test_savfox().with_config(|config| {
-        config.model = Some("gpt-5.2-savfox".to_string());
+        config.model = Some("gpt-5.2-savfox".to_owned());
     });
     let resumed = resume_builder.resume(&server, home, rollout_path).await?;
     resumed
@@ -206,8 +205,7 @@ async fn resume_switches_models_preserves_base_instructions() -> Result<()> {
     let resumed_instructions = resumed_body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     assert_eq!(resumed_instructions, initial_instructions);
 
     Ok(())

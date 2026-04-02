@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn preserves_code_fences_across_chunks() {
-        let code = "```rust\n".to_string() + &"let x = 1;\n".repeat(900) + "```";
+        let code = "```rust\n".to_owned() + &"let x = 1;\n".repeat(900) + "```";
         let chunks = chunk_message_for_channel(&code, "discord:1", None, 0);
         assert!(chunks.len() > 1);
         for chunk in chunks {

@@ -281,8 +281,8 @@ mod tests {
     #[test]
     fn verify_config_warning_notification_serialization() {
         let notification = ServerNotification::ConfigWarning(ConfigWarningNotification {
-            summary: "Config error: using defaults".to_string(),
-            details: Some("error loading config: bad config".to_string()),
+            summary: "Config error: using defaults".to_owned(),
+            details: Some("error loading config: bad config".to_owned()),
             path: None,
             range: None,
         });

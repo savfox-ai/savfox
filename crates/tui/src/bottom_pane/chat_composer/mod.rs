@@ -647,7 +647,7 @@ mod tests {
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
 
@@ -703,10 +703,10 @@ mod tests {
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
-        composer.set_footer_hint_override(Some(vec![("K".to_string(), "label".to_string())]));
+        composer.set_footer_hint_override(Some(vec![("K".to_owned(), "label".to_owned())]));
         composer.show_footer_flash(ratatui::text::Line::from("FLASH"), Duration::from_secs(10));
 
         let area = Rect::new(0, 0, 60, 6);
@@ -741,10 +741,10 @@ mod tests {
             true,
             sender,
             false,
-            "Ask Savfox to do anything".to_string(),
+            "Ask Savfox to do anything".to_owned(),
             false,
         );
-        composer.set_footer_hint_override(Some(vec![("K".to_string(), "label".to_string())]));
+        composer.set_footer_hint_override(Some(vec![("K".to_owned(), "label".to_owned())]));
         composer.show_footer_flash(ratatui::text::Line::from("FLASH"), Duration::from_secs(10));
         composer.footer_flash.as_mut().unwrap().expires_at =
             Instant::now() - Duration::from_secs(1);

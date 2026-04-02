@@ -1271,23 +1271,23 @@ mod tests {
 
     fn question_with_options(id: &str, header: &str) -> RequestUserInputQuestion {
         RequestUserInputQuestion {
-            id: id.to_string(),
-            header: header.to_string(),
-            question: "Choose an option.".to_string(),
+            id: id.to_owned(),
+            header: header.to_owned(),
+            question: "Choose an option.".to_owned(),
             is_other: false,
             is_secret: false,
             options: Some(vec![
                 RequestUserInputQuestionOption {
-                    label: "Option 1".to_string(),
-                    description: "First choice.".to_string(),
+                    label: "Option 1".to_owned(),
+                    description: "First choice.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Option 2".to_string(),
-                    description: "Second choice.".to_string(),
+                    label: "Option 2".to_owned(),
+                    description: "Second choice.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Option 3".to_string(),
-                    description: "Third choice.".to_string(),
+                    label: "Option 3".to_owned(),
+                    description: "Third choice.".to_owned(),
                 },
             ]),
         }
@@ -1295,23 +1295,23 @@ mod tests {
 
     fn question_with_options_and_other(id: &str, header: &str) -> RequestUserInputQuestion {
         RequestUserInputQuestion {
-            id: id.to_string(),
-            header: header.to_string(),
-            question: "Choose an option.".to_string(),
+            id: id.to_owned(),
+            header: header.to_owned(),
+            question: "Choose an option.".to_owned(),
             is_other: true,
             is_secret: false,
             options: Some(vec![
                 RequestUserInputQuestionOption {
-                    label: "Option 1".to_string(),
-                    description: "First choice.".to_string(),
+                    label: "Option 1".to_owned(),
+                    description: "First choice.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Option 2".to_string(),
-                    description: "Second choice.".to_string(),
+                    label: "Option 2".to_owned(),
+                    description: "Second choice.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Option 3".to_string(),
-                    description: "Third choice.".to_string(),
+                    label: "Option 3".to_owned(),
+                    description: "Third choice.".to_owned(),
                 },
             ]),
         }
@@ -1319,29 +1319,26 @@ mod tests {
 
     fn question_with_wrapped_options(id: &str, header: &str) -> RequestUserInputQuestion {
         RequestUserInputQuestion {
-            id: id.to_string(),
-            header: header.to_string(),
-            question: "Choose the next step for this task.".to_string(),
+            id: id.to_owned(),
+            header: header.to_owned(),
+            question: "Choose the next step for this task.".to_owned(),
             is_other: false,
             is_secret: false,
             options: Some(vec![
                 RequestUserInputQuestionOption {
-                    label: "Discuss a code change".to_string(),
+                    label: "Discuss a code change".to_owned(),
                     description:
-                        "Walk through a plan, then implement it together with careful checks."
-                            .to_string(),
+                        "Walk through a plan, then implement it together with careful checks.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Run targeted tests".to_string(),
+                    label: "Run targeted tests".to_owned(),
                     description:
-                        "Pick the most relevant crate and validate the current behavior first."
-                            .to_string(),
+                        "Pick the most relevant crate and validate the current behavior first.".to_owned(),
                 },
                 RequestUserInputQuestionOption {
-                    label: "Review the diff".to_string(),
+                    label: "Review the diff".to_owned(),
                     description:
-                        "Summarize the changes and highlight the most important risks and gaps."
-                            .to_string(),
+                        "Summarize the changes and highlight the most important risks and gaps.".to_owned(),
                 },
             ]),
         }
@@ -1349,9 +1346,9 @@ mod tests {
 
     fn question_without_options(id: &str, header: &str) -> RequestUserInputQuestion {
         RequestUserInputQuestion {
-            id: id.to_string(),
-            header: header.to_string(),
-            question: "Share details.".to_string(),
+            id: id.to_owned(),
+            header: header.to_owned(),
+            question: "Share details.".to_owned(),
             is_other: false,
             is_secret: false,
             options: None,
@@ -1363,8 +1360,8 @@ mod tests {
         questions: Vec<RequestUserInputQuestion>,
     ) -> RequestUserInputEvent {
         RequestUserInputEvent {
-            call_id: "call-1".to_string(),
-            turn_id: turn_id.to_string(),
+            call_id: "call-1".to_owned(),
+            turn_id: turn_id.to_owned(),
             questions,
         }
     }
@@ -1424,13 +1421,13 @@ mod tests {
             false,
         );
         overlay.try_consume_user_input_request(RequestUserInputEvent {
-            call_id: "call-2".to_string(),
-            turn_id: "turn-2".to_string(),
+            call_id: "call-2".to_owned(),
+            turn_id: "turn-2".to_owned(),
             questions: vec![question_with_options("q2", "Second")],
         });
         overlay.try_consume_user_input_request(RequestUserInputEvent {
-            call_id: "call-3".to_string(),
-            turn_id: "turn-3".to_string(),
+            call_id: "call-3".to_owned(),
+            turn_id: "turn-3".to_owned(),
             questions: vec![question_with_options("q3", "Third")],
         });
 
@@ -1480,7 +1477,7 @@ mod tests {
             panic!("expected UserInputAnswer");
         };
         let answer = response.answers.get("q1").expect("answer missing");
-        assert_eq!(answer.answers, vec!["Option 1".to_string()]);
+        assert_eq!(answer.answers, vec!["Option 1".to_owned()]);
     }
 
     #[test]
@@ -1517,15 +1514,15 @@ mod tests {
         };
         let mut expected = HashMap::new();
         expected.insert(
-            "q1".to_string(),
+            "q1".to_owned(),
             RequestUserInputAnswer {
-                answers: vec!["Option 1".to_string()],
+                answers: vec!["Option 1".to_owned()],
             },
         );
         expected.insert(
-            "q2".to_string(),
+            "q2".to_owned(),
             RequestUserInputAnswer {
-                answers: vec!["Option 1".to_string()],
+                answers: vec!["Option 1".to_owned()],
             },
         );
         assert_eq!(response.answers, expected);
@@ -1549,7 +1546,7 @@ mod tests {
             panic!("expected UserInputAnswer");
         };
         let answer = response.answers.get("q1").expect("answer missing");
-        assert_eq!(answer.answers, vec!["Option 2".to_string()]);
+        assert_eq!(answer.answers, vec!["Option 2".to_owned()]);
     }
 
     #[test]
@@ -1686,7 +1683,7 @@ mod tests {
 
         overlay
             .composer
-            .set_text_content("freeform notes".to_string(), Vec::new(), Vec::new());
+            .set_text_content("freeform notes".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
 
         overlay.move_question(true);
@@ -1710,7 +1707,7 @@ mod tests {
         let answer = response.answers.get("q1").expect("answer missing");
         assert_eq!(answer.answers, Vec::<String>::new());
         let answer = response.answers.get("q2").expect("answer missing");
-        assert_eq!(answer.answers, vec!["Option 1".to_string()]);
+        assert_eq!(answer.answers, vec!["Option 1".to_owned()]);
     }
 
     #[test]
@@ -1881,7 +1878,7 @@ mod tests {
         overlay.handle_key_event(KeyEvent::from(KeyCode::Tab));
         overlay
             .composer
-            .set_text_content("Some notes".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Some notes".to_owned(), Vec::new(), Vec::new());
 
         overlay.handle_key_event(KeyEvent::from(KeyCode::Tab));
 
@@ -1943,7 +1940,7 @@ mod tests {
 
         overlay
             .composer
-            .set_text_content("Draft".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Draft".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
         assert_eq!(overlay.unanswered_count(), 2);
 
@@ -2009,7 +2006,7 @@ mod tests {
         );
         overlay
             .composer
-            .set_text_content("Draft text".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Draft text".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
 
         overlay.submit_answers();
@@ -2041,7 +2038,7 @@ mod tests {
 
         overlay
             .composer
-            .set_text_content("Committed".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Committed".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
         overlay.handle_key_event(KeyEvent::from(KeyCode::Enter));
         assert_eq!(overlay.answers[0].answer_committed, true);
@@ -2050,7 +2047,7 @@ mod tests {
         overlay.move_question(false);
         overlay
             .composer
-            .set_text_content("Edited".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Edited".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
         overlay.move_question(true);
         assert_eq!(overlay.answers[0].answer_committed, false);
@@ -2083,7 +2080,7 @@ mod tests {
         overlay.select_current_option(false);
         overlay
             .composer
-            .set_text_content("Notes for option 2".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Notes for option 2".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
         let draft = overlay.capture_composer_draft();
         if let Some(answer) = overlay.current_answer_mut() {
@@ -2101,8 +2098,8 @@ mod tests {
         assert_eq!(
             answer.answers,
             vec![
-                "Option 2".to_string(),
-                "user_note: Notes for option 2".to_string(),
+                "Option 2".to_owned(),
+                "user_note: Notes for option 2".to_owned(),
             ]
         );
     }
@@ -2128,7 +2125,7 @@ mod tests {
         overlay.handle_key_event(KeyEvent::from(KeyCode::Tab));
         overlay
             .composer
-            .set_text_content("Notes".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Notes".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
 
         overlay.handle_key_event(KeyEvent::from(KeyCode::Enter));
@@ -2168,7 +2165,7 @@ mod tests {
         }
         overlay
             .composer
-            .set_text_content("Custom answer".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Custom answer".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
         let draft = overlay.capture_composer_draft();
         if let Some(answer) = overlay.current_answer_mut() {
@@ -2186,8 +2183,8 @@ mod tests {
         assert_eq!(
             answer.answers,
             vec![
-                OTHER_OPTION_LABEL.to_string(),
-                "user_note: Custom answer".to_string(),
+                OTHER_OPTION_LABEL.to_owned(),
+                "user_note: Custom answer".to_owned(),
             ]
         );
     }
@@ -2470,31 +2467,31 @@ mod tests {
             request_event(
                 "turn-1",
                 vec![RequestUserInputQuestion {
-                    id: "q1".to_string(),
-                    header: "Next Step".to_string(),
-                    question: "What would you like to do next?".to_string(),
+                    id: "q1".to_owned(),
+                    header: "Next Step".to_owned(),
+                    question: "What would you like to do next?".to_owned(),
                     is_other: false,
                     is_secret: false,
                     options: Some(vec![
                         RequestUserInputQuestionOption {
-                            label: "Discuss a code change (Recommended)".to_string(),
-                            description: "Walk through a plan and edit code together.".to_string(),
+                            label: "Discuss a code change (Recommended)".to_owned(),
+                            description: "Walk through a plan and edit code together.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Run tests".to_string(),
-                            description: "Pick a crate and run its tests.".to_string(),
+                            label: "Run tests".to_owned(),
+                            description: "Pick a crate and run its tests.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Review a diff".to_string(),
-                            description: "Summarize or review current changes.".to_string(),
+                            label: "Review a diff".to_owned(),
+                            description: "Summarize or review current changes.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Refactor".to_string(),
-                            description: "Tighten structure and remove dead code.".to_string(),
+                            label: "Refactor".to_owned(),
+                            description: "Tighten structure and remove dead code.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Ship it".to_string(),
-                            description: "Finalize and open a PR.".to_string(),
+                            label: "Ship it".to_owned(),
+                            description: "Finalize and open a PR.".to_owned(),
                         },
                     ]),
                 }],
@@ -2522,31 +2519,31 @@ mod tests {
             request_event(
                 "turn-1",
                 vec![RequestUserInputQuestion {
-                    id: "q1".to_string(),
-                    header: "Next Step".to_string(),
-                    question: "What would you like to do next?".to_string(),
+                    id: "q1".to_owned(),
+                    header: "Next Step".to_owned(),
+                    question: "What would you like to do next?".to_owned(),
                     is_other: false,
                     is_secret: false,
                     options: Some(vec![
                         RequestUserInputQuestionOption {
-                            label: "Discuss a code change (Recommended)".to_string(),
-                            description: "Walk through a plan and edit code together.".to_string(),
+                            label: "Discuss a code change (Recommended)".to_owned(),
+                            description: "Walk through a plan and edit code together.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Run tests".to_string(),
-                            description: "Pick a crate and run its tests.".to_string(),
+                            label: "Run tests".to_owned(),
+                            description: "Pick a crate and run its tests.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Review a diff".to_string(),
-                            description: "Summarize or review current changes.".to_string(),
+                            label: "Review a diff".to_owned(),
+                            description: "Summarize or review current changes.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Refactor".to_string(),
-                            description: "Tighten structure and remove dead code.".to_string(),
+                            label: "Refactor".to_owned(),
+                            description: "Tighten structure and remove dead code.".to_owned(),
                         },
                         RequestUserInputQuestionOption {
-                            label: "Ship it".to_string(),
-                            description: "Finalize and open a PR.".to_string(),
+                            label: "Ship it".to_owned(),
+                            description: "Finalize and open a PR.".to_owned(),
                         },
                     ]),
                 }],
@@ -2671,7 +2668,7 @@ mod tests {
         overlay.focus = Focus::Notes;
         overlay
             .composer
-            .set_text_content("Notes".to_string(), Vec::new(), Vec::new());
+            .set_text_content("Notes".to_owned(), Vec::new(), Vec::new());
         overlay.composer.move_cursor_to_end();
 
         overlay.handle_key_event(KeyEvent::from(KeyCode::Down));

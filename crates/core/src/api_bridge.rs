@@ -134,7 +134,7 @@ mod tests {
         );
         let err = map_api_error(ApiError::Transport(TransportError::Http {
             status: StatusCode::TOO_MANY_REQUESTS,
-            url: Some("http://example.com/v1/responses".to_string()),
+            url: Some("http://example.com/v1/responses".to_owned()),
             headers: Some(headers),
             body: Some(String::new()),
         }));

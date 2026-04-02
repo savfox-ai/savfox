@@ -2808,7 +2808,7 @@ mod tests {
     #[test]
     fn user_input_text_serializes_empty_text_elements() -> Result<()> {
         let input = UserInput::Text {
-            text: "hello".to_string(),
+            text: "hello".to_owned(),
             text_elements: Vec::new(),
         };
 
@@ -2828,7 +2828,7 @@ mod tests {
     #[test]
     fn user_message_event_serializes_empty_metadata_vectors() -> Result<()> {
         let event = UserMessageEvent {
-            message: "hello".to_string(),
+            message: "hello".to_owned(),
             images: None,
             local_images: Vec::new(),
             text_elements: Vec::new(),
@@ -2854,13 +2854,13 @@ mod tests {
         let conversation_id = SessionId::from_string("67e55044-10b1-426f-9247-bb680e5fe0c8")?;
         let rollout_file = NamedTempFile::new()?;
         let event = Event {
-            id: "1234".to_string(),
+            id: "1234".to_owned(),
             msg: EventMsg::SessionConfigured(SessionConfiguredEvent {
                 session_id: conversation_id,
                 forked_from_id: None,
                 session_name: None,
-                model: "savfox-mini-latest".to_string(),
-                model_provider_id: "openai".to_string(),
+                model: "savfox-mini-latest".to_owned(),
+                model_provider_id: "openai".to_owned(),
                 approval_policy: AskForApproval::Never,
                 sandbox_policy: SandboxPolicy::ReadOnly,
                 cwd: PathBuf::from("/home/user/project"),
@@ -2897,7 +2897,7 @@ mod tests {
     #[test]
     fn vec_u8_as_base64_serialization_and_deserialization() -> Result<()> {
         let event = ExecCommandOutputDeltaEvent {
-            call_id: "call21".to_string(),
+            call_id: "call21".to_owned(),
             stream: ExecOutputStream::Stdout,
             chunk: vec![1, 2, 3, 4, 5],
         };
@@ -2915,11 +2915,11 @@ mod tests {
     #[test]
     fn serialize_mcp_startup_update_event() -> Result<()> {
         let event = Event {
-            id: "init".to_string(),
+            id: "init".to_owned(),
             msg: EventMsg::McpStartupUpdate(McpStartupUpdateEvent {
-                server: "srv".to_string(),
+                server: "srv".to_owned(),
                 status: McpStartupStatus::Failed {
-                    error: "boom".to_string(),
+                    error: "boom".to_owned(),
                 },
             }),
         };
@@ -2935,14 +2935,14 @@ mod tests {
     #[test]
     fn serialize_mcp_startup_complete_event() -> Result<()> {
         let event = Event {
-            id: "init".to_string(),
+            id: "init".to_owned(),
             msg: EventMsg::McpStartupComplete(McpStartupCompleteEvent {
-                ready: vec!["a".to_string()],
+                ready: vec!["a".to_owned()],
                 failed: vec![McpStartupFailure {
-                    server: "b".to_string(),
-                    error: "bad".to_string(),
+                    server: "b".to_owned(),
+                    error: "bad".to_owned(),
                 }],
-                cancelled: vec!["c".to_string()],
+                cancelled: vec!["c".to_owned()],
             }),
         };
 
@@ -2963,18 +2963,18 @@ mod tests {
             history: vec![
                 RolloutItem::ResponseItem(ResponseItem::Message {
                     id: None,
-                    role: "user".to_string(),
+                    role: "user".to_owned(),
                     content: vec![ContentItem::InputText {
-                        text: "legacy user".to_string(),
+                        text: "legacy user".to_owned(),
                     }],
                     end_turn: None,
                     phase: None,
                 }),
                 RolloutItem::ResponseItem(ResponseItem::Message {
                     id: None,
-                    role: "assistant".to_string(),
+                    role: "assistant".to_owned(),
                     content: vec![ContentItem::OutputText {
-                        text: "legacy assistant".to_string(),
+                        text: "legacy assistant".to_owned(),
                     }],
                     end_turn: None,
                     phase: None,
@@ -3005,25 +3005,25 @@ mod tests {
             conversation_id,
             history: vec![
                 RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
-                    message: "from event".to_string(),
+                    message: "from event".to_owned(),
                     images: None,
                     local_images: Vec::new(),
                     text_elements: Vec::new(),
                 })),
                 RolloutItem::ResponseItem(ResponseItem::Message {
                     id: None,
-                    role: "user".to_string(),
+                    role: "user".to_owned(),
                     content: vec![ContentItem::InputText {
-                        text: "from response".to_string(),
+                        text: "from response".to_owned(),
                     }],
                     end_turn: None,
                     phase: None,
                 }),
                 RolloutItem::ResponseItem(ResponseItem::Message {
                     id: None,
-                    role: "assistant".to_string(),
+                    role: "assistant".to_owned(),
                     content: vec![ContentItem::OutputText {
-                        text: "assistant fallback".to_string(),
+                        text: "assistant fallback".to_owned(),
                     }],
                     end_turn: None,
                     phase: None,
@@ -3052,9 +3052,9 @@ mod tests {
         let history =
             InitialHistory::Forked(vec![RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "history-only".to_string(),
+                    text: "history-only".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,

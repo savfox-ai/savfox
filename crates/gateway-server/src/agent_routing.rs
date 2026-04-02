@@ -264,7 +264,7 @@ mod tests {
     fn test_default_routing() {
         let router = AgentRouter::default();
         let ctx = RoutingContext {
-            channel: "discord".to_string(),
+            channel: "discord".to_owned(),
             channel_id: None,
             sender_id: None,
             group_id: None,
@@ -283,10 +283,10 @@ mod tests {
     fn test_channel_routing() {
         let router = AgentRouter::new(
             vec![RouteRule {
-                channel: "discord".to_string(),
+                channel: "discord".to_owned(),
                 filter: None,
                 sender: None,
-                agent_id: "discord-agent".to_string(),
+                agent_id: "discord-agent".to_owned(),
                 priority: 0,
                 guild_id: None,
                 team_id: None,
@@ -295,10 +295,10 @@ mod tests {
                 role_ids: Vec::new(),
                 match_type: RouteMatchType::default(),
             }],
-            "default".to_string(),
+            "default".to_owned(),
         );
         let ctx = RoutingContext {
-            channel: "discord".to_string(),
+            channel: "discord".to_owned(),
             channel_id: None,
             sender_id: None,
             group_id: None,
@@ -318,10 +318,10 @@ mod tests {
         let router = AgentRouter::new(
             vec![
                 RouteRule {
-                    channel: "*".to_string(),
+                    channel: "*".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "fallback".to_string(),
+                    agent_id: "fallback".to_owned(),
                     priority: 0,
                     guild_id: None,
                     team_id: None,
@@ -331,10 +331,10 @@ mod tests {
                     match_type: RouteMatchType::default(),
                 },
                 RouteRule {
-                    channel: "telegram".to_string(),
+                    channel: "telegram".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "telegram-agent".to_string(),
+                    agent_id: "telegram-agent".to_owned(),
                     priority: 10,
                     guild_id: None,
                     team_id: None,
@@ -344,10 +344,10 @@ mod tests {
                     match_type: RouteMatchType::default(),
                 },
             ],
-            "default".to_string(),
+            "default".to_owned(),
         );
         let ctx = RoutingContext {
-            channel: "telegram".to_string(),
+            channel: "telegram".to_owned(),
             channel_id: None,
             sender_id: None,
             group_id: None,
@@ -367,10 +367,10 @@ mod tests {
         let router = AgentRouter::new(
             vec![
                 RouteRule {
-                    channel: "discord".to_string(),
+                    channel: "discord".to_owned(),
                     filter: None,
-                    sender: Some("u-peer".to_string()),
-                    agent_id: "peer-agent".to_string(),
+                    sender: Some("u-peer".to_owned()),
+                    agent_id: "peer-agent".to_owned(),
                     priority: 100,
                     guild_id: None,
                     team_id: None,
@@ -380,10 +380,10 @@ mod tests {
                     match_type: RouteMatchType::Peer,
                 },
                 RouteRule {
-                    channel: "discord".to_string(),
+                    channel: "discord".to_owned(),
                     filter: None,
-                    sender: Some("u-parent".to_string()),
-                    agent_id: "parent-agent".to_string(),
+                    sender: Some("u-parent".to_owned()),
+                    agent_id: "parent-agent".to_owned(),
                     priority: 90,
                     guild_id: None,
                     team_id: None,
@@ -393,25 +393,25 @@ mod tests {
                     match_type: RouteMatchType::ParentPeer,
                 },
                 RouteRule {
-                    channel: "discord".to_string(),
+                    channel: "discord".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "role-agent".to_string(),
+                    agent_id: "role-agent".to_owned(),
                     priority: 80,
-                    guild_id: Some("g1".to_string()),
+                    guild_id: Some("g1".to_owned()),
                     team_id: None,
                     account_id: None,
-                    roles: vec!["admin".to_string()],
+                    roles: vec!["admin".to_owned()],
                     role_ids: Vec::new(),
                     match_type: RouteMatchType::GuildRoles,
                 },
                 RouteRule {
-                    channel: "discord".to_string(),
+                    channel: "discord".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "guild-agent".to_string(),
+                    agent_id: "guild-agent".to_owned(),
                     priority: 70,
-                    guild_id: Some("g1".to_string()),
+                    guild_id: Some("g1".to_owned()),
                     team_id: None,
                     account_id: None,
                     roles: Vec::new(),
@@ -419,36 +419,36 @@ mod tests {
                     match_type: RouteMatchType::Guild,
                 },
                 RouteRule {
-                    channel: "slack".to_string(),
+                    channel: "slack".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "team-agent".to_string(),
+                    agent_id: "team-agent".to_owned(),
                     priority: 60,
                     guild_id: None,
-                    team_id: Some("t1".to_string()),
+                    team_id: Some("t1".to_owned()),
                     account_id: None,
                     roles: Vec::new(),
                     role_ids: Vec::new(),
                     match_type: RouteMatchType::Team,
                 },
                 RouteRule {
-                    channel: "*".to_string(),
+                    channel: "*".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "account-agent".to_string(),
+                    agent_id: "account-agent".to_owned(),
                     priority: 50,
                     guild_id: None,
                     team_id: None,
-                    account_id: Some("acc1".to_string()),
+                    account_id: Some("acc1".to_owned()),
                     roles: Vec::new(),
                     role_ids: Vec::new(),
                     match_type: RouteMatchType::Account,
                 },
                 RouteRule {
-                    channel: "*".to_string(),
+                    channel: "*".to_owned(),
                     filter: None,
                     sender: None,
-                    agent_id: "fallback-agent".to_string(),
+                    agent_id: "fallback-agent".to_owned(),
                     priority: 1,
                     guild_id: None,
                     team_id: None,
@@ -458,36 +458,36 @@ mod tests {
                     match_type: RouteMatchType::Default,
                 },
             ],
-            "default".to_string(),
+            "default".to_owned(),
         );
 
         let mut ctx = RoutingContext {
-            channel: "discord".to_string(),
-            channel_id: Some("c1".to_string()),
-            sender_id: Some("u-peer".to_string()),
+            channel: "discord".to_owned(),
+            channel_id: Some("c1".to_owned()),
+            sender_id: Some("u-peer".to_owned()),
             group_id: None,
-            guild_id: Some("g1".to_string()),
+            guild_id: Some("g1".to_owned()),
             team_id: None,
-            account_id: Some("acc1".to_string()),
-            role_ids: vec!["admin".to_string()],
+            account_id: Some("acc1".to_owned()),
+            role_ids: vec!["admin".to_owned()],
             parent_channel_id: None,
-            parent_sender_id: Some("u-parent".to_string()),
+            parent_sender_id: Some("u-parent".to_owned()),
             is_dm: false,
         };
         assert_eq!(router.resolve(&ctx), "peer-agent");
 
-        ctx.sender_id = Some("u-other".to_string());
+        ctx.sender_id = Some("u-other".to_owned());
         assert_eq!(router.resolve(&ctx), "parent-agent");
 
         ctx.parent_sender_id = None;
         assert_eq!(router.resolve(&ctx), "role-agent");
 
-        ctx.role_ids = vec!["viewer".to_string()];
+        ctx.role_ids = vec!["viewer".to_owned()];
         assert_eq!(router.resolve(&ctx), "guild-agent");
 
-        ctx.channel = "slack".to_string();
+        ctx.channel = "slack".to_owned();
         ctx.guild_id = None;
-        ctx.team_id = Some("t1".to_string());
+        ctx.team_id = Some("t1".to_owned());
         assert_eq!(router.resolve(&ctx), "team-agent");
 
         ctx.team_id = None;
@@ -500,11 +500,11 @@ mod tests {
     #[test]
     fn test_role_extractors() {
         let roles =
-            AgentRouter::extract_discord_roles(&["admin,mod".to_string(), " ops ".to_string()]);
+            AgentRouter::extract_discord_roles(&["admin,mod".to_owned(), " ops ".to_owned()]);
         assert_eq!(roles, vec!["admin", "mod", "ops"]);
 
         let groups =
-            AgentRouter::extract_slack_groups(&["eng,qa".to_string(), "oncall".to_string()]);
+            AgentRouter::extract_slack_groups(&["eng,qa".to_owned(), "oncall".to_owned()]);
         assert_eq!(groups, vec!["eng", "qa", "oncall"]);
     }
 }

@@ -159,7 +159,7 @@ mod tests {
         }
 
         async fn stream(&self, _req: Request) -> Result<StreamResponse, TransportError> {
-            Err(TransportError::Build("stream should not run".to_string()))
+            Err(TransportError::Build("stream should not run".to_owned()))
         }
     }
 
@@ -174,9 +174,9 @@ mod tests {
 
     fn provider(base_url: &str) -> Provider {
         Provider {
-            id: "test".to_string(),
-            name: "test".to_string(),
-            base_url: base_url.to_string(),
+            id: "test".to_owned(),
+            name: "test".to_owned(),
+            base_url: base_url.to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -306,7 +306,7 @@ mod tests {
         let transport = CapturingTransport {
             last_request: Arc::new(Mutex::new(None)),
             body: Arc::new(response),
-            etag: Some("\"abc\"".to_string()),
+            etag: Some("\"abc\"".to_owned()),
         };
 
         let client = ModelsClient::new(
@@ -321,6 +321,6 @@ mod tests {
             .expect("request should succeed");
 
         assert_eq!(models.len(), 0);
-        assert_eq!(etag, Some("\"abc\"".to_string()));
+        assert_eq!(etag, Some("\"abc\"".to_owned()));
     }
 }

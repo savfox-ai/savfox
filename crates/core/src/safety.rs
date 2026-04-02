@@ -182,7 +182,7 @@ mod tests {
         let parent = cwd.parent().unwrap().to_path_buf();
 
         // Helper to build a single‑entry patch that adds a file at `p`.
-        let make_add_change = |p: PathBuf| ApplyPatchAction::new_add_for_test(&p, "".to_string());
+        let make_add_change = |p: PathBuf| ApplyPatchAction::new_add_for_test(&p, "".to_owned());
 
         let add_inside = make_add_change(cwd.join("inner.txt"));
         let add_outside = make_add_change(parent.join("outside.txt"));
@@ -227,7 +227,7 @@ mod tests {
     fn external_sandbox_auto_approves_in_on_request() {
         let tmp = TempDir::new().unwrap();
         let cwd = tmp.path().to_path_buf();
-        let add_inside = ApplyPatchAction::new_add_for_test(&cwd.join("inner.txt"), "".to_string());
+        let add_inside = ApplyPatchAction::new_add_for_test(&cwd.join("inner.txt"), "".to_owned());
 
         let policy = SandboxPolicy::ExternalSandbox {
             network_access: savfox_protocol::protocol::NetworkAccess::Enabled,

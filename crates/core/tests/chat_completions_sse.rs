@@ -75,10 +75,10 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         auth_mode,
         false,
-        "test".to_string(),
+        "test".to_owned(),
         SessionSource::Exec,
     );
 
@@ -99,9 +99,9 @@ async fn run_stream_with_bytes(sse_body: &[u8]) -> Vec<ResponseEvent> {
     let mut prompt = Prompt::default();
     prompt.input = vec![ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
-            text: "hello".to_string(),
+            text: "hello".to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -403,7 +403,7 @@ async fn chat_sse_emits_failed_on_parse_error() {
                     && line.contains("http.response.status_code=200")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("cannot find savfox.api_request event".to_string()))
+            .unwrap_or(Err("cannot find savfox.api_request event".to_owned()))
     });
 
     logs_assert(|lines: &[&str]| {
@@ -415,7 +415,7 @@ async fn chat_sse_emits_failed_on_parse_error() {
                     && line.contains("expected ident at line 1 column 2")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("cannot find SSE event".to_string()))
+            .unwrap_or(Err("cannot find SSE event".to_owned()))
     });
 }
 
@@ -433,7 +433,7 @@ async fn chat_sse_done_chunk_emits_event() {
             .iter()
             .find(|line| line.contains("savfox.sse_event") && line.contains("event.kind=message"))
             .map(|_| Ok(()))
-            .unwrap_or(Err("cannot find SSE event".to_string()))
+            .unwrap_or(Err("cannot find SSE event".to_owned()))
     });
 }
 
@@ -453,6 +453,6 @@ async fn chat_sse_emits_error_on_invalid_utf8() {
                     && line.contains("UTF8 error: invalid utf-8 sequence of 1 bytes from index 0")
             })
             .map(|_| Ok(()))
-            .unwrap_or(Err("cannot find SSE event".to_string()))
+            .unwrap_or(Err("cannot find SSE event".to_owned()))
     });
 }

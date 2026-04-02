@@ -482,7 +482,7 @@ mod tests {
         }
 
         fn with_var(mut self, key: &str, value: &str) -> Self {
-            self.vars.insert(key.to_string(), value.to_string());
+            self.vars.insert(key.to_owned(), value.to_owned());
             self
         }
 
@@ -799,7 +799,7 @@ mod tests {
                 Some("1.2.3"),
                 Some("xterm-ghostty"),
                 Some(Multiplexer::Tmux {
-                    version: Some("3.6a".to_string()),
+                    version: Some("3.6a".to_owned()),
                 }),
             ),
             "tmux_term_program_client_termtype_info"

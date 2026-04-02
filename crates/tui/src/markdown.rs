@@ -36,8 +36,8 @@ mod tests {
         assert_eq!(
             rendered,
             vec![
-                "Before 【F:/x.rs†L1】".to_string(),
-                "After 【F:/x.rs†L3】".to_string()
+                "Before 【F:/x.rs†L1】".to_owned(),
+                "After 【F:/x.rs†L3】".to_owned()
             ]
         );
     }
@@ -80,7 +80,7 @@ mod tests {
         let mut out = Vec::new();
         append_markdown("1. Tight item\n", None, &mut out);
         let lines = lines_to_strings(&out);
-        assert_eq!(lines, vec!["1. Tight item".to_string()]);
+        assert_eq!(lines, vec!["1. Tight item".to_owned()]);
     }
 
     #[test]

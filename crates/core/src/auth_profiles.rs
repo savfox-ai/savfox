@@ -181,19 +181,19 @@ mod tests {
     fn test_config() -> AuthProfilesConfig {
         let mut providers = HashMap::new();
         providers.insert(
-            "openai".to_string(),
+            "openai".to_owned(),
             ProviderProfileConfig {
                 keys: vec![
                     ApiKey {
-                        id: "key-1".to_string(),
-                        key: "sk-test1".to_string(),
+                        id: "key-1".to_owned(),
+                        key: "sk-test1".to_owned(),
                         org_id: None,
                         enabled: true,
                         rate_limit_remaining: None,
                     },
                     ApiKey {
-                        id: "key-2".to_string(),
-                        key: "sk-test2".to_string(),
+                        id: "key-2".to_owned(),
+                        key: "sk-test2".to_owned(),
                         org_id: None,
                         enabled: true,
                         rate_limit_remaining: None,

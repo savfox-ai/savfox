@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_memory_instructions_roundtrip() {
         let mi = MemoryInstructions {
-            text: "# Memory Context\n\n## [global] my-note\nHello".to_string(),
+            text: "# Memory Context\n\n## [global] my-note\nHello".to_owned(),
         };
         let item: ResponseItem = mi.into();
         let ResponseItem::Message { content, .. } = item else {
@@ -53,7 +53,7 @@ mod tests {
     fn test_not_memory_instructions() {
         assert!(!MemoryInstructions::is_memory_instructions(&[
             ContentItem::InputText {
-                text: "Some other text".to_string()
+                text: "Some other text".to_owned()
             }
         ]));
     }

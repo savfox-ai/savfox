@@ -552,7 +552,7 @@ mod tests {
                         line.push_str(symbol);
                     }
                 }
-                line.trim_end().to_string()
+                line.trim_end().to_owned()
             })
             .collect();
 
@@ -614,7 +614,7 @@ mod tests {
             "session-1",
             FeedbackAudience::OpenAiEmployee,
         );
-        let expected_slack_url = "http://go/savfox-feedback-internal".to_string();
+        let expected_slack_url = "http://go/savfox-feedback-internal".to_owned();
         assert_eq!(bug_url.as_deref(), Some(expected_slack_url.as_str()));
 
         let bad_result_url = issue_url_for_category(

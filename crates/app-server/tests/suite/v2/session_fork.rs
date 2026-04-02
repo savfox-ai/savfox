@@ -84,7 +84,7 @@ async fn session_fork_creates_new_session_and_emits_started() -> Result<()> {
             assert_eq!(
                 content,
                 &vec![UserInput::Text {
-                    text: preview.to_string(),
+                    text: preview.to_owned(),
                     text_elements: Vec::new(),
                 }]
             );

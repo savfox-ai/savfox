@@ -20,9 +20,9 @@ async fn initialize_uses_client_info_name_as_originator() -> Result<()> {
     let message = timeout(
         DEFAULT_READ_TIMEOUT,
         mcp.initialize_with_client_info(ClientInfo {
-            name: "savfox_vscode".to_string(),
-            title: Some("Savfox VS Code Extension".to_string()),
-            version: "0.1.0".to_string(),
+            name: "savfox_vscode".to_owned(),
+            title: Some("Savfox VS Code Extension".to_owned()),
+            version: "0.1.0".to_owned(),
         }),
     )
     .await??;
@@ -54,9 +54,9 @@ async fn initialize_respects_originator_override_env_var() -> Result<()> {
     let message = timeout(
         DEFAULT_READ_TIMEOUT,
         mcp.initialize_with_client_info(ClientInfo {
-            name: "savfox_vscode".to_string(),
-            title: Some("Savfox VS Code Extension".to_string()),
-            version: "0.1.0".to_string(),
+            name: "savfox_vscode".to_owned(),
+            title: Some("Savfox VS Code Extension".to_owned()),
+            version: "0.1.0".to_owned(),
         }),
     )
     .await??;
@@ -85,9 +85,9 @@ async fn initialize_rejects_invalid_client_name() -> Result<()> {
     let message = timeout(
         DEFAULT_READ_TIMEOUT,
         mcp.initialize_with_client_info(ClientInfo {
-            name: "bad\rname".to_string(),
-            title: Some("Bad Client".to_string()),
-            version: "0.1.0".to_string(),
+            name: "bad\rname".to_owned(),
+            title: Some("Bad Client".to_owned()),
+            version: "0.1.0".to_owned(),
         }),
     )
     .await??;

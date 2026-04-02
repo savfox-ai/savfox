@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(normalize_session_name("   "), None);
         assert_eq!(
             normalize_session_name("  my session  "),
-            Some("my session".to_string())
+            Some("my session".to_owned())
         );
     }
 
@@ -150,7 +150,7 @@ mod tests {
     fn resume_command_prefers_name_over_id() {
         let session_id = SessionId::from_string("123e4567-e89b-12d3-a456-426614174000").unwrap();
         let command = resume_command(Some("my-session"), Some(session_id));
-        assert_eq!(command, Some("savfox resume my-session".to_string()));
+        assert_eq!(command, Some("savfox resume my-session".to_owned()));
     }
 
     #[test]
@@ -159,7 +159,7 @@ mod tests {
         let command = resume_command(None, Some(session_id));
         assert_eq!(
             command,
-            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string())
+            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned())
         );
     }
 
@@ -174,13 +174,13 @@ mod tests {
         let command = resume_command(Some("-starts-with-dash"), None);
         assert_eq!(
             command,
-            Some("savfox resume -- -starts-with-dash".to_string())
+            Some("savfox resume -- -starts-with-dash".to_owned())
         );
 
         let command = resume_command(Some("two words"), None);
-        assert_eq!(command, Some("savfox resume 'two words'".to_string()));
+        assert_eq!(command, Some("savfox resume 'two words'".to_owned()));
 
         let command = resume_command(Some("quote'case"), None);
-        assert_eq!(command, Some("savfox resume \"quote'case\"".to_string()));
+        assert_eq!(command, Some("savfox resume \"quote'case\"".to_owned()));
     }
 }

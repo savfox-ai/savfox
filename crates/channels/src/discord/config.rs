@@ -136,10 +136,10 @@ mod tests {
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: "discord-stream".to_string(),
-            kind: "discord".to_string(),
-            slug: "discord".to_string(),
-            name: "Discord".to_string(),
+            id: "discord-stream".to_owned(),
+            kind: "discord".to_owned(),
+            slug: "discord".to_owned(),
+            name: "Discord".to_owned(),
             enabled: true,
             config,
             router: None,

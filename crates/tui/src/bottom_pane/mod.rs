@@ -927,7 +927,7 @@ mod tests {
 
     fn exec_request() -> ApprovalRequest {
         ApprovalRequest::Exec {
-            id: "1".to_string(),
+            id: "1".to_owned(),
             command: vec!["echo".into(), "ok".into()],
             reason: None,
             proposed_execpolicy_amendment: None,
@@ -944,7 +944,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -967,7 +967,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1001,7 +1001,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1066,7 +1066,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1093,7 +1093,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1125,7 +1125,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1148,7 +1148,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1156,10 +1156,10 @@ mod tests {
 
         pane.set_task_running(true);
         pane.update_status(
-            "Working".to_string(),
-            Some("First detail line\nSecond detail line".to_string()),
+            "Working".to_owned(),
+            Some("First detail line\nSecond detail line".to_owned()),
         );
-        pane.set_queued_user_messages(vec!["Queued follow-up question".to_string()]);
+        pane.set_queued_user_messages(vec!["Queued follow-up question".to_owned()]);
 
         let width = 48;
         let height = pane.desired_height(width);
@@ -1179,14 +1179,14 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
         });
 
         pane.set_task_running(true);
-        pane.set_queued_user_messages(vec!["Queued follow-up question".to_string()]);
+        pane.set_queued_user_messages(vec!["Queued follow-up question".to_owned()]);
         pane.hide_status_indicator();
 
         let width = 48;
@@ -1207,14 +1207,14 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
         });
 
         pane.set_task_running(true);
-        pane.set_queued_user_messages(vec!["Queued follow-up question".to_string()]);
+        pane.set_queued_user_messages(vec!["Queued follow-up question".to_owned()]);
 
         let width = 48;
         let height = pane.desired_height(width);
@@ -1234,12 +1234,12 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(vec![SkillMetadata {
-                name: "test-skill".to_string(),
-                description: "test skill".to_string(),
+                name: "test-skill".to_owned(),
+                description: "test skill".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1280,7 +1280,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1315,7 +1315,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),
@@ -1371,7 +1371,7 @@ mod tests {
             frame_requester: FrameRequester::test_dummy(),
             has_input_focus: true,
             enhanced_keys_supported: false,
-            placeholder_text: "Ask Savfox to do anything".to_string(),
+            placeholder_text: "Ask Savfox to do anything".to_owned(),
             disable_paste_burst: false,
             animations_enabled: true,
             skills: Some(Vec::new()),

@@ -1045,10 +1045,10 @@ mod tests {
 
     fn create_test_tool(server_name: &str, tool_name: &str) -> ToolInfo {
         ToolInfo {
-            server_name: server_name.to_string(),
-            tool_name: tool_name.to_string(),
+            server_name: server_name.to_owned(),
+            tool_name: tool_name.to_owned(),
             tool: Tool::new_with_raw(
-                tool_name.to_string(),
+                tool_name.to_owned(),
                 Some(format!("Test tool: {tool_name}").into()),
                 Arc::new(JsonObject::default()),
             ),
@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn tool_filter_applies_enabled_list() {
         let filter = ToolFilter {
-            enabled: Some(HashSet::from(["allowed".to_string()])),
+            enabled: Some(HashSet::from(["allowed".to_owned()])),
             disabled: HashSet::new(),
         };
 
@@ -1164,7 +1164,7 @@ mod tests {
     fn tool_filter_applies_disabled_list() {
         let filter = ToolFilter {
             enabled: None,
-            disabled: HashSet::from(["blocked".to_string()]),
+            disabled: HashSet::from(["blocked".to_owned()]),
         };
 
         assert!(!filter.allows("blocked"));
@@ -1174,8 +1174,8 @@ mod tests {
     #[test]
     fn tool_filter_applies_enabled_then_disabled() {
         let filter = ToolFilter {
-            enabled: Some(HashSet::from(["keep".to_string(), "remove".to_string()])),
-            disabled: HashSet::from(["remove".to_string()]),
+            enabled: Some(HashSet::from(["keep".to_owned(), "remove".to_owned()])),
+            disabled: HashSet::from(["remove".to_owned()]),
         };
 
         assert!(filter.allows("keep"));
@@ -1191,12 +1191,12 @@ mod tests {
         ];
         let server2_tools = vec![create_test_tool("server2", "tool_a")];
         let server1_filter = ToolFilter {
-            enabled: Some(HashSet::from(["tool_a".to_string(), "tool_b".to_string()])),
-            disabled: HashSet::from(["tool_b".to_string()]),
+            enabled: Some(HashSet::from(["tool_a".to_owned(), "tool_b".to_owned()])),
+            disabled: HashSet::from(["tool_b".to_owned()]),
         };
         let server2_filter = ToolFilter {
             enabled: None,
-            disabled: HashSet::from(["tool_a".to_string()]),
+            disabled: HashSet::from(["tool_a".to_owned()]),
         };
 
         let filtered: Vec<_> = filter_tools(server1_tools, server1_filter)
@@ -1215,7 +1215,7 @@ mod tests {
         let entry = McpAuthStatusEntry {
             config: McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://api.githubcopilot.com/mcp/".to_string(),
+                    url: "https://api.githubcopilot.com/mcp/".to_owned(),
                     bearer_token_env_var: None,
                     http_headers: None,
                     env_http_headers: None,
@@ -1261,8 +1261,8 @@ mod tests {
         let entry = McpAuthStatusEntry {
             config: McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com".to_string(),
-                    bearer_token_env_var: Some("TOKEN".to_string()),
+                    url: "https://example.com".to_owned(),
+                    bearer_token_env_var: Some("TOKEN".to_owned()),
                     http_headers: None,
                     env_http_headers: None,
                 },

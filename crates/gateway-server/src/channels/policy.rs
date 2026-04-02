@@ -249,10 +249,10 @@ mod tests {
     fn dm_scope_policy_resolve_prefers_channel_then_agent_then_default() {
         let mut cfg = DmScopePolicyConfig {
             default: Some(DmScope::Main),
-            agents: HashMap::from([("support".to_string(), DmScope::PerPeer)]),
+            agents: HashMap::from([("support".to_owned(), DmScope::PerPeer)]),
             channels: HashMap::from([
-                ("slack".to_string(), DmScope::PerChannelPeer),
-                ("slack:c01".to_string(), DmScope::PerAccountChannelPeer),
+                ("slack".to_owned(), DmScope::PerChannelPeer),
+                ("slack:c01".to_owned(), DmScope::PerAccountChannelPeer),
             ]),
         };
         cfg.normalize();
@@ -272,15 +272,15 @@ mod tests {
     #[test]
     fn channel_tone_resolve_prefers_agent_channel_matrix() {
         let mut cfg = ChannelTonePolicyConfig {
-            default: Some("default style".to_string()),
-            channels: HashMap::from([("slack".to_string(), "formal".to_string())]),
+            default: Some("default style".to_owned()),
+            channels: HashMap::from([("slack".to_owned(), "formal".to_owned())]),
             agents: HashMap::from([(
-                "support".to_string(),
+                "support".to_owned(),
                 AgentTonePolicyConfig {
-                    default: Some("friendly".to_string()),
+                    default: Some("friendly".to_owned()),
                     channels: HashMap::from([
-                        ("discord".to_string(), "emoji".to_string()),
-                        ("discord:123".to_string(), "very formal".to_string()),
+                        ("discord".to_owned(), "emoji".to_owned()),
+                        ("discord:123".to_owned(), "very formal".to_owned()),
                     ]),
                 },
             )]),
@@ -289,23 +289,23 @@ mod tests {
 
         assert_eq!(
             cfg.resolve("support", "discord:123"),
-            Some("very formal".to_string())
+            Some("very formal".to_owned())
         );
         assert_eq!(
             cfg.resolve("support", "discord:999"),
-            Some("emoji".to_string())
+            Some("emoji".to_owned())
         );
         assert_eq!(
             cfg.resolve("support", "telegram:1"),
-            Some("friendly".to_string())
+            Some("friendly".to_owned())
         );
         assert_eq!(
             cfg.resolve("other", "slack:C01"),
-            Some("formal".to_string())
+            Some("formal".to_owned())
         );
         assert_eq!(
             cfg.resolve("other", "telegram:777"),
-            Some("default style".to_string())
+            Some("default style".to_owned())
         );
     }
 

@@ -541,7 +541,7 @@ mod tests {
         let add_changes = HashMap::from([(
             file.clone(),
             FileChange::Add {
-                content: "foo\n".to_string(),
+                content: "foo\n".to_owned(),
             },
         )]);
         acc.on_patch_begin(&add_changes);
@@ -608,7 +608,7 @@ index {ZERO_OID}..{right_oid}
         let del_changes = HashMap::from([(
             file.clone(),
             FileChange::Delete {
-                content: "x\n".to_string(),
+                content: "x\n".to_owned(),
             },
         )]);
         acc.on_patch_begin(&del_changes);
@@ -776,7 +776,7 @@ index {left_oid}..{right_oid}
         let del_b = HashMap::from([(
             b.clone(),
             FileChange::Delete {
-                content: "z\n".to_string(),
+                content: "z\n".to_owned(),
             },
         )]);
         acc.on_patch_begin(&del_b);
@@ -864,7 +864,7 @@ Binary files differ
         let add_changes = HashMap::from([(
             file.clone(),
             FileChange::Add {
-                content: "foo\n".to_string(),
+                content: "foo\n".to_owned(),
             },
         )]);
         acc.on_patch_begin(&add_changes);

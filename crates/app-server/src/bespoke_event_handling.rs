@@ -1637,7 +1637,7 @@ mod tests {
         handle_error(
             conversation_id,
             TurnError {
-                message: "boom".to_string(),
+                message: "boom".to_owned(),
                 savfox_error_info: Some(V2SavfoxErrorInfo::InternalServerError),
                 additional_details: None,
             },
@@ -1649,7 +1649,7 @@ mod tests {
         assert_eq!(
             turn_summary.last_error,
             Some(TurnError {
-                message: "boom".to_string(),
+                message: "boom".to_owned(),
                 savfox_error_info: Some(V2SavfoxErrorInfo::InternalServerError),
                 additional_details: None,
             })
@@ -1660,7 +1660,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_turn_complete_emits_completed_without_error() -> Result<()> {
         let conversation_id = SessionId::new();
-        let event_turn_id = "complete1".to_string();
+        let event_turn_id = "complete1".to_owned();
         let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
         let outgoing = Arc::new(OutgoingMessageSender::new(tx));
         let turn_summary_store = new_turn_summary_store();
@@ -1692,12 +1692,12 @@ mod tests {
     #[tokio::test]
     async fn test_handle_turn_interrupted_emits_interrupted_with_error() -> Result<()> {
         let conversation_id = SessionId::new();
-        let event_turn_id = "interrupt1".to_string();
+        let event_turn_id = "interrupt1".to_owned();
         let turn_summary_store = new_turn_summary_store();
         handle_error(
             conversation_id,
             TurnError {
-                message: "oops".to_string(),
+                message: "oops".to_owned(),
                 savfox_error_info: None,
                 additional_details: None,
             },
@@ -1734,12 +1734,12 @@ mod tests {
     #[tokio::test]
     async fn test_handle_turn_complete_emits_failed_with_error() -> Result<()> {
         let conversation_id = SessionId::new();
-        let event_turn_id = "complete_err1".to_string();
+        let event_turn_id = "complete_err1".to_owned();
         let turn_summary_store = new_turn_summary_store();
         handle_error(
             conversation_id,
             TurnError {
-                message: "bad".to_string(),
+                message: "bad".to_owned(),
                 savfox_error_info: Some(V2SavfoxErrorInfo::Other),
                 additional_details: None,
             },
@@ -1768,7 +1768,7 @@ mod tests {
                 assert_eq!(
                     n.turn.error,
                     Some(TurnError {
-                        message: "bad".to_string(),
+                        message: "bad".to_owned(),
                         savfox_error_info: Some(V2SavfoxErrorInfo::Other),
                         additional_details: None,
                     })
@@ -1785,14 +1785,14 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
         let outgoing = OutgoingMessageSender::new(tx);
         let update = UpdatePlanArgs {
-            explanation: Some("need plan".to_string()),
+            explanation: Some("need plan".to_owned()),
             plan: vec![
                 PlanItemArg {
-                    step: "first".to_string(),
+                    step: "first".to_owned(),
                     status: StepStatus::Pending,
                 },
                 PlanItemArg {
-                    step: "second".to_string(),
+                    step: "second".to_owned(),
                     status: StepStatus::Completed,
                 },
             ],
@@ -1826,7 +1826,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_token_count_event_emits_usage_and_rate_limits() -> Result<()> {
         let conversation_id = SessionId::new();
-        let turn_id = "turn-123".to_string();
+        let turn_id = "turn-123".to_owned();
         let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
         let outgoing = Arc::new(OutgoingMessageSender::new(tx));
 
@@ -1857,7 +1857,7 @@ mod tests {
             credits: Some(CreditsSnapshot {
                 has_credits: true,
                 unlimited: false,
-                balance: Some("5".to_string()),
+                balance: Some("5".to_owned()),
             }),
             plan_type: None,
         };
@@ -1911,7 +1911,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_token_count_event_without_usage_info() -> Result<()> {
         let conversation_id = SessionId::new();
-        let turn_id = "turn-456".to_string();
+        let turn_id = "turn-456".to_owned();
         let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
         let outgoing = Arc::new(OutgoingMessageSender::new(tx));
 
@@ -1936,16 +1936,16 @@ mod tests {
     #[tokio::test]
     async fn test_construct_mcp_tool_call_begin_notification_with_args() {
         let begin_event = McpToolCallBeginEvent {
-            call_id: "call_123".to_string(),
+            call_id: "call_123".to_owned(),
             invocation: McpInvocation {
-                server: "savfox".to_string(),
-                tool: "list_mcp_resources".to_string(),
+                server: "savfox".to_owned(),
+                tool: "list_mcp_resources".to_owned(),
                 arguments: Some(serde_json::json!({"server": ""})),
             },
         };
 
         let session_id = SessionId::new().to_string();
-        let turn_id = "turn_1".to_string();
+        let turn_id = "turn_1".to_owned();
         let notification = construct_mcp_tool_call_notification(
             begin_event.clone(),
             session_id.clone(),
@@ -1982,11 +1982,11 @@ mod tests {
         let outgoing = Arc::new(OutgoingMessageSender::new(tx));
 
         // Turn 1 on conversation A
-        let a_turn1 = "a_turn1".to_string();
+        let a_turn1 = "a_turn1".to_owned();
         handle_error(
             conversation_a,
             TurnError {
-                message: "a1".to_string(),
+                message: "a1".to_owned(),
                 savfox_error_info: Some(V2SavfoxErrorInfo::BadRequest),
                 additional_details: None,
             },
@@ -2002,11 +2002,11 @@ mod tests {
         .await;
 
         // Turn 1 on conversation B
-        let b_turn1 = "b_turn1".to_string();
+        let b_turn1 = "b_turn1".to_owned();
         handle_error(
             conversation_b,
             TurnError {
-                message: "b1".to_string(),
+                message: "b1".to_owned(),
                 savfox_error_info: None,
                 additional_details: None,
             },
@@ -2022,7 +2022,7 @@ mod tests {
         .await;
 
         // Turn 2 on conversation A
-        let a_turn2 = "a_turn2".to_string();
+        let a_turn2 = "a_turn2".to_owned();
         handle_turn_complete(
             conversation_a,
             a_turn2.clone(),
@@ -2043,7 +2043,7 @@ mod tests {
                 assert_eq!(
                     n.turn.error,
                     Some(TurnError {
-                        message: "a1".to_string(),
+                        message: "a1".to_owned(),
                         savfox_error_info: Some(V2SavfoxErrorInfo::BadRequest),
                         additional_details: None,
                     })
@@ -2064,7 +2064,7 @@ mod tests {
                 assert_eq!(
                     n.turn.error,
                     Some(TurnError {
-                        message: "b1".to_string(),
+                        message: "b1".to_owned(),
                         savfox_error_info: None,
                         additional_details: None,
                     })
@@ -2094,16 +2094,16 @@ mod tests {
     #[tokio::test]
     async fn test_construct_mcp_tool_call_begin_notification_without_args() {
         let begin_event = McpToolCallBeginEvent {
-            call_id: "call_456".to_string(),
+            call_id: "call_456".to_owned(),
             invocation: McpInvocation {
-                server: "savfox".to_string(),
-                tool: "list_mcp_resources".to_string(),
+                server: "savfox".to_owned(),
+                tool: "list_mcp_resources".to_owned(),
                 arguments: None,
             },
         };
 
         let session_id = SessionId::new().to_string();
-        let turn_id = "turn_2".to_string();
+        let turn_id = "turn_2".to_owned();
         let notification = construct_mcp_tool_call_notification(
             begin_event.clone(),
             session_id.clone(),
@@ -2143,10 +2143,10 @@ mod tests {
         };
 
         let end_event = McpToolCallEndEvent {
-            call_id: "call_789".to_string(),
+            call_id: "call_789".to_owned(),
             invocation: McpInvocation {
-                server: "savfox".to_string(),
-                tool: "list_mcp_resources".to_string(),
+                server: "savfox".to_owned(),
+                tool: "list_mcp_resources".to_owned(),
                 arguments: Some(serde_json::json!({"server": ""})),
             },
             duration: Duration::from_nanos(92708),
@@ -2154,7 +2154,7 @@ mod tests {
         };
 
         let session_id = SessionId::new().to_string();
-        let turn_id = "turn_3".to_string();
+        let turn_id = "turn_3".to_owned();
         let notification = construct_mcp_tool_call_end_notification(
             end_event.clone(),
             session_id.clone(),
@@ -2186,18 +2186,18 @@ mod tests {
     #[tokio::test]
     async fn test_construct_mcp_tool_call_end_notification_error() {
         let end_event = McpToolCallEndEvent {
-            call_id: "call_err".to_string(),
+            call_id: "call_err".to_owned(),
             invocation: McpInvocation {
-                server: "savfox".to_string(),
-                tool: "list_mcp_resources".to_string(),
+                server: "savfox".to_owned(),
+                tool: "list_mcp_resources".to_owned(),
                 arguments: None,
             },
             duration: Duration::from_millis(1),
-            result: Err("boom".to_string()),
+            result: Err("boom".to_owned()),
         };
 
         let session_id = SessionId::new().to_string();
-        let turn_id = "turn_4".to_string();
+        let turn_id = "turn_4".to_owned();
         let notification = construct_mcp_tool_call_end_notification(
             end_event.clone(),
             session_id.clone(),
@@ -2216,7 +2216,7 @@ mod tests {
                 arguments: JsonValue::Null,
                 result: None,
                 error: Some(McpToolCallError {
-                    message: "boom".to_string(),
+                    message: "boom".to_owned(),
                 }),
                 duration_ms: Some(1),
             },
@@ -2229,7 +2229,7 @@ mod tests {
     async fn test_handle_turn_diff_emits_v2_notification() -> Result<()> {
         let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
         let outgoing = OutgoingMessageSender::new(tx);
-        let unified_diff = "--- a\n+++ b\n".to_string();
+        let unified_diff = "--- a\n+++ b\n".to_owned();
         let conversation_id = SessionId::new();
 
         handle_turn_diff(

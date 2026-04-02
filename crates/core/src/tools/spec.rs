@@ -1208,8 +1208,8 @@ mod tests {
         input_schema: serde_json::Value,
     ) -> rmcp::model::Tool {
         rmcp::model::Tool::new_with_raw(
-            name.to_string(),
-            Some(description.to_string().into()),
+            name.to_owned(),
+            Some(description.to_owned().into()),
             std::sync::Arc::new(rmcp::model::object(input_schema)),
         )
     }
@@ -1217,16 +1217,16 @@ mod tests {
     #[test]
     fn mcp_tool_to_openai_tool_inserts_empty_properties() {
         let mut schema = rmcp::model::JsonObject::new();
-        schema.insert("type".to_string(), serde_json::json!("object"));
+        schema.insert("type".to_owned(), serde_json::json!("object"));
 
         let tool = rmcp::model::Tool::new_with_raw(
-            "no_props".to_string(),
-            Some("No properties".to_string().into()),
+            "no_props".to_owned(),
+            Some("No properties".to_owned().into()),
             std::sync::Arc::new(schema),
         );
 
         let openai_tool =
-            mcp_tool_to_openai_tool("server/no_props".to_string(), tool).expect("convert tool");
+            mcp_tool_to_openai_tool("server/no_props".to_owned(), tool).expect("convert tool");
         let parameters = serde_json::to_value(openai_tool.parameters).expect("serialize schema");
 
         assert_eq!(parameters.get("properties"), Some(&serde_json::json!({})));
@@ -1337,7 +1337,7 @@ mod tests {
         let mut actual: BTreeMap<String, ToolSpec> = BTreeMap::from([]);
         let mut duplicate_names = Vec::new();
         for t in &tools {
-            let name = tool_name(&t.spec).to_string();
+            let name = tool_name(&t.spec).to_owned();
             if actual.insert(name.clone(), t.spec.clone()).is_some() {
                 duplicate_names.push(name);
             }
@@ -1362,7 +1362,7 @@ mod tests {
             },
             create_view_image_tool(),
         ] {
-            expected.insert(tool_name(&spec).to_string(), spec);
+            expected.insert(tool_name(&spec).to_owned(), spec);
         }
 
         // Exact name set match — this is the only test allowed to fail when tools change.
@@ -1796,7 +1796,7 @@ mod tests {
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "test_server/do_something_cool".to_string(),
+                "test_server/do_something_cool".to_owned(),
                 mcp_tool(
                     "do_something_cool",
                     "Do something cool",
@@ -1826,33 +1826,33 @@ mod tests {
         assert_eq!(
             &tool.spec,
             &ToolSpec::Function(ResponsesApiTool {
-                name: "test_server/do_something_cool".to_string(),
+                name: "test_server/do_something_cool".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([
                         (
-                            "string_argument".to_string(),
+                            "string_argument".to_owned(),
                             JsonSchema::String { description: None }
                         ),
                         (
-                            "number_argument".to_string(),
+                            "number_argument".to_owned(),
                             JsonSchema::Number { description: None }
                         ),
                         (
-                            "object_argument".to_string(),
+                            "object_argument".to_owned(),
                             JsonSchema::Object {
                                 properties: BTreeMap::from([
                                     (
-                                        "string_property".to_string(),
+                                        "string_property".to_owned(),
                                         JsonSchema::String { description: None }
                                     ),
                                     (
-                                        "number_property".to_string(),
+                                        "number_property".to_owned(),
                                         JsonSchema::Number { description: None }
                                     ),
                                 ]),
                                 required: Some(vec![
-                                    "string_property".to_string(),
-                                    "number_property".to_string(),
+                                    "string_property".to_owned(),
+                                    "number_property".to_owned(),
                                 ]),
                                 additional_properties: Some(false.into()),
                             },
@@ -1861,7 +1861,7 @@ mod tests {
                     required: None,
                     additional_properties: None,
                 },
-                description: "Do something cool".to_string(),
+                description: "Do something cool".to_owned(),
                 strict: false,
             })
         );
@@ -1882,15 +1882,15 @@ mod tests {
         // Intentionally construct a map with keys that would sort alphabetically.
         let tools_map: HashMap<String, rmcp::model::Tool> = HashMap::from([
             (
-                "test_server/do".to_string(),
+                "test_server/do".to_owned(),
                 mcp_tool("a", "a", serde_json::json!({"type": "object"})),
             ),
             (
-                "test_server/something".to_string(),
+                "test_server/something".to_owned(),
                 mcp_tool("b", "b", serde_json::json!({"type": "object"})),
             ),
             (
-                "test_server/cool".to_string(),
+                "test_server/cool".to_owned(),
                 mcp_tool("c", "c", serde_json::json!({"type": "object"})),
             ),
         ]);
@@ -1900,13 +1900,13 @@ mod tests {
         // Only assert that the MCP tools themselves are sorted by fully-qualified name.
         let mcp_names: Vec<_> = tools
             .iter()
-            .map(|t| tool_name(&t.spec).to_string())
+            .map(|t| tool_name(&t.spec).to_owned())
             .filter(|n| n.starts_with("test_server/"))
             .collect();
         let expected = vec![
-            "test_server/cool".to_string(),
-            "test_server/do".to_string(),
-            "test_server/something".to_string(),
+            "test_server/cool".to_owned(),
+            "test_server/do".to_owned(),
+            "test_server/something".to_owned(),
         ];
         assert_eq!(mcp_names, expected);
     }
@@ -1926,7 +1926,7 @@ mod tests {
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "dash/search".to_string(),
+                "dash/search".to_owned(),
                 mcp_tool(
                     "search",
                     "Search docs",
@@ -1946,18 +1946,18 @@ mod tests {
         assert_eq!(
             tool.spec,
             ToolSpec::Function(ResponsesApiTool {
-                name: "dash/search".to_string(),
+                name: "dash/search".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([(
-                        "query".to_string(),
+                        "query".to_owned(),
                         JsonSchema::String {
-                            description: Some("search query".to_string())
+                            description: Some("search query".to_owned())
                         }
                     )]),
                     required: None,
                     additional_properties: None,
                 },
-                description: "Search docs".to_string(),
+                description: "Search docs".to_owned(),
                 strict: false,
             })
         );
@@ -1978,7 +1978,7 @@ mod tests {
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "dash/paginate".to_string(),
+                "dash/paginate".to_owned(),
                 mcp_tool(
                     "paginate",
                     "Pagination",
@@ -1996,16 +1996,16 @@ mod tests {
         assert_eq!(
             tool.spec,
             ToolSpec::Function(ResponsesApiTool {
-                name: "dash/paginate".to_string(),
+                name: "dash/paginate".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([(
-                        "page".to_string(),
+                        "page".to_owned(),
                         JsonSchema::Number { description: None }
                     )]),
                     required: None,
                     additional_properties: None,
                 },
-                description: "Pagination".to_string(),
+                description: "Pagination".to_owned(),
                 strict: false,
             })
         );
@@ -2027,7 +2027,7 @@ mod tests {
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "dash/tags".to_string(),
+                "dash/tags".to_owned(),
                 mcp_tool(
                     "tags",
                     "Tags",
@@ -2045,10 +2045,10 @@ mod tests {
         assert_eq!(
             tool.spec,
             ToolSpec::Function(ResponsesApiTool {
-                name: "dash/tags".to_string(),
+                name: "dash/tags".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([(
-                        "tags".to_string(),
+                        "tags".to_owned(),
                         JsonSchema::Array {
                             items: Box::new(JsonSchema::String { description: None }),
                             description: None
@@ -2057,7 +2057,7 @@ mod tests {
                     required: None,
                     additional_properties: None,
                 },
-                description: "Tags".to_string(),
+                description: "Tags".to_owned(),
                 strict: false,
             })
         );
@@ -2078,7 +2078,7 @@ mod tests {
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "dash/value".to_string(),
+                "dash/value".to_owned(),
                 mcp_tool(
                     "value",
                     "AnyOf Value",
@@ -2098,16 +2098,16 @@ mod tests {
         assert_eq!(
             tool.spec,
             ToolSpec::Function(ResponsesApiTool {
-                name: "dash/value".to_string(),
+                name: "dash/value".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([(
-                        "value".to_string(),
+                        "value".to_owned(),
                         JsonSchema::String { description: None }
                     )]),
                     required: None,
                     additional_properties: None,
                 },
-                description: "AnyOf Value".to_string(),
+                description: "AnyOf Value".to_owned(),
                 strict: false,
             })
         );
@@ -2139,7 +2139,7 @@ Examples of valid command strings:
             r#"Runs a shell command and returns its output.
 - The arguments to `shell` will be passed to execvp(). Most terminal commands should be prefixed with ["bash", "-lc"].
 - Always set the `workdir` param when using the shell function. Do not use `cd` unless absolutely necessary."#
-        }.to_string();
+        }.to_owned();
         assert_eq!(description, &expected);
     }
 
@@ -2164,10 +2164,10 @@ Examples of valid command strings:
 - recursive grep: "Get-ChildItem -Path C:\\myrepo -Recurse | Select-String -Pattern 'TODO' -CaseSensitive"
 - ps aux | grep python: "Get-Process | Where-Object { $_.ProcessName -like '*python*' }"
 - setting an env var: "$env:FOO='bar'; echo $env:FOO"
-- running an inline Python script: "@'\\nprint('Hello, world!')\\n'@ | python -"#.to_string()
+- running an inline Python script: "@'\\nprint('Hello, world!')\\n'@ | python -"#.to_owned()
         } else {
             r#"Runs a shell command and returns its output.
-- Always set the `workdir` param when using the shell_command function. Do not use `cd` unless absolutely necessary."#.to_string()
+- Always set the `workdir` param when using the shell_command function. Do not use `cd` unless absolutely necessary."#.to_owned()
         };
         assert_eq!(description, &expected);
     }
@@ -2186,7 +2186,7 @@ Examples of valid command strings:
         let (tools, _) = build_specs(
             &tools_config,
             Some(HashMap::from([(
-                "test_server/do_something_cool".to_string(),
+                "test_server/do_something_cool".to_owned(),
                 mcp_tool(
                     "do_something_cool",
                     "Do something cool",
@@ -2223,41 +2223,41 @@ Examples of valid command strings:
         assert_eq!(
             tool.spec,
             ToolSpec::Function(ResponsesApiTool {
-                name: "test_server/do_something_cool".to_string(),
+                name: "test_server/do_something_cool".to_owned(),
                 parameters: JsonSchema::Object {
                     properties: BTreeMap::from([
                         (
-                            "string_argument".to_string(),
+                            "string_argument".to_owned(),
                             JsonSchema::String { description: None }
                         ),
                         (
-                            "number_argument".to_string(),
+                            "number_argument".to_owned(),
                             JsonSchema::Number { description: None }
                         ),
                         (
-                            "object_argument".to_string(),
+                            "object_argument".to_owned(),
                             JsonSchema::Object {
                                 properties: BTreeMap::from([
                                     (
-                                        "string_property".to_string(),
+                                        "string_property".to_owned(),
                                         JsonSchema::String { description: None }
                                     ),
                                     (
-                                        "number_property".to_string(),
+                                        "number_property".to_owned(),
                                         JsonSchema::Number { description: None }
                                     ),
                                 ]),
                                 required: Some(vec![
-                                    "string_property".to_string(),
-                                    "number_property".to_string(),
+                                    "string_property".to_owned(),
+                                    "number_property".to_owned(),
                                 ]),
                                 additional_properties: Some(
                                     JsonSchema::Object {
                                         properties: BTreeMap::from([(
-                                            "addtl_prop".to_string(),
+                                            "addtl_prop".to_owned(),
                                             JsonSchema::String { description: None }
                                         ),]),
-                                        required: Some(vec!["addtl_prop".to_string(),]),
+                                        required: Some(vec!["addtl_prop".to_owned(),]),
                                         additional_properties: Some(false.into()),
                                     }
                                     .into()
@@ -2268,7 +2268,7 @@ Examples of valid command strings:
                     required: None,
                     additional_properties: None,
                 },
-                description: "Do something cool".to_string(),
+                description: "Do something cool".to_owned(),
                 strict: false,
             })
         );
@@ -2277,10 +2277,10 @@ Examples of valid command strings:
     #[test]
     fn chat_tools_include_top_level_name() {
         let properties =
-            BTreeMap::from([("foo".to_string(), JsonSchema::String { description: None })]);
+            BTreeMap::from([("foo".to_owned(), JsonSchema::String { description: None })]);
         let tools = vec![ToolSpec::Function(ResponsesApiTool {
-            name: "demo".to_string(),
-            description: "A demo tool".to_string(),
+            name: "demo".to_owned(),
+            description: "A demo tool".to_owned(),
             strict: false,
             parameters: JsonSchema::Object {
                 properties,

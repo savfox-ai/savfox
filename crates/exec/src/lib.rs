@@ -794,16 +794,16 @@ mod tests {
         let request = build_review_request(ReviewArgs {
             uncommitted: false,
             base: None,
-            commit: Some("123456789".to_string()),
-            commit_title: Some("Add review command".to_string()),
+            commit: Some("123456789".to_owned()),
+            commit_title: Some("Add review command".to_owned()),
             prompt: None,
         })
         .expect("builds commit review request");
 
         let expected = ReviewRequest {
             target: ReviewTarget::Commit {
-                sha: "123456789".to_string(),
-                title: Some("Add review command".to_string()),
+                sha: "123456789".to_owned(),
+                title: Some("Add review command".to_owned()),
             },
             user_facing_hint: None,
         };
@@ -818,13 +818,13 @@ mod tests {
             base: None,
             commit: None,
             commit_title: None,
-            prompt: Some("  custom review instructions  ".to_string()),
+            prompt: Some("  custom review instructions  ".to_owned()),
         })
         .expect("builds custom review request");
 
         let expected = ReviewRequest {
             target: ReviewTarget::Custom {
-                instructions: "custom review instructions".to_string(),
+                instructions: "custom review instructions".to_owned(),
             },
             user_facing_hint: None,
         };

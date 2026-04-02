@@ -119,11 +119,11 @@ mod tests {
         assert_eq!(
             segments,
             vec![
-                ProposedPlanSegment::Normal("Intro text\n".to_string()),
+                ProposedPlanSegment::Normal("Intro text\n".to_owned()),
                 ProposedPlanSegment::ProposedPlanStart,
-                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_string()),
+                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_owned()),
                 ProposedPlanSegment::ProposedPlanEnd,
-                ProposedPlanSegment::Normal("Outro".to_string()),
+                ProposedPlanSegment::Normal("Outro".to_owned()),
             ]
         );
     }
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(
             segments,
             vec![ProposedPlanSegment::Normal(
-                "  <proposed_plan> extra\n".to_string()
+                "  <proposed_plan> extra\n".to_owned()
             )]
         );
     }
@@ -152,7 +152,7 @@ mod tests {
             segments,
             vec![
                 ProposedPlanSegment::ProposedPlanStart,
-                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_string()),
+                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_owned()),
                 ProposedPlanSegment::ProposedPlanEnd,
             ]
         );
@@ -168,7 +168,7 @@ mod tests {
             segments,
             vec![
                 ProposedPlanSegment::ProposedPlanStart,
-                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_string()),
+                ProposedPlanSegment::ProposedPlanDelta("- step 1\n".to_owned()),
                 ProposedPlanSegment::ProposedPlanEnd,
             ]
         );

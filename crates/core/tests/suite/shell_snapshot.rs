@@ -369,7 +369,7 @@ async fn macos_unified_exec_uses_shell_snapshot() -> Result<()> {
     );
     assert_eq!(run.begin.command.get(4), Some(&shell_path));
     assert_eq!(run.begin.command.get(5).map(String::as_str), Some("-c"));
-    assert_eq!(run.begin.command.last(), Some(&command.to_string()));
+    assert_eq!(run.begin.command.last(), Some(&command.to_owned()));
 
     assert!(run.snapshot_path.starts_with(&run.savfox_home));
     assert_posix_snapshot_sections(&run.snapshot_content);
@@ -400,7 +400,7 @@ async fn windows_unified_exec_uses_shell_snapshot() -> Result<()> {
             .any(|arg| arg == "param($snapshot) . $snapshot; & @args")
     );
     assert!(snapshot_index > 0);
-    assert_eq!(run.begin.command.last(), Some(&command.to_string()));
+    assert_eq!(run.begin.command.last(), Some(&command.to_owned()));
 
     assert!(run.snapshot_path.starts_with(&run.savfox_home));
     assert!(run.snapshot_content.contains("# Snapshot file"));

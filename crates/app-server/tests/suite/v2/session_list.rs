@@ -129,7 +129,7 @@ async fn session_list_basic_empty() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -193,7 +193,7 @@ async fn session_list_pagination_next_cursor_none_on_last_page() -> Result<()> {
         &mut mcp,
         None,
         Some(2),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -219,7 +219,7 @@ async fn session_list_pagination_next_cursor_none_on_last_page() -> Result<()> {
         &mut mcp,
         Some(cursor1),
         Some(2),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -270,7 +270,7 @@ async fn session_list_respects_provider_filter() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["other_provider".to_string()]),
+        Some(vec!["other_provider".to_owned()]),
         None,
         None,
     )
@@ -320,7 +320,7 @@ async fn session_list_empty_source_kinds_defaults_to_interactive_only() -> Resul
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(Vec::new()),
         None,
     )
@@ -369,7 +369,7 @@ async fn session_list_filters_by_source_kind_subagent_session_spawn() -> Result<
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(vec![SessionSourceKind::SubAgentSessionSpawn]),
         None,
     )
@@ -428,7 +428,7 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         "Other",
         Some("mock_provider"),
         None,
-        CoreSessionSource::SubAgent(SubAgentSource::Other("custom".to_string())),
+        CoreSessionSource::SubAgent(SubAgentSource::Other("custom".to_owned())),
     )?;
 
     let mut mcp = init_mcp(savfox_home.path()).await?;
@@ -437,7 +437,7 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(vec![SessionSourceKind::SubAgentReview]),
         None,
     )
@@ -453,7 +453,7 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(vec![SessionSourceKind::SubAgentCompact]),
         None,
     )
@@ -469,7 +469,7 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(vec![SessionSourceKind::SubAgentSessionSpawn]),
         None,
     )
@@ -485,7 +485,7 @@ async fn session_list_filters_by_subagent_variant() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         Some(vec![SessionSourceKind::SubAgentOther]),
         None,
     )
@@ -530,7 +530,7 @@ async fn session_list_fetches_until_limit_or_exhausted() -> Result<()> {
         &mut mcp,
         None,
         Some(8),
-        Some(vec!["target_provider".to_string()]),
+        Some(vec!["target_provider".to_owned()]),
         None,
         None,
     )
@@ -576,7 +576,7 @@ async fn session_list_enforces_max_limit() -> Result<()> {
         &mut mcp,
         None,
         Some(200),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -623,7 +623,7 @@ async fn session_list_stops_when_not_enough_filtered_results_exist() -> Result<(
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["target_provider".to_string()]),
+        Some(vec!["target_provider".to_owned()]),
         None,
         None,
     )
@@ -652,9 +652,9 @@ async fn session_list_includes_git_info() -> Result<()> {
     create_minimal_config(savfox_home.path())?;
 
     let git_info = CoreGitInfo {
-        commit_hash: Some("abc123".to_string()),
-        branch: Some("main".to_string()),
-        repository_url: Some("https://example.com/repo.git".to_string()),
+        commit_hash: Some("abc123".to_owned()),
+        branch: Some("main".to_owned()),
+        repository_url: Some("https://example.com/repo.git".to_owned()),
     };
     let conversation_id = create_fake_rollout(
         savfox_home.path(),
@@ -671,7 +671,7 @@ async fn session_list_includes_git_info() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -682,9 +682,9 @@ async fn session_list_includes_git_info() -> Result<()> {
         .expect("expected session for created rollout");
 
     let expected_git = ApiGitInfo {
-        sha: Some("abc123".to_string()),
-        branch: Some("main".to_string()),
-        origin_url: Some("https://example.com/repo.git".to_string()),
+        sha: Some("abc123".to_owned()),
+        branch: Some("main".to_owned()),
+        origin_url: Some("https://example.com/repo.git".to_owned()),
     };
     assert_eq!(session.git_info, Some(expected_git));
     assert_eq!(session.source, SessionSource::Cli);
@@ -730,7 +730,7 @@ async fn session_list_default_sorts_by_created_at() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
         None,
@@ -792,7 +792,7 @@ async fn session_list_sort_updated_at_orders_by_mtime() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(SessionSortKey::UpdatedAt),
         None,
@@ -857,7 +857,7 @@ async fn session_list_updated_at_paginates_with_cursor() -> Result<()> {
         &mut mcp,
         None,
         Some(2),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(SessionSortKey::UpdatedAt),
         None,
@@ -874,7 +874,7 @@ async fn session_list_updated_at_paginates_with_cursor() -> Result<()> {
         &mut mcp,
         Some(cursor1),
         Some(2),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(SessionSortKey::UpdatedAt),
         None,
@@ -915,7 +915,7 @@ async fn session_list_created_at_tie_breaks_by_uuid() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -968,7 +968,7 @@ async fn session_list_updated_at_tie_breaks_by_uuid() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(SessionSortKey::UpdatedAt),
         None,
@@ -1009,7 +1009,7 @@ async fn session_list_updated_at_uses_mtime() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(SessionSortKey::UpdatedAt),
         None,
@@ -1068,7 +1068,7 @@ async fn session_list_archived_filter() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         None,
     )
@@ -1080,7 +1080,7 @@ async fn session_list_archived_filter() -> Result<()> {
         &mut mcp,
         None,
         Some(10),
-        Some(vec!["mock_provider".to_string()]),
+        Some(vec!["mock_provider".to_owned()]),
         None,
         Some(true),
     )
@@ -1100,10 +1100,10 @@ async fn session_list_invalid_cursor_returns_error() -> Result<()> {
 
     let request_id = mcp
         .send_session_list_request(savfox_app_server_protocol::SessionListParams {
-            cursor: Some("not-a-cursor".to_string()),
+            cursor: Some("not-a-cursor".to_owned()),
             limit: Some(2),
             sort_key: None,
-            model_providers: Some(vec!["mock_provider".to_string()]),
+            model_providers: Some(vec!["mock_provider".to_owned()]),
             source_kinds: None,
             archived: None,
         })

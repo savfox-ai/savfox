@@ -305,12 +305,12 @@ mod tests {
 
         let command = get_command(&args, Arc::new(default_user_shell()));
 
-        assert_eq!(command.last(), Some(&"echo hello".to_string()));
+        assert_eq!(command.last(), Some(&"echo hello".to_owned()));
         if command
             .iter()
             .any(|arg| arg.eq_ignore_ascii_case("-Command"))
         {
-            assert!(command.contains(&"-NoProfile".to_string()));
+            assert!(command.contains(&"-NoProfile".to_owned()));
         }
         Ok(())
     }

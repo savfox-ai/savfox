@@ -283,13 +283,13 @@ mod tests {
         let mode = CollaborationMode {
             mode: ModeKind::Code,
             settings: Settings {
-                model: "gpt-5.2-savfox".to_string(),
+                model: "gpt-5.2-codex".to_owned(),
                 reasoning_effort: Some(ReasoningEffort::High),
-                developer_instructions: Some("stay focused".to_string()),
+                developer_instructions: Some("stay focused".to_owned()),
             },
         };
         let mask = CollaborationModeMask {
-            name: "Clear".to_string(),
+            name: "Clear".to_owned(),
             mode: None,
             model: None,
             reasoning_effort: Some(None),
@@ -299,7 +299,7 @@ mod tests {
         let expected = CollaborationMode {
             mode: ModeKind::Code,
             settings: Settings {
-                model: "gpt-5.2-savfox".to_string(),
+                model: "gpt-5.2-codex".to_owned(),
                 reasoning_effort: None,
                 developer_instructions: None,
             },

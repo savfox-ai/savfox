@@ -733,8 +733,7 @@ async fn apply_patch_cli_can_use_shell_command_output_as_patch_input() -> Result
             .split_once("Output:\n")
             .map(|x| x.1)
             .unwrap_or("")
-            .trim_end_matches('\n')
-            .to_string()
+            .trim_end_matches('\n').to_owned()
     }
 
     fn function_call_output_text(body: &serde_json::Value, call_id: &str) -> String {
@@ -748,8 +747,7 @@ async fn apply_patch_cli_can_use_shell_command_output_as_patch_input() -> Result
                 })
             })
             .and_then(|item| item.get("output").and_then(serde_json::Value::as_str))
-            .expect("function_call_output output string")
-            .to_string()
+            .expect("function_call_output output string").to_owned()
     }
 
     struct DynamicApplyFromRead {
@@ -820,8 +818,8 @@ async fn apply_patch_cli_can_use_shell_command_output_as_patch_input() -> Result
 
     let responder = DynamicApplyFromRead {
         num_calls: AtomicI32::new(0),
-        read_call_id: read_call_id.to_string(),
-        apply_call_id: apply_call_id.to_string(),
+        read_call_id: read_call_id.to_owned(),
+        apply_call_id: apply_call_id.to_owned(),
     };
     Mock::given(method("POST"))
         .and(path_regex(".*/responses$"))

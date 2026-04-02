@@ -566,9 +566,9 @@ mod tests {
     #[test]
     fn expand_arguments_basic() {
         let prompts = vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes on $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes on $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }];
@@ -578,7 +578,7 @@ mod tests {
         assert_eq!(
             out,
             Some(PromptExpansion {
-                text: "Review Alice changes on main".to_string(),
+                text: "Review Alice changes on main".to_owned(),
                 text_elements: Vec::new(),
             })
         );
@@ -587,9 +587,9 @@ mod tests {
     #[test]
     fn quoted_values_ok() {
         let prompts = vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Pair $USER with $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Pair $USER with $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }];
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(
             out,
             Some(PromptExpansion {
-                text: "Pair Alice Smith with dev-main".to_string(),
+                text: "Pair Alice Smith with dev-main".to_owned(),
                 text_elements: Vec::new(),
             })
         );
@@ -612,9 +612,9 @@ mod tests {
     #[test]
     fn invalid_arg_token_reports_error() {
         let prompts = vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes".to_owned(),
             description: None,
             argument_hint: None,
         }];
@@ -627,9 +627,9 @@ mod tests {
     #[test]
     fn missing_required_args_reports_error() {
         let prompts = vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "Review $USER changes on $BRANCH".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "Review $USER changes on $BRANCH".to_owned(),
             description: None,
             argument_hint: None,
         }];
@@ -648,16 +648,16 @@ mod tests {
         );
         assert_eq!(
             prompt_argument_names("literal $$USER and $REAL"),
-            vec!["REAL".to_string()]
+            vec!["REAL".to_owned()]
         );
     }
 
     #[test]
     fn escaped_placeholder_remains_literal() {
         let prompts = vec![CustomPrompt {
-            name: "my-prompt".to_string(),
-            path: "/tmp/my-prompt.md".to_string().into(),
-            content: "literal $$USER".to_string(),
+            name: "my-prompt".to_owned(),
+            path: "/tmp/my-prompt.md".to_owned().into(),
+            content: "literal $$USER".to_owned(),
             description: None,
             argument_hint: None,
         }];
@@ -666,7 +666,7 @@ mod tests {
         assert_eq!(
             out,
             Some(PromptExpansion {
-                text: "literal $$USER".to_string(),
+                text: "literal $$USER".to_owned(),
                 text_elements: Vec::new(),
             })
         );
@@ -680,7 +680,7 @@ mod tests {
         let end = start + placeholder.len();
         let text_elements = vec![TextElement::new(
             ByteRange { start, end },
-            Some(placeholder.to_string()),
+            Some(placeholder.to_owned()),
         )];
 
         let args = parse_positional_args(&rest, &text_elements);
@@ -688,21 +688,21 @@ mod tests {
             args,
             vec![
                 PromptArg {
-                    text: "alpha".to_string(),
+                    text: "alpha".to_owned(),
                     text_elements: Vec::new(),
                 },
                 PromptArg {
-                    text: placeholder.to_string(),
+                    text: placeholder.to_owned(),
                     text_elements: vec![TextElement::new(
                         ByteRange {
                             start: 0,
                             end: placeholder.len(),
                         },
-                        Some(placeholder.to_string()),
+                        Some(placeholder.to_owned()),
                     )],
                 },
                 PromptArg {
-                    text: "beta".to_string(),
+                    text: "beta".to_owned(),
                     text_elements: Vec::new(),
                 }
             ]
@@ -717,7 +717,7 @@ mod tests {
         let end = start + placeholder.len();
         let text_elements = vec![TextElement::new(
             ByteRange { start, end },
-            Some(placeholder.to_string()),
+            Some(placeholder.to_owned()),
         )];
 
         let args = extract_positional_args_for_prompt_line(&line, "my-prompt", &text_elements);
@@ -725,21 +725,21 @@ mod tests {
             args,
             vec![
                 PromptArg {
-                    text: "alpha".to_string(),
+                    text: "alpha".to_owned(),
                     text_elements: Vec::new(),
                 },
                 PromptArg {
-                    text: placeholder.to_string(),
+                    text: placeholder.to_owned(),
                     text_elements: vec![TextElement::new(
                         ByteRange {
                             start: 0,
                             end: placeholder.len(),
                         },
-                        Some(placeholder.to_string()),
+                        Some(placeholder.to_owned()),
                     )],
                 },
                 PromptArg {
-                    text: "beta".to_string(),
+                    text: "beta".to_owned(),
                     text_elements: Vec::new(),
                 }
             ]
@@ -754,27 +754,27 @@ mod tests {
         let end = start + placeholder.len();
         let text_elements = vec![TextElement::new(
             ByteRange { start, end },
-            Some(placeholder.to_string()),
+            Some(placeholder.to_owned()),
         )];
 
         let args = parse_prompt_inputs(&rest, &text_elements).expect("inputs");
         assert_eq!(
             args.get("IMG"),
             Some(&PromptArg {
-                text: placeholder.to_string(),
+                text: placeholder.to_owned(),
                 text_elements: vec![TextElement::new(
                     ByteRange {
                         start: 0,
                         end: placeholder.len(),
                     },
-                    Some(placeholder.to_string()),
+                    Some(placeholder.to_owned()),
                 )],
             })
         );
         assert_eq!(
             args.get("NOTE"),
             Some(&PromptArg {
-                text: "hello".to_string(),
+                text: "hello".to_owned(),
                 text_elements: Vec::new(),
             })
         );
@@ -788,7 +788,7 @@ mod tests {
         let end = start + placeholder.len();
         let text_elements = vec![TextElement::new(
             ByteRange { start, end },
-            Some(placeholder.to_string()),
+            Some(placeholder.to_owned()),
         )];
 
         let args = parse_positional_args(&rest, &text_elements);
@@ -796,7 +796,7 @@ mod tests {
             args,
             vec![
                 PromptArg {
-                    text: "alpha".to_string(),
+                    text: "alpha".to_owned(),
                     text_elements: Vec::new(),
                 },
                 PromptArg {
@@ -806,11 +806,11 @@ mod tests {
                             start: "see ".len(),
                             end: "see ".len() + placeholder.len(),
                         },
-                        Some(placeholder.to_string()),
+                        Some(placeholder.to_owned()),
                     )],
                 },
                 PromptArg {
-                    text: "beta".to_string(),
+                    text: "beta".to_owned(),
                     text_elements: Vec::new(),
                 }
             ]
@@ -825,7 +825,7 @@ mod tests {
         let end = start + placeholder.len();
         let text_elements = vec![TextElement::new(
             ByteRange { start, end },
-            Some(placeholder.to_string()),
+            Some(placeholder.to_owned()),
         )];
 
         let args = parse_prompt_inputs(&rest, &text_elements).expect("inputs");
@@ -838,14 +838,14 @@ mod tests {
                         start: "see ".len(),
                         end: "see ".len() + placeholder.len(),
                     },
-                    Some(placeholder.to_string()),
+                    Some(placeholder.to_owned()),
                 )],
             })
         );
         assert_eq!(
             args.get("NOTE"),
             Some(&PromptArg {
-                text: "ok".to_string(),
+                text: "ok".to_owned(),
                 text_elements: Vec::new(),
             })
         );

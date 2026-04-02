@@ -184,10 +184,10 @@ mod tests {
     #[test]
     fn custom_tool_calls_should_roundtrip_as_custom_outputs() {
         let payload = ToolPayload::Custom {
-            input: "patch".to_string(),
+            input: "patch".to_owned(),
         };
         let response = ToolOutput::Function {
-            content: "patched".to_string(),
+            content: "patched".to_owned(),
             content_items: None,
             success: Some(true),
         }
@@ -205,10 +205,10 @@ mod tests {
     #[test]
     fn function_payloads_remain_function_outputs() {
         let payload = ToolPayload::Function {
-            arguments: "{}".to_string(),
+            arguments: "{}".to_owned(),
         };
         let response = ToolOutput::Function {
-            content: "ok".to_string(),
+            content: "ok".to_owned(),
             content_items: None,
             success: Some(true),
         }

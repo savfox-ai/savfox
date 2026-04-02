@@ -65,7 +65,7 @@ async fn review_op_emits_lifecycle_and_review_output() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "Please review my changes".to_string(),
+                    instructions: "Please review my changes".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -86,8 +86,8 @@ async fn review_op_emits_lifecycle_and_review_output() {
     // Deep compare full structure using PartialEq (floats are f32 on both sides).
     let expected = ReviewOutputEvent {
         findings: vec![ReviewFinding {
-            title: "Prefer Stylize helpers".to_string(),
-            body: "Use .dim()/.bold() chaining instead of manual Style where possible.".to_string(),
+            title: "Prefer Stylize helpers".to_owned(),
+            body: "Use .dim()/.bold() chaining instead of manual Style where possible.".to_owned(),
             confidence_score: 0.9,
             priority: 1,
             code_location: ReviewCodeLocation {
@@ -95,8 +95,8 @@ async fn review_op_emits_lifecycle_and_review_output() {
                 line_range: ReviewLineRange { start: 10, end: 20 },
             },
         }],
-        overall_correctness: "good".to_string(),
-        overall_explanation: "All good with some improvements suggested.".to_string(),
+        overall_correctness: "good".to_owned(),
+        overall_explanation: "All good with some improvements suggested.".to_owned(),
         overall_confidence_score: 0.8,
     };
     assert_eq!(expected, review);
@@ -186,7 +186,7 @@ async fn review_op_with_plain_text_emits_review_fallback() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "Plain text review".to_string(),
+                    instructions: "Plain text review".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -205,7 +205,7 @@ async fn review_op_with_plain_text_emits_review_fallback() {
 
     // Expect a structured fallback carrying the plain text.
     let expected = ReviewOutputEvent {
-        overall_explanation: "just plain text".to_string(),
+        overall_explanation: "just plain text".to_owned(),
         ..Default::default()
     };
     assert_eq!(expected, review);
@@ -247,7 +247,7 @@ async fn review_filters_agent_message_related_events() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "Filter streaming events".to_string(),
+                    instructions: "Filter streaming events".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -329,7 +329,7 @@ async fn review_does_not_emit_agent_message_on_structured_output() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "check structured".to_string(),
+                    instructions: "check structured".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -380,8 +380,8 @@ async fn review_uses_custom_review_model_from_config() {
     let savfox_home = Arc::new(TempDir::new().unwrap());
     // Choose a review model different from the main model; ensure it is used.
     let savfox = new_conversation_for_server(&server, savfox_home.clone(), |cfg| {
-        cfg.model = Some("gpt-4.1".to_string());
-        cfg.review_model = Some("gpt-5.1".to_string());
+        cfg.model = Some("gpt-4.1".to_owned());
+        cfg.review_model = Some("gpt-5.1".to_owned());
     })
     .await;
 
@@ -389,7 +389,7 @@ async fn review_uses_custom_review_model_from_config() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "use custom model".to_string(),
+                    instructions: "use custom model".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -433,7 +433,7 @@ async fn review_uses_session_model_when_review_model_unset() {
     let (server, request_log) = start_responses_server_with_sse(sse_raw, 1).await;
     let savfox_home = Arc::new(TempDir::new().unwrap());
     let savfox = new_conversation_for_server(&server, savfox_home.clone(), |cfg| {
-        cfg.model = Some("gpt-4.1".to_string());
+        cfg.model = Some("gpt-4.1".to_owned());
         cfg.review_model = None;
     })
     .await;
@@ -442,7 +442,7 @@ async fn review_uses_session_model_when_review_model_unset() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "use session model".to_string(),
+                    instructions: "use session model".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -513,9 +513,9 @@ async fn review_input_isolated_from_parent_history() {
         // Prior user message (enveloped response_item)
         let user = savfox_protocol::models::ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![savfox_protocol::models::ContentItem::InputText {
-                text: "parent: earlier user message".to_string(),
+                text: "parent: earlier user message".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -533,9 +533,9 @@ async fn review_input_isolated_from_parent_history() {
         // Prior assistant message (enveloped response_item)
         let assistant = savfox_protocol::models::ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![savfox_protocol::models::ContentItem::OutputText {
-                text: "parent: assistant reply".to_string(),
+                text: "parent: assistant reply".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -555,7 +555,7 @@ async fn review_input_isolated_from_parent_history() {
             .await;
 
     // Submit review request; it must start fresh (no parent history in `input`).
-    let review_prompt = "Please review only this".to_string();
+    let review_prompt = "Please review only this".to_owned();
     savfox
         .submit(Op::Review {
             review_request: ReviewRequest {
@@ -673,7 +673,7 @@ async fn review_history_surfaces_in_parent_session() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::Custom {
-                    instructions: "Start a review".to_string(),
+                    instructions: "Start a review".to_owned(),
                 },
                 user_facing_hint: None,
             },
@@ -693,7 +693,7 @@ async fn review_history_surfaces_in_parent_session() {
     let _complete = wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
     // 2) Continue in the parent session; request input must not include any review items.
-    let followup = "back to parent".to_string();
+    let followup = "back to parent".to_owned();
     savfox
         .submit(Op::UserInput {
             items: vec![UserInput::Text {
@@ -795,8 +795,7 @@ async fn review_uses_overridden_cwd_for_base_branch_merge_base() {
     assert!(head_sha.status.success());
     let head_sha = String::from_utf8(head_sha.stdout)
         .expect("utf8 sha")
-        .trim()
-        .to_string();
+        .trim().to_owned();
 
     let savfox_home = Arc::new(TempDir::new().unwrap());
     let initial_cwd_path = initial_cwd.path().to_path_buf();
@@ -825,7 +824,7 @@ async fn review_uses_overridden_cwd_for_base_branch_merge_base() {
         .submit(Op::Review {
             review_request: ReviewRequest {
                 target: ReviewTarget::BaseBranch {
-                    branch: "main".to_string(),
+                    branch: "main".to_owned(),
                 },
                 user_facing_hint: None,
             },

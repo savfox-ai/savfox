@@ -968,8 +968,8 @@ mod tests {
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "agents-home-skill".to_string(),
-                description: "from home agents".to_string(),
+                name: "agents-home-skill".to_owned(),
+                description: "from home agents".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1079,42 +1079,42 @@ mod tests {
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "dep-skill".to_string(),
-                description: "from json".to_string(),
+                name: "dep-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: Some(SkillDependencies {
                     tools: vec![
                         SkillToolDependency {
-                            r#type: "env_var".to_string(),
-                            value: "GITHUB_TOKEN".to_string(),
-                            description: Some("GitHub API token with repo scopes".to_string()),
+                            r#type: "env_var".to_owned(),
+                            value: "GITHUB_TOKEN".to_owned(),
+                            description: Some("GitHub API token with repo scopes".to_owned()),
                             transport: None,
                             command: None,
                             url: None,
                         },
                         SkillToolDependency {
-                            r#type: "mcp".to_string(),
-                            value: "github".to_string(),
-                            description: Some("GitHub MCP server".to_string()),
-                            transport: Some("streamable_http".to_string()),
+                            r#type: "mcp".to_owned(),
+                            value: "github".to_owned(),
+                            description: Some("GitHub MCP server".to_owned()),
+                            transport: Some("streamable_http".to_owned()),
                             command: None,
-                            url: Some("https://example.com/mcp".to_string()),
+                            url: Some("https://example.com/mcp".to_owned()),
                         },
                         SkillToolDependency {
-                            r#type: "cli".to_string(),
-                            value: "gh".to_string(),
-                            description: Some("GitHub CLI".to_string()),
+                            r#type: "cli".to_owned(),
+                            value: "gh".to_owned(),
+                            description: Some("GitHub CLI".to_owned()),
                             transport: None,
                             command: None,
                             url: None,
                         },
                         SkillToolDependency {
-                            r#type: "mcp".to_string(),
-                            value: "local-gh".to_string(),
-                            description: Some("Local GH MCP server".to_string()),
-                            transport: Some("stdio".to_string()),
-                            command: Some("gh-mcp".to_string()),
+                            r#type: "mcp".to_owned(),
+                            value: "local-gh".to_owned(),
+                            description: Some("Local GH MCP server".to_owned()),
+                            transport: Some("stdio".to_owned()),
+                            command: Some("gh-mcp".to_owned()),
                             url: None,
                         },
                     ],
@@ -1161,16 +1161,16 @@ interface:
         assert_eq!(
             user_skills,
             vec![SkillMetadata {
-                name: "ui-skill".to_string(),
-                description: "from json".to_string(),
+                name: "ui-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    name: Some("UI Skill".to_string()),
-                    short_description: Some("short desc".to_string()),
+                    name: Some("UI Skill".to_owned()),
+                    short_description: Some("short desc".to_owned()),
                     icon_small: Some(normalized_skill_dir.join("assets/small-400px.png")),
                     icon_large: Some(normalized_skill_dir.join("assets/large-logo.svg")),
-                    brand_color: Some("#3B82F6".to_string()),
-                    default_prompt: Some("default prompt".to_string()),
+                    brand_color: Some("#3B82F6".to_owned()),
+                    default_prompt: Some("default prompt".to_owned()),
                 }),
                 dependencies: None,
                 path: normalized(skill_path.as_path()),
@@ -1210,11 +1210,11 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "ui-skill".to_string(),
-                description: "from json".to_string(),
+                name: "ui-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    name: Some("UI Skill".to_string()),
+                    name: Some("UI Skill".to_owned()),
                     short_description: None,
                     icon_small: Some(normalized_skill_dir.join("assets/icon.png")),
                     icon_large: Some(normalized_skill_dir.join("assets/logo.svg")),
@@ -1256,8 +1256,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "ui-skill".to_string(),
-                description: "from json".to_string(),
+                name: "ui-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1301,11 +1301,11 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "ui-skill".to_string(),
-                description: "from json".to_string(),
+                name: "ui-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: Some(SkillInterface {
-                    name: Some("UI Skill".to_string()),
+                    name: Some("UI Skill".to_owned()),
                     short_description: None,
                     icon_small: Some(normalized_skill_dir.join("assets/small-400px.png")),
                     icon_large: None,
@@ -1348,8 +1348,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "ui-skill".to_string(),
-                description: "from json".to_string(),
+                name: "ui-skill".to_owned(),
+                description: "from json".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1586,8 +1586,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "within-depth-skill".to_string(),
-                description: "loads".to_string(),
+                name: "within-depth-skill".to_owned(),
+                description: "loads".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1612,8 +1612,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "demo-skill".to_string(),
-                description: "does things carefully".to_string(),
+                name: "demo-skill".to_owned(),
+                description: "does things carefully".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1642,9 +1642,9 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "demo-skill".to_string(),
-                description: "long description".to_string(),
-                short_description: Some("short summary".to_string()),
+                name: "demo-skill".to_owned(),
+                description: "long description".to_owned(),
+                short_description: Some("short summary".to_owned()),
                 interface: None,
                 dependencies: None,
                 path: normalized(&skill_path),
@@ -1753,8 +1753,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "repo-skill".to_string(),
-                description: "from repo".to_string(),
+                name: "repo-skill".to_owned(),
+                description: "from repo".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1787,8 +1787,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "agents-skill".to_string(),
-                description: "from agents".to_string(),
+                name: "agents-skill".to_owned(),
+                description: "from agents".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1839,8 +1839,8 @@ interface:
             outcome.skills,
             vec![
                 SkillMetadata {
-                    name: "nested-skill".to_string(),
-                    description: "from nested".to_string(),
+                    name: "nested-skill".to_owned(),
+                    description: "from nested".to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -1848,8 +1848,8 @@ interface:
                     scope: SkillScope::Repo,
                 },
                 SkillMetadata {
-                    name: "root-skill".to_string(),
-                    description: "from root".to_string(),
+                    name: "root-skill".to_owned(),
+                    description: "from root".to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -1886,8 +1886,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "local-skill".to_string(),
-                description: "from cwd".to_string(),
+                name: "local-skill".to_owned(),
+                description: "from cwd".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1922,8 +1922,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "dupe-skill".to_string(),
-                description: "from repo".to_string(),
+                name: "dupe-skill".to_owned(),
+                description: "from repo".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -1962,8 +1962,8 @@ interface:
             outcome.skills,
             vec![
                 SkillMetadata {
-                    name: "dupe-skill".to_string(),
-                    description: "from repo".to_string(),
+                    name: "dupe-skill".to_owned(),
+                    description: "from repo".to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -1971,8 +1971,8 @@ interface:
                     scope: SkillScope::Repo,
                 },
                 SkillMetadata {
-                    name: "dupe-skill".to_string(),
-                    description: "from user".to_string(),
+                    name: "dupe-skill".to_owned(),
+                    description: "from user".to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -2034,8 +2034,8 @@ interface:
             outcome.skills,
             vec![
                 SkillMetadata {
-                    name: "dupe-skill".to_string(),
-                    description: first_description.to_string(),
+                    name: "dupe-skill".to_owned(),
+                    description: first_description.to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -2043,8 +2043,8 @@ interface:
                     scope: SkillScope::Repo,
                 },
                 SkillMetadata {
-                    name: "dupe-skill".to_string(),
-                    description: second_description.to_string(),
+                    name: "dupe-skill".to_owned(),
+                    description: second_description.to_owned(),
                     short_description: None,
                     interface: None,
                     dependencies: None,
@@ -2113,8 +2113,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "repo-skill".to_string(),
-                description: "from repo".to_string(),
+                name: "repo-skill".to_owned(),
+                description: "from repo".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,
@@ -2170,8 +2170,8 @@ interface:
         assert_eq!(
             outcome.skills,
             vec![SkillMetadata {
-                name: "system-skill".to_string(),
-                description: "from system".to_string(),
+                name: "system-skill".to_owned(),
+                description: "from system".to_owned(),
                 short_description: None,
                 interface: None,
                 dependencies: None,

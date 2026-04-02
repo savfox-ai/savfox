@@ -156,14 +156,14 @@ async fn chat_wire_codex_backend_tries_responses_before_chat() -> Result<()> {
     let paths: Vec<String> = requests
         .iter()
         .filter(|req| req.method == Method::POST)
-        .map(|req| req.url.path().to_string())
+        .map(|req| req.url.path().to_owned())
         .collect();
 
     assert_eq!(
         paths,
         vec![
-            "/api/codex/responses".to_string(),
-            "/api/codex/chat/completions".to_string(),
+            "/api/codex/responses".to_owned(),
+            "/api/codex/chat/completions".to_owned(),
         ]
     );
 
@@ -217,14 +217,14 @@ async fn responses_wire_falls_back_to_chat_when_responses_endpoint_is_missing() 
     let paths: Vec<String> = requests
         .iter()
         .filter(|req| req.method == Method::POST)
-        .map(|req| req.url.path().to_string())
+        .map(|req| req.url.path().to_owned())
         .collect();
 
     assert_eq!(
         paths,
         vec![
-            "/api/codex/responses".to_string(),
-            "/api/codex/chat/completions".to_string(),
+            "/api/codex/responses".to_owned(),
+            "/api/codex/chat/completions".to_owned(),
         ]
     );
 

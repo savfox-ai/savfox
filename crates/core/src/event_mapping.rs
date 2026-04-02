@@ -149,15 +149,15 @@ mod tests {
 
     #[test]
     fn parses_user_message_with_text_and_two_images() {
-        let img1 = "https://example.com/one.png".to_string();
-        let img2 = "https://example.com/two.jpg".to_string();
+        let img1 = "https://example.com/one.png".to_owned();
+        let img2 = "https://example.com/two.jpg".to_owned();
 
         let item = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![
                 ContentItem::InputText {
-                    text: "Hello world".to_string(),
+                    text: "Hello world".to_owned(),
                 },
                 ContentItem::InputImage {
                     image_url: img1.clone(),
@@ -176,7 +176,7 @@ mod tests {
             TurnItem::UserMessage(user) => {
                 let expected_content = vec![
                     UserInput::Text {
-                        text: "Hello world".to_string(),
+                        text: "Hello world".to_owned(),
                         text_elements: Vec::new(),
                     },
                     UserInput::Image { image_url: img1 },
@@ -190,20 +190,20 @@ mod tests {
 
     #[test]
     fn skips_local_image_label_text() {
-        let image_url = "data:image/png;base64,abc".to_string();
+        let image_url = "data:image/png;base64,abc".to_owned();
         let label = savfox_protocol::models::local_image_open_tag_text(1);
-        let user_text = "Please review this image.".to_string();
+        let user_text = "Please review this image.".to_owned();
 
         let item = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![
                 ContentItem::InputText { text: label },
                 ContentItem::InputImage {
                     image_url: image_url.clone(),
                 },
                 ContentItem::InputText {
-                    text: "</image>".to_string(),
+                    text: "</image>".to_owned(),
                 },
                 ContentItem::InputText {
                     text: user_text.clone(),
@@ -232,13 +232,13 @@ mod tests {
 
     #[test]
     fn skips_unnamed_image_label_text() {
-        let image_url = "data:image/png;base64,abc".to_string();
+        let image_url = "data:image/png;base64,abc".to_owned();
         let label = savfox_protocol::models::image_open_tag_text();
-        let user_text = "Please review this image.".to_string();
+        let user_text = "Please review this image.".to_owned();
 
         let item = ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![
                 ContentItem::InputText { text: label },
                 ContentItem::InputImage {
@@ -277,46 +277,45 @@ mod tests {
         let items = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<user_instructions>test_text</user_instructions>".to_string(),
+                    text: "<user_instructions>test_text</user_instructions>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<environment_context>test_text</environment_context>".to_string(),
+                    text: "<environment_context>test_text</environment_context>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "# AGENTS.md instructions for test_directory\n\n<INSTRUCTIONS>\ntest_text\n</INSTRUCTIONS>".to_string(),
+                    text: "# AGENTS.md instructions for test_directory\n\n<INSTRUCTIONS>\ntest_text\n</INSTRUCTIONS>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<skill>\n<name>demo</name>\n<path>skills/demo/SKILL.md</path>\nbody\n</skill>"
-                        .to_string(),
+                    text: "<skill>\n<name>demo</name>\n<path>skills/demo/SKILL.md</path>\nbody\n</skill>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<user_shell_command>echo 42</user_shell_command>".to_string(),
+                    text: "<user_shell_command>echo 42</user_shell_command>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
@@ -332,10 +331,10 @@ mod tests {
     #[test]
     fn parses_agent_message() {
         let item = ResponseItem::Message {
-            id: Some("msg-1".to_string()),
-            role: "assistant".to_string(),
+            id: Some("msg-1".to_owned()),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "Hello from Savfox".to_string(),
+                text: "Hello from Savfox".to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -357,17 +356,17 @@ mod tests {
     #[test]
     fn parses_reasoning_summary_and_raw_content() {
         let item = ResponseItem::Reasoning {
-            id: "reasoning_1".to_string(),
+            id: "reasoning_1".to_owned(),
             summary: vec![
                 ReasoningItemReasoningSummary::SummaryText {
-                    text: "Step 1".to_string(),
+                    text: "Step 1".to_owned(),
                 },
                 ReasoningItemReasoningSummary::SummaryText {
-                    text: "Step 2".to_string(),
+                    text: "Step 2".to_owned(),
                 },
             ],
             content: Some(vec![ReasoningItemContent::ReasoningText {
-                text: "raw details".to_string(),
+                text: "raw details".to_owned(),
             }]),
             encrypted_content: None,
         };
@@ -378,9 +377,9 @@ mod tests {
             TurnItem::Reasoning(reasoning) => {
                 assert_eq!(
                     reasoning.summary_text,
-                    vec!["Step 1".to_string(), "Step 2".to_string()]
+                    vec!["Step 1".to_owned(), "Step 2".to_owned()]
                 );
-                assert_eq!(reasoning.raw_content, vec!["raw details".to_string()]);
+                assert_eq!(reasoning.raw_content, vec!["raw details".to_owned()]);
             }
             other => panic!("expected TurnItem::Reasoning, got {other:?}"),
         }
@@ -389,16 +388,16 @@ mod tests {
     #[test]
     fn parses_reasoning_including_raw_content() {
         let item = ResponseItem::Reasoning {
-            id: "reasoning_2".to_string(),
+            id: "reasoning_2".to_owned(),
             summary: vec![ReasoningItemReasoningSummary::SummaryText {
-                text: "Summarized step".to_string(),
+                text: "Summarized step".to_owned(),
             }],
             content: Some(vec![
                 ReasoningItemContent::ReasoningText {
-                    text: "raw step".to_string(),
+                    text: "raw step".to_owned(),
                 },
                 ReasoningItemContent::Text {
-                    text: "final thought".to_string(),
+                    text: "final thought".to_owned(),
                 },
             ]),
             encrypted_content: None,
@@ -408,10 +407,10 @@ mod tests {
 
         match turn_item {
             TurnItem::Reasoning(reasoning) => {
-                assert_eq!(reasoning.summary_text, vec!["Summarized step".to_string()]);
+                assert_eq!(reasoning.summary_text, vec!["Summarized step".to_owned()]);
                 assert_eq!(
                     reasoning.raw_content,
-                    vec!["raw step".to_string(), "final thought".to_string()]
+                    vec!["raw step".to_owned(), "final thought".to_owned()]
                 );
             }
             other => panic!("expected TurnItem::Reasoning, got {other:?}"),
@@ -421,10 +420,10 @@ mod tests {
     #[test]
     fn parses_web_search_call() {
         let item = ResponseItem::WebSearchCall {
-            id: Some("ws_1".to_string()),
-            status: Some("completed".to_string()),
+            id: Some("ws_1".to_owned()),
+            status: Some("completed".to_owned()),
             action: Some(WebSearchAction::Search {
-                query: Some("weather".to_string()),
+                query: Some("weather".to_owned()),
                 queries: None,
             }),
         };
@@ -435,10 +434,10 @@ mod tests {
             TurnItem::WebSearch(search) => assert_eq!(
                 search,
                 WebSearchItem {
-                    id: "ws_1".to_string(),
-                    query: "weather".to_string(),
+                    id: "ws_1".to_owned(),
+                    query: "weather".to_owned(),
                     action: WebSearchAction::Search {
-                        query: Some("weather".to_string()),
+                        query: Some("weather".to_owned()),
                         queries: None,
                     },
                 }
@@ -450,10 +449,10 @@ mod tests {
     #[test]
     fn parses_web_search_open_page_call() {
         let item = ResponseItem::WebSearchCall {
-            id: Some("ws_open".to_string()),
-            status: Some("completed".to_string()),
+            id: Some("ws_open".to_owned()),
+            status: Some("completed".to_owned()),
             action: Some(WebSearchAction::OpenPage {
-                url: Some("https://example.com".to_string()),
+                url: Some("https://example.com".to_owned()),
             }),
         };
 
@@ -463,10 +462,10 @@ mod tests {
             TurnItem::WebSearch(search) => assert_eq!(
                 search,
                 WebSearchItem {
-                    id: "ws_open".to_string(),
-                    query: "https://example.com".to_string(),
+                    id: "ws_open".to_owned(),
+                    query: "https://example.com".to_owned(),
                     action: WebSearchAction::OpenPage {
-                        url: Some("https://example.com".to_string()),
+                        url: Some("https://example.com".to_owned()),
                     },
                 }
             ),
@@ -477,11 +476,11 @@ mod tests {
     #[test]
     fn parses_web_search_find_in_page_call() {
         let item = ResponseItem::WebSearchCall {
-            id: Some("ws_find".to_string()),
-            status: Some("completed".to_string()),
+            id: Some("ws_find".to_owned()),
+            status: Some("completed".to_owned()),
             action: Some(WebSearchAction::FindInPage {
-                url: Some("https://example.com".to_string()),
-                pattern: Some("needle".to_string()),
+                url: Some("https://example.com".to_owned()),
+                pattern: Some("needle".to_owned()),
             }),
         };
 
@@ -491,11 +490,11 @@ mod tests {
             TurnItem::WebSearch(search) => assert_eq!(
                 search,
                 WebSearchItem {
-                    id: "ws_find".to_string(),
-                    query: "'needle' in https://example.com".to_string(),
+                    id: "ws_find".to_owned(),
+                    query: "'needle' in https://example.com".to_owned(),
                     action: WebSearchAction::FindInPage {
-                        url: Some("https://example.com".to_string()),
-                        pattern: Some("needle".to_string()),
+                        url: Some("https://example.com".to_owned()),
+                        pattern: Some("needle".to_owned()),
                     },
                 }
             ),
@@ -506,8 +505,8 @@ mod tests {
     #[test]
     fn parses_partial_web_search_call_without_action_as_other() {
         let item = ResponseItem::WebSearchCall {
-            id: Some("ws_partial".to_string()),
-            status: Some("in_progress".to_string()),
+            id: Some("ws_partial".to_owned()),
+            status: Some("in_progress".to_owned()),
             action: None,
         };
 
@@ -516,7 +515,7 @@ mod tests {
             TurnItem::WebSearch(search) => assert_eq!(
                 search,
                 WebSearchItem {
-                    id: "ws_partial".to_string(),
+                    id: "ws_partial".to_owned(),
                     query: String::new(),
                     action: WebSearchAction::Other,
                 }

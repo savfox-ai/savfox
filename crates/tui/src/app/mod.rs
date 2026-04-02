@@ -3081,7 +3081,7 @@ mod tests {
             None,
             None,
             false,
-            "test".to_string(),
+            "test".to_owned(),
             SessionSource::Cli,
         )
     }
@@ -3157,7 +3157,7 @@ mod tests {
     #[tokio::test]
     async fn model_migration_prompt_respects_hide_flag_and_self_target() {
         let mut seen = BTreeMap::new();
-        seen.insert("gpt-5".to_string(), "gpt-5.1".to_string());
+        seen.insert("gpt-5".to_owned(), "gpt-5.1".to_owned());
         assert!(!should_show_model_migration_prompt(
             "gpt-5",
             "gpt-5.1",
@@ -3182,9 +3182,9 @@ mod tests {
             .expect("preset with upgrade present");
         let current_slug = current.slug.clone();
         current.upgrade = Some(ModelUpgrade {
-            id: "missing-target".to_string(),
+            id: "missing-target".to_owned(),
             reasoning_effort_mapping: None,
-            migration_config_key: HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG.to_string(),
+            migration_config_key: HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG.to_owned(),
             model_link: None,
             upgrade_copy: None,
             migration_markdown: None,
@@ -3283,14 +3283,14 @@ mod tests {
                          local_image_paths: Vec<PathBuf>|
          -> Arc<dyn HistoryCell> {
             Arc::new(UserHistoryCell {
-                message: text.to_string(),
+                message: text.to_owned(),
                 text_elements,
                 local_image_paths,
             }) as Arc<dyn HistoryCell>
         };
         let agent_cell = |text: &str| -> Arc<dyn HistoryCell> {
             Arc::new(AgentMessageCell::new(
-                vec![Line::from(text.to_string())],
+                vec![Line::from(text.to_owned())],
                 true,
             )) as Arc<dyn HistoryCell>
         };
@@ -3300,8 +3300,8 @@ mod tests {
                 session_id: SessionId::new(),
                 forked_from_id: None,
                 session_name: None,
-                model: "gpt-test".to_string(),
-                model_provider_id: "test-provider".to_string(),
+                model: "gpt-test".to_owned(),
+                model_provider_id: "test-provider".to_owned(),
                 approval_policy: AskForApproval::Never,
                 sandbox_policy: SandboxPolicy::ReadOnly,
                 cwd: PathBuf::from("/home/user/project"),
@@ -3354,8 +3354,8 @@ mod tests {
                 session_id: base_id,
                 forked_from_id: None,
                 session_name: None,
-                model: "gpt-test".to_string(),
-                model_provider_id: "test-provider".to_string(),
+                model: "gpt-test".to_owned(),
+                model_provider_id: "test-provider".to_owned(),
                 approval_policy: AskForApproval::Never,
                 sandbox_policy: SandboxPolicy::ReadOnly,
                 cwd: PathBuf::from("/home/user/project"),
@@ -3400,8 +3400,8 @@ mod tests {
             session_id,
             forked_from_id: None,
             session_name: None,
-            model: "gpt-test".to_string(),
-            model_provider_id: "test-provider".to_string(),
+            model: "gpt-test".to_owned(),
+            model_provider_id: "test-provider".to_owned(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::ReadOnly,
             cwd: PathBuf::from("/home/user/project"),
@@ -3465,11 +3465,11 @@ mod tests {
         let summary = session_summary(usage, Some(conversation), None).expect("summary");
         assert_eq!(
             summary.usage_line,
-            Some("Token usage: total=12 input=10 output=2".to_string())
+            Some("Token usage: total=12 input=10 output=2".to_owned())
         );
         assert_eq!(
             summary.resume_command,
-            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string())
+            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned())
         );
     }
 
@@ -3480,13 +3480,13 @@ mod tests {
         let summary = session_summary(
             TokenUsage::default(),
             Some(conversation),
-            Some("my-session".to_string()),
+            Some("my-session".to_owned()),
         )
         .expect("summary");
         assert_eq!(summary.usage_line, None);
         assert_eq!(
             summary.resume_command,
-            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string())
+            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned())
         );
     }
 
@@ -3500,11 +3500,11 @@ mod tests {
         };
         let conversation = SessionId::from_string("123e4567-e89b-12d3-a456-426614174000").unwrap();
 
-        let summary = session_summary(usage, Some(conversation), Some("my-session".to_string()))
+        let summary = session_summary(usage, Some(conversation), Some("my-session".to_owned()))
             .expect("summary");
         assert_eq!(
             summary.resume_command,
-            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_string())
+            Some("savfox resume 123e4567-e89b-12d3-a456-426614174000".to_owned())
         );
     }
 }

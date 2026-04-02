@@ -375,9 +375,9 @@ mod tests {
         if let Some(pwsh) = try_find_pwsh_executable_blocking() {
             assert!(is_safe_command_windows(&[
                 pwsh.as_path().to_str().unwrap().into(),
-                "-NoProfile".to_string(),
-                "-Command".to_string(),
-                "Get-ChildItem".to_string(),
+                "-NoProfile".to_owned(),
+                "-Command".to_owned(),
+                "Get-ChildItem".to_owned(),
             ]));
         }
     }
@@ -392,9 +392,9 @@ mod tests {
         if let Some(pwsh) = try_find_pwsh_executable_blocking() {
             assert!(is_safe_command_windows(&[
                 pwsh.as_path().to_str().unwrap().into(),
-                "-NoProfile".to_string(),
-                "-Command".to_string(),
-                "Get-ChildItem -Path .".to_string(),
+                "-NoProfile".to_owned(),
+                "-Command".to_owned(),
+                "Get-ChildItem -Path .".to_owned(),
             ]));
         }
 
@@ -414,37 +414,36 @@ mod tests {
         let pwsh: String = pwsh.as_path().to_str().unwrap().into();
         assert!(is_safe_command_windows(&[
             pwsh.clone(),
-            "-NoLogo".to_string(),
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "rg --files-with-matches foo | Measure-Object | Select-Object -ExpandProperty Count"
-                .to_string()
+            "-NoLogo".to_owned(),
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "rg --files-with-matches foo | Measure-Object | Select-Object -ExpandProperty Count".to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[
             pwsh.clone(),
-            "-NoLogo".to_string(),
-            "-NoProfile".to_string(),
-            "-Command".to_string(),
-            "Get-Content foo.rs | Select-Object -Skip 200".to_string()
+            "-NoLogo".to_owned(),
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "Get-Content foo.rs | Select-Object -Skip 200".to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[
             pwsh.clone(),
-            "-Command".to_string(),
-            "-git cat-file -p HEAD:foo.rs".to_string()
+            "-Command".to_owned(),
+            "-git cat-file -p HEAD:foo.rs".to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[
             pwsh.clone(),
-            "-Command".to_string(),
-            "(Get-Content foo.rs -Raw)".to_string()
+            "-Command".to_owned(),
+            "(Get-Content foo.rs -Raw)".to_owned()
         ]));
 
         assert!(is_safe_command_windows(&[
             pwsh,
-            "-Command".to_string(),
-            "Get-Item foo.rs | Select-Object Length".to_string()
+            "-Command".to_owned(),
+            "Get-Item foo.rs | Select-Object Length".to_owned()
         ]));
     }
 
@@ -473,10 +472,10 @@ mod tests {
             assert!(
                 !is_safe_command_windows(&[
                     pwsh.clone(),
-                    "-NoLogo".to_string(),
-                    "-NoProfile".to_string(),
-                    "-Command".to_string(),
-                    script.to_string(),
+                    "-NoLogo".to_owned(),
+                    "-NoProfile".to_owned(),
+                    "-Command".to_owned(),
+                    script.to_owned(),
                 ]),
                 "expected {script:?} to require approval due to unsafe git global option",
             );
@@ -633,9 +632,9 @@ mod tests {
             assert!(
                 is_safe_command_windows(&[
                     pwsh.as_path().to_str().unwrap().into(),
-                    "-NoProfile".to_string(),
-                    "-Command".to_string(),
-                    chain.to_string(),
+                    "-NoProfile".to_owned(),
+                    "-Command".to_owned(),
+                    chain.to_owned(),
                 ]),
                 "`{chain}` should be considered safe to pwsh.exe"
             );

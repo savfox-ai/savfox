@@ -232,7 +232,7 @@ mod tests {
             .expect("send response");
         });
 
-        let client = CdpClient::connect(&format!("ws://{}", addr))
+        let client = CdpClient::connect(&format!("ws://{addr}"))
             .await
             .expect("connect client");
         let response = client
@@ -289,7 +289,7 @@ mod tests {
             .expect("send event");
         });
 
-        let client = CdpClient::connect(&format!("ws://{}", addr))
+        let client = CdpClient::connect(&format!("ws://{addr}"))
             .await
             .expect("connect client");
 

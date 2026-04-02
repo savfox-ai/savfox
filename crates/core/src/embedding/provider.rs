@@ -276,7 +276,7 @@ mod tests {
             "key",
             "model",
             1536,
-            Some("https://custom.api.example.com".to_string()),
+            Some("https://custom.api.example.com".to_owned()),
         );
         assert_eq!(provider.base_url, "https://custom.api.example.com");
     }

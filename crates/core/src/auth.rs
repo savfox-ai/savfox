@@ -1301,7 +1301,7 @@ mod tests {
         let fake_jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "pro".to_string(),
+                chatgpt_plan_type: "pro".to_owned(),
                 chatgpt_account_id: None,
             },
             savfox_home.path(),
@@ -1315,8 +1315,8 @@ mod tests {
         let updated = super::update_tokens(
             &storage,
             None,
-            Some("new-access-token".to_string()),
-            Some("new-refresh-token".to_string()),
+            Some("new-access-token".to_owned()),
+            Some("new-refresh-token".to_owned()),
         )
         .expect("update_tokens should succeed");
 
@@ -1382,7 +1382,7 @@ mod tests {
         let fake_jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "pro".to_string(),
+                chatgpt_plan_type: "pro".to_owned(),
                 chatgpt_account_id: None,
             },
             savfox_home.path(),
@@ -1408,14 +1408,14 @@ mod tests {
                 openai_api_key: None,
                 tokens: Some(TokenData {
                     id_token: IdTokenInfo {
-                        email: Some("user@example.com".to_string()),
+                        email: Some("user@example.com".to_owned()),
                         chatgpt_plan_type: Some(InternalPlanType::Known(InternalKnownPlan::Pro)),
-                        chatgpt_user_id: Some("user-12345".to_string()),
+                        chatgpt_user_id: Some("user-12345".to_owned()),
                         chatgpt_account_id: None,
                         raw_jwt: fake_jwt,
                     },
-                    access_token: "test-access-token".to_string(),
-                    refresh_token: "test-refresh-token".to_string(),
+                    access_token: "test-access-token".to_owned(),
+                    refresh_token: "test-refresh-token".to_owned(),
                     account_id: None,
                 }),
                 last_refresh: Some(last_refresh),
@@ -1429,7 +1429,7 @@ mod tests {
         let dir = tempdir()?;
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(ApiAuthMode::ApiKey),
-            openai_api_key: Some("sk-test-key".to_string()),
+            openai_api_key: Some("sk-test-key".to_owned()),
             tokens: None,
             last_refresh: None,
         };
@@ -1482,8 +1482,8 @@ mod tests {
 
         let token_data = TokenData {
             id_token: parse_id_token(&fake_jwt).map_err(std::io::Error::other)?,
-            access_token: "test-access-token".to_string(),
-            refresh_token: "test-refresh-token".to_string(),
+            access_token: "test-access-token".to_owned(),
+            refresh_token: "test-refresh-token".to_owned(),
             account_id: params.chatgpt_account_id.clone(),
         };
         let auth_dot_json = AuthDotJson {
@@ -1572,14 +1572,14 @@ mod tests {
         let _jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "pro".to_string(),
-                chatgpt_account_id: Some("org_another_org".to_string()),
+                chatgpt_plan_type: "pro".to_owned(),
+                chatgpt_account_id: Some("org_another_org".to_owned()),
             },
             savfox_home.path(),
         )
         .expect("failed to write auth file");
 
-        let config = build_config(savfox_home.path(), None, Some("org_mine".to_string())).await;
+        let config = build_config(savfox_home.path(), None, Some("org_mine".to_owned())).await;
 
         let err = super::enforce_login_restrictions(&config)
             .expect_err("expected workspace mismatch to error");
@@ -1597,14 +1597,14 @@ mod tests {
         let _jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "pro".to_string(),
-                chatgpt_account_id: Some("org_mine".to_string()),
+                chatgpt_plan_type: "pro".to_owned(),
+                chatgpt_account_id: Some("org_mine".to_owned()),
             },
             savfox_home.path(),
         )
         .expect("failed to write auth file");
 
-        let config = build_config(savfox_home.path(), None, Some("org_mine".to_string())).await;
+        let config = build_config(savfox_home.path(), None, Some("org_mine".to_owned())).await;
 
         super::enforce_login_restrictions(&config).expect("matching workspace should succeed");
         assert!(
@@ -1624,7 +1624,7 @@ mod tests {
         )
         .expect("seed api key");
 
-        let config = build_config(savfox_home.path(), None, Some("org_mine".to_string())).await;
+        let config = build_config(savfox_home.path(), None, Some("org_mine".to_owned())).await;
 
         super::enforce_login_restrictions(&config).expect("matching workspace should succeed");
         assert!(
@@ -1655,7 +1655,7 @@ mod tests {
         let _jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "pro".to_string(),
+                chatgpt_plan_type: "pro".to_owned(),
                 chatgpt_account_id: None,
             },
             savfox_home.path(),
@@ -1675,7 +1675,7 @@ mod tests {
         let _jwt = write_auth_file(
             AuthFileParams {
                 openai_api_key: None,
-                chatgpt_plan_type: "mystery-tier".to_string(),
+                chatgpt_plan_type: "mystery-tier".to_owned(),
                 chatgpt_account_id: None,
             },
             savfox_home.path(),

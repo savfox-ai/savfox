@@ -103,10 +103,10 @@ mod tests {
         let result = populate_env(vars, &policy);
 
         let expected: HashMap<String, String> = hashmap! {
-            "PATH".to_string() => "/usr/bin".to_string(),
-            "HOME".to_string() => "/home/user".to_string(),
-            "API_KEY".to_string() => "secret".to_string(),
-            "SECRET_TOKEN".to_string() => "t".to_string(),
+            "PATH".to_owned() => "/usr/bin".to_owned(),
+            "HOME".to_owned() => "/home/user".to_owned(),
+            "API_KEY".to_owned() => "secret".to_owned(),
+            "SECRET_TOKEN".to_owned() => "t".to_owned(),
         };
 
         assert_eq!(result, expected);
@@ -128,8 +128,8 @@ mod tests {
         let result = populate_env(vars, &policy);
 
         let expected: HashMap<String, String> = hashmap! {
-            "PATH".to_string() => "/usr/bin".to_string(),
-            "HOME".to_string() => "/home/user".to_string(),
+            "PATH".to_owned() => "/usr/bin".to_owned(),
+            "HOME".to_owned() => "/home/user".to_owned(),
         };
 
         assert_eq!(result, expected);
@@ -149,7 +149,7 @@ mod tests {
         let result = populate_env(vars, &policy);
 
         let expected: HashMap<String, String> = hashmap! {
-            "PATH".to_string() => "/usr/bin".to_string(),
+            "PATH".to_owned() => "/usr/bin".to_owned(),
         };
 
         assert_eq!(result, expected);
@@ -163,13 +163,13 @@ mod tests {
             ignore_default_excludes: true,
             ..Default::default()
         };
-        policy.r#set.insert("NEW_VAR".to_string(), "42".to_string());
+        policy.r#set.insert("NEW_VAR".to_owned(), "42".to_owned());
 
         let result = populate_env(vars, &policy);
 
         let expected: HashMap<String, String> = hashmap! {
-            "PATH".to_string() => "/usr/bin".to_string(),
-            "NEW_VAR".to_string() => "42".to_string(),
+            "PATH".to_owned() => "/usr/bin".to_owned(),
+            "NEW_VAR".to_owned() => "42".to_owned(),
         };
 
         assert_eq!(result, expected);
@@ -202,7 +202,7 @@ mod tests {
 
         let result = populate_env(vars, &policy);
         let expected: HashMap<String, String> = hashmap! {
-            "PATH".to_string() => "/usr/bin".to_string(),
+            "PATH".to_owned() => "/usr/bin".to_owned(),
         };
         assert_eq!(result, expected);
     }
@@ -224,8 +224,8 @@ mod tests {
 
         let result = populate_env(vars, &policy);
         let expected: HashMap<String, String> = hashmap! {
-            "Path".to_string() => "C:\\Windows\\System32".to_string(),
-            "TEMP".to_string() => "C:\\Temp".to_string(),
+            "Path".to_owned() => "C:\\Windows\\System32".to_owned(),
+            "TEMP".to_owned() => "C:\\Temp".to_owned(),
         };
 
         assert_eq!(result, expected);
@@ -242,11 +242,11 @@ mod tests {
         };
         policy
             .r#set
-            .insert("ONLY_VAR".to_string(), "yes".to_string());
+            .insert("ONLY_VAR".to_owned(), "yes".to_owned());
 
         let result = populate_env(vars, &policy);
         let expected: HashMap<String, String> = hashmap! {
-            "ONLY_VAR".to_string() => "yes".to_string(),
+            "ONLY_VAR".to_owned() => "yes".to_owned(),
         };
         assert_eq!(result, expected);
     }

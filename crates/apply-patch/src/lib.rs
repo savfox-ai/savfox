@@ -861,8 +861,8 @@ mod tests {
 +QUX
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "foo\nBAR\nbaz\nQUX\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "foo\nBAR\nbaz\nQUX\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -897,8 +897,8 @@ mod tests {
  bar
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "FOO\nbar\nbaz\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "FOO\nbar\nbaz\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -934,8 +934,8 @@ mod tests {
 +BAZ
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "foo\nbar\nBAZ\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "foo\nbar\nBAZ\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -968,8 +968,8 @@ mod tests {
 +quux
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "foo\nbar\nbaz\nquux\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "foo\nbar\nbaz\nquux\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -1023,8 +1023,8 @@ mod tests {
 "#;
 
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "a\nB\nc\nd\nE\nf\ng\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "a\nB\nc\nd\nE\nf\ng\n".to_owned(),
         };
 
         assert_eq!(expected, diff);

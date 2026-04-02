@@ -142,7 +142,7 @@ mod tests {
             .output()
             .expect("git command");
         assert!(output.status.success(), "git command failed: {args:?}");
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
     fn init_test_repo(repo_path: &Path) {

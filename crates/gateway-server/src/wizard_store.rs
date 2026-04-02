@@ -165,8 +165,7 @@ mod tests {
         let wizard_id = started
             .get("wizard_id")
             .and_then(|v| v.as_str())
-            .expect("wizard_id")
-            .to_string();
+            .expect("wizard_id").to_owned();
         let _ = next(&home, &wizard_id, Some("ok")).await.expect("next");
         let status_val = status(&home).await.expect("status");
         assert!(status_val.get("wizard_id").is_some());

@@ -460,9 +460,9 @@ mod tests {
     fn user_msg(text: &str) -> ResponseItem {
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: text.to_string(),
+                text: text.to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -471,9 +471,9 @@ mod tests {
     fn assistant_msg(text: &str) -> ResponseItem {
         ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: text.to_string(),
+                text: text.to_owned(),
             }],
             end_turn: None,
             phase: None,
@@ -489,18 +489,18 @@ mod tests {
             user_msg("u2"),
             assistant_msg("a3"),
             ResponseItem::Reasoning {
-                id: "r1".to_string(),
+                id: "r1".to_owned(),
                 summary: vec![ReasoningItemReasoningSummary::SummaryText {
-                    text: "s".to_string(),
+                    text: "s".to_owned(),
                 }],
                 content: None,
                 encrypted_content: None,
             },
             ResponseItem::FunctionCall {
                 id: None,
-                call_id: "c1".to_string(),
-                name: "tool".to_string(),
-                arguments: "{}".to_string(),
+                call_id: "c1".to_owned(),
+                name: "tool".to_owned(),
+                arguments: "{}".to_owned(),
             },
             assistant_msg("a4"),
         ];

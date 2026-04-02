@@ -406,12 +406,11 @@ mod tests {
                 "gpt-5.1-savfox-max",
                 None,
                 Some(
-                    "Upgrade to gpt-5.2-savfox for the latest and greatest agentic coding model."
-                        .to_string(),
+                    "Upgrade to gpt-5.2-savfox for the latest and greatest agentic coding model.".to_owned(),
                 ),
                 None,
-                "gpt-5.1-savfox-max".to_string(),
-                Some("Savfox-optimized flagship for deep and fast reasoning.".to_string()),
+                "gpt-5.1-savfox-max".to_owned(),
+                Some("Savfox-optimized flagship for deep and fast reasoning.".to_owned()),
                 true,
             ),
         );
@@ -436,11 +435,11 @@ mod tests {
             migration_copy_for_models(
                 "gpt-5",
                 "gpt-5.1",
-                Some("https://www.savfox.com/models/gpt-5.1".to_string()),
+                Some("https://www.savfox.com/models/gpt-5.1".to_owned()),
                 None,
                 None,
-                "gpt-5.1".to_string(),
-                Some("Broad world knowledge with strong general reasoning.".to_string()),
+                "gpt-5.1".to_owned(),
+                Some("Broad world knowledge with strong general reasoning.".to_owned()),
                 false,
             ),
         );
@@ -463,11 +462,11 @@ mod tests {
             migration_copy_for_models(
                 "gpt-5-savfox",
                 "gpt-5.1-savfox-max",
-                Some("https://www.savfox.com/models/gpt-5.1-savfox-max".to_string()),
+                Some("https://www.savfox.com/models/gpt-5.1-savfox-max".to_owned()),
                 None,
                 None,
-                "gpt-5.1-savfox-max".to_string(),
-                Some("Savfox-optimized flagship for deep and fast reasoning.".to_string()),
+                "gpt-5.1-savfox-max".to_owned(),
+                Some("Savfox-optimized flagship for deep and fast reasoning.".to_owned()),
                 false,
             ),
         );
@@ -490,11 +489,11 @@ mod tests {
             migration_copy_for_models(
                 "gpt-5-savfox-mini",
                 "gpt-5.1-savfox-mini",
-                Some("https://www.savfox.com/models/gpt-5.1-savfox-mini".to_string()),
+                Some("https://www.savfox.com/models/gpt-5.1-savfox-mini".to_owned()),
                 None,
                 None,
-                "gpt-5.1-savfox-mini".to_string(),
-                Some("Optimized for savfox. Cheaper, faster, but less capable.".to_string()),
+                "gpt-5.1-savfox-mini".to_owned(),
+                Some("Optimized for savfox. Cheaper, faster, but less capable.".to_owned()),
                 false,
             ),
         );
@@ -516,11 +515,11 @@ mod tests {
             migration_copy_for_models(
                 "gpt-old",
                 "gpt-new",
-                Some("https://www.savfox.com/models/gpt-new".to_string()),
+                Some("https://www.savfox.com/models/gpt-new".to_owned()),
                 None,
                 None,
-                "gpt-new".to_string(),
-                Some("Latest recommended model for better performance.".to_string()),
+                "gpt-new".to_owned(),
+                Some("Latest recommended model for better performance.".to_owned()),
                 true,
             ),
         );
@@ -545,11 +544,11 @@ mod tests {
             migration_copy_for_models(
                 "gpt-old",
                 "gpt-new",
-                Some("https://www.savfox.com/models/gpt-new".to_string()),
+                Some("https://www.savfox.com/models/gpt-new".to_owned()),
                 None,
                 None,
-                "gpt-new".to_string(),
-                Some("Latest recommended model for better performance.".to_string()),
+                "gpt-new".to_owned(),
+                Some("Latest recommended model for better performance.".to_owned()),
                 true,
             ),
         );

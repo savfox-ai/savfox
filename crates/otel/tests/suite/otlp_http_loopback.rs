@@ -80,15 +80,14 @@ fn read_http_request(
     let _method = parts.next().unwrap_or_default();
     let path = parts
         .next()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing path"))?
-        .to_string();
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing path"))?.to_owned();
 
     let mut headers = HashMap::new();
     for line in lines {
         let Some((k, v)) = line.split_once(':') else {
             continue;
         };
-        headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
+        headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_owned());
     }
 
     if let Some(len) = headers

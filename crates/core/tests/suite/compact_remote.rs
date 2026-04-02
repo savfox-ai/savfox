@@ -48,15 +48,15 @@ async fn remote_compact_replaces_history_for_followups() -> Result<()> {
     let compacted_history = vec![
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "REMOTE_COMPACTED_SUMMARY".to_string(),
+                text: "REMOTE_COMPACTED_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock = responses::mount_compact_json_once(
@@ -171,15 +171,15 @@ async fn remote_compact_runs_automatically() -> Result<()> {
     let compacted_history = vec![
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "REMOTE_COMPACTED_SUMMARY".to_string(),
+                text: "REMOTE_COMPACTED_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock = responses::mount_compact_json_once(
@@ -370,15 +370,15 @@ async fn remote_manual_compact_emits_context_compaction_items() -> Result<()> {
     let compacted_history = vec![
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "REMOTE_COMPACTED_SUMMARY".to_string(),
+                text: "REMOTE_COMPACTED_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock = responses::mount_compact_json_once(
@@ -466,21 +466,21 @@ async fn remote_compact_persists_replacement_history_in_rollout() -> Result<()> 
     let compacted_history = vec![
         ResponseItem::Message {
             id: None,
-            role: "user".to_string(),
+            role: "user".to_owned(),
             content: vec![ContentItem::InputText {
-                text: "COMPACTED_USER_SUMMARY".to_string(),
+                text: "COMPACTED_USER_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
         ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "COMPACTED_ASSISTANT_NOTE".to_string(),
+                text: "COMPACTED_ASSISTANT_NOTE".to_owned(),
             }],
             end_turn: None,
             phase: None,

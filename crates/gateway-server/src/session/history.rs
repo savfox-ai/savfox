@@ -410,22 +410,22 @@ mod tests {
     fn extract_messages_keeps_user_event_when_response_items_only_have_assistant() {
         let items = vec![
             RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
-                message: "write rust hello world".to_string(),
+                message: "write rust hello world".to_owned(),
                 images: Some(vec![]),
                 local_images: vec![],
                 text_elements: vec![],
             })),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "Sure, here's the code".to_string(),
+                    text: "Sure, here's the code".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             }),
             RolloutItem::EventMsg(EventMsg::AgentMessage(AgentMessageEvent {
-                message: "fallback assistant event".to_string(),
+                message: "fallback assistant event".to_owned(),
             })),
         ];
 
@@ -442,18 +442,18 @@ mod tests {
         let items = vec![
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "question".to_string(),
+                    text: "question".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             }),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "answer".to_string(),
+                    text: "answer".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
@@ -473,36 +473,36 @@ mod tests {
         let items = vec![
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "# AGENTS.md instructions for /repo".to_string(),
+                    text: "# AGENTS.md instructions for /repo".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             }),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<environment_context>\nctx\n</environment_context>".to_string(),
+                    text: "<environment_context>\nctx\n</environment_context>".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             }),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "actual user question".to_string(),
+                    text: "actual user question".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             }),
             RolloutItem::ResponseItem(ResponseItem::Message {
                 id: None,
-                role: "assistant".to_string(),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "answer".to_string(),
+                    text: "answer".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,

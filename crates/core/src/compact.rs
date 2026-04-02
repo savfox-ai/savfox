@@ -373,25 +373,25 @@ mod tests {
     fn content_items_to_text_joins_non_empty_segments() {
         let items = vec![
             ContentItem::InputText {
-                text: "hello".to_string(),
+                text: "hello".to_owned(),
             },
             ContentItem::OutputText {
                 text: String::new(),
             },
             ContentItem::OutputText {
-                text: "world".to_string(),
+                text: "world".to_owned(),
             },
         ];
 
         let joined = content_items_to_text(&items);
 
-        assert_eq!(Some("hello\nworld".to_string()), joined);
+        assert_eq!(Some("hello\nworld".to_owned()), joined);
     }
 
     #[test]
     fn content_items_to_text_ignores_image_only_content() {
         let items = vec![ContentItem::InputImage {
-            image_url: "file://image.png".to_string(),
+            image_url: "file://image.png".to_owned(),
         }];
 
         let joined = content_items_to_text(&items);
@@ -403,19 +403,19 @@ mod tests {
     fn collect_user_messages_extracts_user_text_only() {
         let items = vec![
             ResponseItem::Message {
-                id: Some("assistant".to_string()),
-                role: "assistant".to_string(),
+                id: Some("assistant".to_owned()),
+                role: "assistant".to_owned(),
                 content: vec![ContentItem::OutputText {
-                    text: "ignored".to_string(),
+                    text: "ignored".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
             },
             ResponseItem::Message {
-                id: Some("user".to_string()),
-                role: "user".to_string(),
+                id: Some("user".to_owned()),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "first".to_string(),
+                    text: "first".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,
@@ -425,7 +425,7 @@ mod tests {
 
         let collected = collect_user_messages(&items);
 
-        assert_eq!(vec!["first".to_string()], collected);
+        assert_eq!(vec!["first".to_owned()], collected);
     }
 
     #[test]
@@ -433,28 +433,27 @@ mod tests {
         let items = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "# AGENTS.md instructions for project\n\n<INSTRUCTIONS>\ndo things\n</INSTRUCTIONS>"
-                        .to_string(),
+                    text: "# AGENTS.md instructions for project\n\n<INSTRUCTIONS>\ndo things\n</INSTRUCTIONS>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "<ENVIRONMENT_CONTEXT>cwd=/tmp</ENVIRONMENT_CONTEXT>".to_string(),
+                    text: "<ENVIRONMENT_CONTEXT>cwd=/tmp</ENVIRONMENT_CONTEXT>".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "real user message".to_string(),
+                    text: "real user message".to_owned(),
                 }],
                 end_turn: None,
             phase: None,
@@ -463,7 +462,7 @@ mod tests {
 
         let collected = collect_user_messages(&items);
 
-        assert_eq!(vec!["real user message".to_string()], collected);
+        assert_eq!(vec!["real user message".to_owned()], collected);
     }
 
     #[test]
@@ -511,7 +510,7 @@ mod tests {
     #[test]
     fn build_token_limited_compacted_history_appends_summary_message() {
         let initial_context: Vec<ResponseItem> = Vec::new();
-        let user_messages = vec!["first user message".to_string()];
+        let user_messages = vec!["first user message".to_owned()];
         let summary_text = "summary text";
 
         let history = build_compacted_history(initial_context, &user_messages, summary_text);
@@ -538,7 +537,7 @@ mod tests {
         let items = vec![
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
                     text: marker.clone(),
                 }],
@@ -547,9 +546,9 @@ mod tests {
             },
             ResponseItem::Message {
                 id: None,
-                role: "user".to_string(),
+                role: "user".to_owned(),
                 content: vec![ContentItem::InputText {
-                    text: "real user message".to_string(),
+                    text: "real user message".to_owned(),
                 }],
                 end_turn: None,
                 phase: None,

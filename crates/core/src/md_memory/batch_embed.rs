@@ -159,7 +159,7 @@ mod tests {
     fn test_prepare_text() {
         let text = prepare_text_for_embedding(
             "coding-style",
-            &["rust".to_string(), "conventions".to_string()],
+            &["rust".to_owned(), "conventions".to_owned()],
             "Use snake_case for variables",
             100,
         );

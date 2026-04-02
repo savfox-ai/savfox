@@ -248,7 +248,7 @@ mod tests {
             segments,
             vec![
                 TaggedLineSegment::TagStart(Tag::Block),
-                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_string()),
+                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_owned()),
                 TaggedLineSegment::TagEnd(Tag::Block),
             ]
         );
@@ -262,7 +262,7 @@ mod tests {
 
         assert_eq!(
             segments,
-            vec![TaggedLineSegment::Normal("<tag> extra\n".to_string())]
+            vec![TaggedLineSegment::Normal("<tag> extra\n".to_owned())]
         );
     }
 
@@ -276,7 +276,7 @@ mod tests {
             segments,
             vec![
                 TaggedLineSegment::TagStart(Tag::Block),
-                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_string()),
+                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_owned()),
                 TaggedLineSegment::TagEnd(Tag::Block),
             ]
         );
@@ -292,7 +292,7 @@ mod tests {
             segments,
             vec![
                 TaggedLineSegment::TagStart(Tag::Block),
-                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_string()),
+                TaggedLineSegment::TagDelta(Tag::Block, "line\n".to_owned()),
                 TaggedLineSegment::TagEnd(Tag::Block),
             ]
         );
@@ -306,7 +306,7 @@ mod tests {
 
         assert_eq!(
             segments,
-            vec![TaggedLineSegment::Normal("plain text\n".to_string())]
+            vec![TaggedLineSegment::Normal("plain text\n".to_owned())]
         );
     }
 }

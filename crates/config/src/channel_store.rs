@@ -658,10 +658,10 @@ mod tests {
         let home =
             std::env::temp_dir().join(format!("savfox-channel-store-{}", uuid::Uuid::new_v4()));
         let config = ChannelConfig {
-            id: "matrix".to_string(),
-            kind: "matrix".to_string(),
+            id: "matrix".to_owned(),
+            kind: "matrix".to_owned(),
             slug: String::new(),
-            name: "Matrix".to_string(),
+            name: "Matrix".to_owned(),
             enabled: true,
             config: json!({
                 "homeserver": "http://127.0.0.1:6006",
@@ -681,8 +681,7 @@ mod tests {
         let file_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default().to_owned();
         assert_eq!(file_name, "matrix-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")
@@ -718,9 +717,9 @@ mod tests {
 
         let first = ChannelConfig {
             id: String::new(),
-            kind: "matrix".to_string(),
+            kind: "matrix".to_owned(),
             slug: String::new(),
-            name: "Primary Matrix".to_string(),
+            name: "Primary Matrix".to_owned(),
             enabled: true,
             config: json!({ "homeserver": "http://127.0.0.1:6006" }),
             router: None,
@@ -738,15 +737,14 @@ mod tests {
         let first_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default().to_owned();
         assert_eq!(first_name, "matrix-primary-matrix.json");
 
         let second = ChannelConfig {
-            id: "matrix-primary-matrix".to_string(),
-            kind: "matrix".to_string(),
+            id: "matrix-primary-matrix".to_owned(),
+            kind: "matrix".to_owned(),
             slug: String::new(),
-            name: "Renamed Matrix".to_string(),
+            name: "Renamed Matrix".to_owned(),
             enabled: true,
             config: json!({ "homeserver": "http://127.0.0.1:6006" }),
             router: None,
@@ -764,8 +762,7 @@ mod tests {
         let second_name = files[0]
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_string();
+            .unwrap_or_default().to_owned();
         assert_eq!(second_name, "matrix-renamed-matrix.json");
 
         let loaded = get_channel_config(&home, "matrix")
@@ -878,7 +875,7 @@ mod tests {
     fn access_policy_allowlist_permits_only_listed() {
         let policy = ChannelAccessPolicy {
             mode: AccessPolicyMode::Allowlist,
-            allowlist: vec!["Alice".to_string(), "bob".to_string()],
+            allowlist: vec!["Alice".to_owned(), "bob".to_owned()],
             denylist: vec![],
         };
         assert!(policy.is_allowed("alice"));
@@ -891,7 +888,7 @@ mod tests {
         let policy = ChannelAccessPolicy {
             mode: AccessPolicyMode::Denylist,
             allowlist: vec![],
-            denylist: vec!["spammer".to_string()],
+            denylist: vec!["spammer".to_owned()],
         };
         assert!(!policy.is_allowed("Spammer"));
         assert!(policy.is_allowed("normal_user"));
@@ -957,7 +954,7 @@ mod tests {
         assert!(!parsed.enabled);
         assert_eq!(
             parsed.config["channel_secret"],
-            Value::String("secret".to_string())
+            Value::String("secret".to_owned())
         );
         assert!(parsed.config.get("enabled").is_none());
     }

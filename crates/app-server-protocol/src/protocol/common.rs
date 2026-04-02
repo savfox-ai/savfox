@@ -747,7 +747,7 @@ mod tests {
             request_id: RequestId::Integer(8),
             params: v1::ChatgptAuthTokensRefreshParams {
                 reason: v1::ChatgptAuthTokensRefreshReason::Unauthorized,
-                previous_account_id: Some("org-123".to_string()),
+                previous_account_id: Some("org-123".to_owned()),
             },
         };
         assert_eq!(
@@ -801,7 +801,7 @@ mod tests {
         let request = ClientRequest::LoginAccount {
             request_id: RequestId::Integer(2),
             params: v1::LoginAccountParams::ApiKey {
-                api_key: "secret".to_string(),
+                api_key: "secret".to_owned(),
             },
         };
         assert_eq!(
@@ -858,8 +858,8 @@ mod tests {
         let request = ClientRequest::LoginAccount {
             request_id: RequestId::Integer(5),
             params: v1::LoginAccountParams::ChatgptAuthTokens {
-                access_token: "access-token".to_string(),
-                id_token: "id-token".to_string(),
+                access_token: "access-token".to_owned(),
+                id_token: "id-token".to_owned(),
             },
         };
         assert_eq!(
@@ -909,7 +909,7 @@ mod tests {
         );
 
         let chatgpt = v1::Account::Chatgpt {
-            email: "user@example.com".to_string(),
+            email: "user@example.com".to_owned(),
             plan_type: PlanType::Plus,
         };
         assert_eq!(
@@ -976,7 +976,7 @@ mod tests {
         let request = ClientRequest::SessionStart {
             request_id: RequestId::Integer(1),
             params: v1::SessionStartParams {
-                mock_experimental_field: Some("mock".to_string()),
+                mock_experimental_field: Some("mock".to_owned()),
                 ..Default::default()
             },
         };

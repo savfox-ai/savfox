@@ -1897,7 +1897,7 @@ mod tests {
     fn stdio_mcp(command: &str) -> McpServerConfig {
         McpServerConfig {
             transport: McpServerTransportConfig::Stdio {
-                command: command.to_string(),
+                command: command.to_owned(),
                 args: Vec::new(),
                 env: None,
                 env_vars: Vec::new(),
@@ -1916,7 +1916,7 @@ mod tests {
     fn http_mcp(url: &str) -> McpServerConfig {
         McpServerConfig {
             transport: McpServerTransportConfig::StreamableHttp {
-                url: url.to_string(),
+                url: url.to_owned(),
                 bearer_token_env_var: None,
                 http_headers: None,
                 env_http_headers: None,
@@ -1934,8 +1934,8 @@ mod tests {
     fn selected_model_from_id(model_id: &str) -> SelectedModel {
         let (provider, slug) = model_id.rsplit_once('/').unwrap_or(("openai", model_id));
         SelectedModel {
-            slug: slug.to_string(),
-            provider: provider.to_string(),
+            slug: slug.to_owned(),
+            provider: provider.to_owned(),
             reasoning_effort: None,
         }
     }
@@ -1943,7 +1943,7 @@ mod tests {
     fn selected_model_id(model: Option<&SelectedModel>) -> Option<String> {
         model
             .and_then(SelectedModel::to_model_id)
-            .map(|id| id.strip_prefix("openai/").unwrap_or(&id).to_string())
+            .map(|id| id.strip_prefix("openai/").unwrap_or(&id).to_owned())
     }
 
     #[test]
@@ -2200,47 +2200,47 @@ trust_level = "trusted"
         const GOOD_URL: &str = "https://example.com/good";
 
         let mut servers = HashMap::from([
-            (MISMATCHED_COMMAND_SERVER.to_string(), stdio_mcp("docs-cmd")),
+            (MISMATCHED_COMMAND_SERVER.to_owned(), stdio_mcp("docs-cmd")),
             (
-                MISMATCHED_URL_SERVER.to_string(),
+                MISMATCHED_URL_SERVER.to_owned(),
                 http_mcp("https://example.com/mcp"),
             ),
-            (MATCHED_COMMAND_SERVER.to_string(), stdio_mcp(GOOD_CMD)),
-            (MATCHED_URL_SERVER.to_string(), http_mcp(GOOD_URL)),
-            (DIFFERENT_NAME_SERVER.to_string(), stdio_mcp("same-cmd")),
+            (MATCHED_COMMAND_SERVER.to_owned(), stdio_mcp(GOOD_CMD)),
+            (MATCHED_URL_SERVER.to_owned(), http_mcp(GOOD_URL)),
+            (DIFFERENT_NAME_SERVER.to_owned(), stdio_mcp("same-cmd")),
         ]);
         let source = RequirementSource::CloudRequirements;
         let requirements = Sourced::new(
             BTreeMap::from([
                 (
-                    MISMATCHED_URL_SERVER.to_string(),
+                    MISMATCHED_URL_SERVER.to_owned(),
                     McpServerRequirement {
                         identity: McpServerIdentity::Url {
-                            url: "https://example.com/other".to_string(),
+                            url: "https://example.com/other".to_owned(),
                         },
                     },
                 ),
                 (
-                    MISMATCHED_COMMAND_SERVER.to_string(),
+                    MISMATCHED_COMMAND_SERVER.to_owned(),
                     McpServerRequirement {
                         identity: McpServerIdentity::Command {
-                            command: "other-cmd".to_string(),
+                            command: "other-cmd".to_owned(),
                         },
                     },
                 ),
                 (
-                    MATCHED_URL_SERVER.to_string(),
+                    MATCHED_URL_SERVER.to_owned(),
                     McpServerRequirement {
                         identity: McpServerIdentity::Url {
-                            url: GOOD_URL.to_string(),
+                            url: GOOD_URL.to_owned(),
                         },
                     },
                 ),
                 (
-                    MATCHED_COMMAND_SERVER.to_string(),
+                    MATCHED_COMMAND_SERVER.to_owned(),
                     McpServerRequirement {
                         identity: McpServerIdentity::Command {
-                            command: GOOD_CMD.to_string(),
+                            command: GOOD_CMD.to_owned(),
                         },
                     },
                 ),
@@ -2259,14 +2259,14 @@ trust_level = "trusted"
                 ))
                 .collect::<HashMap<String, (bool, Option<McpServerDisabledReason>)>>(),
             HashMap::from([
-                (MISMATCHED_URL_SERVER.to_string(), (false, reason.clone())),
+                (MISMATCHED_URL_SERVER.to_owned(), (false, reason.clone())),
                 (
-                    MISMATCHED_COMMAND_SERVER.to_string(),
+                    MISMATCHED_COMMAND_SERVER.to_owned(),
                     (false, reason.clone()),
                 ),
-                (MATCHED_URL_SERVER.to_string(), (true, None)),
-                (MATCHED_COMMAND_SERVER.to_string(), (true, None)),
-                (DIFFERENT_NAME_SERVER.to_string(), (false, reason)),
+                (MATCHED_URL_SERVER.to_owned(), (true, None)),
+                (MATCHED_COMMAND_SERVER.to_owned(), (true, None)),
+                (DIFFERENT_NAME_SERVER.to_owned(), (false, reason)),
             ])
         );
     }
@@ -2274,8 +2274,8 @@ trust_level = "trusted"
     #[test]
     fn filter_mcp_servers_by_allowlist_allows_all_when_unset() {
         let mut servers = HashMap::from([
-            ("server-a".to_string(), stdio_mcp("cmd-a")),
-            ("server-b".to_string(), http_mcp("https://example.com/b")),
+            ("server-a".to_owned(), stdio_mcp("cmd-a")),
+            ("server-b".to_owned(), http_mcp("https://example.com/b")),
         ]);
 
         filter_mcp_servers_by_requirements(&mut servers, None);
@@ -2289,8 +2289,8 @@ trust_level = "trusted"
                 ))
                 .collect::<HashMap<String, (bool, Option<McpServerDisabledReason>)>>(),
             HashMap::from([
-                ("server-a".to_string(), (true, None)),
-                ("server-b".to_string(), (true, None)),
+                ("server-a".to_owned(), (true, None)),
+                ("server-b".to_owned(), (true, None)),
             ])
         );
     }
@@ -2298,8 +2298,8 @@ trust_level = "trusted"
     #[test]
     fn filter_mcp_servers_by_allowlist_blocks_all_when_empty() {
         let mut servers = HashMap::from([
-            ("server-a".to_string(), stdio_mcp("cmd-a")),
-            ("server-b".to_string(), http_mcp("https://example.com/b")),
+            ("server-a".to_owned(), stdio_mcp("cmd-a")),
+            ("server-b".to_owned(), http_mcp("https://example.com/b")),
         ]);
 
         let source = RequirementSource::CloudRequirements;
@@ -2316,8 +2316,8 @@ trust_level = "trusted"
                 ))
                 .collect::<HashMap<String, (bool, Option<McpServerDisabledReason>)>>(),
             HashMap::from([
-                ("server-a".to_string(), (false, reason.clone())),
-                ("server-b".to_string(), (false, reason)),
+                ("server-a".to_owned(), (false, reason.clone())),
+                ("server-b".to_owned(), (false, reason)),
             ])
         );
     }
@@ -2551,7 +2551,7 @@ trust_level = "trusted"
     fn responses_websockets_feature_does_not_change_wire_api() -> std::io::Result<()> {
         let savfox_home = TempDir::new()?;
         let mut entries = BTreeMap::new();
-        entries.insert("responses_websockets".to_string(), true);
+        entries.insert("responses_websockets".to_owned(), true);
         let cfg = ConfigToml {
             features: Some(crate::features::FeaturesToml { entries }),
             ..Default::default()
@@ -2660,11 +2660,11 @@ trust_level = "trusted"
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "echo".to_string(),
-                    args: vec!["hello".to_string()],
+                    command: "echo".to_owned(),
+                    args: vec!["hello".to_owned()],
                     env: None,
                     env_vars: Vec::new(),
                     cwd: None,
@@ -2696,7 +2696,7 @@ trust_level = "trusted"
                 cwd,
             } => {
                 assert_eq!(command, "echo");
-                assert_eq!(args, &vec!["hello".to_string()]);
+                assert_eq!(args, &vec!["hello".to_owned()]);
                 assert!(env.is_none());
                 assert!(env_vars.is_empty());
                 assert!(cwd.is_none());
@@ -2734,10 +2734,10 @@ trust_level = "trusted"
 
         let mut cli_model = toml::map::Map::new();
         cli_model.insert(
-            "provider".to_string(),
-            TomlValue::String("openai".to_string()),
+            "provider".to_owned(),
+            TomlValue::String("openai".to_owned()),
         );
-        cli_model.insert("slug".to_string(), TomlValue::String("cli".to_string()));
+        cli_model.insert("slug".to_owned(), TomlValue::String("cli".to_owned()));
 
         let overrides = LoaderOverrides {
             managed_config_path: Some(managed_path),
@@ -2750,7 +2750,7 @@ trust_level = "trusted"
         let config_layer_stack = load_config_layers_state(
             savfox_home.path(),
             Some(cwd),
-            &[("model".to_string(), TomlValue::Table(cli_model))],
+            &[("model".to_owned(), TomlValue::Table(cli_model))],
             overrides,
             CloudRequirementsLoader::default(),
         )
@@ -2824,14 +2824,14 @@ bearer_token = "secret"
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "docs-server".to_string(),
-                    args: vec!["--verbose".to_string()],
+                    command: "docs-server".to_owned(),
+                    args: vec!["--verbose".to_owned()],
                     env: Some(HashMap::from([
-                        ("ZIG_VAR".to_string(), "3".to_string()),
-                        ("ALPHA_VAR".to_string(), "1".to_string()),
+                        ("ZIG_VAR".to_owned(), "3".to_owned()),
+                        ("ALPHA_VAR".to_owned(), "1".to_owned()),
                     ])),
                     env_vars: Vec::new(),
                     cwd: None,
@@ -2876,12 +2876,12 @@ ZIG_VAR = "3"
                 cwd,
             } => {
                 assert_eq!(command, "docs-server");
-                assert_eq!(args, &vec!["--verbose".to_string()]);
+                assert_eq!(args, &vec!["--verbose".to_owned()]);
                 let env = env
                     .as_ref()
                     .expect("env should be preserved for stdio transport");
-                assert_eq!(env.get("ALPHA_VAR"), Some(&"1".to_string()));
-                assert_eq!(env.get("ZIG_VAR"), Some(&"3".to_string()));
+                assert_eq!(env.get("ALPHA_VAR"), Some(&"1".to_owned()));
+                assert_eq!(env.get("ZIG_VAR"), Some(&"3".to_owned()));
                 assert!(env_vars.is_empty());
                 assert!(cwd.is_none());
             }
@@ -2896,13 +2896,13 @@ ZIG_VAR = "3"
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "docs-server".to_string(),
+                    command: "docs-server".to_owned(),
                     args: Vec::new(),
                     env: None,
-                    env_vars: vec!["ALPHA".to_string(), "BETA".to_string()],
+                    env_vars: vec!["ALPHA".to_owned(), "BETA".to_owned()],
                     cwd: None,
                 },
                 enabled: true,
@@ -2931,7 +2931,7 @@ ZIG_VAR = "3"
         let docs = loaded.get("docs").expect("docs entry");
         match &docs.transport {
             McpServerTransportConfig::Stdio { env_vars, .. } => {
-                assert_eq!(env_vars, &vec!["ALPHA".to_string(), "BETA".to_string()]);
+                assert_eq!(env_vars, &vec!["ALPHA".to_owned(), "BETA".to_owned()]);
             }
             other => panic!("unexpected transport {other:?}"),
         }
@@ -2945,10 +2945,10 @@ ZIG_VAR = "3"
 
         let cwd_path = PathBuf::from("/tmp/savfox-mcp");
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "docs-server".to_string(),
+                    command: "docs-server".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -2993,11 +2993,11 @@ ZIG_VAR = "3"
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com/mcp".to_string(),
-                    bearer_token_env_var: Some("MCP_TOKEN".to_string()),
+                    url: "https://example.com/mcp".to_owned(),
+                    bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
                     http_headers: None,
                     env_http_headers: None,
                 },
@@ -3053,15 +3053,15 @@ startup_timeout_sec = 2.0
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com/mcp".to_string(),
-                    bearer_token_env_var: Some("MCP_TOKEN".to_string()),
-                    http_headers: Some(HashMap::from([("X-Doc".to_string(), "42".to_string())])),
+                    url: "https://example.com/mcp".to_owned(),
+                    bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
+                    http_headers: Some(HashMap::from([("X-Doc".to_owned(), "42".to_owned())])),
                     env_http_headers: Some(HashMap::from([(
-                        "X-Auth".to_string(),
-                        "DOCS_AUTH".to_string(),
+                        "X-Auth".to_owned(),
+                        "DOCS_AUTH".to_owned(),
                     )])),
                 },
                 enabled: true,
@@ -3105,13 +3105,13 @@ X-Auth = "DOCS_AUTH"
             } => {
                 assert_eq!(
                     http_headers,
-                    &Some(HashMap::from([("X-Doc".to_string(), "42".to_string())]))
+                    &Some(HashMap::from([("X-Doc".to_owned(), "42".to_owned())]))
                 );
                 assert_eq!(
                     env_http_headers,
                     &Some(HashMap::from([(
-                        "X-Auth".to_string(),
-                        "DOCS_AUTH".to_string()
+                        "X-Auth".to_owned(),
+                        "DOCS_AUTH".to_owned()
                     )]))
                 );
             }
@@ -3128,15 +3128,15 @@ X-Auth = "DOCS_AUTH"
         let config_path = savfox_home.path().join(CONFIG_TOML_FILE);
 
         let mut servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com/mcp".to_string(),
-                    bearer_token_env_var: Some("MCP_TOKEN".to_string()),
-                    http_headers: Some(HashMap::from([("X-Doc".to_string(), "42".to_string())])),
+                    url: "https://example.com/mcp".to_owned(),
+                    bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
+                    http_headers: Some(HashMap::from([("X-Doc".to_owned(), "42".to_owned())])),
                     env_http_headers: Some(HashMap::from([(
-                        "X-Auth".to_string(),
-                        "DOCS_AUTH".to_string(),
+                        "X-Auth".to_owned(),
+                        "DOCS_AUTH".to_owned(),
                     )])),
                 },
                 enabled: true,
@@ -3159,10 +3159,10 @@ X-Auth = "DOCS_AUTH"
         assert!(serialized_with_optional.contains("[mcp_servers.docs.env_http_headers]"));
 
         servers.insert(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com/mcp".to_string(),
+                    url: "https://example.com/mcp".to_owned(),
                     bearer_token_env_var: None,
                     http_headers: None,
                     env_http_headers: None,
@@ -3219,18 +3219,18 @@ url = "https://example.com/mcp"
 
         let servers = BTreeMap::from([
             (
-                "docs".to_string(),
+                "docs".to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::StreamableHttp {
-                        url: "https://example.com/mcp".to_string(),
-                        bearer_token_env_var: Some("MCP_TOKEN".to_string()),
+                        url: "https://example.com/mcp".to_owned(),
+                        bearer_token_env_var: Some("MCP_TOKEN".to_owned()),
                         http_headers: Some(HashMap::from([(
-                            "X-Doc".to_string(),
-                            "42".to_string(),
+                            "X-Doc".to_owned(),
+                            "42".to_owned(),
                         )])),
                         env_http_headers: Some(HashMap::from([(
-                            "X-Auth".to_string(),
-                            "DOCS_AUTH".to_string(),
+                            "X-Auth".to_owned(),
+                            "DOCS_AUTH".to_owned(),
                         )])),
                     },
                     enabled: true,
@@ -3243,11 +3243,11 @@ url = "https://example.com/mcp"
                 },
             ),
             (
-                "logs".to_string(),
+                "logs".to_owned(),
                 McpServerConfig {
                     transport: McpServerTransportConfig::Stdio {
-                        command: "logs-server".to_string(),
-                        args: vec!["--follow".to_string()],
+                        command: "logs-server".to_owned(),
+                        args: vec!["--follow".to_owned()],
                         env: None,
                         env_vars: Vec::new(),
                         cwd: None,
@@ -3296,13 +3296,13 @@ url = "https://example.com/mcp"
             } => {
                 assert_eq!(
                     http_headers,
-                    &Some(HashMap::from([("X-Doc".to_string(), "42".to_string())]))
+                    &Some(HashMap::from([("X-Doc".to_owned(), "42".to_owned())]))
                 );
                 assert_eq!(
                     env_http_headers,
                     &Some(HashMap::from([(
-                        "X-Auth".to_string(),
-                        "DOCS_AUTH".to_string()
+                        "X-Auth".to_owned(),
+                        "DOCS_AUTH".to_owned()
                     )]))
                 );
             }
@@ -3324,10 +3324,10 @@ url = "https://example.com/mcp"
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "docs-server".to_string(),
+                    command: "docs-server".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -3367,10 +3367,10 @@ url = "https://example.com/mcp"
         let savfox_home = TempDir::new()?;
 
         let servers = BTreeMap::from([(
-            "docs".to_string(),
+            "docs".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "docs-server".to_string(),
+                    command: "docs-server".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -3380,8 +3380,8 @@ url = "https://example.com/mcp"
                 disabled_reason: None,
                 startup_timeout_sec: None,
                 tool_timeout_sec: None,
-                enabled_tools: Some(vec!["allowed".to_string()]),
-                disabled_tools: Some(vec!["blocked".to_string()]),
+                enabled_tools: Some(vec!["allowed".to_owned()]),
+                disabled_tools: Some(vec!["blocked".to_owned()]),
                 scopes: None,
             },
         )]);
@@ -3400,11 +3400,11 @@ url = "https://example.com/mcp"
         let docs = loaded.get("docs").expect("docs entry");
         assert_eq!(
             docs.enabled_tools.as_ref(),
-            Some(&vec!["allowed".to_string()])
+            Some(&vec!["allowed".to_owned()])
         );
         assert_eq!(
             docs.disabled_tools.as_ref(),
-            Some(&vec!["blocked".to_string()])
+            Some(&vec!["blocked".to_owned()])
         );
 
         Ok(())
@@ -3627,7 +3627,7 @@ model = { provider = "openai", slug = "gpt-5.1-savfox" }
     fn cli_override_sets_compact_prompt() -> std::io::Result<()> {
         let savfox_home = TempDir::new()?;
         let overrides = ConfigOverrides {
-            compact_prompt: Some("Use the compact override".to_string()),
+            compact_prompt: Some("Use the compact override".to_owned()),
             ..Default::default()
         };
 
@@ -3743,10 +3743,10 @@ model_verbosity = "high"
         let savfox_home_temp_dir = TempDir::new().unwrap();
 
         let openai_chat_completions_provider = ModelProviderInfo {
-            id: "openai-chat-completions".to_string(),
-            name: "OpenAI using Chat Completions".to_string(),
-            base_url: Some("https://api.openai.com/v1".to_string()),
-            env_key: Some("OPENAI_API_KEY".to_string()),
+            id: "openai-chat-completions".to_owned(),
+            name: "OpenAI using Chat Completions".to_owned(),
+            base_url: Some("https://api.openai.com/v1".to_owned()),
+            env_key: Some("OPENAI_API_KEY".to_owned()),
             wire_api: crate::WireApi::Chat,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -3762,7 +3762,7 @@ model_verbosity = "high"
         let model_provider_map = {
             let mut model_provider_map = built_in_model_providers();
             model_provider_map.insert(
-                "openai-chat-completions".to_string(),
+                "openai-chat-completions".to_owned(),
                 openai_chat_completions_provider.clone(),
             );
             model_provider_map
@@ -3790,10 +3790,10 @@ model_verbosity = "high"
             ..Default::default()
         };
         let zhipu_provider = ModelProviderInfo {
-            id: "zhipuai-coding-plan".to_string(),
-            name: "Zhipu AI Coding Plan".to_string(),
-            base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
-            env_key: Some("ZHIPUAI_API_KEY".to_string()),
+            id: "zhipuai-coding-plan".to_owned(),
+            name: "Zhipu AI Coding Plan".to_owned(),
+            base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_owned()),
+            env_key: Some("ZHIPUAI_API_KEY".to_owned()),
             env_key_instructions: None,
             experimental_bearer_token: None,
             wire_api: crate::WireApi::Chat,
@@ -3807,7 +3807,7 @@ model_verbosity = "high"
             supports_websockets: false,
         };
         cfg.model_providers
-            .insert("zhipuai-coding-plan".to_string(), zhipu_provider.clone());
+            .insert("zhipuai-coding-plan".to_owned(), zhipu_provider.clone());
 
         let cwd = TempDir::new()?;
         std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
@@ -3942,10 +3942,10 @@ model_verbosity = "high"
             ..Default::default()
         };
         let provider = ModelProviderInfo {
-            id: "acme/team".to_string(),
-            name: "Acme Team".to_string(),
-            base_url: Some("https://example.invalid/v1".to_string()),
-            env_key: Some("ACME_API_KEY".to_string()),
+            id: "acme/team".to_owned(),
+            name: "Acme Team".to_owned(),
+            base_url: Some("https://example.invalid/v1".to_owned()),
+            env_key: Some("ACME_API_KEY".to_owned()),
             env_key_instructions: None,
             experimental_bearer_token: None,
             wire_api: crate::WireApi::Chat,
@@ -3959,7 +3959,7 @@ model_verbosity = "high"
             supports_websockets: false,
         };
         cfg.model_providers
-            .insert("acme/team".to_string(), provider.clone());
+            .insert("acme/team".to_owned(), provider.clone());
 
         let cwd = TempDir::new()?;
         std::fs::write(cwd.path().join(".git"), "gitdir: nowhere")?;
@@ -3982,16 +3982,16 @@ model_verbosity = "high"
     fn explicit_model_provider_takes_precedence_over_prefixed_model() -> std::io::Result<()> {
         let mut cfg = ConfigToml {
             model: Some(selected_model_from_id("zhipuai-coding-plan/glm-5")),
-            model_provider: Some("openai".to_string()),
+            model_provider: Some("openai".to_owned()),
             ..Default::default()
         };
         cfg.model_providers.insert(
-            "zhipuai-coding-plan".to_string(),
+            "zhipuai-coding-plan".to_owned(),
             ModelProviderInfo {
-                id: "zhipuai-coding-plan".to_string(),
-                name: "Zhipu AI Coding Plan".to_string(),
-                base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_string()),
-                env_key: Some("ZHIPUAI_API_KEY".to_string()),
+                id: "zhipuai-coding-plan".to_owned(),
+                name: "Zhipu AI Coding Plan".to_owned(),
+                base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4".to_owned()),
+                env_key: Some("ZHIPUAI_API_KEY".to_owned()),
                 env_key_instructions: None,
                 experimental_bearer_token: None,
                 wire_api: crate::WireApi::Chat,
@@ -4029,11 +4029,11 @@ model_verbosity = "high"
             ..Default::default()
         };
         cfg.model_providers.insert(
-            "openai-work".to_string(),
+            "openai-work".to_owned(),
             ModelProviderInfo {
                 id: String::new(),
                 name: String::new(),
-                base_url: Some("https://chatgpt.com/backend-api/codex".to_string()),
+                base_url: Some("https://chatgpt.com/backend-api/codex".to_owned()),
                 env_key: None,
                 env_key_instructions: None,
                 experimental_bearer_token: None,
@@ -4396,18 +4396,18 @@ trust_level = "untrusted"
     fn test_resolve_oss_provider_explicit_override() {
         let config_toml = ConfigToml::default();
         let result = resolve_oss_provider(Some("custom-provider"), &config_toml);
-        assert_eq!(result, Some("custom-provider".to_string()));
+        assert_eq!(result, Some("custom-provider".to_owned()));
     }
 
     #[test]
     fn test_resolve_oss_provider_from_global_config() {
         let config_toml = ConfigToml {
-            oss_provider: Some("global-provider".to_string()),
+            oss_provider: Some("global-provider".to_owned()),
             ..Default::default()
         };
 
         let result = resolve_oss_provider(None, &config_toml);
-        assert_eq!(result, Some("global-provider".to_string()));
+        assert_eq!(result, Some("global-provider".to_owned()));
     }
 
     #[test]
@@ -4421,12 +4421,12 @@ trust_level = "untrusted"
     fn test_resolve_oss_provider_explicit_overrides_all() {
         // This test no longer uses profiles since they have been removed
         let config_toml = ConfigToml {
-            oss_provider: Some("global-provider".to_string()),
+            oss_provider: Some("global-provider".to_owned()),
             ..Default::default()
         };
 
         let result = resolve_oss_provider(Some("explicit-provider"), &config_toml);
-        assert_eq!(result, Some("explicit-provider".to_string()));
+        assert_eq!(result, Some("explicit-provider".to_owned()));
     }
 
     #[test]
@@ -4547,7 +4547,7 @@ mod notifications_tests {
             toml::from_str(toml).expect("deserialize notifications=[\"foo\"]");
         assert_matches!(
             parsed.tui.notifications,
-            Notifications::Custom(ref v) if v == &vec!["foo".to_string()]
+            Notifications::Custom(ref v) if v == &vec!["foo".to_owned()]
         );
     }
 

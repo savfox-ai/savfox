@@ -790,8 +790,8 @@ mod tests {
     #[test]
     fn validate_dynamic_tools_rejects_unsupported_input_schema() {
         let tools = vec![ApiDynamicToolSpec {
-            name: "my_tool".to_string(),
-            description: "test".to_string(),
+            name: "my_tool".to_owned(),
+            description: "test".to_owned(),
             input_schema: json!({"type": "null"}),
         }];
         let err = validate_dynamic_tools(&tools, &HashSet::new()).expect_err("invalid schema");
@@ -801,8 +801,8 @@ mod tests {
     #[test]
     fn validate_dynamic_tools_accepts_sanitizable_input_schema() {
         let tools = vec![ApiDynamicToolSpec {
-            name: "my_tool".to_string(),
-            description: "test".to_string(),
+            name: "my_tool".to_owned(),
+            description: "test".to_owned(),
             // Missing `type` is common; core sanitizes these to a supported schema.
             input_schema: json!({"properties": {}}),
         }];
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn extract_conversation_summary_prefers_plain_user_messages() -> Result<()> {
         let conversation_id = SessionId::from_string("3f941c35-29b3-493b-b0a4-e25800d9aeb0")?;
-        let timestamp = Some("2025-09-05T16:53:11.850Z".to_string());
+        let timestamp = Some("2025-09-05T16:53:11.850Z".to_owned());
         let path = PathBuf::from("rollout.jsonl");
 
         let head = vec![
@@ -829,7 +829,7 @@ mod tests {
                 "role": "user",
                 "content": [{
                     "type": "input_text",
-                    "text": "<user_instructions>\n<AGENTS.md contents>\n</user_instructions>".to_string(),
+                    "text": "<user_instructions>\n<AGENTS.md contents>\n</user_instructions>".to_owned(),
                 }],
             }),
             json!({
@@ -859,10 +859,10 @@ mod tests {
             timestamp: timestamp.clone(),
             updated_at: timestamp,
             path,
-            preview: "Count to 5".to_string(),
-            model_provider: "test-provider".to_string(),
+            preview: "Count to 5".to_owned(),
+            model_provider: "test-provider".to_owned(),
             cwd: PathBuf::from("/"),
-            cli_version: "0.0.0".to_string(),
+            cli_version: "0.0.0".to_owned(),
             source: SessionSource::VSCode,
             git_info: None,
         };
@@ -882,7 +882,7 @@ mod tests {
         let path = temp_dir.path().join("rollout.jsonl");
 
         let conversation_id = SessionId::from_string("bfd12a78-5900-467b-9bc5-d3d35df08191")?;
-        let timestamp = "2025-09-05T16:53:11.850Z".to_string();
+        let timestamp = "2025-09-05T16:53:11.850Z".to_owned();
 
         let session_meta = SessionMeta {
             id: conversation_id,
@@ -912,10 +912,10 @@ mod tests {
         let expected = ConversationSummary {
             conversation_id,
             timestamp: Some(timestamp.clone()),
-            updated_at: Some("2025-09-05T16:53:11Z".to_string()),
+            updated_at: Some("2025-09-05T16:53:11Z".to_owned()),
             path: path.clone(),
             preview: String::new(),
-            model_provider: "fallback".to_string(),
+            model_provider: "fallback".to_owned(),
             cwd: PathBuf::new(),
             cli_version: String::new(),
             source: SessionSource::VSCode,

@@ -74,10 +74,10 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
         model.as_str(),
         model_info.slug.as_str(),
         None,
-        Some("test@test.com".to_string()),
+        Some("test@test.com".to_owned()),
         Some(AuthMode::ApiKey),
         false,
-        "test".to_string(),
+        "test".to_owned(),
         SessionSource::Exec,
     );
 
@@ -125,9 +125,9 @@ async fn run_request(input: Vec<ResponseItem>) -> Value {
 fn user_message(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "user".to_string(),
+        role: "user".to_owned(),
         content: vec![ContentItem::InputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -137,9 +137,9 @@ fn user_message(text: &str) -> ResponseItem {
 fn assistant_message(text: &str) -> ResponseItem {
     ResponseItem::Message {
         id: None,
-        role: "assistant".to_string(),
+        role: "assistant".to_owned(),
         content: vec![ContentItem::OutputText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }],
         end_turn: None,
         phase: None,
@@ -151,7 +151,7 @@ fn reasoning_item(text: &str) -> ResponseItem {
         id: String::new(),
         summary: Vec::new(),
         content: Some(vec![ReasoningItemContent::ReasoningText {
-            text: text.to_string(),
+            text: text.to_owned(),
         }]),
         encrypted_content: None,
     }
@@ -160,19 +160,19 @@ fn reasoning_item(text: &str) -> ResponseItem {
 fn function_call() -> ResponseItem {
     ResponseItem::FunctionCall {
         id: None,
-        name: "f".to_string(),
-        arguments: "{}".to_string(),
-        call_id: "c1".to_string(),
+        name: "f".to_owned(),
+        arguments: "{}".to_owned(),
+        call_id: "c1".to_owned(),
     }
 }
 
 fn local_shell_call() -> ResponseItem {
     ResponseItem::LocalShellCall {
-        id: Some("id1".to_string()),
+        id: Some("id1".to_owned()),
         call_id: None,
         status: LocalShellStatus::InProgress,
         action: LocalShellAction::Exec(LocalShellExecAction {
-            command: vec!["echo".to_string()],
+            command: vec!["echo".to_owned()],
             timeout_ms: Some(1_000),
             working_directory: None,
             env: None,

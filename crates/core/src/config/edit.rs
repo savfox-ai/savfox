@@ -859,8 +859,8 @@ mod tests {
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("gpt-5.1-savfox".to_string()),
-                provider: Some("openai".to_string()),
+                slug: Some("gpt-5.1-savfox".to_owned()),
+                provider: Some("openai".to_owned()),
                 effort: Some(ReasoningEffort::High),
             }],
         )
@@ -896,7 +896,7 @@ mod tests {
 
         ConfigEditsBuilder::new(savfox_home)
             .with_edits(vec![ConfigEdit::SetPath {
-                segments: vec!["enabled".to_string()],
+                segments: vec!["enabled".to_owned()],
                 value: value(true),
             }])
             .apply_blocking()
@@ -1048,16 +1048,16 @@ network_access = false
             &[
                 ConfigEdit::SetPath {
                     segments: vec![
-                        "mcp_servers".to_string(),
-                        "linear".to_string(),
-                        "url".to_string(),
+                        "mcp_servers".to_owned(),
+                        "linear".to_owned(),
+                        "url".to_owned(),
                     ],
                     value: value("https://linear.example/v2"),
                 },
                 ConfigEdit::SetPath {
                     segments: vec![
-                        "sandbox_workspace_write".to_string(),
-                        "network_access".to_string(),
+                        "sandbox_workspace_write".to_owned(),
+                        "network_access".to_owned(),
                     ],
                     value: value(true),
                 },
@@ -1098,8 +1098,8 @@ network_access = true
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("glm-5".to_string()),
-                provider: Some("zhipuai-coding-plan".to_string()),
+                slug: Some("glm-5".to_owned()),
+                provider: Some("zhipuai-coding-plan".to_owned()),
                 effort: None,
             }],
         )
@@ -1141,7 +1141,7 @@ network_access = true
         let err = apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("glm-5".to_string()),
+                slug: Some("glm-5".to_owned()),
                 provider: None,
                 effort: None,
             }],
@@ -1224,7 +1224,7 @@ existing = "value"
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetNoticeHideModelMigrationPrompt(
-                "hide_gpt5_1_migration_prompt".to_string(),
+                "hide_gpt5_1_migration_prompt".to_owned(),
                 true,
             )],
         )
@@ -1253,7 +1253,7 @@ existing = "value"
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetNoticeHideModelMigrationPrompt(
-                "hide_gpt-5.1-savfox-max_migration_prompt".to_string(),
+                "hide_gpt-5.1-savfox-max_migration_prompt".to_owned(),
                 true,
             )],
         )
@@ -1282,8 +1282,8 @@ existing = "value"
         apply_blocking(
             savfox_home,
             &[ConfigEdit::RecordModelMigrationSeen {
-                from: "gpt-5".to_string(),
-                to: "gpt-5.1".to_string(),
+                from: "gpt-5".to_owned(),
+                to: "gpt-5.1".to_owned(),
             }],
         )
         .expect("persist");
@@ -1306,40 +1306,40 @@ gpt-5 = "gpt-5.1"
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "stdio".to_string(),
+            "stdio".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "cmd".to_string(),
-                    args: vec!["--flag".to_string()],
+                    command: "cmd".to_owned(),
+                    args: vec!["--flag".to_owned()],
                     env: Some(
                         [
-                            ("B".to_string(), "2".to_string()),
-                            ("A".to_string(), "1".to_string()),
+                            ("B".to_owned(), "2".to_owned()),
+                            ("A".to_owned(), "1".to_owned()),
                         ]
                         .into_iter()
                         .collect(),
                     ),
-                    env_vars: vec!["FOO".to_string()],
+                    env_vars: vec!["FOO".to_owned()],
                     cwd: None,
                 },
                 enabled: true,
                 disabled_reason: None,
                 startup_timeout_sec: None,
                 tool_timeout_sec: None,
-                enabled_tools: Some(vec!["one".to_string(), "two".to_string()]),
+                enabled_tools: Some(vec!["one".to_owned(), "two".to_owned()]),
                 disabled_tools: None,
                 scopes: None,
             },
         );
 
         servers.insert(
-            "http".to_string(),
+            "http".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::StreamableHttp {
-                    url: "https://example.com".to_string(),
-                    bearer_token_env_var: Some("TOKEN".to_string()),
+                    url: "https://example.com".to_owned(),
+                    bearer_token_env_var: Some("TOKEN".to_owned()),
                     http_headers: Some(
-                        [("Z-Header".to_string(), "z".to_string())]
+                        [("Z-Header".to_owned(), "z".to_owned())]
                             .into_iter()
                             .collect(),
                     ),
@@ -1350,7 +1350,7 @@ gpt-5 = "gpt-5.1"
                 startup_timeout_sec: Some(std::time::Duration::from_secs(5)),
                 tool_timeout_sec: None,
                 enabled_tools: None,
-                disabled_tools: Some(vec!["forbidden".to_string()]),
+                disabled_tools: Some(vec!["forbidden".to_owned()]),
                 scopes: None,
             },
         );
@@ -1401,10 +1401,10 @@ foo = { command = "cmd" }
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "foo".to_string(),
+            "foo".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "cmd".to_string(),
+                    command: "cmd".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -1445,10 +1445,10 @@ foo = { command = "cmd" } # keep me
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "foo".to_string(),
+            "foo".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "cmd".to_string(),
+                    command: "cmd".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -1488,10 +1488,10 @@ foo = { command = "cmd", args = ["--flag"] } # keep me
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "foo".to_string(),
+            "foo".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "cmd".to_string(),
+                    command: "cmd".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -1532,10 +1532,10 @@ foo = { command = "cmd" }
 
         let mut servers = BTreeMap::new();
         servers.insert(
-            "foo".to_string(),
+            "foo".to_owned(),
             McpServerConfig {
                 transport: McpServerTransportConfig::Stdio {
-                    command: "cmd".to_string(),
+                    command: "cmd".to_owned(),
                     args: Vec::new(),
                     env: None,
                     env_vars: Vec::new(),
@@ -1570,7 +1570,7 @@ foo = { command = "cmd" , enabled = false }
         apply_blocking(
             savfox_home,
             &[ConfigEdit::ClearPath {
-                segments: vec!["missing".to_string()],
+                segments: vec!["missing".to_owned()],
             }],
         )
         .expect("apply");
@@ -1590,7 +1590,7 @@ foo = { command = "cmd" , enabled = false }
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetPath {
-                segments: vec!["tui".to_string(), "notifications".to_string()],
+                segments: vec!["tui".to_owned(), "notifications".to_owned()],
                 value: item,
             }],
         )
@@ -1642,8 +1642,8 @@ foo = { command = "cmd" , enabled = false }
         apply_blocking(
             savfox_home,
             &[ConfigEdit::SetModel {
-                slug: Some("glm-5".to_string()),
-                provider: Some("zhipuai-coding-plan".to_string()),
+                slug: Some("glm-5".to_owned()),
+                provider: Some("zhipuai-coding-plan".to_owned()),
                 effort: Some(ReasoningEffort::None),
             }],
         )

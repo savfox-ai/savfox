@@ -556,9 +556,9 @@ mod tests {
     #[test]
     fn provider_env_key_for_store_prefers_secret_like_env_headers() {
         let provider = ModelProviderInfo {
-            id: "anthropic".to_string(),
-            name: "Anthropic".to_string(),
-            base_url: Some("https://api.anthropic.com".to_string()),
+            id: "anthropic".to_owned(),
+            name: "Anthropic".to_owned(),
+            base_url: Some("https://api.anthropic.com".to_owned()),
             env_key: None,
             env_key_instructions: None,
             experimental_bearer_token: None,
@@ -568,10 +568,10 @@ mod tests {
             env_http_headers: Some(
                 [
                     (
-                        "anthropic-version".to_string(),
-                        "ANTHROPIC_VERSION".to_string(),
+                        "anthropic-version".to_owned(),
+                        "ANTHROPIC_VERSION".to_owned(),
                     ),
-                    ("x-api-key".to_string(), "ANTHROPIC_API_KEY".to_string()),
+                    ("x-api-key".to_owned(), "ANTHROPIC_API_KEY".to_owned()),
                 ]
                 .into_iter()
                 .collect(),
@@ -707,12 +707,12 @@ mod tests {
         std::fs::create_dir_all(&savfox_home).expect("create savfox home");
 
         let result = ProviderConnectResult {
-            account_id: "anthropic".to_string(),
-            provider_id: "anthropic".to_string(),
-            provider_name: "Anthropic".to_string(),
-            base_url: "https://api.anthropic.com/v1".to_string(),
-            api_key: Some("sk-anthropic".to_string()),
-            env_key: Some("ANTHROPIC_API_KEY".to_string()),
+            account_id: "anthropic".to_owned(),
+            provider_id: "anthropic".to_owned(),
+            provider_name: "Anthropic".to_owned(),
+            base_url: "https://api.anthropic.com/v1".to_owned(),
+            api_key: Some("sk-anthropic".to_owned()),
+            env_key: Some("ANTHROPIC_API_KEY".to_owned()),
             models: vec![json!({
                 "id": "anthropic/claude-sonnet",
                 "name": "Claude Sonnet",

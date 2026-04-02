@@ -51,8 +51,7 @@ fn assert_tool_names(body: &serde_json::Value, expected_names: &[&str]) {
                 t.get("name")
                     .and_then(|value| value.as_str())
                     .or_else(|| t.get("type").and_then(|value| value.as_str()))
-                    .unwrap()
-                    .to_string()
+                    .unwrap().to_owned()
             })
             .collect::<Vec<_>>(),
         expected_names
@@ -79,8 +78,8 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
         ..
     } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
-            config.model = Some("gpt-5.1-savfox-max".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
+            config.model = Some("gpt-5.1-savfox-max".to_owned());
             // Keep tool expectations stable when the default web_search mode changes.
             config.web_search_mode = Some(WebSearchMode::Cached);
             config.features.enable(Feature::CollaborationModes);
@@ -137,7 +136,7 @@ async fn prompt_tools_are_consistent_across_requests() -> anyhow::Result<()> {
     let expected_instructions = if expected_tools_names.contains(&"apply_patch") {
         base_instructions
     } else {
-        [base_instructions, APPLY_PATCH_TOOL_INSTRUCTIONS.to_string()].join("\n")
+        [base_instructions, APPLY_PATCH_TOOL_INSTRUCTIONS.to_owned()].join("\n")
     };
 
     assert_eq!(
@@ -167,10 +166,10 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.disable(Feature::ApplyPatchFreeform);
             config.features.enable(Feature::CollaborationModes);
-            config.model = Some("savfox-mini-latest".to_string());
+            config.model = Some("savfox-mini-latest".to_owned());
         })
         .build(&server)
         .await?;
@@ -233,7 +232,7 @@ async fn prefixes_context_and_instructions_once_and_consistently_across_requests
 
     let TestSavfox { savfox, config, .. } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.enable(Feature::CollaborationModes);
         })
         .build(&server)
@@ -285,7 +284,7 @@ async fn prefixes_context_and_instructions_once_and_consistently_across_requests
         text_user_input(expected_env_text),
         "expected environment context after UI message"
     );
-    assert_eq!(input1[3], text_user_input("hello 1".to_string()));
+    assert_eq!(input1[3], text_user_input("hello 1".to_owned()));
 
     let body2 = req2.single_request().body_json();
     let input2 = body2["input"].as_array().expect("input array");
@@ -294,7 +293,7 @@ async fn prefixes_context_and_instructions_once_and_consistently_across_requests
         input1.as_slice(),
         "expected cached prefix to be reused"
     );
-    assert_eq!(input2[input1.len()], text_user_input("hello 2".to_string()));
+    assert_eq!(input2[input1.len()], text_user_input("hello 2".to_owned()));
 
     Ok(())
 }
@@ -310,7 +309,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.enable(Feature::CollaborationModes);
         })
         .build(&server)
@@ -341,7 +340,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
             approval_policy: Some(AskForApproval::Never),
             sandbox_policy: Some(new_policy.clone()),
             windows_sandbox_level: None,
-            model: Some("o3".to_string()),
+            model: Some("o3".to_owned()),
             effort: Some(Some(ReasoningEffort::High)),
             summary: Some(ReasoningSummary::Detailed),
             collaboration_mode: None,
@@ -385,7 +384,7 @@ async fn overrides_turn_context_but_keeps_cached_prefix_and_key_constant() -> an
         expected_permissions_msg_2, expected_permissions_msg,
         "expected updated permissions message after override"
     );
-    let mut expected_body2 = body1_input.to_vec();
+    let mut expected_body2 = body1_input.clone();
     expected_body2.push(expected_permissions_msg_2);
     expected_body2.push(expected_user_message_2);
     assert_eq!(body2["input"], serde_json::Value::Array(expected_body2));
@@ -405,7 +404,7 @@ async fn override_before_first_turn_emits_environment_context() -> anyhow::Resul
     let collaboration_mode = CollaborationMode {
         mode: ModeKind::Custom,
         settings: Settings {
-            model: "gpt-5.1".to_string(),
+            model: "gpt-5.1".to_owned(),
             reasoning_effort: Some(ReasoningEffort::High),
             developer_instructions: None,
         },
@@ -417,7 +416,7 @@ async fn override_before_first_turn_emits_environment_context() -> anyhow::Resul
             approval_policy: Some(AskForApproval::Never),
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some("gpt-5.1-savfox".to_string()),
+            model: Some("gpt-5.1-savfox".to_owned()),
             effort: Some(Some(ReasoningEffort::Low)),
             summary: None,
             collaboration_mode: Some(collaboration_mode),
@@ -539,7 +538,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
 
     let TestSavfox { savfox, .. } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.enable(Feature::CollaborationModes);
         })
         .build(&server)
@@ -575,7 +574,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
             cwd: new_cwd.path().to_path_buf(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: new_policy.clone(),
-            model: "o3".to_string(),
+            model: "o3".to_owned(),
             effort: Some(ReasoningEffort::High),
             summary: ReasoningSummary::Detailed,
             collaboration_mode: None,
@@ -623,7 +622,7 @@ async fn per_turn_overrides_keep_cached_prefix_and_key_constant() -> anyhow::Res
         expected_permissions_msg_2, expected_permissions_msg,
         "expected updated permissions message after per-turn override"
     );
-    let mut expected_body2 = body1_input.to_vec();
+    let mut expected_body2 = body1_input.clone();
     expected_body2.push(expected_env_msg_2);
     expected_body2.push(expected_permissions_msg_2);
     expected_body2.push(expected_user_message_2);
@@ -648,7 +647,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
         ..
     } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.enable(Feature::CollaborationModes);
         })
         .build(&server)
@@ -709,7 +708,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
     let default_cwd_lossy = default_cwd.to_string_lossy();
 
     let expected_env_msg_1 = text_user_input(default_env_context_str(&default_cwd_lossy, &shell));
-    let expected_user_message_1 = text_user_input("hello 1".to_string());
+    let expected_user_message_1 = text_user_input("hello 1".to_owned());
 
     let expected_input_1 = serde_json::Value::Array(vec![
         expected_permissions_msg.clone(),
@@ -719,7 +718,7 @@ async fn send_user_turn_with_no_changes_does_not_send_environment_context() -> a
     ]);
     assert_eq!(body1["input"], expected_input_1);
 
-    let expected_user_message_2 = text_user_input("hello 2".to_string());
+    let expected_user_message_2 = text_user_input("hello 2".to_owned());
     let expected_input_2 = serde_json::Value::Array(vec![
         expected_permissions_msg,
         expected_ui_msg,
@@ -748,7 +747,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
         ..
     } = test_savfox()
         .with_config(|config| {
-            config.user_instructions = Some("be consistent and helpful".to_string());
+            config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.enable(Feature::CollaborationModes);
         })
         .build(&server)
@@ -789,7 +788,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
             cwd: default_cwd.clone(),
             approval_policy: AskForApproval::Never,
             sandbox_policy: SandboxPolicy::DangerFullAccess,
-            model: "o3".to_string(),
+            model: "o3".to_owned(),
             effort: Some(ReasoningEffort::High),
             summary: ReasoningSummary::Detailed,
             collaboration_mode: None,
@@ -808,7 +807,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
     let shell = default_user_shell();
     let expected_env_text_1 = default_env_context_str(&default_cwd.to_string_lossy(), &shell);
     let expected_env_msg_1 = text_user_input(expected_env_text_1);
-    let expected_user_message_1 = text_user_input("hello 1".to_string());
+    let expected_user_message_1 = text_user_input("hello 1".to_owned());
     let expected_input_1 = serde_json::Value::Array(vec![
         expected_permissions_msg.clone(),
         expected_ui_msg.clone(),
@@ -823,7 +822,7 @@ async fn send_user_turn_with_changes_sends_environment_context() -> anyhow::Resu
         expected_permissions_msg_2, expected_permissions_msg,
         "expected updated permissions message after policy change"
     );
-    let expected_user_message_2 = text_user_input("hello 2".to_string());
+    let expected_user_message_2 = text_user_input("hello 2".to_owned());
     let expected_input_2 = serde_json::Value::Array(vec![
         expected_permissions_msg,
         expected_ui_msg,

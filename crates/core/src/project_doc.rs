@@ -395,7 +395,7 @@ mod tests {
         let res =
             get_user_instructions(&make_config(&tmp, 4096, Some(INSTRUCTIONS)).await, None).await;
 
-        assert_eq!(res, Some(INSTRUCTIONS.to_string()));
+        assert_eq!(res, Some(INSTRUCTIONS.to_owned()));
     }
 
     /// When both the repository root and the working directory contain

@@ -407,16 +407,16 @@ mod tests {
         let tx = AppEventSender::new(tx_raw);
         let items = vec![
             SkillsToggleItem {
-                name: "Repo Scout".to_string(),
-                skill_name: "repo_scout".to_string(),
-                description: "Summarize the repo layout".to_string(),
+                name: "Repo Scout".to_owned(),
+                skill_name: "repo_scout".to_owned(),
+                description: "Summarize the repo layout".to_owned(),
                 enabled: true,
                 path: PathBuf::from("/tmp/skills/repo_scout.toml"),
             },
             SkillsToggleItem {
-                name: "Changelog Writer".to_string(),
-                skill_name: "changelog_writer".to_string(),
-                description: "Draft release notes".to_string(),
+                name: "Changelog Writer".to_owned(),
+                skill_name: "changelog_writer".to_owned(),
+                description: "Draft release notes".to_owned(),
                 enabled: false,
                 path: PathBuf::from("/tmp/skills/changelog_writer.toml"),
             },

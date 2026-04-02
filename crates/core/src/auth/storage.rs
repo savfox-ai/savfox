@@ -537,7 +537,7 @@ mod tests {
         let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),
-            openai_api_key: Some("test-key".to_string()),
+            openai_api_key: Some("test-key".to_owned()),
             tokens: None,
             last_refresh: Some(Utc::now()),
         };
@@ -557,7 +557,7 @@ mod tests {
         let storage = FileAuthStorage::new(savfox_home.path().to_path_buf());
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),
-            openai_api_key: Some("test-key".to_string()),
+            openai_api_key: Some("test-key".to_owned()),
             tokens: None,
             last_refresh: Some(Utc::now()),
         };
@@ -594,7 +594,7 @@ mod tests {
         let dir = tempdir()?;
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),
-            openai_api_key: Some("sk-test-key".to_string()),
+            openai_api_key: Some("sk-test-key".to_owned()),
             tokens: None,
             last_refresh: None,
         };
@@ -617,7 +617,7 @@ mod tests {
         );
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),
-            openai_api_key: Some("sk-ephemeral".to_string()),
+            openai_api_key: Some("sk-ephemeral".to_owned()),
             tokens: None,
             last_refresh: Some(Utc::now()),
         };
@@ -734,7 +734,7 @@ mod tests {
         );
         let expected = AuthDotJson {
             auth_mode: Some(AuthMode::ApiKey),
-            openai_api_key: Some("sk-test".to_string()),
+            openai_api_key: Some("sk-test".to_owned()),
             tokens: None,
             last_refresh: None,
         };
@@ -778,9 +778,9 @@ mod tests {
             openai_api_key: None,
             tokens: Some(TokenData {
                 id_token: Default::default(),
-                access_token: "access".to_string(),
-                refresh_token: "refresh".to_string(),
-                account_id: Some("account".to_string()),
+                access_token: "access".to_owned(),
+                refresh_token: "refresh".to_owned(),
+                account_id: Some("account".to_owned()),
             }),
             last_refresh: Some(Utc::now()),
         };

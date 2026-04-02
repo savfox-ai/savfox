@@ -1206,8 +1206,8 @@ mod tests {
         SessionItem {
             path: PathBuf::from(path),
             head: head_with_ts_and_user_text(ts, &[preview]),
-            created_at: Some(ts.to_string()),
-            updated_at: Some(ts.to_string()),
+            created_at: Some(ts.to_owned()),
+            updated_at: Some(ts.to_owned()),
         }
     }
 
@@ -1886,7 +1886,7 @@ mod tests {
         ));
         recorded_requests.lock().unwrap().clear();
 
-        state.set_query("target".to_string());
+        state.set_query("target".to_owned());
         let first_request = {
             let guard = recorded_requests.lock().unwrap();
             assert_eq!(guard.len(), 1);
@@ -1941,7 +1941,7 @@ mod tests {
         assert!(!state.search_state.is_active());
 
         recorded_requests.lock().unwrap().clear();
-        state.set_query("missing".to_string());
+        state.set_query("missing".to_owned());
         let active_request = {
             let guard = recorded_requests.lock().unwrap();
             assert_eq!(guard.len(), 1);

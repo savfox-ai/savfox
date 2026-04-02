@@ -1252,20 +1252,20 @@ mod tests {
     fn rand_grapheme(rng: &mut rand::rngs::StdRng) -> String {
         let r: u8 = rng.random_range(0..100);
         match r {
-            0..=4 => "\n".to_string(),
-            5..=12 => " ".to_string(),
+            0..=4 => "\n".to_owned(),
+            5..=12 => " ".to_owned(),
             13..=35 => (rng.random_range(b'a'..=b'z') as char).to_string(),
             36..=45 => (rng.random_range(b'A'..=b'Z') as char).to_string(),
             46..=52 => (rng.random_range(b'0'..=b'9') as char).to_string(),
             53..=65 => {
                 // Some emoji (wide graphemes)
                 let choices = ["👍", "😊", "🐍", "🚀", "🧪", "🌟"];
-                choices[rng.random_range(0..choices.len())].to_string()
+                choices[rng.random_range(0..choices.len())].to_owned()
             }
             66..=75 => {
                 // CJK wide characters
                 let choices = ["漢", "字", "測", "試", "你", "好", "界", "编", "码"];
-                choices[rng.random_range(0..choices.len())].to_string()
+                choices[rng.random_range(0..choices.len())].to_owned()
             }
             76..=85 => {
                 // Combining mark sequences
@@ -1276,7 +1276,7 @@ mod tests {
             86..=92 => {
                 // Some non-latin single codepoints (Greek, Cyrillic, Hebrew)
                 let choices = ["Ω", "β", "Ж", "ю", "ש", "م", "ह"];
-                choices[rng.random_range(0..choices.len())].to_string()
+                choices[rng.random_range(0..choices.len())].to_owned()
             }
             _ => {
                 // ZWJ sequences (single graphemes but multi-codepoint)
@@ -1285,7 +1285,7 @@ mod tests {
                     "👨\u{200D}💻", // man technologist
                     "🏳️\u{200D}🌈", // rainbow flag
                 ];
-                choices[rng.random_range(0..choices.len())].to_string()
+                choices[rng.random_range(0..choices.len())].to_owned()
             }
         }
     }

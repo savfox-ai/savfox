@@ -513,7 +513,7 @@ mod tests {
             CharDecision::RetainFirstChar
         ));
 
-        assert_eq!(burst.flush_before_modified_input(), Some("a".to_string()));
+        assert_eq!(burst.flush_before_modified_input(), Some("a".to_owned()));
         assert!(!burst.is_active());
     }
 

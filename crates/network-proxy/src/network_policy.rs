@@ -153,10 +153,10 @@ mod tests {
 
         let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
             protocol: NetworkProtocol::Http,
-            host: "example.com".to_string(),
+            host: "example.com".to_owned(),
             port: 80,
             client_addr: None,
-            method: Some("GET".to_string()),
+            method: Some("GET".to_owned()),
             command: None,
             exec_policy_hint: None,
         });
@@ -171,8 +171,8 @@ mod tests {
     #[tokio::test]
     async fn evaluate_host_policy_skips_decider_for_denied() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
-            denied_domains: vec!["blocked.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
+            denied_domains: vec!["blocked.com".to_owned()],
             ..NetworkPolicy::default()
         });
         let calls = Arc::new(AtomicUsize::new(0));
@@ -186,10 +186,10 @@ mod tests {
 
         let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
             protocol: NetworkProtocol::Http,
-            host: "blocked.com".to_string(),
+            host: "blocked.com".to_owned(),
             port: 80,
             client_addr: None,
-            method: Some("GET".to_string()),
+            method: Some("GET".to_owned()),
             command: None,
             exec_policy_hint: None,
         });
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(
             decision,
             NetworkDecision::Deny {
-                reason: REASON_DENIED.to_string()
+                reason: REASON_DENIED.to_owned()
             }
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn evaluate_host_policy_skips_decider_for_not_allowed_local() {
         let state = network_proxy_state_for_policy(NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             allow_local_binding: false,
             ..NetworkPolicy::default()
         });
@@ -224,10 +224,10 @@ mod tests {
 
         let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
             protocol: NetworkProtocol::Http,
-            host: "127.0.0.1".to_string(),
+            host: "127.0.0.1".to_owned(),
             port: 80,
             client_addr: None,
-            method: Some("GET".to_string()),
+            method: Some("GET".to_owned()),
             command: None,
             exec_policy_hint: None,
         });
@@ -238,7 +238,7 @@ mod tests {
         assert_eq!(
             decision,
             NetworkDecision::Deny {
-                reason: REASON_NOT_ALLOWED_LOCAL.to_string()
+                reason: REASON_NOT_ALLOWED_LOCAL.to_owned()
             }
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);

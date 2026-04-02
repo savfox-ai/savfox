@@ -439,13 +439,13 @@ fn test_parse_patch() {
     assert_eq!(
         parse_patch_text("bad", ParseMode::Strict),
         Err(InvalidPatchError(
-            "The first line of the patch must be '*** Begin Patch'".to_string()
+            "The first line of the patch must be '*** Begin Patch'".to_owned()
         ))
     );
     assert_eq!(
         parse_patch_text("*** Begin Patch\nbad", ParseMode::Strict),
         Err(InvalidPatchError(
-            "The last line of the patch must be '*** End Patch'".to_string()
+            "The last line of the patch must be '*** End Patch'".to_owned()
         ))
     );
 
@@ -464,7 +464,7 @@ fn test_parse_patch() {
         .hunks,
         vec![AddFile {
             path: PathBuf::from("foo"),
-            contents: "hi\n".to_string()
+            contents: "hi\n".to_owned()
         }]
     );
     assert_eq!(
@@ -475,7 +475,7 @@ fn test_parse_patch() {
             ParseMode::Strict
         ),
         Err(InvalidHunkError {
-            message: "Update file hunk for path 'test.py' is empty".to_string(),
+            message: "Update file hunk for path 'test.py' is empty".to_owned(),
             line_number: 2,
         })
     );
@@ -509,7 +509,7 @@ fn test_parse_patch() {
         vec![
             AddFile {
                 path: PathBuf::from("path/add.py"),
-                contents: "abc\ndef\n".to_string()
+                contents: "abc\ndef\n".to_owned()
             },
             DeleteFile {
                 path: PathBuf::from("path/delete.py")
@@ -518,9 +518,9 @@ fn test_parse_patch() {
                 path: PathBuf::from("path/update.py"),
                 move_path: Some(PathBuf::from("path/update2.py")),
                 chunks: vec![UpdateFileChunk {
-                    change_context: Some("def f():".to_string()),
-                    old_lines: vec!["    pass".to_string()],
-                    new_lines: vec!["    return 123".to_string()],
+                    change_context: Some("def f():".to_owned()),
+                    old_lines: vec!["    pass".to_owned()],
+                    new_lines: vec!["    return 123".to_owned()],
                     is_end_of_file: false
                 }]
             }
@@ -547,13 +547,13 @@ fn test_parse_patch() {
                 chunks: vec![UpdateFileChunk {
                     change_context: None,
                     old_lines: vec![],
-                    new_lines: vec!["line".to_string()],
+                    new_lines: vec!["line".to_owned()],
                     is_end_of_file: false
                 }],
             },
             AddFile {
                 path: PathBuf::from("other.py"),
-                contents: "content\n".to_string()
+                contents: "content\n".to_owned()
             }
         ]
     );
@@ -576,8 +576,8 @@ fn test_parse_patch() {
             move_path: None,
             chunks: vec![UpdateFileChunk {
                 change_context: None,
-                old_lines: vec!["import foo".to_string()],
-                new_lines: vec!["import foo".to_string(), "bar".to_string()],
+                old_lines: vec!["import foo".to_owned()],
+                new_lines: vec!["import foo".to_owned(), "bar".to_owned()],
                 is_end_of_file: false,
             }],
         }]
@@ -596,13 +596,13 @@ fn test_parse_patch_lenient() {
         move_path: None,
         chunks: vec![UpdateFileChunk {
             change_context: None,
-            old_lines: vec!["import foo".to_string()],
-            new_lines: vec!["import foo".to_string(), "bar".to_string()],
+            old_lines: vec!["import foo".to_owned()],
+            new_lines: vec!["import foo".to_owned(), "bar".to_owned()],
             is_end_of_file: false,
         }],
     }];
     let expected_error =
-        InvalidPatchError("The first line of the patch must be '*** Begin Patch'".to_string());
+        InvalidPatchError("The first line of the patch must be '*** Begin Patch'".to_owned());
 
     let patch_text_in_heredoc = format!("<<EOF\n{patch_text}\nEOF\n");
     assert_eq!(
@@ -613,7 +613,7 @@ fn test_parse_patch_lenient() {
         parse_patch_text(&patch_text_in_heredoc, ParseMode::Lenient),
         Ok(ApplyPatchArgs {
             hunks: expected_patch.clone(),
-            patch: patch_text.to_string(),
+            patch: patch_text.to_owned(),
             workdir: None,
         })
     );
@@ -627,7 +627,7 @@ fn test_parse_patch_lenient() {
         parse_patch_text(&patch_text_in_single_quoted_heredoc, ParseMode::Lenient),
         Ok(ApplyPatchArgs {
             hunks: expected_patch.clone(),
-            patch: patch_text.to_string(),
+            patch: patch_text.to_owned(),
             workdir: None,
         })
     );
@@ -641,7 +641,7 @@ fn test_parse_patch_lenient() {
         parse_patch_text(&patch_text_in_double_quoted_heredoc, ParseMode::Lenient),
         Ok(ApplyPatchArgs {
             hunks: expected_patch,
-            patch: patch_text.to_string(),
+            patch: patch_text.to_owned(),
             workdir: None,
         })
     );
@@ -657,7 +657,7 @@ fn test_parse_patch_lenient() {
     );
 
     let patch_text_with_missing_closing_heredoc =
-        "<<EOF\n*** Begin Patch\n*** Update File: file2.py\nEOF\n".to_string();
+        "<<EOF\n*** Begin Patch\n*** Update File: file2.py\nEOF\n".to_owned();
     assert_eq!(
         parse_patch_text(&patch_text_with_missing_closing_heredoc, ParseMode::Strict),
         Err(expected_error)
@@ -665,7 +665,7 @@ fn test_parse_patch_lenient() {
     assert_eq!(
         parse_patch_text(&patch_text_with_missing_closing_heredoc, ParseMode::Lenient),
         Err(InvalidPatchError(
-            "The last line of the patch must be '*** End Patch'".to_string()
+            "The last line of the patch must be '*** End Patch'".to_owned()
         ))
     );
 }
@@ -676,7 +676,7 @@ fn test_parse_one_hunk() {
         parse_one_hunk(&["bad"], 234),
         Err(InvalidHunkError {
             message: "'bad' is not a valid hunk header. \
-            Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'".to_string(),
+            Valid hunk headers: '*** Add File: {path}', '*** Delete File: {path}', '*** Update File: {path}'".to_owned(),
             line_number: 234
         })
     );
@@ -688,15 +688,14 @@ fn test_update_file_chunk() {
     assert_eq!(
         parse_update_file_chunk(&["bad"], 123, false),
         Err(InvalidHunkError {
-            message: "Expected update hunk to start with a @@ context marker, got: 'bad'"
-                .to_string(),
+            message: "Expected update hunk to start with a @@ context marker, got: 'bad'".to_owned(),
             line_number: 123
         })
     );
     assert_eq!(
         parse_update_file_chunk(&["@@"], 123, false),
         Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
+            message: "Update hunk does not contain any lines".to_owned(),
             line_number: 124
         })
     );
@@ -704,14 +703,14 @@ fn test_update_file_chunk() {
         parse_update_file_chunk(&["@@", "bad"], 123, false),
         Err(InvalidHunkError {
             message:  "Unexpected line found in update hunk: 'bad'. \
-                       Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)".to_string(),
+                       Every line should start with ' ' (context line), '+' (added line), or '-' (removed line)".to_owned(),
             line_number: 124
         })
     );
     assert_eq!(
         parse_update_file_chunk(&["@@", "*** End of File"], 123, false),
         Err(InvalidHunkError {
-            message: "Update hunk does not contain any lines".to_string(),
+            message: "Update hunk does not contain any lines".to_owned(),
             line_number: 124
         })
     );
@@ -731,18 +730,18 @@ fn test_update_file_chunk() {
         ),
         Ok((
             (UpdateFileChunk {
-                change_context: Some("change_context".to_string()),
+                change_context: Some("change_context".to_owned()),
                 old_lines: vec![
-                    "".to_string(),
-                    "context".to_string(),
-                    "remove".to_string(),
-                    "context2".to_string()
+                    "".to_owned(),
+                    "context".to_owned(),
+                    "remove".to_owned(),
+                    "context2".to_owned()
                 ],
                 new_lines: vec![
-                    "".to_string(),
-                    "context".to_string(),
-                    "add".to_string(),
-                    "context2".to_string()
+                    "".to_owned(),
+                    "context".to_owned(),
+                    "add".to_owned(),
+                    "context2".to_owned()
                 ],
                 is_end_of_file: false
             }),
@@ -755,7 +754,7 @@ fn test_update_file_chunk() {
             (UpdateFileChunk {
                 change_context: None,
                 old_lines: vec![],
-                new_lines: vec!["line".to_string()],
+                new_lines: vec!["line".to_owned()],
                 is_end_of_file: true
             }),
             3

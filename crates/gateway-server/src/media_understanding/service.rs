@@ -1216,8 +1216,8 @@ mod tests {
             _prompt: Option<&str>,
         ) -> Result<ImageDescriptionResult, String> {
             Ok(ImageDescriptionResult {
-                text: "ok".to_string(),
-                model: Some("mock".to_string()),
+                text: "ok".to_owned(),
+                model: Some("mock".to_owned()),
             })
         }
     }
@@ -1242,8 +1242,8 @@ mod tests {
             language: Option<&str>,
         ) -> Result<AudioTranscriptionResult, String> {
             Ok(AudioTranscriptionResult {
-                text: language.unwrap_or("none").to_string(),
-                model: Some("mock-audio-model".to_string()),
+                text: language.unwrap_or("none").to_owned(),
+                model: Some("mock-audio-model".to_owned()),
             })
         }
     }
@@ -1358,7 +1358,7 @@ mod tests {
         service.register_provider(Box::new(MockImageProvider)).await;
 
         let attachment =
-            MediaAttachment::from_bytes(vec![1, 2, 3], Some("image/png".to_string()), 0);
+            MediaAttachment::from_bytes(vec![1, 2, 3], Some("image/png".to_owned()), 0);
         let result = service.process(vec![attachment]).await;
 
         assert_eq!(result.outputs.len(), 0);
@@ -1372,12 +1372,12 @@ mod tests {
     #[tokio::test]
     async fn success_records_provider_decision() {
         let mut cfg = MediaUnderstandingConfig::default();
-        cfg.image_provider = Some("mock-image".to_string());
+        cfg.image_provider = Some("mock-image".to_owned());
         let service = MediaUnderstandingService::new(cfg);
         service.register_provider(Box::new(MockImageProvider)).await;
 
         let attachment =
-            MediaAttachment::from_bytes(vec![1, 2, 3], Some("image/png".to_string()), 2);
+            MediaAttachment::from_bytes(vec![1, 2, 3], Some("image/png".to_owned()), 2);
         let result = service.process(vec![attachment]).await;
 
         assert_eq!(result.outputs.len(), 1);
@@ -1427,7 +1427,7 @@ mod tests {
     async fn pdf_is_processed_locally_per_page() {
         let service = MediaUnderstandingService::new(MediaUnderstandingConfig::default());
         let pdf = build_pdf_with_text(&["Hello PDF"]);
-        let attachment = MediaAttachment::from_bytes(pdf, Some("application/pdf".to_string()), 7);
+        let attachment = MediaAttachment::from_bytes(pdf, Some("application/pdf".to_owned()), 7);
         let result = service.process(vec![attachment]).await;
 
         assert_eq!(result.outputs.len(), 1);
@@ -1451,7 +1451,7 @@ mod tests {
         cfg.pdf_max_pages = 2;
         let service = MediaUnderstandingService::new(cfg);
         let pdf = build_pdf_with_text(&["one", "two", "three"]);
-        let attachment = MediaAttachment::from_bytes(pdf, Some("application/pdf".to_string()), 9);
+        let attachment = MediaAttachment::from_bytes(pdf, Some("application/pdf".to_owned()), 9);
         let result = service.process(vec![attachment]).await;
 
         match &result.outputs[0] {
@@ -1480,7 +1480,7 @@ mod tests {
         let service = MediaUnderstandingService::new(MediaUnderstandingConfig::default());
         let payload = b"%PDF-1.4\n1 0 obj\n<< /Encrypt 2 0 R >>\nendobj\n".to_vec();
         let attachment =
-            MediaAttachment::from_bytes(payload, Some("application/pdf".to_string()), 1);
+            MediaAttachment::from_bytes(payload, Some("application/pdf".to_owned()), 1);
         let result = service.process(vec![attachment]).await;
 
         assert_eq!(result.outputs.len(), 0);
@@ -1501,14 +1501,14 @@ mod tests {
     #[tokio::test]
     async fn audio_preflight_detects_language_and_waveform() {
         let mut cfg = MediaUnderstandingConfig::default();
-        cfg.audio_provider = Some("mock-audio".to_string());
+        cfg.audio_provider = Some("mock-audio".to_owned());
         let service = MediaUnderstandingService::new(cfg);
         service.register_provider(Box::new(MockAudioProvider)).await;
 
         let attachment = MediaAttachment {
             path: None,
-            url: Some("https://example.com/clip.wav?lang=ja".to_string()),
-            mime: Some("audio/wav".to_string()),
+            url: Some("https://example.com/clip.wav?lang=ja".to_owned()),
+            mime: Some("audio/wav".to_owned()),
             index: 4,
             data: Some(build_wav_sample()),
         };

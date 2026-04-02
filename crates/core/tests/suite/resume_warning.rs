@@ -19,7 +19,7 @@ fn resume_history(
         cwd: config.cwd.clone(),
         approval_policy: config.approval_policy.value(),
         sandbox_policy: config.sandbox_policy.get().clone(),
-        model: previous_model.to_string(),
+        model: previous_model.to_owned(),
         personality: None,
         collaboration_mode: None,
         effort: config.model_reasoning_effort,
@@ -42,7 +42,7 @@ async fn emits_warning_when_resumed_model_differs() {
     // Arrange a config with a current model and a prior rollout recorded under a different model.
     let home = TempDir::new().expect("tempdir");
     let mut config = load_default_config_for_test(&home).await;
-    config.model = Some("current-model".to_string());
+    config.model = Some("current-model".to_owned());
     // Ensure cwd is absolute (the helper sets it to the temp dir already).
     assert!(config.cwd.is_absolute());
 

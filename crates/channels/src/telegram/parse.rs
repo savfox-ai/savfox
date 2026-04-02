@@ -190,8 +190,8 @@ mod tests {
 
     fn resolve_command_name(command: &str) -> Option<String> {
         match command {
-            "commands" => Some("commands".to_string()),
-            "status" => Some("status".to_string()),
+            "commands" => Some("commands".to_owned()),
+            "status" => Some("status".to_owned()),
             _ => None,
         }
     }

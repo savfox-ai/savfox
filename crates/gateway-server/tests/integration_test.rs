@@ -791,7 +791,7 @@ fn usage_export_response_shape() {
 
     assert_eq!(response["total_sessions"], 42);
     assert!(response["total_cost_usd"].as_f64().unwrap() > 0.0);
-    assert!(response["sessions"].as_array().unwrap().len() > 0);
+    assert!(!response["sessions"].as_array().unwrap().is_empty());
 }
 
 // ── P3: Log Rotation ─────────────────────────────────────────────────────

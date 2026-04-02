@@ -124,13 +124,13 @@ mod tests {
 
     fn make_entry(slug: &str, layer: MemoryLayer, priority: u32, body: &str) -> MdMemoryEntry {
         MdMemoryEntry {
-            slug: slug.to_string(),
+            slug: slug.to_owned(),
             layer,
             frontmatter: MemoryFrontmatter {
                 priority,
                 ..Default::default()
             },
-            body: body.to_string(),
+            body: body.to_owned(),
             file_path: None,
             body_bytes: body.len(),
         }

@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(
             parse_host_port("127.0.0.1:8080", 3128).unwrap(),
             SocketAddressParts {
-                host: "127.0.0.1".to_string(),
+                host: "127.0.0.1".to_owned(),
                 port: 8080,
             }
         );
@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(
             parse_host_port("http://example.com:8080/some/path", 3128).unwrap(),
             SocketAddressParts {
-                host: "example.com".to_string(),
+                host: "example.com".to_owned(),
                 port: 8080,
             }
         );
@@ -355,7 +355,7 @@ mod tests {
         assert_eq!(
             parse_host_port("http://user:pass@host.example:5555", 3128).unwrap(),
             SocketAddressParts {
-                host: "host.example".to_string(),
+                host: "host.example".to_owned(),
                 port: 5555,
             }
         );
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(
             parse_host_port("http://[::1]:9999", 3128).unwrap(),
             SocketAddressParts {
-                host: "::1".to_string(),
+                host: "::1".to_owned(),
                 port: 9999,
             }
         );
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(
             parse_host_port("2001:db8::1", 3128).unwrap(),
             SocketAddressParts {
-                host: "2001:db8::1".to_string(),
+                host: "2001:db8::1".to_owned(),
                 port: 3128,
             }
         );
@@ -388,7 +388,7 @@ mod tests {
         assert_eq!(
             parse_host_port("example.com:notaport", 3128).unwrap(),
             SocketAddressParts {
-                host: "example.com:notaport".to_string(),
+                host: "example.com:notaport".to_owned(),
                 port: 3128,
             }
         );
@@ -451,7 +451,7 @@ mod tests {
             dangerously_allow_non_loopback_proxy: true,
             dangerously_allow_non_loopback_admin: true,
             policy: NetworkPolicy {
-                allow_unix_sockets: vec!["/tmp/docker.sock".to_string()],
+                allow_unix_sockets: vec!["/tmp/docker.sock".to_owned()],
                 ..Default::default()
             },
             ..Default::default()

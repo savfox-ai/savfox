@@ -17,7 +17,7 @@ async fn override_turn_context_does_not_persist_when_config_exists() {
             std::fs::write(config_path, initial_contents).expect("seed config.toml");
         })
         .with_config(|config| {
-            config.model = Some("gpt-4o".to_string());
+            config.model = Some("gpt-4o".to_owned());
         });
     let test = builder.build(&server).await.expect("create conversation");
     let savfox = test.savfox.clone();
@@ -29,7 +29,7 @@ async fn override_turn_context_does_not_persist_when_config_exists() {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some("o3".to_string()),
+            model: Some("o3".to_owned()),
             effort: Some(Some(ReasoningEffort::High)),
             summary: None,
             collaboration_mode: None,
@@ -66,7 +66,7 @@ async fn override_turn_context_does_not_create_config_file() {
             approval_policy: None,
             sandbox_policy: None,
             windows_sandbox_level: None,
-            model: Some("o3".to_string()),
+            model: Some("o3".to_owned()),
             effort: Some(Some(ReasoningEffort::Medium)),
             summary: None,
             collaboration_mode: None,

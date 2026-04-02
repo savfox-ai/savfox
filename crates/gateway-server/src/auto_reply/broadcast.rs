@@ -155,21 +155,21 @@ mod tests {
 
     fn test_group() -> BroadcastGroup {
         BroadcastGroup {
-            id: "announcements".to_string(),
-            name: "Announcements".to_string(),
+            id: "announcements".to_owned(),
+            name: "Announcements".to_owned(),
             channels: vec![
                 BroadcastTarget {
-                    channel_id: "discord:general".to_string(),
+                    channel_id: "discord:general".to_owned(),
                     template_override: None,
                     delay_secs: 0,
                 },
                 BroadcastTarget {
-                    channel_id: "telegram:12345".to_string(),
-                    template_override: Some("📢 {{message}}".to_string()),
+                    channel_id: "telegram:12345".to_owned(),
+                    template_override: Some("📢 {{message}}".to_owned()),
                     delay_secs: 5,
                 },
                 BroadcastTarget {
-                    channel_id: "slack:C123".to_string(),
+                    channel_id: "slack:C123".to_owned(),
                     template_override: None,
                     delay_secs: 0,
                 },
@@ -185,7 +185,7 @@ mod tests {
         assert!(mgr.list_groups().is_empty());
 
         let group = test_group();
-        mgr.upsert_group(group.clone());
+        mgr.upsert_group(group);
         assert_eq!(mgr.list_groups().len(), 1);
 
         let fetched = mgr.get_group("announcements").unwrap();

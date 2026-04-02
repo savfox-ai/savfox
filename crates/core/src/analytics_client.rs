@@ -280,7 +280,7 @@ mod tests {
 
     fn expected_absolute_path(path: &PathBuf) -> String {
         std::fs::canonicalize(path)
-            .unwrap_or_else(|_| path.to_path_buf())
+            .unwrap_or_else(|_| path.clone())
             .to_string_lossy()
             .replace('\\', "/")
     }

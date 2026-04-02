@@ -209,9 +209,9 @@ mod tests {
 
     fn provider(name: &str, base_url: &str) -> Provider {
         Provider {
-            id: name.to_string(),
-            name: name.to_string(),
-            base_url: base_url.to_string(),
+            id: name.to_owned(),
+            name: name.to_owned(),
+            base_url: base_url.to_owned(),
             query_params: None,
             wire: WireApi::Responses,
             headers: HeaderMap::new(),
@@ -262,7 +262,7 @@ mod tests {
             .flatten()
             .map(|item| item.get("id").and_then(|v| v.as_str().map(str::to_string)))
             .collect();
-        assert_eq!(ids, vec![Some("m1".to_string()), None]);
+        assert_eq!(ids, vec![Some("m1".to_owned()), None]);
 
         assert_eq!(
             request.headers.get("session_id"),

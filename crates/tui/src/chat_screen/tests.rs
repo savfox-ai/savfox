@@ -96,8 +96,8 @@ async fn resumed_initial_messages_render_history() {
         session_id: conversation_id,
         forked_from_id: None,
         session_name: None,
-        model: "test-model".to_string(),
-        model_provider_id: "test-provider".to_string(),
+        model: "test-model".to_owned(),
+        model_provider_id: "test-provider".to_owned(),
         approval_policy: AskForApproval::Never,
         sandbox_policy: SandboxPolicy::ReadOnly,
         cwd: PathBuf::from("/home/user/project"),
@@ -106,13 +106,13 @@ async fn resumed_initial_messages_render_history() {
         history_entry_count: 0,
         initial_messages: Some(vec![
             EventMsg::UserMessage(UserMessageEvent {
-                message: "hello from user".to_string(),
+                message: "hello from user".to_owned(),
                 images: None,
                 text_elements: Vec::new(),
                 local_images: Vec::new(),
             }),
             EventMsg::AgentMessage(AgentMessageEvent {
-                message: "assistant reply".to_string(),
+                message: "assistant reply".to_owned(),
             }),
         ]),
         rollout_path: Some(rollout_file.path().to_path_buf()),
@@ -153,7 +153,7 @@ async fn replayed_user_message_preserves_text_elements_and_local_images() {
     let message = format!("{placeholder} replayed");
     let text_elements = vec![TextElement::new(
         (0..placeholder.len()).into(),
-        Some(placeholder.to_string()),
+        Some(placeholder.to_owned()),
     )];
     let local_images = vec![PathBuf::from("/tmp/replay.png")];
 
@@ -163,8 +163,8 @@ async fn replayed_user_message_preserves_text_elements_and_local_images() {
         session_id: conversation_id,
         forked_from_id: None,
         session_name: None,
-        model: "test-model".to_string(),
-        model_provider_id: "test-provider".to_string(),
+        model: "test-model".to_owned(),
+        model_provider_id: "test-provider".to_owned(),
         approval_policy: AskForApproval::Never,
         sandbox_policy: SandboxPolicy::ReadOnly,
         cwd: PathBuf::from("/home/user/project"),
@@ -216,8 +216,8 @@ async fn submission_preserves_text_elements_and_local_images() {
         session_id: conversation_id,
         forked_from_id: None,
         session_name: None,
-        model: "test-model".to_string(),
-        model_provider_id: "test-provider".to_string(),
+        model: "test-model".to_owned(),
+        model_provider_id: "test-provider".to_owned(),
         approval_policy: AskForApproval::Never,
         sandbox_policy: SandboxPolicy::ReadOnly,
         cwd: PathBuf::from("/home/user/project"),
@@ -237,7 +237,7 @@ async fn submission_preserves_text_elements_and_local_images() {
     let text = format!("{placeholder} submit");
     let text_elements = vec![TextElement::new(
         (0..placeholder.len()).into(),
-        Some(placeholder.to_string()),
+        Some(placeholder.to_owned()),
     )];
     let local_images = vec![PathBuf::from("/tmp/submitted.png")];
 
@@ -293,7 +293,7 @@ async fn first_submission_is_sent_even_before_session_configured() {
     chat.set_feature_enabled(Feature::Steer, false);
 
     chat.bottom_pane
-        .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("hello".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_matches!(next_submit_op(&mut op_rx), Op::UserTurn { .. });
@@ -306,7 +306,7 @@ async fn first_submission_keeps_startup_composer_style_and_bottom_alignment() {
     chat.set_feature_enabled(Feature::Steer, false);
 
     chat.bottom_pane
-        .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("hello".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert_matches!(next_submit_op(&mut op_rx), Op::UserTurn { .. });
@@ -358,14 +358,14 @@ async fn blocked_image_restore_preserves_mention_paths() {
     let text = format!("{placeholder} check $file");
     let text_elements = vec![TextElement::new(
         (0..placeholder.len()).into(),
-        Some(placeholder.to_string()),
+        Some(placeholder.to_owned()),
     )];
     let local_images = vec![LocalImageAttachment {
-        placeholder: placeholder.to_string(),
+        placeholder: placeholder.to_owned(),
         path: PathBuf::from("/tmp/blocked.png"),
     }];
     let mention_paths =
-        HashMap::from([("file".to_string(), "/tmp/skills/file/SKILL.md".to_string())]);
+        HashMap::from([("file".to_owned(), "/tmp/skills/file/SKILL.md".to_owned())]);
 
     chat.restore_blocked_image_submission(
         text.clone(),
@@ -401,7 +401,7 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
     let first_text = format!("{first_placeholder} first");
     let first_elements = vec![TextElement::new(
         (0..first_placeholder.len()).into(),
-        Some(first_placeholder.to_string()),
+        Some(first_placeholder.to_owned()),
     )];
     let first_images = [PathBuf::from("/tmp/first.png")];
 
@@ -409,7 +409,7 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
     let second_text = format!("{second_placeholder} second");
     let second_elements = vec![TextElement::new(
         (0..second_placeholder.len()).into(),
-        Some(second_placeholder.to_string()),
+        Some(second_placeholder.to_owned()),
     )];
     let second_images = [PathBuf::from("/tmp/second.png")];
 
@@ -417,14 +417,14 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
     let existing_text = format!("{existing_placeholder} existing");
     let existing_elements = vec![TextElement::new(
         (0..existing_placeholder.len()).into(),
-        Some(existing_placeholder.to_string()),
+        Some(existing_placeholder.to_owned()),
     )];
     let existing_images = vec![PathBuf::from("/tmp/existing.png")];
 
     chat.queued_user_messages.push_back(UserMessage {
         text: first_text,
         local_images: vec![LocalImageAttachment {
-            placeholder: first_placeholder.to_string(),
+            placeholder: first_placeholder.to_owned(),
             path: first_images[0].clone(),
         }],
         text_elements: first_elements,
@@ -433,7 +433,7 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
     chat.queued_user_messages.push_back(UserMessage {
         text: second_text,
         local_images: vec![LocalImageAttachment {
-            placeholder: second_placeholder.to_string(),
+            placeholder: second_placeholder.to_owned(),
             path: second_images[0].clone(),
         }],
         text_elements: second_elements,
@@ -453,9 +453,9 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
         }),
     });
 
-    let first = "[Image #1] first".to_string();
-    let second = "[Image #2] second".to_string();
-    let third = "[Image #3] existing".to_string();
+    let first = "[Image #1] first".to_owned();
+    let second = "[Image #2] second".to_owned();
+    let third = "[Image #3] existing".to_owned();
     let expected_text = format!("{first}\n{second}\n{third}");
     assert_eq!(chat.bottom_pane.composer_text(), expected_text);
 
@@ -465,15 +465,15 @@ async fn interrupted_turn_restores_queued_messages_with_images_and_elements() {
     let expected_elements = vec![
         TextElement::new(
             (first_start..first_start + "[Image #1]".len()).into(),
-            Some("[Image #1]".to_string()),
+            Some("[Image #1]".to_owned()),
         ),
         TextElement::new(
             (second_start..second_start + "[Image #2]".len()).into(),
-            Some("[Image #2]".to_string()),
+            Some("[Image #2]".to_owned()),
         ),
         TextElement::new(
             (third_start..third_start + "[Image #3]".len()).into(),
-            Some("[Image #3]".to_string()),
+            Some("[Image #3]".to_owned()),
         ),
     ];
     assert_eq!(chat.bottom_pane.composer_text_elements(), expected_elements);
@@ -495,21 +495,21 @@ async fn remap_placeholders_uses_attachment_labels() {
     let elements = vec![
         TextElement::new(
             (0..placeholder_two.len()).into(),
-            Some(placeholder_two.to_string()),
+            Some(placeholder_two.to_owned()),
         ),
         TextElement::new(
             ("[Image #2] before ".len().."[Image #2] before [Image #1]".len()).into(),
-            Some(placeholder_one.to_string()),
+            Some(placeholder_one.to_owned()),
         ),
     ];
 
     let attachments = vec![
         LocalImageAttachment {
-            placeholder: placeholder_one.to_string(),
+            placeholder: placeholder_one.to_owned(),
             path: PathBuf::from("/tmp/one.png"),
         },
         LocalImageAttachment {
-            placeholder: placeholder_two.to_string(),
+            placeholder: placeholder_two.to_owned(),
             path: PathBuf::from("/tmp/two.png"),
         },
     ];
@@ -528,11 +528,11 @@ async fn remap_placeholders_uses_attachment_labels() {
         vec![
             TextElement::new(
                 (0.."[Image #4]".len()).into(),
-                Some("[Image #4]".to_string()),
+                Some("[Image #4]".to_owned()),
             ),
             TextElement::new(
                 ("[Image #4] before ".len().."[Image #4] before [Image #3]".len()).into(),
-                Some("[Image #3]".to_string()),
+                Some("[Image #3]".to_owned()),
             ),
         ]
     );
@@ -540,11 +540,11 @@ async fn remap_placeholders_uses_attachment_labels() {
         remapped.local_images,
         vec![
             LocalImageAttachment {
-                placeholder: "[Image #3]".to_string(),
+                placeholder: "[Image #3]".to_owned(),
                 path: PathBuf::from("/tmp/one.png"),
             },
             LocalImageAttachment {
-                placeholder: "[Image #4]".to_string(),
+                placeholder: "[Image #4]".to_owned(),
                 path: PathBuf::from("/tmp/two.png"),
             },
         ]
@@ -566,11 +566,11 @@ async fn remap_placeholders_uses_byte_ranges_when_placeholder_missing() {
 
     let attachments = vec![
         LocalImageAttachment {
-            placeholder: placeholder_one.to_string(),
+            placeholder: placeholder_one.to_owned(),
             path: PathBuf::from("/tmp/one.png"),
         },
         LocalImageAttachment {
-            placeholder: placeholder_two.to_string(),
+            placeholder: placeholder_two.to_owned(),
             path: PathBuf::from("/tmp/two.png"),
         },
     ];
@@ -589,11 +589,11 @@ async fn remap_placeholders_uses_byte_ranges_when_placeholder_missing() {
         vec![
             TextElement::new(
                 (0.."[Image #4]".len()).into(),
-                Some("[Image #4]".to_string()),
+                Some("[Image #4]".to_owned()),
             ),
             TextElement::new(
                 ("[Image #4] before ".len().."[Image #4] before [Image #3]".len()).into(),
-                Some("[Image #3]".to_string()),
+                Some("[Image #3]".to_owned()),
             ),
         ]
     );
@@ -601,11 +601,11 @@ async fn remap_placeholders_uses_byte_ranges_when_placeholder_missing() {
         remapped.local_images,
         vec![
             LocalImageAttachment {
-                placeholder: "[Image #3]".to_string(),
+                placeholder: "[Image #3]".to_owned(),
                 path: PathBuf::from("/tmp/one.png"),
             },
             LocalImageAttachment {
-                placeholder: "[Image #4]".to_string(),
+                placeholder: "[Image #4]".to_owned(),
                 path: PathBuf::from("/tmp/two.png"),
             },
         ]
@@ -621,9 +621,9 @@ async fn entered_review_mode_uses_request_hint() {
         id: "review-start".into(),
         msg: EventMsg::EnteredReviewMode(ReviewRequest {
             target: ReviewTarget::BaseBranch {
-                branch: "feature".to_string(),
+                branch: "feature".to_owned(),
             },
-            user_facing_hint: Some("feature branch".to_string()),
+            user_facing_hint: Some("feature branch".to_owned()),
         }),
     });
 
@@ -674,9 +674,9 @@ async fn review_restores_context_window_indicator() {
         id: "review-start".into(),
         msg: EventMsg::EnteredReviewMode(ReviewRequest {
             target: ReviewTarget::BaseBranch {
-                branch: "feature".to_string(),
+                branch: "feature".to_owned(),
             },
-            user_facing_hint: Some("feature branch".to_string()),
+            user_facing_hint: Some("feature branch".to_owned()),
         }),
     });
 
@@ -830,7 +830,7 @@ fn test_otel_manager(config: &Config, model: &str) -> OtelManager {
         None,
         None,
         false,
-        "test".to_string(),
+        "test".to_owned(),
         SessionSource::Cli,
     )
 }
@@ -851,7 +851,7 @@ async fn make_chat_screen_manual(
         .map(str::to_owned)
         .unwrap_or_else(|| ModelsManager::get_model_offline(cfg.model.as_deref()));
     if let Some(model) = model_override {
-        cfg.model = Some(model.to_string());
+        cfg.model = Some(model.to_owned());
     }
     let otel_manager = test_otel_manager(&cfg, resolved_model.as_str());
     let mut bottom = BottomPane::new(BottomPaneParams {
@@ -859,7 +859,7 @@ async fn make_chat_screen_manual(
         frame_requester: FrameRequester::test_dummy(),
         has_input_focus: true,
         enhanced_keys_supported: false,
-        placeholder_text: "Ask Savfox to do anything".to_string(),
+        placeholder_text: "Ask Savfox to do anything".to_owned(),
         disable_paste_burst: false,
         animations_enabled: cfg.animations,
         skills: None,
@@ -1095,7 +1095,7 @@ async fn rate_limit_snapshot_keeps_prior_credits_when_missing_from_headers() {
         credits: Some(CreditsSnapshot {
             has_credits: true,
             unlimited: false,
-            balance: Some("17.5".to_string()),
+            balance: Some("17.5".to_owned()),
         }),
         plan_type: None,
     }));
@@ -1341,7 +1341,7 @@ async fn submit_user_message_with_mode_sets_coding_collaboration_mode() {
 
     let code_mode = collaboration_modes::code_mask(chat.models_manager.as_ref())
         .expect("expected code collaboration mode");
-    chat.submit_user_message_with_mode("Implement the plan.".to_string(), code_mode);
+    chat.submit_user_message_with_mode("Implement the plan.".to_owned(), code_mode);
 
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -1369,7 +1369,7 @@ async fn plan_implementation_popup_skips_replayed_turn_complete() {
     chat.set_collaboration_mask(plan_mask);
 
     chat.replay_initial_messages(vec![EventMsg::TurnComplete(TurnCompleteEvent {
-        last_agent_message: Some("Plan details".to_string()),
+        last_agent_message: Some("Plan details".to_owned()),
     })]);
 
     let popup = render_bottom_popup(&chat, 80);
@@ -1389,11 +1389,11 @@ async fn plan_implementation_popup_shows_once_when_replay_precedes_live_turn_com
     chat.set_collaboration_mask(plan_mask);
 
     chat.on_task_started();
-    chat.on_plan_delta("- Step 1\n- Step 2\n".to_string());
-    chat.on_plan_item_completed("- Step 1\n- Step 2\n".to_string());
+    chat.on_plan_delta("- Step 1\n- Step 2\n".to_owned());
+    chat.on_plan_item_completed("- Step 1\n- Step 2\n".to_owned());
 
     chat.replay_initial_messages(vec![EventMsg::TurnComplete(TurnCompleteEvent {
-        last_agent_message: Some("Plan details".to_string()),
+        last_agent_message: Some("Plan details".to_owned()),
     })]);
     let replay_popup = render_bottom_popup(&chat, 80);
     assert!(
@@ -1402,9 +1402,9 @@ async fn plan_implementation_popup_shows_once_when_replay_precedes_live_turn_com
     );
 
     chat.handle_savfox_event(Event {
-        id: "live-turn-complete-1".to_string(),
+        id: "live-turn-complete-1".to_owned(),
         msg: EventMsg::TurnComplete(TurnCompleteEvent {
-            last_agent_message: Some("Plan details".to_string()),
+            last_agent_message: Some("Plan details".to_owned()),
         }),
     });
 
@@ -1422,9 +1422,9 @@ async fn plan_implementation_popup_shows_once_when_replay_precedes_live_turn_com
     );
 
     chat.handle_savfox_event(Event {
-        id: "live-turn-complete-2".to_string(),
+        id: "live-turn-complete-2".to_owned(),
         msg: EventMsg::TurnComplete(TurnCompleteEvent {
-            last_agent_message: Some("Plan details".to_string()),
+            last_agent_message: Some("Plan details".to_owned()),
         }),
     });
     let duplicate_popup = render_bottom_popup(&chat, 80);
@@ -1445,7 +1445,7 @@ async fn plan_implementation_popup_skips_when_messages_queued() {
     chat.bottom_pane.set_task_running(true);
     chat.queue_user_message("Queued message".into());
 
-    chat.on_task_complete(Some("Plan details".to_string()), false);
+    chat.on_task_complete(Some("Plan details".to_owned()), false);
 
     let popup = render_bottom_popup(&chat, 80);
     assert!(
@@ -1467,7 +1467,7 @@ async fn plan_implementation_popup_skips_without_proposed_plan() {
     chat.on_plan_update(UpdatePlanArgs {
         explanation: None,
         plan: vec![PlanItemArg {
-            step: "First".to_string(),
+            step: "First".to_owned(),
             status: StepStatus::Pending,
         }],
     });
@@ -1490,8 +1490,8 @@ async fn plan_implementation_popup_shows_after_proposed_plan_output() {
     chat.set_collaboration_mask(plan_mask);
 
     chat.on_task_started();
-    chat.on_plan_delta("- Step 1\n- Step 2\n".to_string());
-    chat.on_plan_item_completed("- Step 1\n- Step 2\n".to_string());
+    chat.on_plan_delta("- Step 1\n- Step 2\n".to_owned());
+    chat.on_plan_item_completed("- Step 1\n- Step 2\n".to_owned());
     chat.on_task_complete(None, false);
 
     let popup = render_bottom_popup(&chat, 80);
@@ -1516,7 +1516,7 @@ async fn plan_implementation_popup_skips_when_rate_limit_prompt_pending() {
     chat.on_plan_update(UpdatePlanArgs {
         explanation: None,
         plan: vec![PlanItemArg {
-            step: "First".to_string(),
+            step: "First".to_owned(),
             status: StepStatus::Pending,
         }],
     });
@@ -1682,14 +1682,14 @@ fn begin_exec_with_source(
 ) -> ExecCommandBeginEvent {
     // Build the full command vec and parse it using core's parser,
     // then convert to protocol variants for the event payload.
-    let command = vec!["bash".to_string(), "-lc".to_string(), raw_cmd.to_string()];
+    let command = vec!["bash".to_owned(), "-lc".to_owned(), raw_cmd.to_owned()];
     let parsed_cmd: Vec<ParsedCommand> = savfox_core::parse_command::parse_command(&command);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let interaction_input = None;
     let event = ExecCommandBeginEvent {
-        call_id: call_id.to_string(),
+        call_id: call_id.to_owned(),
         process_id: None,
-        turn_id: "turn-1".to_string(),
+        turn_id: "turn-1".to_owned(),
         command,
         cwd,
         parsed_cmd,
@@ -1697,7 +1697,7 @@ fn begin_exec_with_source(
         interaction_input,
     };
     chat.handle_savfox_event(Event {
-        id: call_id.to_string(),
+        id: call_id.to_owned(),
         msg: EventMsg::ExecCommandBegin(event.clone()),
     });
     event
@@ -1709,12 +1709,12 @@ fn begin_unified_exec_startup(
     process_id: &str,
     raw_cmd: &str,
 ) -> ExecCommandBeginEvent {
-    let command = vec!["bash".to_string(), "-lc".to_string(), raw_cmd.to_string()];
+    let command = vec!["bash".to_owned(), "-lc".to_owned(), raw_cmd.to_owned()];
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let event = ExecCommandBeginEvent {
-        call_id: call_id.to_string(),
-        process_id: Some(process_id.to_string()),
-        turn_id: "turn-1".to_string(),
+        call_id: call_id.to_owned(),
+        process_id: Some(process_id.to_owned()),
+        turn_id: "turn-1".to_owned(),
         command,
         cwd,
         parsed_cmd: Vec::new(),
@@ -1722,7 +1722,7 @@ fn begin_unified_exec_startup(
         interaction_input: None,
     };
     chat.handle_savfox_event(Event {
-        id: call_id.to_string(),
+        id: call_id.to_owned(),
         msg: EventMsg::ExecCommandBegin(event.clone()),
     });
     event
@@ -1730,11 +1730,11 @@ fn begin_unified_exec_startup(
 
 fn terminal_interaction(chat: &mut ChatScreen, call_id: &str, process_id: &str, stdin: &str) {
     chat.handle_savfox_event(Event {
-        id: call_id.to_string(),
+        id: call_id.to_owned(),
         msg: EventMsg::TerminalInteraction(TerminalInteractionEvent {
-            call_id: call_id.to_string(),
-            process_id: process_id.to_string(),
-            stdin: stdin.to_string(),
+            call_id: call_id.to_owned(),
+            process_id: process_id.to_owned(),
+            stdin: stdin.to_owned(),
         }),
     });
 }
@@ -1751,7 +1751,7 @@ fn end_exec(
     exit_code: i32,
 ) {
     let aggregated = if stderr.is_empty() {
-        stdout.to_string()
+        stdout.to_owned()
     } else {
         format!("{stdout}{stderr}")
     };
@@ -1776,8 +1776,8 @@ fn end_exec(
             parsed_cmd,
             source,
             interaction_input,
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
+            stdout: stdout.to_owned(),
+            stderr: stderr.to_owned(),
             aggregated_output: aggregated.clone(),
             exit_code,
             duration: std::time::Duration::from_millis(5),
@@ -1853,9 +1853,9 @@ async fn alt_up_edits_most_recent_queued_message() {
 
     // Seed two queued messages.
     chat.queued_user_messages
-        .push_back(UserMessage::from("first queued".to_string()));
+        .push_back(UserMessage::from("first queued".to_owned()));
     chat.queued_user_messages
-        .push_back(UserMessage::from("second queued".to_string()));
+        .push_back(UserMessage::from("second queued".to_owned()));
     chat.refresh_queued_user_messages();
 
     // Press Alt+Up to edit the most recent (last) queued message.
@@ -1864,7 +1864,7 @@ async fn alt_up_edits_most_recent_queued_message() {
     // Composer should now contain the last queued message.
     assert_eq!(
         chat.bottom_pane.composer_text(),
-        "second queued".to_string()
+        "second queued".to_owned()
     );
     // And the queue should now contain only the remaining (older) item.
     assert_eq!(chat.queued_user_messages.len(), 1);
@@ -1884,7 +1884,7 @@ async fn enqueueing_history_prompt_multiple_times_is_stable() {
 
     // Submit an initial prompt to seed history.
     chat.bottom_pane
-        .set_composer_text("repeat me".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("repeat me".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     // Simulate an active task so further submissions are queued.
@@ -1911,14 +1911,14 @@ async fn streaming_final_answer_keeps_task_running_state() {
     chat.session_id = Some(SessionId::new());
 
     chat.on_task_started();
-    chat.on_agent_message_delta("Final answer line\n".to_string());
+    chat.on_agent_message_delta("Final answer line\n".to_owned());
     chat.on_commit_tick();
 
     assert!(chat.bottom_pane.is_task_running());
     assert!(chat.bottom_pane.status_widget().is_none());
 
     chat.bottom_pane
-        .set_composer_text("queued submission".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("queued submission".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
 
     assert_eq!(chat.queued_user_messages.len(), 1);
@@ -1943,7 +1943,7 @@ async fn exec_begin_restores_status_indicator_after_preamble() {
     chat.on_task_started();
     assert_eq!(chat.bottom_pane.status_indicator_visible(), true);
 
-    chat.on_agent_message_delta("Preamble line\n".to_string());
+    chat.on_agent_message_delta("Preamble line\n".to_owned());
     chat.on_commit_tick();
     drain_insert_history(&mut rx);
 
@@ -2071,29 +2071,29 @@ async fn exec_history_cell_shows_working_then_failed() {
 async fn exec_end_without_begin_uses_event_command() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
     let command = vec![
-        "bash".to_string(),
-        "-lc".to_string(),
-        "echo orphaned".to_string(),
+        "bash".to_owned(),
+        "-lc".to_owned(),
+        "echo orphaned".to_owned(),
     ];
     let parsed_cmd = savfox_core::parse_command::parse_command(&command);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     chat.handle_savfox_event(Event {
-        id: "call-orphan".to_string(),
+        id: "call-orphan".to_owned(),
         msg: EventMsg::ExecCommandEnd(ExecCommandEndEvent {
-            call_id: "call-orphan".to_string(),
+            call_id: "call-orphan".to_owned(),
             process_id: None,
-            turn_id: "turn-1".to_string(),
+            turn_id: "turn-1".to_owned(),
             command,
             cwd,
             parsed_cmd,
             source: ExecCommandSource::Agent,
             interaction_input: None,
-            stdout: "done".to_string(),
+            stdout: "done".to_owned(),
             stderr: String::new(),
-            aggregated_output: "done".to_string(),
+            aggregated_output: "done".to_owned(),
             exit_code: 0,
             duration: std::time::Duration::from_millis(5),
-            formatted_output: "done".to_string(),
+            formatted_output: "done".to_owned(),
         }),
     });
 
@@ -2184,11 +2184,11 @@ async fn unified_exec_interaction_after_task_complete_is_suppressed() {
     chat.on_task_complete(None, false);
 
     chat.handle_savfox_event(Event {
-        id: "call-1".to_string(),
+        id: "call-1".to_owned(),
         msg: EventMsg::TerminalInteraction(TerminalInteractionEvent {
-            call_id: "call-1".to_string(),
-            process_id: "proc-1".to_string(),
-            stdin: "ls\n".to_string(),
+            call_id: "call-1".to_owned(),
+            process_id: "proc-1".to_owned(),
+            stdin: "ls\n".to_owned(),
         }),
     });
 
@@ -2284,15 +2284,15 @@ async fn unified_exec_wait_status_header_updates_on_late_command_display() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
     chat.on_task_started();
     chat.unified_exec_processes.push(UnifiedExecProcessSummary {
-        key: "proc-1".to_string(),
-        call_id: "call-1".to_string(),
-        command_display: "sleep 5".to_string(),
+        key: "proc-1".to_owned(),
+        call_id: "call-1".to_owned(),
+        command_display: "sleep 5".to_owned(),
         recent_chunks: Vec::new(),
     });
 
     chat.on_terminal_interaction(TerminalInteractionEvent {
-        call_id: "call-1".to_string(),
-        process_id: "proc-1".to_string(),
+        call_id: "call-1".to_owned(),
+        process_id: "proc-1".to_owned(),
         stdin: String::new(),
     });
 
@@ -2409,7 +2409,7 @@ async fn review_popup_custom_prompt_action_sends_event() {
     // Drain events and ensure we saw the OpenReviewCustomPrompt request
     let mut found = false;
     while let Ok(ev) = rx.try_recv() {
-        if let AppEvent::OpenReviewCustomPrompt = ev {
+        if matches!(ev, AppEvent::OpenReviewCustomPrompt) {
             found = true;
             break;
         }
@@ -2496,7 +2496,7 @@ async fn collab_slash_command_opens_picker_and_updates_mode() {
     chat.set_collaboration_mask(selected_mask);
 
     chat.bottom_pane
-        .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("hello".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -2513,7 +2513,7 @@ async fn collab_slash_command_opens_picker_and_updates_mode() {
     }
 
     chat.bottom_pane
-        .set_composer_text("follow up".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("follow up".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -2552,8 +2552,8 @@ async fn plan_slash_command_with_args_submits_prompt_in_plan_mode() {
         session_id: SessionId::new(),
         forked_from_id: None,
         session_name: None,
-        model: "test-model".to_string(),
-        model_provider_id: "test-provider".to_string(),
+        model: "test-model".to_owned(),
+        model_provider_id: "test-provider".to_owned(),
         approval_policy: AskForApproval::Never,
         sandbox_policy: SandboxPolicy::ReadOnly,
         cwd: PathBuf::from("/home/user/project"),
@@ -2569,7 +2569,7 @@ async fn plan_slash_command_with_args_submits_prompt_in_plan_mode() {
     });
 
     chat.bottom_pane
-        .set_composer_text("/plan build the plan".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("/plan build the plan".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let items = match next_submit_op(&mut op_rx) {
@@ -2580,7 +2580,7 @@ async fn plan_slash_command_with_args_submits_prompt_in_plan_mode() {
     assert_eq!(
         items[0],
         UserInput::Text {
-            text: "build the plan".to_string(),
+            text: "build the plan".to_owned(),
             text_elements: Vec::new(),
         }
     );
@@ -2593,7 +2593,7 @@ async fn collaboration_modes_defaults_to_code_on_startup() {
     let cfg = ConfigBuilder::default()
         .savfox_home(savfox_home.path().to_path_buf())
         .cli_overrides(vec![(
-            "features.collaboration_modes".to_string(),
+            "features.collaboration_modes".to_owned(),
             TomlValue::Boolean(true),
         )])
         .build()
@@ -2633,12 +2633,12 @@ async fn experimental_mode_plan_applies_on_startup() {
         .savfox_home(savfox_home.path().to_path_buf())
         .cli_overrides(vec![
             (
-                "features.collaboration_modes".to_string(),
+                "features.collaboration_modes".to_owned(),
                 TomlValue::Boolean(true),
             ),
             (
-                "tui.experimental_mode".to_string(),
-                TomlValue::String("plan".to_string()),
+                "tui.experimental_mode".to_owned(),
+                TomlValue::String("plan".to_owned()),
             ),
         ])
         .build()
@@ -2708,7 +2708,7 @@ async fn collab_mode_is_not_sent_until_selected() {
     chat.set_feature_enabled(Feature::CollaborationModes, true);
 
     chat.bottom_pane
-        .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("hello".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -2739,7 +2739,7 @@ async fn user_turn_includes_personality_from_config() {
     chat.set_personality(Personality::Friendly);
 
     chat.bottom_pane
-        .set_composer_text("hello".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("hello".to_owned(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
     match next_submit_op(&mut op_rx) {
         Op::UserTurn {
@@ -2807,7 +2807,7 @@ async fn slash_connect_opens_provider_picker() {
 async fn connect_auth_prompt_ollama_starts_without_api_key() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
 
-    chat.open_connect_auth_prompt("ollama".to_string());
+    chat.open_connect_auth_prompt("ollama".to_owned());
 
     let mut begin_connect: Option<(String, Option<String>)> = None;
     while let Ok(event) = rx.try_recv() {
@@ -2823,7 +2823,7 @@ async fn connect_auth_prompt_ollama_starts_without_api_key() {
 
     assert_eq!(
         begin_connect,
-        Some(("ollama".to_string(), None)),
+        Some(("ollama".to_owned(), None)),
         "expected /connect auth prompt to immediately start for ollama"
     );
 }
@@ -2832,7 +2832,7 @@ async fn connect_auth_prompt_ollama_starts_without_api_key() {
 async fn connect_auth_prompt_openai_shows_auth_method_picker() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
-    chat.open_connect_auth_prompt("openai".to_string());
+    chat.open_connect_auth_prompt("openai".to_owned());
 
     let popup = render_bottom_popup(&chat, 100);
     assert!(
@@ -2857,7 +2857,7 @@ async fn connect_auth_prompt_openai_shows_auth_method_picker() {
 async fn connect_auth_prompt_openai_headless_emits_auth_event() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
 
-    chat.open_connect_auth_prompt("openai".to_string());
+    chat.open_connect_auth_prompt("openai".to_owned());
     chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -2875,7 +2875,7 @@ async fn connect_auth_prompt_openai_headless_emits_auth_event() {
 
     assert_eq!(
         headless_auth,
-        Some(("openai".to_string(), OpenAiConnectAuthMethod::Headless)),
+        Some(("openai".to_owned(), OpenAiConnectAuthMethod::Headless)),
         "expected openai headless auth event"
     );
 }
@@ -2921,9 +2921,9 @@ async fn undo_success_events_render_info_messages() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
 
     chat.handle_savfox_event(Event {
-        id: "turn-1".to_string(),
+        id: "turn-1".to_owned(),
         msg: EventMsg::UndoStarted(UndoStartedEvent {
-            message: Some("Undo requested for the last turn...".to_string()),
+            message: Some("Undo requested for the last turn...".to_owned()),
         }),
     });
     assert!(
@@ -2932,7 +2932,7 @@ async fn undo_success_events_render_info_messages() {
     );
 
     chat.handle_savfox_event(Event {
-        id: "turn-1".to_string(),
+        id: "turn-1".to_owned(),
         msg: EventMsg::UndoCompleted(UndoCompletedEvent {
             success: true,
             message: None,
@@ -2958,7 +2958,7 @@ async fn undo_failure_events_render_error_message() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
 
     chat.handle_savfox_event(Event {
-        id: "turn-2".to_string(),
+        id: "turn-2".to_owned(),
         msg: EventMsg::UndoStarted(UndoStartedEvent { message: None }),
     });
     assert!(
@@ -2967,10 +2967,10 @@ async fn undo_failure_events_render_error_message() {
     );
 
     chat.handle_savfox_event(Event {
-        id: "turn-2".to_string(),
+        id: "turn-2".to_owned(),
         msg: EventMsg::UndoCompleted(UndoCompletedEvent {
             success: false,
-            message: Some("Failed to restore workspace state.".to_string()),
+            message: Some("Failed to restore workspace state.".to_owned()),
         }),
     });
 
@@ -2993,7 +2993,7 @@ async fn undo_started_hides_interrupt_hint() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     chat.handle_savfox_event(Event {
-        id: "turn-hint".to_string(),
+        id: "turn-hint".to_owned(),
         msg: EventMsg::UndoStarted(UndoStartedEvent { message: None }),
     });
 
@@ -3018,14 +3018,14 @@ async fn review_commit_picker_shows_subjects_without_timestamps() {
     // Show commit picker with synthetic entries.
     let entries = vec![
         savfox_core::git_info::CommitLogEntry {
-            sha: "1111111deadbeef".to_string(),
+            sha: "1111111deadbeef".to_owned(),
             timestamp: 0,
-            subject: "Add new feature X".to_string(),
+            subject: "Add new feature X".to_owned(),
         },
         savfox_core::git_info::CommitLogEntry {
-            sha: "2222222cafebabe".to_string(),
+            sha: "2222222cafebabe".to_owned(),
             timestamp: 0,
-            subject: "Fix bug Y".to_string(),
+            subject: "Fix bug Y".to_owned(),
         },
     ];
     show_review_commit_picker_with_entries(&mut chat, entries);
@@ -3076,7 +3076,7 @@ async fn custom_prompt_submit_sends_review_op() {
 
     chat.show_review_custom_prompt();
     // Paste prompt text via ChatScreen handler, then submit
-    chat.handle_paste("  please audit dependencies  ".to_string());
+    chat.handle_paste("  please audit dependencies  ".to_owned());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     // Expect AppEvent::SavfoxOp(Op::Review { .. }) with trimmed prompt
@@ -3087,7 +3087,7 @@ async fn custom_prompt_submit_sends_review_op() {
                 review_request,
                 ReviewRequest {
                     target: ReviewTarget::Custom {
-                        instructions: "please audit dependencies".to_string(),
+                        instructions: "please audit dependencies".to_owned(),
                     },
                     user_facing_hint: None,
                 }
@@ -3278,7 +3278,7 @@ fn render_bottom_popup(chat: &ChatScreen, width: u16) -> String {
                     line.push_str(symbol);
                 }
             }
-            line.trim_end().to_string()
+            line.trim_end().to_owned()
         })
         .collect();
 
@@ -3299,14 +3299,14 @@ async fn experimental_features_popup_snapshot() {
     let features = vec![
         ExperimentalFeatureItem {
             feature: Feature::GhostCommit,
-            name: "Ghost snapshots".to_string(),
-            description: "Capture undo snapshots each turn.".to_string(),
+            name: "Ghost snapshots".to_owned(),
+            description: "Capture undo snapshots each turn.".to_owned(),
             enabled: false,
         },
         ExperimentalFeatureItem {
             feature: Feature::ShellTool,
-            name: "Shell tool".to_string(),
-            description: "Allow the model to run shell commands.".to_string(),
+            name: "Shell tool".to_owned(),
+            description: "Allow the model to run shell commands.".to_owned(),
             enabled: true,
         },
     ];
@@ -3325,8 +3325,8 @@ async fn experimental_features_toggle_saves_on_exit() {
     let view = ExperimentalFeaturesView::new(
         vec![ExperimentalFeatureItem {
             feature: expected_feature,
-            name: "Ghost snapshots".to_string(),
-            description: "Capture undo snapshots each turn.".to_string(),
+            name: "Ghost snapshots".to_owned(),
+            description: "Capture undo snapshots each turn.".to_owned(),
             enabled: false,
         }],
         chat.app_event_tx.clone(),
@@ -3382,14 +3382,14 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(Some("test-visible-model")).await;
     chat.session_id = Some(SessionId::new());
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
-        id: slug.to_string(),
-        slug: slug.to_string(),
-        name: slug.to_string(),
+        id: slug.to_owned(),
+        slug: slug.to_owned(),
+        name: slug.to_owned(),
         description: format!("{slug} description"),
         default_reasoning_effort: ReasoningEffortConfig::Medium,
         supported_reasoning_efforts: vec![ReasoningEffortPreset {
             effort: ReasoningEffortConfig::Medium,
-            description: "medium".to_string(),
+            description: "medium".to_owned(),
         }],
         supports_personality: false,
         is_default: false,
@@ -3444,7 +3444,7 @@ async fn model_popup_prefers_provider_store_models() {
     .expect("write provider-b");
 
     chat.config.savfox_home = savfox_home.path().to_path_buf();
-    chat.config.model_provider_id = "provider-a".to_string();
+    chat.config.model_provider_id = "provider-a".to_owned();
     chat.open_model_popup();
 
     let popup = render_bottom_popup(&chat, 100);
@@ -3579,11 +3579,11 @@ async fn model_cap_error_does_not_switch_models() {
     while op_rx.try_recv().is_ok() {}
 
     chat.handle_savfox_event(Event {
-        id: "err-1".to_string(),
+        id: "err-1".to_owned(),
         msg: EventMsg::Error(ErrorEvent {
-            message: "model cap".to_string(),
+            message: "model cap".to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::ModelCap {
-                model: "boomslang".to_string(),
+                model: "boomslang".to_owned(),
                 reset_after_seconds: Some(120),
             }),
         }),
@@ -3776,16 +3776,16 @@ async fn reasoning_popup_uses_model_crate_metadata_for_selected_slug() {
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
 
     set_chatgpt_auth(&mut chat);
-    chat.config.model_provider_id = "chatgpt".to_string();
+    chat.config.model_provider_id = "chatgpt".to_owned();
     let preset = ModelPreset {
-        id: "gpt-5.3-codex".to_string(),
-        slug: "gpt-5.3-codex".to_string(),
-        name: "gpt-5.3-codex".to_string(),
-        description: "stale preset".to_string(),
+        id: "gpt-5.3-codex".to_owned(),
+        slug: "gpt-5.3-codex".to_owned(),
+        name: "gpt-5.3-codex".to_owned(),
+        description: "stale preset".to_owned(),
         default_reasoning_effort: ReasoningEffortConfig::Low,
         supported_reasoning_efforts: vec![ReasoningEffortPreset {
             effort: ReasoningEffortConfig::Low,
-            description: "stale low effort".to_string(),
+            description: "stale low effort".to_owned(),
         }],
         supports_personality: false,
         is_default: false,
@@ -3815,13 +3815,13 @@ async fn single_reasoning_option_skips_selection() {
 
     let single_effort = vec![ReasoningEffortPreset {
         effort: ReasoningEffortConfig::High,
-        description: "Greater reasoning depth for complex or ambiguous problems".to_string(),
+        description: "Greater reasoning depth for complex or ambiguous problems".to_owned(),
     }];
     let preset = ModelPreset {
-        id: "model-with-single-reasoning".to_string(),
-        slug: "model-with-single-reasoning".to_string(),
-        name: "model-with-single-reasoning".to_string(),
-        description: "".to_string(),
+        id: "model-with-single-reasoning".to_owned(),
+        slug: "model-with-single-reasoning".to_owned(),
+        name: "model-with-single-reasoning".to_owned(),
+        description: "".to_owned(),
         default_reasoning_effort: ReasoningEffortConfig::High,
         supported_reasoning_efforts: single_effort,
         supports_personality: false,
@@ -4184,7 +4184,7 @@ async fn approval_modal_exec_multiline_prefix_hides_execpolicy_option_snapshot()
     let (mut chat, _rx, _op_rx) = make_chat_screen_manual(None).await;
     chat.config.approval_policy.set(AskForApproval::OnRequest)?;
 
-    let script = "python - <<'PY'\nprint('hello')\nPY".to_string();
+    let script = "python - <<'PY'\nprint('hello')\nPY".to_owned();
     let command = vec!["bash".into(), "-lc".into(), script];
     let ev = ExecApprovalRequestEvent {
         call_id: "call-approve-cmd-multiline-trunc".into(),
@@ -4267,9 +4267,9 @@ async fn interrupt_restores_queued_messages_into_composer() {
 
     // Queue two user messages while the task is running.
     chat.queued_user_messages
-        .push_back(UserMessage::from("first queued".to_string()));
+        .push_back(UserMessage::from("first queued".to_owned()));
     chat.queued_user_messages
-        .push_back(UserMessage::from("second queued".to_string()));
+        .push_back(UserMessage::from("second queued".to_owned()));
     chat.refresh_queued_user_messages();
 
     // Deliver a TurnAborted event with Interrupted reason (as if Esc was pressed).
@@ -4303,12 +4303,12 @@ async fn interrupt_prepends_queued_messages_before_existing_composer_text() {
 
     chat.bottom_pane.set_task_running(true);
     chat.bottom_pane
-        .set_composer_text("current draft".to_string(), Vec::new(), Vec::new());
+        .set_composer_text("current draft".to_owned(), Vec::new(), Vec::new());
 
     chat.queued_user_messages
-        .push_back(UserMessage::from("first queued".to_string()));
+        .push_back(UserMessage::from("first queued".to_owned()));
     chat.queued_user_messages
-        .push_back(UserMessage::from("second queued".to_string()));
+        .push_back(UserMessage::from("second queued".to_owned()));
     chat.refresh_queued_user_messages();
 
     chat.handle_savfox_event(Event {
@@ -4593,7 +4593,7 @@ async fn background_event_updates_status_header() {
     chat.handle_savfox_event(Event {
         id: "bg-1".into(),
         msg: EventMsg::BackgroundEvent(BackgroundEventEvent {
-            message: "Waiting for `vim`".to_string(),
+            message: "Waiting for `vim`".to_owned(),
         }),
     });
 
@@ -4611,7 +4611,7 @@ async fn apply_patch_events_emit_history_cells() {
     changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     let ev = ApplyPatchApprovalRequestEvent {
@@ -4652,7 +4652,7 @@ async fn apply_patch_events_emit_history_cells() {
     changes2.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     let begin = PatchApplyBeginEvent {
@@ -4678,7 +4678,7 @@ async fn apply_patch_events_emit_history_cells() {
     end_changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     let end = PatchApplyEndEvent {
@@ -4708,7 +4708,7 @@ async fn apply_patch_manual_approval_adjusts_header() {
     proposed_changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     chat.handle_savfox_event(Event {
@@ -4727,7 +4727,7 @@ async fn apply_patch_manual_approval_adjusts_header() {
     apply_changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     chat.handle_savfox_event(Event {
@@ -4757,7 +4757,7 @@ async fn apply_patch_manual_flow_snapshot() {
     proposed_changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     chat.handle_savfox_event(Event {
@@ -4780,7 +4780,7 @@ async fn apply_patch_manual_flow_snapshot() {
     apply_changes.insert(
         PathBuf::from("foo.txt"),
         FileChange::Add {
-            content: "hello\n".to_string(),
+            content: "hello\n".to_owned(),
         },
     );
     chat.handle_savfox_event(Event {
@@ -5039,7 +5039,7 @@ async fn apply_patch_request_shows_diff_summary() -> anyhow::Result<()> {
 async fn plan_update_renders_history_cell() {
     let (mut chat, mut rx, _op_rx) = make_chat_screen_manual(None).await;
     let update = UpdatePlanArgs {
-        explanation: Some("Adapting plan".to_string()),
+        explanation: Some("Adapting plan".to_owned()),
         plan: vec![
             PlanItemArg {
                 step: "Explore codebase".into(),
@@ -5080,9 +5080,9 @@ async fn stream_error_updates_status_indicator() {
     chat.handle_savfox_event(Event {
         id: "sub-1".into(),
         msg: EventMsg::StreamError(StreamErrorEvent {
-            message: msg.to_string(),
+            message: msg.to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::Other),
-            additional_details: Some(details.to_string()),
+            additional_details: Some(details.to_owned()),
         }),
     });
 
@@ -5105,7 +5105,7 @@ async fn warning_event_adds_warning_history_cell() {
     chat.handle_savfox_event(Event {
         id: "sub-1".into(),
         msg: EventMsg::Warning(WarningEvent {
-            message: "test warning message".to_string(),
+            message: "test warning message".to_owned(),
         }),
     });
 
@@ -5132,7 +5132,7 @@ async fn stream_recovery_restores_previous_status_header() {
     chat.handle_savfox_event(Event {
         id: "retry".into(),
         msg: EventMsg::StreamError(StreamErrorEvent {
-            message: "Reconnecting... 1/5".to_string(),
+            message: "Reconnecting... 1/5".to_owned(),
             savfox_error_info: Some(SavfoxErrorInfo::Other),
             additional_details: None,
         }),
@@ -5141,7 +5141,7 @@ async fn stream_recovery_restores_previous_status_header() {
     chat.handle_savfox_event(Event {
         id: "delta".into(),
         msg: EventMsg::AgentMessageDelta(AgentMessageDeltaEvent {
-            delta: "hello".to_string(),
+            delta: "hello".to_owned(),
         }),
     });
 
@@ -5368,7 +5368,7 @@ async fn chat_screen_exec_and_status_layout_vt100_snapshot() {
         }),
     });
     chat.bottom_pane.set_composer_text(
-        "Summarize recent commits".to_string(),
+        "Summarize recent commits".to_owned(),
         Vec::new(),
         Vec::new(),
     );
@@ -5524,13 +5524,13 @@ async fn review_queues_user_messages_snapshot() {
         id: "review-1".into(),
         msg: EventMsg::EnteredReviewMode(ReviewRequest {
             target: ReviewTarget::UncommittedChanges,
-            user_facing_hint: Some("current changes".to_string()),
+            user_facing_hint: Some("current changes".to_owned()),
         }),
     });
     let _ = drain_insert_history(&mut rx);
 
     chat.queue_user_message(UserMessage::from(
-        "Queued while /review is running.".to_string(),
+        "Queued while /review is running.".to_owned(),
     ));
 
     let width: u16 = 80;

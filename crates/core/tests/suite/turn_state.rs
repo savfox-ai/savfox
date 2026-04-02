@@ -54,7 +54,7 @@ async fn responses_turn_state_persists_within_turn_and_resets_after() -> Result<
     assert_eq!(requests[0].header(TURN_STATE_HEADER), None);
     assert_eq!(
         requests[1].header(TURN_STATE_HEADER),
-        Some("ts-1".to_string())
+        Some("ts-1".to_owned())
     );
     assert_eq!(requests[2].header(TURN_STATE_HEADER), None);
 
@@ -76,7 +76,7 @@ async fn websocket_turn_state_persists_within_turn_and_resets_after() -> Result<
                 ev_shell_command_call(call_id, "echo websocket"),
                 ev_done(),
             ]],
-            response_headers: vec![(TURN_STATE_HEADER.to_string(), "ts-1".to_string())],
+            response_headers: vec![(TURN_STATE_HEADER.to_owned(), "ts-1".to_owned())],
         },
         WebSocketConnectionConfig {
             requests: vec![vec![
@@ -107,7 +107,7 @@ async fn websocket_turn_state_persists_within_turn_and_resets_after() -> Result<
     assert_eq!(handshakes[0].header(TURN_STATE_HEADER), None);
     assert_eq!(
         handshakes[1].header(TURN_STATE_HEADER),
-        Some("ts-1".to_string())
+        Some("ts-1".to_owned())
     );
     assert_eq!(handshakes[2].header(TURN_STATE_HEADER), None);
 

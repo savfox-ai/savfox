@@ -638,21 +638,21 @@ mod tests {
     fn extract_paths_handles_quoted_headers() {
         let diff = "diff --git \"a/hello world.txt\" \"b/hello world.txt\"\nnew file mode 100644\n--- /dev/null\n+++ b/hello world.txt\n@@ -0,0 +1 @@\n+hi\n";
         let paths = extract_paths_from_patch(diff);
-        assert_eq!(paths, vec!["hello world.txt".to_string()]);
+        assert_eq!(paths, vec!["hello world.txt".to_owned()]);
     }
 
     #[test]
     fn extract_paths_ignores_dev_null_header() {
         let diff = "diff --git a/dev/null b/ok.txt\nnew file mode 100644\n--- /dev/null\n+++ b/ok.txt\n@@ -0,0 +1 @@\n+hi\n";
         let paths = extract_paths_from_patch(diff);
-        assert_eq!(paths, vec!["ok.txt".to_string()]);
+        assert_eq!(paths, vec!["ok.txt".to_owned()]);
     }
 
     #[test]
     fn extract_paths_unescapes_c_style_in_quoted_headers() {
         let diff = "diff --git \"a/hello\\tworld.txt\" \"b/hello\\tworld.txt\"\nnew file mode 100644\n--- /dev/null\n+++ b/hello\tworld.txt\n@@ -0,0 +1 @@\n+hi\n";
         let paths = extract_paths_from_patch(diff);
-        assert_eq!(paths, vec!["hello\tworld.txt".to_string()]);
+        assert_eq!(paths, vec!["hello\tworld.txt".to_owned()]);
     }
 
     #[test]
@@ -661,7 +661,7 @@ mod tests {
         let (applied, skipped, conflicted) = parse_git_apply_output("", stderr);
         assert_eq!(applied, Vec::<String>::new());
         assert_eq!(conflicted, Vec::<String>::new());
-        assert_eq!(skipped, vec!["hello\tworld.txt".to_string()]);
+        assert_eq!(skipped, vec!["hello\tworld.txt".to_owned()]);
     }
 
     #[test]
@@ -673,7 +673,7 @@ mod tests {
         let diff = "diff --git a/hello.txt b/hello.txt\nnew file mode 100644\n--- /dev/null\n+++ b/hello.txt\n@@ -0,0 +1,2 @@\n+hello\n+world\n";
         let req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };
@@ -698,7 +698,7 @@ mod tests {
         let diff = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,3 +1,3 @@\n line1\n-line2\n+remote2\n line3\n";
         let req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };
@@ -715,7 +715,7 @@ mod tests {
         let diff = "diff --git a/ghost.txt b/ghost.txt\n--- a/ghost.txt\n+++ b/ghost.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n";
         let req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };
@@ -737,7 +737,7 @@ mod tests {
         let diff = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-orig\n+ORIG\n";
         let apply_req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };
@@ -749,7 +749,7 @@ mod tests {
         // Revert patch: ORIG -> orig (stage paths first; engine handles it)
         let revert_req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: true,
             preflight: false,
         };
@@ -772,7 +772,7 @@ mod tests {
         let diff = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1,1 +1,1 @@\n-orig\n+ORIG\n";
         let apply_req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };
@@ -786,7 +786,7 @@ mod tests {
 
         let preflight_req = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: true,
             preflight: true,
         };
@@ -816,7 +816,7 @@ diff --git a/ghost.txt b/ghost.txt\n--- a/ghost.txt\n+++ b/ghost.txt\n@@ -1,1 +1
         // 1) With preflight enabled, nothing should be changed (even though ok.txt could be added)
         let req1 = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: true,
         };
@@ -834,7 +834,7 @@ diff --git a/ghost.txt b/ghost.txt\n--- a/ghost.txt\n+++ b/ghost.txt\n@@ -1,1 +1
         // 2) Without preflight, we should see no --check in the executed command
         let req2 = ApplyGitRequest {
             cwd: root.to_path_buf(),
-            diff: diff.to_string(),
+            diff: diff.to_owned(),
             revert: false,
             preflight: false,
         };

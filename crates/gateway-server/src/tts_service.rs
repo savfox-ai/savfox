@@ -548,9 +548,9 @@ mod tests {
         let home = std::env::temp_dir().join(format!("savfox-tts-test-{}", uuid::Uuid::now_v7()));
         let cfg = TtsConfig {
             enabled: true,
-            provider: Some("openai".to_string()),
-            default_voice: Some("alloy".to_string()),
-            default_model: Some("gpt-4o-mini-tts".to_string()),
+            provider: Some("openai".to_owned()),
+            default_voice: Some("alloy".to_owned()),
+            default_model: Some("gpt-4o-mini-tts".to_owned()),
             speed: 1.0,
             pitch: 1.0,
         };

@@ -101,11 +101,11 @@ mod tests {
     #[async_trait]
     impl HttpTransport for DummyTransport {
         async fn execute(&self, _req: Request) -> Result<Response, TransportError> {
-            Err(TransportError::Build("execute should not run".to_string()))
+            Err(TransportError::Build("execute should not run".to_owned()))
         }
 
         async fn stream(&self, _req: Request) -> Result<StreamResponse, TransportError> {
-            Err(TransportError::Build("stream should not run".to_string()))
+            Err(TransportError::Build("stream should not run".to_owned()))
         }
     }
 
@@ -120,9 +120,9 @@ mod tests {
 
     fn provider(wire: WireApi) -> Provider {
         Provider {
-            id: "test".to_string(),
-            name: "test".to_string(),
-            base_url: "https://example.com/v1".to_string(),
+            id: "test".to_owned(),
+            name: "test".to_owned(),
+            base_url: "https://example.com/v1".to_owned(),
             query_params: None,
             wire,
             headers: HeaderMap::new(),

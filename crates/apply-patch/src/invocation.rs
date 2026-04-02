@@ -415,7 +415,7 @@ mod tests {
     fn expected_single_add() -> Vec<Hunk> {
         vec![Hunk::AddFile {
             path: PathBuf::from("foo"),
-            contents: "hi\n".to_string(),
+            contents: "hi\n".to_owned(),
         }]
     }
 
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_implicit_patch_single_arg_is_error() {
-        let patch = "*** Begin Patch\n*** Add File: foo\n+hi\n*** End Patch".to_string();
+        let patch = "*** Begin Patch\n*** Add File: foo\n+hi\n*** End Patch".to_owned();
         let args = vec![patch];
         let dir = tempdir().unwrap();
         assert_matches!(
@@ -481,7 +481,7 @@ mod tests {
                     hunks,
                     vec![Hunk::AddFile {
                         path: PathBuf::from("foo"),
-                        contents: "hi\n".to_string()
+                        contents: "hi\n".to_owned()
                     }]
                 );
             }
@@ -506,7 +506,7 @@ mod tests {
                     hunks,
                     vec![Hunk::AddFile {
                         path: PathBuf::from("foo"),
-                        contents: "hi\n".to_string()
+                        contents: "hi\n".to_owned()
                     }]
                 );
             }
@@ -546,7 +546,7 @@ PATCH"#,
                     hunks,
                     vec![Hunk::AddFile {
                         path: PathBuf::from("foo"),
-                        contents: "hi\n".to_string()
+                        contents: "hi\n".to_owned()
                     }]
                 );
             }
@@ -670,8 +670,8 @@ PATCH"#,
 +BAZ
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "foo\nbar\nBAZ\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "foo\nbar\nBAZ\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -704,8 +704,8 @@ PATCH"#,
 +quux
 "#;
         let expected = ApplyPatchFileUpdate {
-            unified_diff: expected_diff.to_string(),
-            content: "foo\nbar\nbaz\nquux\n".to_string(),
+            unified_diff: expected_diff.to_owned(),
+            content: "foo\nbar\nbaz\nquux\n".to_owned(),
         };
         assert_eq!(expected, diff);
     }
@@ -721,14 +721,13 @@ PATCH"#,
         fs::write(&session_file_path, "session directory content\n").unwrap();
 
         let argv = vec![
-            "apply_patch".to_string(),
+            "apply_patch".to_owned(),
             r#"*** Begin Patch
 *** Update File: source.txt
 @@
 -session directory content
 +updated session directory content
-*** End Patch"#
-                .to_string(),
+*** End Patch"#.to_owned(),
         ];
 
         let result = maybe_parse_apply_patch_verified(&argv, session_dir.path());
@@ -744,10 +743,9 @@ PATCH"#,
                         unified_diff: r#"@@ -1 +1 @@
 -session directory content
 +updated session directory content
-"#
-                        .to_string(),
+"#.to_owned(),
                         move_path: None,
-                        new_content: "updated session directory content\n".to_string(),
+                        new_content: "updated session directory content\n".to_owned(),
                     },
                 )]),
                 patch: argv[1].clone(),

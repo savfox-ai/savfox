@@ -375,10 +375,10 @@ mod tests {
         config: serde_json::Value,
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
-            id: "feishu-test".to_string(),
-            kind: "feishu".to_string(),
-            slug: "feishu-test".to_string(),
-            name: "feishu-test".to_string(),
+            id: "feishu-test".to_owned(),
+            kind: "feishu".to_owned(),
+            slug: "feishu-test".to_owned(),
+            name: "feishu-test".to_owned(),
             enabled: true,
             config,
             router: None,
@@ -398,7 +398,7 @@ mod tests {
         .expect("config should parse");
 
         assert_eq!(config.inbound_mode, FeishuInboundMode::Stream);
-        assert_eq!(config.stream_auto_reconnect, true);
+        assert!(config.stream_auto_reconnect);
         assert_eq!(config.stream_reconnect_count, -1);
         assert_eq!(config.stream_reconnect_interval_secs, 120);
         assert_eq!(config.stream_ping_interval_secs, 120);
@@ -417,7 +417,7 @@ mod tests {
         })))
         .expect("config should parse");
 
-        assert_eq!(config.stream_auto_reconnect, false);
+        assert!(!config.stream_auto_reconnect);
         assert_eq!(config.stream_reconnect_count, 3);
         assert_eq!(config.stream_reconnect_interval_secs, 15);
         assert_eq!(config.stream_ping_interval_secs, 45);

@@ -87,14 +87,14 @@ mod tests {
     #[test]
     fn desired_height_one_message() {
         let mut queue = QueuedUserMessages::new();
-        queue.messages.push("Hello, world!".to_string());
+        queue.messages.push("Hello, world!".to_owned());
         assert_eq!(queue.desired_height(40), 2);
     }
 
     #[test]
     fn render_one_message() {
         let mut queue = QueuedUserMessages::new();
-        queue.messages.push("Hello, world!".to_string());
+        queue.messages.push("Hello, world!".to_owned());
         let width = 40;
         let height = queue.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
@@ -105,8 +105,8 @@ mod tests {
     #[test]
     fn render_two_messages() {
         let mut queue = QueuedUserMessages::new();
-        queue.messages.push("Hello, world!".to_string());
-        queue.messages.push("This is another message".to_string());
+        queue.messages.push("Hello, world!".to_owned());
+        queue.messages.push("This is another message".to_owned());
         let width = 40;
         let height = queue.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
@@ -117,10 +117,10 @@ mod tests {
     #[test]
     fn render_more_than_three_messages() {
         let mut queue = QueuedUserMessages::new();
-        queue.messages.push("Hello, world!".to_string());
-        queue.messages.push("This is another message".to_string());
-        queue.messages.push("This is a third message".to_string());
-        queue.messages.push("This is a fourth message".to_string());
+        queue.messages.push("Hello, world!".to_owned());
+        queue.messages.push("This is another message".to_owned());
+        queue.messages.push("This is a third message".to_owned());
+        queue.messages.push("This is a fourth message".to_owned());
         let width = 40;
         let height = queue.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
@@ -133,8 +133,8 @@ mod tests {
         let mut queue = QueuedUserMessages::new();
         queue
             .messages
-            .push("This is a longer message that should be wrapped".to_string());
-        queue.messages.push("This is another message".to_string());
+            .push("This is a longer message that should be wrapped".to_owned());
+        queue.messages.push("This is another message".to_owned());
         let width = 40;
         let height = queue.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
@@ -147,7 +147,7 @@ mod tests {
         let mut queue = QueuedUserMessages::new();
         queue
             .messages
-            .push("This is\na message\nwith many\nlines".to_string());
+            .push("This is\na message\nwith many\nlines".to_owned());
         let width = 40;
         let height = queue.desired_height(width);
         let mut buf = Buffer::empty(Rect::new(0, 0, width, height));

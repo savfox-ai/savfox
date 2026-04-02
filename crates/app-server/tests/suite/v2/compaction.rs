@@ -112,15 +112,15 @@ async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()
     let compacted_history = vec![
         ResponseItem::Message {
             id: None,
-            role: "assistant".to_string(),
+            role: "assistant".to_owned(),
             content: vec![ContentItem::OutputText {
-                text: "REMOTE_COMPACT_SUMMARY".to_string(),
+                text: "REMOTE_COMPACT_SUMMARY".to_owned(),
             }],
             end_turn: None,
             phase: None,
         },
         ResponseItem::Compaction {
-            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_string(),
+            encrypted_content: "ENCRYPTED_COMPACTION_SUMMARY".to_owned(),
         },
     ];
     let compact_mock = responses::mount_compact_json_once(
@@ -190,7 +190,7 @@ async fn auto_compaction_remote_emits_started_and_completed_items() -> Result<()
 async fn start_session(mcp: &mut McpProcess) -> Result<String> {
     let session_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -206,9 +206,9 @@ async fn start_session(mcp: &mut McpProcess) -> Result<String> {
 async fn send_turn_and_wait(mcp: &mut McpProcess, session_id: &str, text: &str) -> Result<String> {
     let turn_id = mcp
         .send_turn_start_request(TurnStartParams {
-            session_id: session_id.to_string(),
+            session_id: session_id.to_owned(),
             input: vec![V2UserInput::Text {
-                text: text.to_string(),
+                text: text.to_owned(),
                 text_elements: Vec::new(),
             }],
             ..Default::default()

@@ -465,17 +465,17 @@ mod tests {
         let chunk_tokens = approx_token_count(chunk);
         assert!(chunk_tokens > 0, "chunk must consume tokens");
         let limit = chunk_tokens * 3;
-        let t1 = chunk.to_string();
-        let t2 = chunk.to_string();
+        let t1 = chunk.to_owned();
+        let t2 = chunk.to_owned();
         let t3 = chunk.repeat(10);
-        let t4 = chunk.to_string();
-        let t5 = chunk.to_string();
+        let t4 = chunk.to_owned();
+        let t5 = chunk.to_owned();
 
         let items = vec![
             FunctionCallOutputContentItem::InputText { text: t1.clone() },
             FunctionCallOutputContentItem::InputText { text: t2.clone() },
             FunctionCallOutputContentItem::InputImage {
-                image_url: "img:mid".to_string(),
+                image_url: "img:mid".to_owned(),
             },
             FunctionCallOutputContentItem::InputText { text: t3 },
             FunctionCallOutputContentItem::InputText { text: t4 },
@@ -503,7 +503,7 @@ mod tests {
         assert_eq!(
             output[2],
             FunctionCallOutputContentItem::InputImage {
-                image_url: "img:mid".to_string()
+                image_url: "img:mid".to_owned()
             }
         );
 

@@ -39,8 +39,7 @@ impl MemoryFileSync {
 
             if path.is_file()
                 && let Some(ext) = path.extension()
-            {
-                if (ext == "md" || ext == "qmd" || ext == "txt")
+                && (ext == "md" || ext == "qmd" || ext == "txt")
                     && let Ok(content) = std::fs::read_to_string(path)
                 {
                     let hash = Self::hash_content(&content);
@@ -50,7 +49,6 @@ impl MemoryFileSync {
                         hash,
                     });
                 }
-            }
         }
 
         info!("Scanned {} memory files", entries.len());
@@ -198,8 +196,7 @@ impl SessionFileSync {
 
             if path.is_file()
                 && let Some(ext) = path.extension()
-            {
-                if (ext == "json" || ext == "md")
+                && (ext == "json" || ext == "md")
                     && let Ok(content) = std::fs::read_to_string(path)
                 {
                     let hash = MemoryFileSync::hash_content(&content);
@@ -210,7 +207,6 @@ impl SessionFileSync {
                         session_id: extract_session_id(path),
                     });
                 }
-            }
         }
 
         Ok(entries)

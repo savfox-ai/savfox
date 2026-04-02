@@ -365,7 +365,7 @@ extra = true
         .expect("nested");
     assert_eq!(
         nested.get("value"),
-        Some(&TomlValue::String("managed_config".to_string()))
+        Some(&TomlValue::String("managed_config".to_owned()))
     );
     assert_eq!(nested.get("extra"), Some(&TomlValue::Boolean(true)));
 }
@@ -867,7 +867,7 @@ async fn cli_override_model_instructions_file_sets_base_instructions() -> std::i
     tokio::fs::write(&instructions_path, "cli override instructions").await?;
 
     let cli_overrides = vec![(
-        "model_instructions_file".to_string(),
+        "model_instructions_file".to_owned(),
         TomlValue::String(instructions_path.to_string_lossy().to_string()),
     )];
 
@@ -964,7 +964,7 @@ async fn savfox_home_is_not_loaded_as_project_layer_from_home_dir() -> std::io::
     assert_eq!(expected, project_layers);
     assert_eq!(
         layers.effective_config().get("foo"),
-        Some(&TomlValue::String("user".to_string()))
+        Some(&TomlValue::String("user".to_owned()))
     );
 
     Ok(())
@@ -1035,7 +1035,7 @@ async fn savfox_home_within_project_tree_is_not_double_loaded() -> std::io::Resu
     );
     assert_eq!(
         layers.effective_config().get("foo"),
-        Some(&TomlValue::String("child".to_string()))
+        Some(&TomlValue::String("child".to_owned()))
     );
 
     Ok(())
@@ -1095,11 +1095,11 @@ async fn project_layers_disabled_when_untrusted_or_unknown() -> std::io::Result<
     );
     assert_eq!(
         project_layers_untrusted[0].config.get("foo"),
-        Some(&TomlValue::String("child".to_string()))
+        Some(&TomlValue::String("child".to_owned()))
     );
     assert_eq!(
         layers_untrusted.effective_config().get("foo"),
-        Some(&TomlValue::String("user".to_string()))
+        Some(&TomlValue::String("user".to_owned()))
     );
 
     let savfox_home_unknown = tmp.path().join("home_unknown");
@@ -1133,11 +1133,11 @@ async fn project_layers_disabled_when_untrusted_or_unknown() -> std::io::Result<
     );
     assert_eq!(
         project_layers_unknown[0].config.get("foo"),
-        Some(&TomlValue::String("child".to_string()))
+        Some(&TomlValue::String("child".to_owned()))
     );
     assert_eq!(
         layers_unknown.effective_config().get("foo"),
-        Some(&TomlValue::String("user".to_string()))
+        Some(&TomlValue::String("user".to_owned()))
     );
 
     Ok(())
@@ -1202,7 +1202,7 @@ async fn invalid_project_config_ignored_when_untrusted_or_unknown() -> std::io::
         );
         assert_eq!(
             layers.effective_config().get("foo"),
-            Some(&TomlValue::String("user".to_string()))
+            Some(&TomlValue::String("user".to_owned()))
         );
     }
 
@@ -1223,8 +1223,8 @@ async fn cli_overrides_with_relative_paths_do_not_break_trust_check() -> std::io
 
     let cwd = AbsolutePathBuf::from_absolute_path(&nested)?;
     let cli_overrides = vec![(
-        "model_instructions_file".to_string(),
-        TomlValue::String("relative.md".to_string()),
+        "model_instructions_file".to_owned(),
+        TomlValue::String("relative.md".to_owned()),
     )];
 
     load_config_layers_state(
@@ -1264,7 +1264,7 @@ async fn project_root_markers_supports_alternate_markers() -> std::io::Result<()
         &savfox_home,
         &project_root,
         TrustLevel::Trusted,
-        Some(vec![".hg".to_string()]),
+        Some(vec![".hg".to_owned()]),
     )
     .await?;
 
@@ -1372,7 +1372,7 @@ prefix_rules = [
             RequirementsExecPolicyToml {
                 prefix_rules: vec![RequirementsExecPolicyPrefixRuleToml {
                     pattern: vec![RequirementsExecPolicyPatternTokenToml {
-                        token: Some("rm".to_string()),
+                        token: Some("rm".to_owned()),
                         any_of: None,
                     }],
                     decision: Some(RequirementsExecPolicyDecisionToml::Forbidden),
@@ -1401,7 +1401,7 @@ prefix_rules = [
                 prefix_rules: vec![
                     RequirementsExecPolicyPrefixRuleToml {
                         pattern: vec![RequirementsExecPolicyPatternTokenToml {
-                            token: Some("rm".to_string()),
+                            token: Some("rm".to_owned()),
                             any_of: None,
                         }],
                         decision: Some(RequirementsExecPolicyDecisionToml::Forbidden),
@@ -1410,16 +1410,16 @@ prefix_rules = [
                     RequirementsExecPolicyPrefixRuleToml {
                         pattern: vec![
                             RequirementsExecPolicyPatternTokenToml {
-                                token: Some("git".to_string()),
+                                token: Some("git".to_owned()),
                                 any_of: None,
                             },
                             RequirementsExecPolicyPatternTokenToml {
                                 token: None,
-                                any_of: Some(vec!["push".to_string(), "commit".to_string()]),
+                                any_of: Some(vec!["push".to_owned(), "commit".to_owned()]),
                             },
                         ],
                         decision: Some(RequirementsExecPolicyDecisionToml::Prompt),
-                        justification: Some("review changes before push or commit".to_string()),
+                        justification: Some("review changes before push or commit".to_owned()),
                     },
                 ],
             }
@@ -1559,11 +1559,11 @@ prefix_rules = []
         let policy = load_exec_policy(&config_stack).await?;
 
         assert_eq!(
-            policy.check_multiple([vec!["rm".to_string()]].iter(), &panic_if_called),
+            policy.check_multiple([vec!["rm".to_owned()]].iter(), &panic_if_called),
             Evaluation {
                 decision: Decision::Forbidden,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["rm".to_string()],
+                    matched_prefix: vec!["rm".to_owned()],
                     decision: Decision::Forbidden,
                     justification: None,
                 }],
@@ -1597,11 +1597,11 @@ prefix_rules = []
         let policy = load_exec_policy(&config_stack).await?;
 
         assert_eq!(
-            policy.check_multiple([vec!["rm".to_string()]].iter(), &panic_if_called),
+            policy.check_multiple([vec!["rm".to_owned()]].iter(), &panic_if_called),
             Evaluation {
                 decision: Decision::Forbidden,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["rm".to_string()],
+                    matched_prefix: vec!["rm".to_owned()],
                     decision: Decision::Forbidden,
                     justification: None,
                 }],
@@ -1609,13 +1609,13 @@ prefix_rules = []
         );
         assert_eq!(
             policy.check_multiple(
-                [vec!["git".to_string(), "push".to_string()]].iter(),
+                [vec!["git".to_owned(), "push".to_owned()]].iter(),
                 &panic_if_called
             ),
             Evaluation {
                 decision: Decision::Prompt,
                 matched_rules: vec![RuleMatch::PrefixRuleMatch {
-                    matched_prefix: vec!["git".to_string(), "push".to_string()],
+                    matched_prefix: vec!["git".to_owned(), "push".to_owned()],
                     decision: Decision::Prompt,
                     justification: None,
                 }],

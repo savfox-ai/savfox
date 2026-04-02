@@ -587,7 +587,7 @@ mod tests {
     #[tokio::test]
     async fn http_connect_accept_blocks_in_limited_mode() {
         let policy = NetworkPolicy {
-            allowed_domains: vec!["example.com".to_string()],
+            allowed_domains: vec!["example.com".to_owned()],
             ..Default::default()
         };
         let state = Arc::new(network_proxy_state_for_policy(policy));

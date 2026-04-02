@@ -20,9 +20,9 @@ impl AuthProvider for DummyAuth {
 
 fn provider(base_url: &str) -> Provider {
     Provider {
-        id: "test".to_string(),
-        name: "test".to_string(),
-        base_url: base_url.to_string(),
+        id: "test".to_owned(),
+        name: "test".to_owned(),
+        base_url: base_url.to_owned(),
         query_params: None,
         wire: WireApi::Responses,
         headers: HeaderMap::new(),
@@ -44,9 +44,9 @@ async fn models_client_hits_models_endpoint() {
 
     let response = ModelsResponse {
         models: vec![ModelInfo {
-            slug: "gpt-test".to_string(),
-            name: "gpt-test".to_string(),
-            description: Some("desc".to_string()),
+            slug: "gpt-test".to_owned(),
+            name: "gpt-test".to_owned(),
+            description: Some("desc".to_owned()),
             default_reasoning_level: Some(ReasoningEffort::Medium),
             supported_reasoning_levels: vec![
                 ReasoningEffortPreset {
@@ -67,7 +67,7 @@ async fn models_client_hits_models_endpoint() {
             supported_in_api: true,
             priority: 1,
             upgrade: None,
-            base_instructions: "base instructions".to_string(),
+            base_instructions: "base instructions".to_owned(),
             model_messages: None,
             supports_reasoning_summaries: false,
             support_verbosity: false,

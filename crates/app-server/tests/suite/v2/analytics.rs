@@ -10,7 +10,7 @@ const SERVICE_VERSION: &str = "0.0.0-test";
 
 fn set_metrics_exporter(config: &mut savfox_core::config::Config) {
     config.otel.metrics_exporter = OtelExporterKind::OtlpHttp {
-        endpoint: "http://localhost:4318".to_string(),
+        endpoint: "http://localhost:4318".to_owned(),
         headers: HashMap::new(),
         protocol: OtelHttpProtocol::Json,
         tls: None,

@@ -645,9 +645,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "This is a simple".to_string(),
-                "sentence that".to_string(),
-                "should wrap.".to_string(),
+                "This is a simple".to_owned(),
+                "sentence that".to_owned(),
+                "should wrap.".to_owned(),
             ]
         );
     }
@@ -659,7 +659,7 @@ mod tests {
         let lines = lines_to_strings(&rendered);
         assert_eq!(
             lines,
-            vec!["- first second".to_string(), "  third fourth".to_string(),]
+            vec!["- first second".to_owned(), "  third fourth".to_owned(),]
         );
     }
 
@@ -672,12 +672,12 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "- outer item with".to_string(),
-                "  several words to".to_string(),
-                "  wrap".to_string(),
-                "    - inner item".to_string(),
-                "      that also".to_string(),
-                "      needs wrapping".to_string(),
+                "- outer item with".to_owned(),
+                "  several words to".to_owned(),
+                "  wrap".to_owned(),
+                "    - inner item".to_owned(),
+                "      that also".to_owned(),
+                "      needs wrapping".to_owned(),
             ]
         );
     }
@@ -690,10 +690,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "1. ordered item".to_string(),
-                "   contains many".to_string(),
-                "   words for".to_string(),
-                "   wrapping".to_string(),
+                "1. ordered item".to_owned(),
+                "   contains many".to_owned(),
+                "   words for".to_owned(),
+                "   wrapping".to_owned(),
             ]
         );
     }
@@ -706,9 +706,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "> block quote with".to_string(),
-                "> content that should".to_string(),
-                "> wrap nicely".to_string(),
+                "> block quote with".to_owned(),
+                "> content that should".to_owned(),
+                "> wrap nicely".to_owned(),
             ]
         );
     }
@@ -721,9 +721,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "- list item".to_string(),
-                "  > block quote inside".to_string(),
-                "  > list that wraps".to_string(),
+                "- list item".to_owned(),
+                "  > block quote inside".to_owned(),
+                "  > list that wraps".to_owned(),
             ]
         );
     }
@@ -736,9 +736,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "1. item with quote".to_string(),
-                "   > quoted text that".to_string(),
-                "   > should wrap".to_string(),
+                "1. item with quote".to_owned(),
+                "   > quoted text that".to_owned(),
+                "   > should wrap".to_owned(),
             ]
         );
     }
@@ -750,7 +750,7 @@ mod tests {
         let lines = lines_to_strings(&rendered);
         assert_eq!(
             lines,
-            vec!["fn main() { println!(\"hi from a long line\"); }".to_string(),]
+            vec!["fn main() { println!(\"hi from a long line\"); }".to_owned(),]
         );
     }
 }

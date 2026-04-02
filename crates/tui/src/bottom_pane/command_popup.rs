@@ -271,7 +271,7 @@ mod tests {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
         // Simulate the composer line starting with '/in' so the popup filters
         // matching commands by prefix.
-        popup.on_composer_text_change("/in".to_string());
+        popup.on_composer_text_change("/in".to_owned());
 
         // Access the filtered list via the selected command and ensure that
         // one of the matches is the new "init" command.
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn selecting_init_by_exact_match() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/init".to_string());
+        popup.on_composer_text_change("/init".to_owned());
 
         // When an exact match exists, the selected command should be that
         // command by default.
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn model_is_first_suggestion_for_mo() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/mo".to_string());
+        popup.on_composer_text_change("/mo".to_owned());
         let matches = popup.filtered_items();
         match matches.first() {
             Some(CommandItem::Builtin(cmd)) => assert_eq!(cmd.command(), "model"),
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn filtered_commands_keep_presentation_order_for_prefix() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/m".to_string());
+        popup.on_composer_text_change("/m".to_owned());
 
         let cmds: Vec<&str> = popup
             .filtered_items()
@@ -335,16 +335,16 @@ mod tests {
     fn prompt_discovery_lists_custom_prompts() {
         let prompts = vec![
             CustomPrompt {
-                name: "foo".to_string(),
-                path: "/tmp/foo.md".to_string().into(),
-                content: "hello from foo".to_string(),
+                name: "foo".to_owned(),
+                path: "/tmp/foo.md".to_owned().into(),
+                content: "hello from foo".to_owned(),
                 description: None,
                 argument_hint: None,
             },
             CustomPrompt {
-                name: "bar".to_string(),
-                path: "/tmp/bar.md".to_string().into(),
-                content: "hello from bar".to_string(),
+                name: "bar".to_owned(),
+                path: "/tmp/bar.md".to_owned().into(),
+                content: "hello from bar".to_owned(),
                 description: None,
                 argument_hint: None,
             },
@@ -359,7 +359,7 @@ mod tests {
             })
             .collect();
         prompt_names.sort();
-        assert_eq!(prompt_names, vec!["bar".to_string(), "foo".to_string()]);
+        assert_eq!(prompt_names, vec!["bar".to_owned(), "foo".to_owned()]);
     }
 
     #[test]
@@ -367,9 +367,9 @@ mod tests {
         // Create a prompt named like a builtin (e.g. "init").
         let popup = CommandPopup::new(
             vec![CustomPrompt {
-                name: "init".to_string(),
-                path: "/tmp/init.md".to_string().into(),
-                content: "should be ignored".to_string(),
+                name: "init".to_owned(),
+                path: "/tmp/init.md".to_owned().into(),
+                content: "should be ignored".to_owned(),
                 description: None,
                 argument_hint: None,
             }],
@@ -390,10 +390,10 @@ mod tests {
     fn prompt_description_uses_frontmatter_metadata() {
         let popup = CommandPopup::new(
             vec![CustomPrompt {
-                name: "draftpr".to_string(),
-                path: "/tmp/draftpr.md".to_string().into(),
-                content: "body".to_string(),
-                description: Some("Create feature branch, commit and open draft PR.".to_string()),
+                name: "draftpr".to_owned(),
+                path: "/tmp/draftpr.md".to_owned().into(),
+                content: "body".to_owned(),
+                description: Some("Create feature branch, commit and open draft PR.".to_owned()),
                 argument_hint: None,
             }],
             CommandPopupFlags::default(),
@@ -410,9 +410,9 @@ mod tests {
     fn prompt_description_falls_back_when_missing() {
         let popup = CommandPopup::new(
             vec![CustomPrompt {
-                name: "foo".to_string(),
-                path: "/tmp/foo.md".to_string().into(),
-                content: "body".to_string(),
+                name: "foo".to_owned(),
+                path: "/tmp/foo.md".to_owned().into(),
+                content: "body".to_owned(),
                 description: None,
                 argument_hint: None,
             }],
@@ -426,7 +426,7 @@ mod tests {
     #[test]
     fn prefix_filter_limits_matches_for_ac() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/ac".to_string());
+        popup.on_composer_text_change("/ac".to_owned());
 
         let cmds: Vec<&str> = popup
             .filtered_items()
@@ -445,11 +445,11 @@ mod tests {
     #[test]
     fn quit_hidden_in_empty_filter_but_shown_for_prefix() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/".to_string());
+        popup.on_composer_text_change("/".to_owned());
         let items = popup.filtered_items();
         assert!(!items.contains(&CommandItem::Builtin(SlashCommand::Quit)));
 
-        popup.on_composer_text_change("/qu".to_string());
+        popup.on_composer_text_change("/qu".to_owned());
         let items = popup.filtered_items();
         assert!(items.contains(&CommandItem::Builtin(SlashCommand::Quit)));
     }
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn collab_command_hidden_when_collaboration_modes_disabled() {
         let mut popup = CommandPopup::new(Vec::new(), CommandPopupFlags::default());
-        popup.on_composer_text_change("/".to_string());
+        popup.on_composer_text_change("/".to_owned());
 
         let cmds: Vec<&str> = popup
             .filtered_items()
@@ -488,7 +488,7 @@ mod tests {
                 windows_degraded_sandbox_active: false,
             },
         );
-        popup.on_composer_text_change("/collab".to_string());
+        popup.on_composer_text_change("/collab".to_owned());
 
         match popup.selected_item() {
             Some(CommandItem::Builtin(cmd)) => assert_eq!(cmd.command(), "collab"),
@@ -507,7 +507,7 @@ mod tests {
                 windows_degraded_sandbox_active: false,
             },
         );
-        popup.on_composer_text_change("/plan".to_string());
+        popup.on_composer_text_change("/plan".to_owned());
 
         match popup.selected_item() {
             Some(CommandItem::Builtin(cmd)) => assert_eq!(cmd.command(), "plan"),
@@ -526,7 +526,7 @@ mod tests {
                 windows_degraded_sandbox_active: false,
             },
         );
-        popup.on_composer_text_change("/pers".to_string());
+        popup.on_composer_text_change("/pers".to_owned());
 
         let cmds: Vec<&str> = popup
             .filtered_items()
@@ -553,7 +553,7 @@ mod tests {
                 windows_degraded_sandbox_active: false,
             },
         );
-        popup.on_composer_text_change("/personality".to_string());
+        popup.on_composer_text_change("/personality".to_owned());
 
         match popup.selected_item() {
             Some(CommandItem::Builtin(cmd)) => assert_eq!(cmd.command(), "personality"),

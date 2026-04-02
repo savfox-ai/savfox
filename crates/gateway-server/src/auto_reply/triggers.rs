@@ -298,15 +298,15 @@ mod tests {
         conditions: Vec<RuleCondition>,
     ) -> AutoReplyRule {
         AutoReplyRule {
-            id: id.to_string(),
-            name: id.to_string(),
+            id: id.to_owned(),
+            name: id.to_owned(),
             enabled: true,
             triggers,
             conditions,
             channels: Vec::new(),
             permissions: ReplyPermissions::default(),
             response: ResponseTemplate::Text {
-                template: "ok".to_string(),
+                template: "ok".to_owned(),
             },
             priority,
         }
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn condition_chaining_channel_and_group() {
-        let groups = vec!["admin".to_string(), "ops".to_string()];
+        let groups = vec!["admin".to_owned(), "ops".to_owned()];
         let ctx = MessageContext {
             text: "hello",
             channel: "discord:general",
@@ -334,10 +334,10 @@ mod tests {
             vec![Trigger::Always],
             vec![
                 RuleCondition::ChannelEquals {
-                    value: "discord:general".to_string(),
+                    value: "discord:general".to_owned(),
                 },
                 RuleCondition::UserInGroup {
-                    groups: vec!["admin".to_string()],
+                    groups: vec!["admin".to_owned()],
                 },
             ],
         );
@@ -376,9 +376,9 @@ mod tests {
             20,
             vec![Trigger::Always],
             vec![RuleCondition::TimeWindow {
-                start: "22:00".to_string(),
-                end: "06:00".to_string(),
-                weekdays: vec!["sat".to_string(), "sun".to_string()],
+                start: "22:00".to_owned(),
+                end: "06:00".to_owned(),
+                weekdays: vec!["sat".to_owned(), "sun".to_owned()],
             }],
         );
 
@@ -426,8 +426,8 @@ mod tests {
             50,
             vec![Trigger::Always],
             vec![RuleCondition::TimeWindow {
-                start: "99:00".to_string(),
-                end: "06:00".to_string(),
+                start: "99:00".to_owned(),
+                end: "06:00".to_owned(),
                 weekdays: Vec::new(),
             }],
         );

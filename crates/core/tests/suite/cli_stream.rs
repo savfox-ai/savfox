@@ -81,7 +81,7 @@ async fn chat_mode_stream_cli() {
     server.verify().await;
 
     // Verify a new session rollout was created and is discoverable via list_conversations
-    let provider_filter = vec!["mock".to_string()];
+    let provider_filter = vec!["mock".to_owned()];
     let page = RolloutRecorder::list_sessions(
         home.path(),
         10,
@@ -120,7 +120,7 @@ async fn exec_cli_applies_model_instructions_file() {
         "data: {\"type\":\"response.created\",\"response\":{}}\n\n",
         "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\"}}\n\n"
     );
-    let resp_mock = core_test_support::responses::mount_sse_once(&server, sse.to_string()).await;
+    let resp_mock = core_test_support::responses::mount_sse_once(&server, sse.to_owned()).await;
 
     // Create a temporary instructions file with a unique marker we can assert
     // appears in the outbound request payload.
@@ -169,8 +169,7 @@ async fn exec_cli_applies_model_instructions_file() {
     let instructions = body
         .get("instructions")
         .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default().to_owned();
     assert!(
         instructions.contains(marker),
         "instructions did not contain custom marker; got: {instructions}"
@@ -516,8 +515,7 @@ async fn integration_git_info_unit_test() {
         .unwrap();
     let expected_remote_url = String::from_utf8(expected_remote_url.stdout)
         .unwrap()
-        .trim()
-        .to_string();
+        .trim().to_owned();
     assert_eq!(
         repo_url, &expected_remote_url,
         "Repository URL should match git remote get-url output"

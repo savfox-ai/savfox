@@ -210,7 +210,7 @@ approval_policy = "on-request"
     let write_id = mcp
         .send_config_value_write_request(ConfigValueWriteParams {
             file_path: None,
-            key_path: "approval_policy".to_string(),
+            key_path: "approval_policy".to_owned(),
             value: json!("never"),
             merge_strategy: MergeStrategy::Replace,
             expected_version,
@@ -262,10 +262,10 @@ model = "gpt-old"
     let write_id = mcp
         .send_config_value_write_request(ConfigValueWriteParams {
             file_path: Some(savfox_home.path().join("config.toml").display().to_string()),
-            key_path: "model".to_string(),
+            key_path: "model".to_owned(),
             value: json!("gpt-new"),
             merge_strategy: MergeStrategy::Replace,
-            expected_version: Some("sha256:stale".to_string()),
+            expected_version: Some("sha256:stale".to_owned()),
         })
         .await?;
 
@@ -300,12 +300,12 @@ async fn config_batch_write_applies_multiple_edits() -> Result<()> {
             file_path: Some(savfox_home.join("config.toml").display().to_string()),
             edits: vec![
                 ConfigEdit {
-                    key_path: "sandbox_mode".to_string(),
+                    key_path: "sandbox_mode".to_owned(),
                     value: json!("workspace-write"),
                     merge_strategy: MergeStrategy::Replace,
                 },
                 ConfigEdit {
-                    key_path: "sandbox_workspace_write".to_string(),
+                    key_path: "sandbox_workspace_write".to_owned(),
                     value: json!({
                         "writable_roots": [writable_root.clone()],
                         "network_access": false

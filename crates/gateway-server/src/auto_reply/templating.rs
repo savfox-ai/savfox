@@ -281,7 +281,7 @@ mod tests {
     fn test_each_loop() {
         let engine = TemplateEngine::new();
         let mut ctx = TemplateContext::new();
-        ctx.set_list("items", vec!["apple".to_string(), "banana".to_string()]);
+        ctx.set_list("items", vec!["apple".to_owned(), "banana".to_owned()]);
         assert_eq!(
             engine.render("{{#each items}}- {{item}}\n{{/each}}", &ctx),
             "- apple\n- banana\n"

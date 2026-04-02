@@ -292,8 +292,8 @@ mod tests {
 
         let client = OllamaClient::from_host_root(server.uri());
         let models = client.fetch_models().await.expect("fetch models");
-        assert!(models.contains(&"llama3.2:3b".to_string()));
-        assert!(models.contains(&"mistral".to_string()));
+        assert!(models.contains(&"llama3.2:3b".to_owned()));
+        assert!(models.contains(&"mistral".to_owned()));
     }
 
     #[tokio::test]
@@ -406,8 +406,7 @@ mod tests {
         let server = wiremock::MockServer::start().await;
         let err = OllamaClient::try_from_provider_with_base_url(&format!("{}/v1", server.uri()))
             .await
-            .err()
-            .expect("expected error");
+            .expect_err("expected error");
         assert_eq!(OLLAMA_CONNECTION_ERROR, err.to_string());
     }
 }

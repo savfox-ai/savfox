@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn accepts_single_simple_command() {
         let cmds = parse_seq("ls -1").unwrap();
-        assert_eq!(cmds, vec![vec!["ls".to_string(), "-1".to_string()]]);
+        assert_eq!(cmds, vec![vec!["ls".to_owned(), "-1".to_owned()]]);
     }
 
     #[test]
@@ -230,10 +230,10 @@ mod tests {
         let src = "ls && pwd; echo 'hi there' | wc -l";
         let cmds = parse_seq(src).unwrap();
         let expected: Vec<Vec<String>> = vec![
-            vec!["ls".to_string()],
-            vec!["pwd".to_string()],
-            vec!["echo".to_string(), "hi there".to_string()],
-            vec!["wc".to_string(), "-l".to_string()],
+            vec!["ls".to_owned()],
+            vec!["pwd".to_owned()],
+            vec!["echo".to_owned(), "hi there".to_owned()],
+            vec!["wc".to_owned(), "-l".to_owned()],
         ];
         assert_eq!(cmds, expected);
     }
@@ -243,13 +243,13 @@ mod tests {
         let cmds = parse_seq("echo \"hello world\"").unwrap();
         assert_eq!(
             cmds,
-            vec![vec!["echo".to_string(), "hello world".to_string()]]
+            vec![vec!["echo".to_owned(), "hello world".to_owned()]]
         );
 
         let cmds2 = parse_seq("echo 'hi there'").unwrap();
         assert_eq!(
             cmds2,
-            vec![vec!["echo".to_string(), "hi there".to_string()]]
+            vec![vec!["echo".to_owned(), "hi there".to_owned()]]
         );
     }
 
@@ -259,10 +259,10 @@ mod tests {
         assert_eq!(
             cmds,
             vec![vec![
-                "git".to_string(),
-                "commit".to_string(),
-                "-m".to_string(),
-                "line1\nline2".to_string(),
+                "git".to_owned(),
+                "commit".to_owned(),
+                "-m".to_owned(),
+                "line1\nline2".to_owned(),
             ]]
         );
     }
@@ -271,11 +271,11 @@ mod tests {
     fn accepts_mixed_quote_concatenation() {
         assert_eq!(
             parse_seq(r#"echo "/usr"'/'"local"/bin"#).unwrap(),
-            vec![vec!["echo".to_string(), "/usr/local/bin".to_string()]]
+            vec![vec!["echo".to_owned(), "/usr/local/bin".to_owned()]]
         );
         assert_eq!(
             parse_seq(r#"echo '/usr'"/"'local'/bin"#).unwrap(),
-            vec![vec!["echo".to_string(), "/usr/local/bin".to_string()]]
+            vec![vec!["echo".to_owned(), "/usr/local/bin".to_owned()]]
         );
     }
 
@@ -291,9 +291,9 @@ mod tests {
         assert_eq!(
             cmds,
             vec![vec![
-                "echo".to_string(),
-                "123".to_string(),
-                "456".to_string()
+                "echo".to_owned(),
+                "123".to_owned(),
+                "456".to_owned()
             ]]
         );
     }
@@ -330,9 +330,9 @@ mod tests {
 
     #[test]
     fn parse_zsh_lc_plain_commands() {
-        let command = vec!["zsh".to_string(), "-lc".to_string(), "ls".to_string()];
+        let command = vec!["zsh".to_owned(), "-lc".to_owned(), "ls".to_owned()];
         let parsed = parse_shell_lc_plain_commands(&command).unwrap();
-        assert_eq!(parsed, vec![vec!["ls".to_string()]]);
+        assert_eq!(parsed, vec![vec!["ls".to_owned()]]);
     }
 
     #[test]
@@ -342,10 +342,10 @@ mod tests {
         assert_eq!(
             cmds,
             vec![vec![
-                "rg".to_string(),
-                "-n".to_string(),
-                "foo".to_string(),
-                "-g*.py".to_string(),
+                "rg".to_owned(),
+                "-n".to_owned(),
+                "foo".to_owned(),
+                "-g*.py".to_owned(),
             ]]
         );
     }
@@ -356,10 +356,10 @@ mod tests {
         assert_eq!(
             cmds,
             vec![vec![
-                "grep".to_string(),
-                "-n".to_string(),
-                "pattern".to_string(),
-                "-g*.txt".to_string(),
+                "grep".to_owned(),
+                "-n".to_owned(),
+                "pattern".to_owned(),
+                "-g*.txt".to_owned(),
             ]]
         );
     }

@@ -2234,9 +2234,9 @@ mod tests {
     ) -> savfox_core::config::channel_store::ChannelConfig {
         savfox_core::config::channel_store::ChannelConfig {
             id: format!("{kind}-default"),
-            kind: kind.to_string(),
+            kind: kind.to_owned(),
             slug: String::new(),
-            name: kind.to_string(),
+            name: kind.to_owned(),
             enabled: true,
             config,
             router: None,

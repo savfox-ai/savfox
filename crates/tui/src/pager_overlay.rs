@@ -1067,7 +1067,7 @@ mod tests {
         approval_changes.insert(
             PathBuf::from("foo.txt"),
             FileChange::Add {
-                content: "hello\nworld\n".to_string(),
+                content: "hello\nworld\n".to_owned(),
             },
         );
         let approval_cell: Arc<dyn HistoryCell> = Arc::new(new_patch_event(approval_changes, &cwd));
@@ -1077,7 +1077,7 @@ mod tests {
         apply_changes.insert(
             PathBuf::from("foo.txt"),
             FileChange::Add {
-                content: "hello\nworld\n".to_string(),
+                content: "hello\nworld\n".to_owned(),
             },
         );
         let apply_begin_cell: Arc<dyn HistoryCell> = Arc::new(new_patch_event(apply_changes, &cwd));
@@ -1176,7 +1176,7 @@ mod tests {
         // Prepare a static overlay with a few lines and a title
         let mut overlay = StaticOverlay::with_title(
             vec!["one".into(), "two".into(), "three".into()],
-            "S T A T I C".to_string(),
+            "S T A T I C".to_owned(),
         );
         let mut term = Terminal::new(TestBackend::new(40, 10)).expect("term");
         term.draw(|f| overlay.render(f.area(), f.buffer_mut()))
@@ -1282,7 +1282,7 @@ mod tests {
     fn static_overlay_wraps_long_lines() {
         let mut overlay = StaticOverlay::with_title(
             vec!["a very long line that should wrap when rendered within a narrow pager overlay width".into()],
-            "S T A T I C".to_string(),
+            "S T A T I C".to_owned(),
         );
         let mut term = Terminal::new(TestBackend::new(24, 8)).expect("term");
         term.draw(|f| overlay.render(f.area(), f.buffer_mut()))
@@ -1294,7 +1294,7 @@ mod tests {
     fn pager_view_content_height_counts_renderables() {
         let mut pv = PagerView::new(
             vec![paragraph_block("a", 2), paragraph_block("b", 3)],
-            "T".to_string(),
+            "T".to_owned(),
             0,
         );
 
@@ -1309,7 +1309,7 @@ mod tests {
                 paragraph_block("b", 3),
                 paragraph_block("c", 3),
             ],
-            "T".to_string(),
+            "T".to_owned(),
             0,
         );
         let area = Rect::new(0, 0, 20, 8);
@@ -1344,7 +1344,7 @@ mod tests {
                 paragraph_block("b", 3),
                 paragraph_block("c", 3),
             ],
-            "T".to_string(),
+            "T".to_owned(),
             0,
         );
         let area = Rect::new(0, 0, 20, 3);
@@ -1357,7 +1357,7 @@ mod tests {
 
     #[test]
     fn pager_view_is_scrolled_to_bottom_accounts_for_wrapped_height() {
-        let mut pv = PagerView::new(vec![paragraph_block("a", 10)], "T".to_string(), 0);
+        let mut pv = PagerView::new(vec![paragraph_block("a", 10)], "T".to_owned(), 0);
         let area = Rect::new(0, 0, 20, 8);
         let mut buf = Buffer::empty(area);
 

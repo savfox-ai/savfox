@@ -238,23 +238,23 @@ mod tests {
         assert_eq!(history.local_history.len(), 0);
 
         // First entry is recorded.
-        history.record_local_submission(HistoryEntry::from_text("hello".to_string()));
+        history.record_local_submission(HistoryEntry::from_text("hello".to_owned()));
         assert_eq!(history.local_history.len(), 1);
         assert_eq!(
             history.local_history.last().unwrap(),
-            &HistoryEntry::from_text("hello".to_string())
+            &HistoryEntry::from_text("hello".to_owned())
         );
 
         // Identical consecutive entry is skipped.
-        history.record_local_submission(HistoryEntry::from_text("hello".to_string()));
+        history.record_local_submission(HistoryEntry::from_text("hello".to_owned()));
         assert_eq!(history.local_history.len(), 1);
 
         // Different entry is recorded.
-        history.record_local_submission(HistoryEntry::from_text("world".to_string()));
+        history.record_local_submission(HistoryEntry::from_text("world".to_owned()));
         assert_eq!(history.local_history.len(), 2);
         assert_eq!(
             history.local_history.last().unwrap(),
-            &HistoryEntry::from_text("world".to_string())
+            &HistoryEntry::from_text("world".to_owned())
         );
     }
 
@@ -286,7 +286,7 @@ mod tests {
 
         // Inject the async response.
         assert_eq!(
-            Some(HistoryEntry::from_text("latest".to_string())),
+            Some(HistoryEntry::from_text("latest".to_owned())),
             history.on_entry_response(1, 2, Some("latest".into()))
         );
 
@@ -307,7 +307,7 @@ mod tests {
         );
 
         assert_eq!(
-            Some(HistoryEntry::from_text("older".to_string())),
+            Some(HistoryEntry::from_text("older".to_owned())),
             history.on_entry_response(1, 1, Some("older".into()))
         );
     }
@@ -321,17 +321,17 @@ mod tests {
         history.set_metadata(1, 3);
         history
             .fetched_history
-            .insert(1, HistoryEntry::from_text("command2".to_string()));
+            .insert(1, HistoryEntry::from_text("command2".to_owned()));
         history
             .fetched_history
-            .insert(2, HistoryEntry::from_text("command3".to_string()));
+            .insert(2, HistoryEntry::from_text("command3".to_owned()));
 
         assert_eq!(
-            Some(HistoryEntry::from_text("command3".to_string())),
+            Some(HistoryEntry::from_text("command3".to_owned())),
             history.navigate_up(&tx)
         );
         assert_eq!(
-            Some(HistoryEntry::from_text("command2".to_string())),
+            Some(HistoryEntry::from_text("command2".to_owned())),
             history.navigate_up(&tx)
         );
 
@@ -340,7 +340,7 @@ mod tests {
         assert!(history.last_history_text.is_none());
 
         assert_eq!(
-            Some(HistoryEntry::from_text("command3".to_string())),
+            Some(HistoryEntry::from_text("command3".to_owned())),
             history.navigate_up(&tx)
         );
     }

@@ -227,11 +227,11 @@ mod tests {
             rows,
             vec![
                 Row {
-                    text: "hello whir".to_string(),
+                    text: "hello whir".to_owned(),
                     explicit_break: false
                 },
                 Row {
-                    text: "l this is ".to_string(),
+                    text: "l this is ".to_owned(),
                     explicit_break: false
                 }
             ]
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(
             rows,
             vec![Row {
-                text: "😀😀 ".to_string(),
+                text: "😀😀 ".to_owned(),
                 explicit_break: false
             }]
         );

@@ -73,10 +73,10 @@ mod tests {
     #[test]
     fn reads_polling_flag_from_channel_config() {
         let config = savfox_core::config::channel_store::ChannelConfig {
-            id: "telegram-polling".to_string(),
-            kind: "telegram".to_string(),
-            slug: "telegram".to_string(),
-            name: "Telegram".to_string(),
+            id: "telegram-polling".to_owned(),
+            kind: "telegram".to_owned(),
+            slug: "telegram".to_owned(),
+            name: "Telegram".to_owned(),
             enabled: true,
             config: json!({
                 "bot_token": "123:ABC",

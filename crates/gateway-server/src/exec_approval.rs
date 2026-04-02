@@ -522,14 +522,14 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("savfox-gateway-approvals-{}", uuid::Uuid::now_v7()));
         let req = ExecApprovalRequest {
-            id: "req-1".to_string(),
-            command: "echo hello".to_string(),
-            cwd: Some("/tmp".to_string()),
+            id: "req-1".to_owned(),
+            command: "echo hello".to_owned(),
+            cwd: Some("/tmp".to_owned()),
             host: None,
             security: None,
-            ask: Some("need approval".to_string()),
-            agent_id: Some("default".to_string()),
-            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e140".to_string()),
+            ask: Some("need approval".to_owned()),
+            agent_id: Some("default".to_owned()),
+            session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e140".to_owned()),
             created_at_ms: 1,
             expires_at_ms: 2,
         };
@@ -543,9 +543,9 @@ mod tests {
         assert_eq!(pending[0].id, "req-1");
 
         let resolved = ExecApprovalResolution {
-            id: "req-1".to_string(),
+            id: "req-1".to_owned(),
             approved: true,
-            resolved_by: Some("tester".to_string()),
+            resolved_by: Some("tester".to_owned()),
             reason: None,
         };
         let was_pending = persist_resolved_approval(&root, &resolved)

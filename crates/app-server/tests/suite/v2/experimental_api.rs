@@ -65,7 +65,7 @@ async fn session_start_mock_field_requires_experimental_api_capability() -> Resu
 
     let request_id = mcp
         .send_session_start_request(SessionStartParams {
-            mock_experimental_field: Some("mock".to_string()),
+            mock_experimental_field: Some("mock".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -101,7 +101,7 @@ async fn session_start_without_dynamic_tools_allows_without_experimental_api_cap
 
     let request_id = mcp
         .send_session_start_request(SessionStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("mock-model".to_owned()),
             ..Default::default()
         })
         .await?;
@@ -116,9 +116,9 @@ async fn session_start_without_dynamic_tools_allows_without_experimental_api_cap
 
 fn default_client_info() -> ClientInfo {
     ClientInfo {
-        name: DEFAULT_CLIENT_NAME.to_string(),
+        name: DEFAULT_CLIENT_NAME.to_owned(),
         title: None,
-        version: "0.1.0".to_string(),
+        version: "0.1.0".to_owned(),
     }
 }
 

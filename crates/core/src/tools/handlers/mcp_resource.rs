@@ -636,8 +636,8 @@ mod tests {
 
     fn resource(uri: &str, name: &str) -> Resource {
         rmcp::model::RawResource {
-            uri: uri.to_string(),
-            name: name.to_string(),
+            uri: uri.to_owned(),
+            name: name.to_owned(),
             title: None,
             description: None,
             mime_type: None,
@@ -650,8 +650,8 @@ mod tests {
 
     fn template(uri_template: &str, name: &str) -> ResourceTemplate {
         rmcp::model::RawResourceTemplate {
-            uri_template: uri_template.to_string(),
-            name: name.to_string(),
+            uri_template: uri_template.to_owned(),
+            name: name.to_owned(),
             title: None,
             description: None,
             mime_type: None,
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn resource_with_server_serializes_server_field() {
-        let entry = ResourceWithServer::new("test".to_string(), resource("memo://id", "memo"));
+        let entry = ResourceWithServer::new("test".to_owned(), resource("memo://id", "memo"));
         let value = serde_json::to_value(&entry).expect("serialize resource");
 
         assert_eq!(value["server"], json!("test"));
@@ -674,10 +674,10 @@ mod tests {
     fn list_resources_payload_from_single_server_copies_next_cursor() {
         let result = ListResourcesResult {
             meta: None,
-            next_cursor: Some("cursor-1".to_string()),
+            next_cursor: Some("cursor-1".to_owned()),
             resources: vec![resource("memo://id", "memo")],
         };
-        let payload = ListResourcesPayload::from_single_server("srv".to_string(), result);
+        let payload = ListResourcesPayload::from_single_server("srv".to_owned(), result);
         let value = serde_json::to_value(&payload).expect("serialize payload");
 
         assert_eq!(value["server"], json!("srv"));
@@ -690,9 +690,9 @@ mod tests {
     #[test]
     fn list_resources_payload_from_all_servers_is_sorted() {
         let mut map = HashMap::new();
-        map.insert("beta".to_string(), vec![resource("memo://b-1", "b-1")]);
+        map.insert("beta".to_owned(), vec![resource("memo://b-1", "b-1")]);
         map.insert(
-            "alpha".to_string(),
+            "alpha".to_owned(),
             vec![resource("memo://a-1", "a-1"), resource("memo://a-2", "a-2")],
         );
 
@@ -702,15 +702,15 @@ mod tests {
             .as_array()
             .expect("resources array")
             .iter()
-            .map(|entry| entry["uri"].as_str().unwrap().to_string())
+            .map(|entry| entry["uri"].as_str().unwrap().to_owned())
             .collect();
 
         assert_eq!(
             uris,
             vec![
-                "memo://a-1".to_string(),
-                "memo://a-2".to_string(),
-                "memo://b-1".to_string()
+                "memo://a-1".to_owned(),
+                "memo://a-2".to_owned(),
+                "memo://b-1".to_owned()
             ]
         );
     }
@@ -743,7 +743,7 @@ mod tests {
     #[test]
     fn template_with_server_serializes_server_field() {
         let entry =
-            ResourceTemplateWithServer::new("srv".to_string(), template("memo://{id}", "memo"));
+            ResourceTemplateWithServer::new("srv".to_owned(), template("memo://{id}", "memo"));
         let value = serde_json::to_value(&entry).expect("serialize template");
 
         assert_eq!(
