@@ -26,7 +26,8 @@ examples/**/pnpm-lock.yaml
 nul
 _*.md
 
-crates/gateway-server/static
+crates/gateway-server/static/*
+!crates/gateway-server/static/.gitkeep
 crates/gateway-dioxus/dist
 crates/app-server-protocol/schema
 .tmp*

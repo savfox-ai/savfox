@@ -152,6 +152,21 @@ function Sync-BuildOutput {
     return $true
 }
 
+function Ensure-StaticPlaceholder {
+    param(
+        [Parameter(Mandatory = $true)][string]$StaticPath
+    )
+
+    if (-not (Test-Path $StaticPath)) {
+        New-Item -ItemType Directory -Path $StaticPath -Force | Out-Null
+    }
+
+    $keepPath = Join-Path $StaticPath ".gitkeep"
+    if (-not (Test-Path $keepPath)) {
+        Set-Content -Path $keepPath -Value $null -NoNewline
+    }
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
 $webDir = Join-Path $repoRoot "crates/gateway-dioxus"
@@ -230,10 +245,12 @@ if (-not $SkipCopy) {
 
     if ($needsStaticSync) {
         Sync-BuildOutput -SourcePath $buildPath -DestinationPath $staticDir -Label "gateway static folder" | Out-Null
+        Ensure-StaticPlaceholder -StaticPath $staticDir
         Write-Stamp -StampPath $staticStampPath -Fingerprint $fingerprint
     }
     else {
         Write-Host "==> Gateway static folder is up to date; skipping copy"
+        Ensure-StaticPlaceholder -StaticPath $staticDir
     }
 
     Write-Host "==> Web frontend ready"

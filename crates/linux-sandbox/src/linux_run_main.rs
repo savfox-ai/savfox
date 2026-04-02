@@ -6,7 +6,7 @@ use clap::Parser;
 use crate::landlock::apply_sandbox_policy_to_current_session;
 
 #[derive(Debug, Parser)]
-pub struct LandlockCommand {
+struct LandlockCommand {
     /// It is possible that the cwd used in the context of the sandbox policy
     /// is different from the cwd of the process to spawn.
     #[arg(long = "sandbox-policy-cwd")]
@@ -20,7 +20,7 @@ pub struct LandlockCommand {
     pub command: Vec<String>,
 }
 
-pub fn run_main() -> ! {
+pub(crate) fn run_main() -> ! {
     let LandlockCommand {
         sandbox_policy_cwd,
         sandbox_policy,

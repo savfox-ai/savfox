@@ -3,6 +3,11 @@
 # ---------------------------------------------------------------------------
 FROM rust:1.94-bookworm AS web-builder
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        clang lld && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN cargo install dioxus-cli
 
 WORKDIR /src
@@ -20,7 +25,7 @@ FROM rust:1.94-bookworm AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        pkg-config libssl-dev git && \
+        clang lld pkg-config libssl-dev git && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -28,7 +33,7 @@ COPY . .
 
 # Copy pre-built web assets into the location rust-embed expects
 COPY --from=web-builder /src/crates/gateway-dioxus/dist/ \
-     crates/gateway-dioxus/dist/
+     crates/gateway-server/static/
 
 RUN cargo build --release --bin savfox && \
     strip target/release/savfox
