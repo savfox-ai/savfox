@@ -188,11 +188,7 @@ mod imp {
             };
             total += n;
             // Stop if we see ST (\x1b\\) or BEL (\x07).
-            if buf[..total].contains(&0x07)
-                || buf[..total]
-                    .windows(2)
-                    .any(|w| w == b"\x1b\\")
-            {
+            if buf[..total].contains(&0x07) || buf[..total].windows(2).any(|w| w == b"\x1b\\") {
                 break;
             }
         }
