@@ -4,6 +4,8 @@
 //! on the heavier core runtime, making them available to other crates without
 //! pulling in the full core dependency.
 #![allow(missing_debug_implementations)]
+#![allow(clippy::manual_let_else, clippy::ptr_arg, clippy::ref_option)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod channel_store;
 mod constraint;

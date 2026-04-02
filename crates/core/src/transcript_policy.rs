@@ -176,7 +176,8 @@ pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
     if policy.api_keys {
         let api_key_re = regex::Regex::new(
             r"(?i)(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|xoxb-[a-zA-Z0-9-]+|AIza[a-zA-Z0-9_-]{35})"
-        ).unwrap();
+        )
+        .expect("built-in API key regex should compile");
         result = api_key_re
             .replace_all(&result, &policy.replacement)
             .to_string();
@@ -185,7 +186,8 @@ pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
     // Email addresses
     if policy.emails {
         let email_re =
-            regex::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap();
+            regex::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+                .expect("built-in email regex should compile");
         result = email_re
             .replace_all(&result, &policy.replacement)
             .to_string();
@@ -193,7 +195,8 @@ pub fn redact(text: &str, policy: &RedactionPolicy) -> String {
 
     // IP addresses
     if policy.ip_addresses {
-        let ip_re = regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b").unwrap();
+        let ip_re = regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
+            .expect("built-in IP regex should compile");
         result = ip_re.replace_all(&result, &policy.replacement).to_string();
     }
 

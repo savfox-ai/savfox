@@ -1,4 +1,5 @@
 #![allow(missing_debug_implementations)]
+#![allow(clippy::result_large_err)]
 
 mod default_client;
 mod error;

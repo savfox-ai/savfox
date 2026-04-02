@@ -4,6 +4,15 @@
 // For both modes, any other output must be written to stderr.
 #![deny(clippy::print_stdout)]
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::exit,
+    clippy::future_not_send,
+    clippy::manual_let_else,
+    clippy::needless_continue,
+    clippy::needless_pass_by_ref_mut,
+    clippy::unused_self
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod cli;
 mod event_processor;

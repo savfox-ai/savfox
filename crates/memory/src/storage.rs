@@ -195,7 +195,13 @@ impl VectorStorage {
             .into_iter()
             .map(|row| {
                 let chunk = row.into_chunk();
-                let score = cosine_similarity(query_embedding, chunk.embedding.as_ref().unwrap());
+                let score = cosine_similarity(
+                    query_embedding,
+                    chunk
+                        .embedding
+                        .as_ref()
+                        .expect("sqlite row with embedding should deserialize with embedding"),
+                );
                 (chunk, score)
             })
             .collect();

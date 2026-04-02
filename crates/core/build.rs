@@ -12,9 +12,8 @@ fn main() {
 }
 
 fn visit_dir(dir: &Path) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
 
     for entry in entries.flatten() {

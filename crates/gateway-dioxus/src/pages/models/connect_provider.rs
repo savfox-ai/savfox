@@ -1102,7 +1102,8 @@ fn render_step_summary(
                                     .iter()
                                     .enumerate()
                                     .map(|(i, entry)| {
-                                        let model_slug = entry.id.split('/').last().unwrap_or(&entry.id);
+                                        let model_slug =
+                                            entry.id.split('/').next_back().unwrap_or(&entry.id);
                                         let mut model_entry = json!({
                                             "id": entry.id,
                                             "model_slug": model_slug,

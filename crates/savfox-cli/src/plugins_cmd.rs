@@ -1,4 +1,5 @@
 //! `savfox plugins` -- plugin install/update/uninstall and registry management.
+#![allow(clippy::manual_let_else)]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;

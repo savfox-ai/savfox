@@ -1,4 +1,5 @@
 #![allow(missing_debug_implementations)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod embedding;
 pub mod manager;

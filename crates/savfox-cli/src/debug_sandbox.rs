@@ -1,3 +1,5 @@
+#![allow(clippy::exit)]
+
 #[cfg(target_os = "macos")]
 mod pid_tracker;
 #[cfg(target_os = "macos")]

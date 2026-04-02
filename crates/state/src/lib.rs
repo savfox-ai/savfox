@@ -4,6 +4,7 @@
 //! from JSONL rollouts and mirrors it into a local SQLite database. Backfill
 //! orchestration and rollout scanning live in `savfox-core`.
 #![allow(missing_debug_implementations)]
+#![allow(clippy::option_option)]
 
 mod extract;
 pub mod log_db;

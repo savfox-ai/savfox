@@ -1,5 +1,11 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
+#![allow(
+    clippy::manual_let_else,
+    clippy::needless_pass_by_ref_mut,
+    clippy::unused_self
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;

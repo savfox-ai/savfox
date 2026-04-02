@@ -1,3 +1,5 @@
+#![allow(clippy::manual_let_else)]
+
 //! End-to-end integration tests for the Savfox Gateway Server.
 //!
 //! These tests require a running gateway instance.  They are marked `#[ignore]`
@@ -37,19 +39,13 @@ fn gateway_token() -> Option<String> {
 /// environment variables are not set.
 macro_rules! require_gateway {
     () => {{
-        let url = match gateway_url() {
-            Some(u) => u,
-            None => {
-                eprintln!("Skipping: E2E_GATEWAY_URL not set");
-                return;
-            }
+        let Some(url) = gateway_url() else {
+            eprintln!("Skipping: E2E_GATEWAY_URL not set");
+            return;
         };
-        let token = match gateway_token() {
-            Some(t) => t,
-            None => {
-                eprintln!("Skipping: E2E_GATEWAY_TOKEN not set");
-                return;
-            }
+        let Some(token) = gateway_token() else {
+            eprintln!("Skipping: E2E_GATEWAY_TOKEN not set");
+            return;
         };
         (url, token)
     }};

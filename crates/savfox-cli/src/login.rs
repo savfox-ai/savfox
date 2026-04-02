@@ -1,3 +1,5 @@
+#![allow(clippy::exit)]
+
 use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 

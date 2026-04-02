@@ -1,3 +1,5 @@
+#![allow(clippy::print_stderr)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

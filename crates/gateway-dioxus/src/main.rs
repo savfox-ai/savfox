@@ -1,4 +1,19 @@
 #![allow(dead_code, unused_mut, unused_variables)]
+#![allow(
+    clippy::clone_on_copy,
+    clippy::collapsible_if,
+    clippy::collapsible_str_replace,
+    clippy::empty_line_after_doc_comments,
+    clippy::let_underscore_future,
+    clippy::manual_map,
+    clippy::redundant_closure,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::unnecessary_map_or,
+    clippy::useless_format
+)]
 
 use dioxus::prelude::*;
 

@@ -261,7 +261,7 @@ pub fn Sessions() -> Element {
             current_session_id().is_none() && pending_session_model().is_some();
         if let Some(agent) = find_agent_entry(&agents_snapshot, "default") {
             if let Some(level) = agent.thinking.as_deref() {
-                if THINKING_LEVELS.iter().any(|candidate| *candidate == level) {
+                if THINKING_LEVELS.contains(&level) {
                     thinking_level.set(level.to_string());
                 }
             }

@@ -1,5 +1,6 @@
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
+#![cfg_attr(test, allow(clippy::manual_let_else, clippy::unwrap_used))]
 
 mod invocation;
 mod parser;

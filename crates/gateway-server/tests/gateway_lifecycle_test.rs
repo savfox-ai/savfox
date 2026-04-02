@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)]
+
 //! Gateway startup/shutdown lifecycle integration test.
 //!
 //! This test spins up the gateway in-process, verifies readiness via `/health`,

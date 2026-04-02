@@ -1,3 +1,5 @@
+#![allow(clippy::future_not_send, clippy::needless_continue)]
+
 mod client;
 mod parser;
 mod pull;

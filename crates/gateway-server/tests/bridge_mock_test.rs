@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 //! Mock channel tests for verifying message flow.
 
 use serde_json::json;

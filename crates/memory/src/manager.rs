@@ -276,7 +276,7 @@ impl MemoryManager {
             updated_at: chrono::Utc::now(),
         };
 
-        self.index_chunks(&[chunk.clone()]).await?;
+        self.index_chunks(std::slice::from_ref(&chunk)).await?;
 
         Ok(chunk)
     }

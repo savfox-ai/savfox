@@ -67,8 +67,11 @@ impl GatewayChannel {
                     login_id: login_id.to_string(),
                     auth_url,
                 };
-                self.send_response(request_id, serde_json::to_value(response).unwrap())
-                    .await;
+                self.send_response(
+                    request_id,
+                    serde_json::to_value(response).expect("login response should serialize"),
+                )
+                .await;
 
                 let auth_manager = self.auth_manager.clone();
                 let active_login = self.active_login.clone();
@@ -106,7 +109,10 @@ impl GatewayChannel {
                     if let Err(err) = outgoing_tx
                         .send(BridgeOutgoing::Notification {
                             method: "account/login/completed".to_owned(),
-                            params: Some(serde_json::to_value(notification).unwrap()),
+                            params: Some(
+                                serde_json::to_value(notification)
+                                    .expect("login notification should serialize"),
+                            ),
                         })
                         .await
                     {
@@ -123,7 +129,10 @@ impl GatewayChannel {
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
                                 method: "account/updated".to_owned(),
-                                params: Some(serde_json::to_value(account_updated).unwrap()),
+                                params: Some(
+                                    serde_json::to_value(account_updated)
+                                        .expect("account update should serialize"),
+                                ),
                             })
                             .await
                         {
@@ -162,8 +171,11 @@ impl GatewayChannel {
                     verification_url,
                     user_code,
                 };
-                self.send_response(request_id, serde_json::to_value(response).unwrap())
-                    .await;
+                self.send_response(
+                    request_id,
+                    serde_json::to_value(response).expect("login response should serialize"),
+                )
+                .await;
 
                 let opts_clone = opts.clone();
                 let device_code_clone = device_code;
@@ -193,7 +205,10 @@ impl GatewayChannel {
                     if let Err(err) = outgoing_tx
                         .send(BridgeOutgoing::Notification {
                             method: "account/login/completed".to_owned(),
-                            params: Some(serde_json::to_value(notification).unwrap()),
+                            params: Some(
+                                serde_json::to_value(notification)
+                                    .expect("login notification should serialize"),
+                            ),
                         })
                         .await
                     {
@@ -210,7 +225,10 @@ impl GatewayChannel {
                         if let Err(err) = outgoing_tx
                             .send(BridgeOutgoing::Notification {
                                 method: "account/updated".to_owned(),
-                                params: Some(serde_json::to_value(account_updated).unwrap()),
+                                params: Some(
+                                    serde_json::to_value(account_updated)
+                                        .expect("account update should serialize"),
+                                ),
                             })
                             .await
                         {
@@ -244,8 +262,11 @@ impl GatewayChannel {
             Ok(()) => {
                 self.auth_manager.reload();
                 let response = LoginAccountResponse::ChatgptAuthTokens {};
-                self.send_response(request_id, serde_json::to_value(response).unwrap())
-                    .await;
+                self.send_response(
+                    request_id,
+                    serde_json::to_value(response).expect("login response should serialize"),
+                )
+                .await;
 
                 let notification = AccountLoginCompletedNotification {
                     login_id: None,
@@ -254,7 +275,8 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/login/completed",
-                    serde_json::to_value(notification).unwrap(),
+                    serde_json::to_value(notification)
+                        .expect("login notification should serialize"),
                 )
                 .await;
 
@@ -267,7 +289,8 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/updated",
-                    serde_json::to_value(account_updated).unwrap(),
+                    serde_json::to_value(account_updated)
+                        .expect("account update should serialize"),
                 )
                 .await;
             }
@@ -291,8 +314,11 @@ impl GatewayChannel {
             Ok(()) => {
                 self.auth_manager.reload();
                 let response = LoginAccountResponse::ApiKey {};
-                self.send_response(request_id, serde_json::to_value(response).unwrap())
-                    .await;
+                self.send_response(
+                    request_id,
+                    serde_json::to_value(response).expect("login response should serialize"),
+                )
+                .await;
 
                 let notification = AccountLoginCompletedNotification {
                     login_id: None,
@@ -301,7 +327,8 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/login/completed",
-                    serde_json::to_value(notification).unwrap(),
+                    serde_json::to_value(notification)
+                        .expect("login notification should serialize"),
                 )
                 .await;
 
@@ -314,7 +341,8 @@ impl GatewayChannel {
                 };
                 self.send_notification(
                     "account/updated",
-                    serde_json::to_value(account_updated).unwrap(),
+                    serde_json::to_value(account_updated)
+                        .expect("account update should serialize"),
                 )
                 .await;
             }
@@ -340,8 +368,11 @@ impl GatewayChannel {
             let response = CancelLoginAccountResponse {
                 status: CancelLoginAccountStatus::NotFound,
             };
-            self.send_response(request_id, serde_json::to_value(response).unwrap())
-                .await;
+            self.send_response(
+                request_id,
+                serde_json::to_value(response).expect("cancel login response should serialize"),
+            )
+            .await;
             return;
         };
 
@@ -359,7 +390,10 @@ impl GatewayChannel {
         };
 
         let response = CancelLoginAccountResponse { status };
-        self.send_response(request_id, serde_json::to_value(response).unwrap())
-            .await;
+        self.send_response(
+            request_id,
+            serde_json::to_value(response).expect("cancel login response should serialize"),
+        )
+        .await;
     }
 }

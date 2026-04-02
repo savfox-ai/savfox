@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;

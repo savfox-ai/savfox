@@ -1,5 +1,8 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
+#![allow(missing_debug_implementations)]
+#![allow(clippy::manual_let_else, clippy::return_self_not_must_use)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod admin;
 mod config;

@@ -1,4 +1,6 @@
 #![allow(unreachable_pub)]
+#![allow(clippy::future_not_send, clippy::manual_let_else)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 #[cfg(feature = "cli")]
 mod approval_mode_cli_arg;

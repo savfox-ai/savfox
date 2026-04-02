@@ -2214,7 +2214,7 @@ fn update_nested_value(
             obj.insert(path[0].clone(), value);
         }
     } else {
-        set_nested(section, &path, value);
+        set_nested(section, path, value);
     }
 }
 

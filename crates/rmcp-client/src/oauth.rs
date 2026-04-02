@@ -455,9 +455,8 @@ fn save_oauth_tokens_to_file(tokens: &StoredOAuthTokens) -> Result<()> {
 }
 
 fn delete_oauth_tokens_from_file(key: &str) -> Result<bool> {
-    let mut store = match read_fallback_file()? {
-        Some(store) => store,
-        None => return Ok(false),
+    let Some(mut store) = read_fallback_file()? else {
+        return Ok(false);
     };
 
     let removed = store.remove(key).is_some();

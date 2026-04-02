@@ -1,4 +1,5 @@
 //! `savfox security` — Security audit and credential/token rotation.
+#![allow(clippy::nonminimal_bool)]
 
 use clap::Parser;
 use serde_json::json;

@@ -82,7 +82,7 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
                 };
                 let blocks: Vec<Value> = content
                     .iter()
-                    .filter_map(|c| match c {
+                    .map(|c| match c {
                         ContentItem::InputText { text } | ContentItem::OutputText { text } => {
                             Some(json!({"type": "text", "text": text}))
                         }
@@ -119,6 +119,7 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
                             }
                         }
                     })
+                    .flatten()
                     .collect();
 
                 for block in blocks {

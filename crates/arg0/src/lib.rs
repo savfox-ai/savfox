@@ -1,4 +1,5 @@
 #![allow(unsafe_code)]
+#![allow(clippy::exit)]
 
 use std::future::Future;
 #[cfg(unix)]

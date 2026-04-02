@@ -1,3 +1,5 @@
+#![allow(clippy::needless_continue, clippy::ref_option, clippy::unused_self)]
+
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;

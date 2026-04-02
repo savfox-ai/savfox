@@ -1,4 +1,5 @@
 //! `savfox update` — Self-updating CLI from GitHub releases.
+#![allow(clippy::fn_params_excessive_bools)]
 
 use std::path::Path;
 use std::process::Command;
@@ -52,6 +53,7 @@ pub enum UpdateAction {
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
+    #[allow(dead_code)]
     name: Option<String>,
     body: Option<String>,
     prerelease: bool,

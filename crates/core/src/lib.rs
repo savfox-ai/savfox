@@ -6,6 +6,19 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::future_not_send,
+    clippy::manual_clamp,
+    clippy::manual_let_else,
+    clippy::needless_continue,
+    clippy::needless_pass_by_ref_mut,
+    clippy::option_option,
+    clippy::ref_option,
+    clippy::result_large_err,
+    clippy::return_self_not_must_use,
+    clippy::unused_self
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod analytics_client;
 pub mod api_bridge;

@@ -1,3 +1,6 @@
+#![allow(deprecated)]
+#![allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;

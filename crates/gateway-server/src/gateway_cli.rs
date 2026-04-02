@@ -1,3 +1,5 @@
+#![allow(clippy::print_stderr)]
+
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;

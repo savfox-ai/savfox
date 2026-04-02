@@ -36,6 +36,7 @@ impl Request {
         }
     }
 
+    #[must_use]
     pub fn with_json<T: Serialize>(mut self, body: &T) -> Self {
         self.body = serde_json::to_value(body).ok();
         self

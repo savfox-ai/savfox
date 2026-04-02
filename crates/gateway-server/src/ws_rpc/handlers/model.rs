@@ -1085,7 +1085,9 @@ pub(crate) async fn handle_models_update(
         &mut models[pos]
     } else {
         models.push(json!({"id": id}));
-        models.last_mut().unwrap()
+        models
+            .last_mut()
+            .expect("just-pushed model entry should be present")
     };
 
     // Merge updatable fields

@@ -1,4 +1,13 @@
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::filter_map_next,
+    clippy::needless_continue,
+    clippy::ref_option,
+    clippy::result_large_err,
+    clippy::return_self_not_must_use,
+    clippy::unused_self
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod auth;
 pub mod common;

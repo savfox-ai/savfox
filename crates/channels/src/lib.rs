@@ -1,3 +1,5 @@
+#![allow(clippy::if_same_then_else, clippy::manual_let_else)]
+
 pub mod base;
 pub mod dingtalk;
 pub mod discord;

@@ -1,6 +1,25 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub, dead_code)]
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::enum_variant_names,
+    clippy::field_reassign_with_default,
+    clippy::filter_map_next,
+    clippy::future_not_send,
+    clippy::if_same_then_else,
+    clippy::manual_clamp,
+    clippy::manual_let_else,
+    clippy::module_inception,
+    clippy::needless_pass_by_ref_mut,
+    clippy::option_option,
+    clippy::ptr_arg,
+    clippy::question_mark,
+    clippy::return_self_not_must_use,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments,
+    clippy::unused_self
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 #![recursion_limit = "512"]
 
 use std::io::{ErrorKind, Result as IoResult};

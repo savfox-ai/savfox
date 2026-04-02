@@ -1,5 +1,6 @@
 #![allow(unsafe_code)]
 #![allow(missing_debug_implementations)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod amend;
 pub mod decision;

@@ -554,23 +554,39 @@ async fn handle_streaming(
 
     // Disable all forms of buffering to ensure immediate SSE delivery
     res.headers_mut()
-        .insert("X-Accel-Buffering", "no".parse().unwrap());
+        .insert(
+            "X-Accel-Buffering",
+            "no".parse().expect("buffering header should parse"),
+        );
     res.headers_mut().insert(
         "Cache-Control",
         "no-cache, no-store, must-revalidate, no-transform"
             .parse()
-            .unwrap(),
+            .expect("cache-control header should parse"),
     );
     res.headers_mut()
-        .insert("Pragma", "no-cache".parse().unwrap());
-    res.headers_mut().insert("Expires", "0".parse().unwrap());
+        .insert("Pragma", "no-cache".parse().expect("pragma header should parse"));
     res.headers_mut()
-        .insert("Connection", "keep-alive".parse().unwrap());
+        .insert("Expires", "0".parse().expect("expires header should parse"));
     res.headers_mut()
-        .insert("Content-Encoding", "identity".parse().unwrap());
+        .insert(
+            "Connection",
+            "keep-alive"
+                .parse()
+                .expect("connection header should parse"),
+        );
+    res.headers_mut()
+        .insert(
+            "Content-Encoding",
+            "identity"
+                .parse()
+                .expect("content-encoding header should parse"),
+        );
     res.headers_mut().insert(
         "Content-Type",
-        "text/event-stream; charset=utf-8".parse().unwrap(),
+        "text/event-stream; charset=utf-8"
+            .parse()
+            .expect("event-stream content-type header should parse"),
     );
 
     let cid = completion_id;

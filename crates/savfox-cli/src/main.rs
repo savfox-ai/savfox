@@ -1,4 +1,6 @@
 #![allow(unreachable_pub)]
+#![allow(clippy::exit)]
+#![allow(clippy::future_not_send)]
 
 use std::io::IsTerminal;
 use std::path::PathBuf;

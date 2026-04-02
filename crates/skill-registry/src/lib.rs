@@ -1,3 +1,6 @@
+#![allow(clippy::manual_let_else, clippy::ref_option)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 pub mod config;
 pub mod git_registry;
 pub mod installer;

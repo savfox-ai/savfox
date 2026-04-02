@@ -124,7 +124,7 @@ pub fn format_list_with_limit(items: &[String], limit: usize) -> String {
 
 pub fn parse_list(input: &str) -> Vec<String> {
     input
-        .split(|c| c == ',' || c == '\n')
+        .split([',', '\n'])
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()

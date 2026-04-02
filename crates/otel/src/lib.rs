@@ -1,4 +1,6 @@
 #![allow(missing_debug_implementations)]
+#![allow(clippy::manual_let_else)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod config;
 pub mod metrics;

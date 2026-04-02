@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 //! Provider contract tests: verify the request/response format produced by each
 //! wire API (Chat Completions, Responses, Anthropic).
 //!

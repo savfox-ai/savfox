@@ -5,6 +5,27 @@
 #![deny(clippy::disallowed_methods)]
 #![allow(unreachable_pub, unsafe_code)]
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::exit,
+    clippy::fn_params_excessive_bools,
+    clippy::future_not_send,
+    clippy::if_same_then_else,
+    clippy::manual_let_else,
+    clippy::needless_continue,
+    clippy::needless_pass_by_ref_mut,
+    clippy::option_option,
+    clippy::ref_option,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::unused_self
+)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::manual_let_else,
+        clippy::needless_continue,
+        clippy::unwrap_used
+    )
+)]
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};

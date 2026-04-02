@@ -209,7 +209,7 @@ pub fn build_provider_catalog(models: &[ModelInfo]) -> ProviderCatalog {
             .as_deref()
             .map(str::trim)
             .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| model_id.as_str())
+            .unwrap_or(model_id.as_str())
             .to_string();
 
         let mut key = model_id.clone();

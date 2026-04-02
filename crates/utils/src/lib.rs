@@ -1,4 +1,13 @@
 #![allow(unreachable_pub)]
+#![allow(
+    clippy::manual_let_else,
+    clippy::module_inception,
+    clippy::needless_continue,
+    clippy::needless_pass_by_ref_mut,
+    clippy::ref_option,
+    clippy::return_self_not_must_use
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod absolute_path;

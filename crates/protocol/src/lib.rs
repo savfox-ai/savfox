@@ -24,6 +24,12 @@
 //! - [`plan_tool`] - Planning tool types
 
 #![allow(missing_debug_implementations)]
+#![allow(
+    clippy::manual_let_else,
+    clippy::ref_option,
+    clippy::return_self_not_must_use
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 pub mod account;
 mod session_id;

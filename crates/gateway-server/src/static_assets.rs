@@ -21,24 +21,46 @@ pub(crate) async fn spa_handler(req: &mut Request, res: &mut Response) {
         if path.contains("/assets/") {
             res.headers_mut().insert(
                 "cache-control",
-                "public, max-age=31536000, immutable".parse().unwrap(),
+                "public, max-age=31536000, immutable"
+                    .parse()
+                    .expect("static cache-control header should parse"),
             );
         } else {
             res.headers_mut()
-                .insert("cache-control", "no-cache".parse().unwrap());
+                .insert(
+                    "cache-control",
+                    "no-cache"
+                        .parse()
+                        .expect("static cache-control header should parse"),
+                );
         }
 
         res.headers_mut()
-            .insert("content-type", mime.as_ref().parse().unwrap());
+            .insert(
+                "content-type",
+                mime.as_ref()
+                    .parse()
+                    .expect("guessed content-type header should parse"),
+            );
 
         res.write_body(file.data.to_vec()).ok();
     } else {
         // SPA fallback  - serve index.html for all non-file routes.
         if let Some(index) = StaticAssets::get("index.html") {
             res.headers_mut()
-                .insert("content-type", "text/html; charset=utf-8".parse().unwrap());
+                .insert(
+                    "content-type",
+                    "text/html; charset=utf-8"
+                        .parse()
+                        .expect("html content-type header should parse"),
+                );
             res.headers_mut()
-                .insert("cache-control", "no-cache".parse().unwrap());
+                .insert(
+                    "cache-control",
+                    "no-cache"
+                        .parse()
+                        .expect("static cache-control header should parse"),
+                );
             res.write_body(index.data.to_vec()).ok();
         } else {
             res.status_code(StatusCode::NOT_FOUND);

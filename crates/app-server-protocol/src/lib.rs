@@ -1,5 +1,7 @@
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
+#![allow(clippy::unused_self)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod experimental_api;
 mod export;

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 //! Tests for configuration validation and migration.
 
 use serde_json::json;

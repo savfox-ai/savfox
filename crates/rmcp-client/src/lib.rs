@@ -1,5 +1,6 @@
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 mod auth_status;
 mod logging_client_handler;
