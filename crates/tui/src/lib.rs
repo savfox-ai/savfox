@@ -18,14 +18,7 @@
     clippy::trivially_copy_pass_by_ref,
     clippy::unused_self
 )]
-#![cfg_attr(
-    test,
-    allow(
-        clippy::manual_let_else,
-        clippy::needless_continue,
-        clippy::unwrap_used
-    )
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};

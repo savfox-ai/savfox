@@ -15,9 +15,14 @@ use ratatui::prelude::CrosstermBackend;
 /// which write to stdout regardless of the writer. This includes:
 /// - getting the terminal size
 /// - getting the cursor position
-#[derive(Debug)]
 pub struct VT100Backend {
     crossterm_backend: CrosstermBackend<vt100::Parser>,
+}
+
+impl fmt::Debug for VT100Backend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VT100Backend").finish_non_exhaustive()
+    }
 }
 
 impl VT100Backend {

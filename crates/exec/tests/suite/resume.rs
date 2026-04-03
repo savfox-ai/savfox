@@ -19,10 +19,7 @@ fn find_session_file_containing_marker(
     marker: &str,
 ) -> Option<std::path::PathBuf> {
     for entry in WalkDir::new(sessions_dir) {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
+        let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() {
             continue;
         }

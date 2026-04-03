@@ -397,6 +397,7 @@ fn git_blob_sha1_hex_bytes(data: &[u8]) -> Output<sha1::Sha1> {
     hasher.finalize()
 }
 
+#[cfg(test)]
 fn git_blob_sha1_hex_string(data: &[u8]) -> String {
     git_blob_sha1_hex_bytes(data)
         .iter()

@@ -84,7 +84,7 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
                     .iter()
                     .map(|c| match c {
                         ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-                            Some(json!({"type": "text", "text": text}))
+                            json!({"type": "text", "text": text})
                         }
                         ContentItem::InputImage { image_url } => {
                             // Anthropic supports base64 images; pass URL-based images as text fallback.
@@ -97,29 +97,28 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
                                         .unwrap_or("image/png")
                                         .strip_suffix(";base64")
                                         .unwrap_or("image/png");
-                                    Some(json!({
+                                    json!({
                                         "type": "image",
                                         "source": {
                                             "type": "base64",
                                             "media_type": media_type,
                                             "data": parts[1]
                                         }
-                                    }))
+                                    })
                                 } else {
-                                    Some(json!({"type": "text", "text": format!("[image: {image_url}]")}))
+                                    json!({"type": "text", "text": format!("[image: {image_url}]")})
                                 }
                             } else {
-                                Some(json!({
+                                json!({
                                     "type": "image",
                                     "source": {
                                         "type": "url",
                                         "url": image_url
                                     }
-                                }))
+                                })
                             }
                         }
                     })
-                    .flatten()
                     .collect();
 
                 for block in blocks {

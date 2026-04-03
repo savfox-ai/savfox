@@ -133,24 +133,6 @@ fn normalize_model_slug(raw: &str) -> Option<String> {
     Some(raw)
 }
 
-fn model_slug_from_entry(item: &Value) -> Option<String> {
-    item.get("model_slug")
-        .and_then(Value::as_str)
-        .and_then(trim_nonempty)
-        .or_else(|| {
-            item.get("id")
-                .and_then(Value::as_str)
-                .and_then(trim_nonempty)
-        })
-        .or_else(|| {
-            item.get("model")
-                .and_then(Value::as_str)
-                .and_then(trim_nonempty)
-        })
-        .or_else(|| item.as_str().and_then(trim_nonempty))
-        .and_then(|raw| normalize_model_slug(&raw))
-}
-
 fn env_var_looks_like_secret(env_var: &str) -> bool {
     let env_var = env_var.to_ascii_uppercase();
     env_var.contains("API_KEY") || env_var.contains("TOKEN") || env_var.ends_with("_KEY")

@@ -238,9 +238,8 @@ async fn attaches_reasoning_to_function_call_anchor() {
     let assistant = first_assistant(&messages);
 
     assert_eq!(assistant["reasoning"], Value::String("rFunc".into()));
-    let tool_calls = match assistant["tool_calls"].as_array() {
-        Some(arr) => arr,
-        None => panic!("tool call list missing"),
+    let Some(tool_calls) = assistant["tool_calls"].as_array() else {
+        panic!("tool call list missing")
     };
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0]["type"], Value::String("function".into()));

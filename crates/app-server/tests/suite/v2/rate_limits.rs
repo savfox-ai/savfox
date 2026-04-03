@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Result;
 use app_test_support::{ChatGptAuthFixture, McpProcess, write_chatgpt_auth};
 use pretty_assertions::assert_eq;
@@ -98,7 +96,3 @@ async fn login_with_api_key(mcp: &mut McpProcess, api_key: &str) -> Result<()> {
     Ok(())
 }
 
-fn write_chatgpt_base_url(savfox_home: &Path, base_url: &str) -> std::io::Result<()> {
-    let config_toml = savfox_home.join("config.toml");
-    std::fs::write(config_toml, format!("chatgpt_base_url = \"{base_url}\"\n"))
-}

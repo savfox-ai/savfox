@@ -3605,9 +3605,9 @@ model = { provider = "openai", slug = "gpt-5.1-savfox" }
         cwd: TempDir,
         savfox_home: TempDir,
         cfg: ConfigToml,
-        model_provider_map: HashMap<String, ModelProviderInfo>,
-        openai_provider: ModelProviderInfo,
-        openai_chat_completions_provider: ModelProviderInfo,
+        _model_provider_map: HashMap<String, ModelProviderInfo>,
+        _openai_provider: ModelProviderInfo,
+        _openai_chat_completions_provider: ModelProviderInfo,
     }
 
     impl PrecedenceTestFixture {
@@ -3774,9 +3774,9 @@ model_verbosity = "high"
             cwd: cwd_temp_dir,
             savfox_home: savfox_home_temp_dir,
             cfg,
-            model_provider_map,
-            openai_provider,
-            openai_chat_completions_provider,
+            _model_provider_map: model_provider_map,
+            _openai_provider: openai_provider,
+            _openai_chat_completions_provider: openai_chat_completions_provider,
         })
     }
 

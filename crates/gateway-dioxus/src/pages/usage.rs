@@ -111,9 +111,12 @@ fn estimate_cost_per_1k(model: &str) -> f64 {
         0.0015
     } else if m.contains("o1-mini") || m.contains("o3-mini") || m.contains("o4-mini") {
         0.003
-    } else if m.contains("o1") || m.contains("o3") {
-        0.015
-    } else if m.contains("claude-3-opus") || m.contains("claude-opus") || m.contains("opus") {
+    } else if m.contains("o1")
+        || m.contains("o3")
+        || m.contains("claude-3-opus")
+        || m.contains("claude-opus")
+        || m.contains("opus")
+    {
         0.015
     } else if m.contains("claude-3-sonnet")
         || m.contains("claude-3.5-sonnet")
@@ -339,7 +342,7 @@ pub fn Usage() -> Element {
         .and_then(|d| d.daily_distribution.as_ref())
         .map(|days| {
             days.iter()
-                .filter_map(|d| {
+                .map(|d| {
                     let date = d
                         .get("date")
                         .and_then(|v| v.as_str())
@@ -347,7 +350,7 @@ pub fn Usage() -> Element {
                         .to_string();
                     let tokens = d.get("tokens").and_then(|v| v.as_u64()).unwrap_or(0);
                     let cost = d.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    Some((date, tokens, cost))
+                    (date, tokens, cost)
                 })
                 .collect()
         })

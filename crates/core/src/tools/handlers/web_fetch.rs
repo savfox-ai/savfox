@@ -244,7 +244,7 @@ impl ToolHandler for WebFetchHandler {
                     body_text
                 }
             }
-            "markdown" | _ => {
+            _ => {
                 if content_type.contains("html") {
                     html_to_markdown(&body_text)
                 } else {

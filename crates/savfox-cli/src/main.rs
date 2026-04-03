@@ -536,6 +536,7 @@ struct FeatureToggles {
 }
 
 impl FeatureToggles {
+    #[cfg(test)]
     fn to_overrides(&self) -> anyhow::Result<Vec<String>> {
         let mut v = Vec::new();
         for feature in &self.enable {

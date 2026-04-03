@@ -887,6 +887,7 @@ pub async fn start_websocket_server_with_headers(
 
             let response_headers = connection.response_headers.clone();
             let handshake_log = Arc::clone(&handshakes);
+            #[allow(clippy::result_large_err)]
             let callback = move |req: &Request, mut response: Response| {
                 let headers = req
                     .headers()
