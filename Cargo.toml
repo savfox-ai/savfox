@@ -89,7 +89,7 @@ async-channel = "2.5.0"
 async-session = "3"
 async-stream = "0.3.6"
 async-trait = "0.1"
-salvo = { version = "0.89", default-features = false, features = [
+salvo = { version = "0.91", default-features = false, features = [
     "server",
     "server-handle",
     "http1",

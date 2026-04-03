@@ -218,7 +218,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app_test_support"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1532,7 +1532,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "core_test_support"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3098,7 +3098,7 @@ dependencies = [
 
 [[package]]
 name = "exec_server_test_support"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "rmcp",
@@ -3289,7 +3289,7 @@ checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
 dependencies = [
  "futures-core",
  "futures-sink",
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -3301,7 +3301,7 @@ dependencies = [
  "fastrand",
  "futures-core",
  "futures-sink",
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -4806,7 +4806,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -5176,7 +5176,7 @@ dependencies = [
  "rand 0.10.0",
  "regex",
  "reqwest 0.13.2",
- "salvo",
+ "salvo 0.89.3",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5192,7 +5192,7 @@ dependencies = [
 
 [[package]]
 name = "mcp_test_support"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "core_test_support",
@@ -5367,7 +5367,7 @@ dependencies = [
  "httparse",
  "memchr",
  "mime",
- "spin",
+ "spin 0.9.8",
  "version_check",
 ]
 
@@ -5378,6 +5378,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "multra"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc3fc14248e7e7891048c0b23a76bc862bcbf41a1ca3b3bbf5032cd0aea06f1"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.10.0",
 ]
 
 [[package]]
@@ -6021,7 +6037,7 @@ dependencies = [
 [[package]]
 name = "opentelemetry"
 version = "0.31.0"
-source = "git+https://github.com/open-telemetry/opentelemetry-rust.git?branch=main#b096b70b2ffe9beb65a716cf47d5e5db80a9e930"
+source = "git+https://github.com/open-telemetry/opentelemetry-rust.git?branch=main#67e7dffc3f388c5f39ea1ddf9b4def9c7918679c"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -8179,8 +8195,17 @@ checksum = "997a9250e40b5c3122280212b03fa7579b548307a8239492eecc11d58da8a911"
 dependencies = [
  "salvo-acme",
  "salvo-proxy",
- "salvo_core",
- "salvo_extra",
+ "salvo_core 0.89.3",
+]
+
+[[package]]
+name = "salvo"
+version = "0.91.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fab67d0b522290dd88006cb84b4462d83d6a7125c71da6826cd333618ab21b"
+dependencies = [
+ "salvo_core 0.91.1",
+ "salvo_extra 0.91.1",
 ]
 
 [[package]]
@@ -8201,7 +8226,7 @@ dependencies = [
  "parking_lot",
  "quinn",
  "rcgen",
- "salvo_core",
+ "salvo_core 0.89.3",
  "serde",
  "serde_json",
  "tokio",
@@ -8241,7 +8266,7 @@ dependencies = [
  "local-ip-address",
  "percent-encoding",
  "reqwest 0.13.2",
- "salvo_core",
+ "salvo_core 0.89.3",
  "tokio",
  "tracing",
 ]
@@ -8251,6 +8276,17 @@ name = "salvo-serde-util"
 version = "0.89.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c513cc94967322fab6ac2f1b3e68d40e110971fd4924f4d48677ca6e7df41038"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "salvo-serde-util"
+version = "0.91.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8ea8e3129e2ce49e13b7e278dbce21edb777fcb161b4975da5b372457de0487"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8294,7 +8330,7 @@ dependencies = [
  "rand 0.10.0",
  "regex",
  "salvo-http3",
- "salvo_macros",
+ "salvo_macros 0.89.3",
  "serde",
  "serde-xml-rs",
  "serde_json",
@@ -8311,10 +8347,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "salvo_core"
+version = "0.91.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99029932828083aeb4cebd8e0e977323382423b0c305dfb4dc7b8473034467d8"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "chardetng 1.0.0",
+ "content_inspector",
+ "enumflags2",
+ "form_urlencoded",
+ "futures-channel",
+ "futures-util",
+ "headers",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "indexmap 2.13.0",
+ "mime",
+ "mime-infer",
+ "multimap",
+ "multra",
+ "parking_lot",
+ "percent-encoding",
+ "pin-project",
+ "rand 0.10.0",
+ "regex",
+ "salvo_macros 0.91.1",
+ "serde",
+ "serde-xml-rs",
+ "serde_json",
+ "sync_wrapper",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "salvo_extra"
 version = "0.89.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4929b192e8563f228f4f0686b3bf33a33752cfc8e5b03ed409859504c4b2ce2"
+dependencies = [
+ "futures-util",
+ "http-body-util",
+ "salvo_core 0.89.3",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "salvo_extra"
+version = "0.91.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "672456a8d426b13efd7cfc574ffb408cd9ba91e7d4e7d963360d906d6817dee6"
 dependencies = [
  "base64",
  "etag",
@@ -8322,7 +8413,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "pin-project",
- "salvo_core",
+ "salvo_core 0.91.1",
  "serde",
  "serde_json",
  "tokio",
@@ -8342,7 +8433,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "salvo-serde-util",
+ "salvo-serde-util 0.89.3",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "salvo_macros"
+version = "0.91.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b082312da8e9a8f45d767d78ded6688005eb582272e5fc858d235d696aa02cb"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "salvo-serde-util 0.91.1",
  "syn 2.0.117",
 ]
 
@@ -8357,11 +8462,11 @@ dependencies = [
 
 [[package]]
 name = "savfox"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "savfox-ansi-escape"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ansi-to-tui",
  "ratatui",
@@ -8370,7 +8475,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-api-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -8398,7 +8503,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-app-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "app_test_support",
@@ -8409,8 +8514,8 @@ dependencies = [
  "os_info",
  "pretty_assertions",
  "rmcp",
- "salvo",
- "salvo_extra",
+ "salvo 0.91.1",
+ "salvo_extra 0.89.3",
  "savfox-app-server-protocol",
  "savfox-arg0",
  "savfox-common",
@@ -8438,7 +8543,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-app-server-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8460,7 +8565,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-app-server-test-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8473,7 +8578,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-apply-patch"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -8489,7 +8594,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-arg0"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -8502,7 +8607,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-async-utils"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "pretty_assertions",
@@ -8512,7 +8617,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-browser-automation"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8532,7 +8637,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-channels"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8559,7 +8664,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -8610,7 +8715,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-common"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "pretty_assertions",
@@ -8625,7 +8730,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-config"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8647,7 +8752,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -8750,7 +8855,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-debug-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8762,7 +8867,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-exec"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -8794,7 +8899,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-exec-policy"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8810,7 +8915,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-exec-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8837,7 +8942,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-experimental-api-macros"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8846,7 +8951,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-feedback"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "pretty_assertions",
@@ -8858,7 +8963,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-file-search"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -8874,7 +8979,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-gateway-dioxus"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64",
  "chrono",
@@ -8898,7 +9003,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-gateway-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8923,7 +9028,7 @@ dependencies = [
  "reqwest 0.13.2",
  "rust-embed",
  "rustls 0.23.37",
- "salvo",
+ "salvo 0.91.1",
  "savfox-app-server-protocol",
  "savfox-browser-automation",
  "savfox-channels",
@@ -8958,7 +9063,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-gateway-shared"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -8966,7 +9071,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-http-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8989,7 +9094,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-keyring-store"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "keyring",
  "tracing",
@@ -8997,7 +9102,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-linux-sandbox"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "landlock",
@@ -9012,7 +9117,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-lmstudio"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "reqwest 0.13.2",
  "savfox-core",
@@ -9025,7 +9130,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-login-oauth"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -9049,7 +9154,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-mcp-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "core_test_support",
@@ -9075,7 +9180,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-memory"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9100,14 +9205,14 @@ dependencies = [
 
 [[package]]
 name = "savfox-model"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "savfox-protocol",
 ]
 
 [[package]]
 name = "savfox-network-proxy"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9137,7 +9242,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-ollama"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "assert_matches",
  "async-stream",
@@ -9155,7 +9260,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-otel"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "eventsource-stream",
@@ -9184,7 +9289,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "icu_decimal",
@@ -9209,7 +9314,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-rmcp-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "futures",
@@ -9218,8 +9323,8 @@ dependencies = [
  "pretty_assertions",
  "reqwest 0.13.2",
  "rmcp",
- "salvo",
- "salvo_extra",
+ "salvo 0.91.1",
+ "salvo_extra 0.89.3",
  "savfox-keyring-store",
  "savfox-protocol",
  "savfox-utils",
@@ -9239,7 +9344,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-skill-registry"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9264,7 +9369,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-state"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -9287,7 +9392,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-stdio-to-uds"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -9299,7 +9404,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-tui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -9376,7 +9481,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-utils"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -9413,7 +9518,7 @@ dependencies = [
 
 [[package]]
 name = "savfox-windows-sandbox"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -10191,6 +10296,12 @@ checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 dependencies = [
  "lock_api",
 ]
+
+[[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 
 [[package]]
 name = "spki"
