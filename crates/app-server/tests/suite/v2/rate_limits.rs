@@ -95,4 +95,3 @@ async fn login_with_api_key(mcp: &mut McpProcess, api_key: &str) -> Result<()> {
 
     Ok(())
 }
-

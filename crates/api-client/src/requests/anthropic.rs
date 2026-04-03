@@ -87,7 +87,8 @@ fn build_anthropic_messages(input: &[ResponseItem]) -> Vec<Value> {
                             json!({"type": "text", "text": text})
                         }
                         ContentItem::InputImage { image_url } => {
-                            // Anthropic supports base64 images; pass URL-based images as text fallback.
+                            // Anthropic supports base64 images; pass URL-based images as text
+                            // fallback.
                             if image_url.starts_with("data:") {
                                 // data:image/png;base64,<data>
                                 let parts: Vec<&str> = image_url.splitn(2, ',').collect();
