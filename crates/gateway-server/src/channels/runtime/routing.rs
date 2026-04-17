@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use savfox_core::config::channel_store::{ChannelConfig, Router};
+use serde_json::{Value, json};
 use tracing::warn;
 
-use super::trigger::SenderKind;
+use super::trigger::{AgentTriggerConfig, ExternalBotPolicy, IngestPolicy, SenderKind};
 use crate::agent_routing::{AgentRouter, RoutingContext};
+use crate::auto_reply::GroupActivation;
 use crate::channel::GatewayChannel;
 use crate::identity_links::{
     canonical_for_peer, load_identity_links, peers_for_identity, platform_peer,
@@ -36,10 +38,17 @@ pub(crate) struct StartThreadMeta {
     pub saved_channel_config_id: Option<String>,
     pub sender_kind: SenderKind,
     pub is_mentioned: bool,
+    pub reply_to_self: bool,
     pub is_command: bool,
     pub used_plain_text_fallback: bool,
     pub participant_count: Option<u32>,
     pub explicitly_targets_other_agent: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct TextTargetMatch {
+    pub agent_id: Option<String>,
+    pub stripped_prompt: Option<String>,
 }
 
 fn extract_agent_from_routing_id(routing_id: &str) -> Option<String> {
@@ -99,6 +108,297 @@ async fn resolve_parent_thread_agent(
         current = next.to_owned();
     }
     None
+}
+
+async fn read_json_value(path: &Path) -> Option<Value> {
+    let data = tokio::fs::read_to_string(path).await.ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn agents_dir(savfox_home: &Path) -> PathBuf {
+    savfox_home.join("agents")
+}
+
+fn sanitize_agent_file_stem(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        let mapped = match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            _ => ch,
+        };
+        out.push(mapped);
+    }
+
+    let out = out.trim_matches([' ', '.']).to_owned();
+    if out.is_empty() || out == "." || out == ".." {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn normalized_agent_name_key(name: &str) -> Option<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
+fn default_agent_stub() -> Value {
+    json!({
+        "id": "default",
+        "name": "Savvy fox",
+        "builtin": true,
+        "status": "active",
+    })
+}
+
+fn normalize_alias(raw: &str) -> Option<String> {
+    let alias = raw.trim().trim_start_matches('@').trim();
+    if alias.is_empty() {
+        None
+    } else {
+        Some(alias.to_ascii_lowercase())
+    }
+}
+
+fn collect_agent_aliases(config: &Value, fallback_id: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    for value in [
+        Some(fallback_id.to_owned()),
+        config.get("id").and_then(Value::as_str).map(str::to_string),
+        config
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        config
+            .get("identity")
+            .and_then(|value| value.get("name"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(alias) = normalize_alias(&value) {
+            aliases.push(alias);
+        }
+    }
+
+    if let Some(extra_aliases) = config.get("agent_aliases").and_then(Value::as_array) {
+        for value in extra_aliases.iter().filter_map(Value::as_str) {
+            if let Some(alias) = normalize_alias(value) {
+                aliases.push(alias);
+            }
+        }
+    }
+
+    dedupe_values_case_insensitive(aliases)
+}
+
+async fn load_all_agent_configs(savfox_home: &Path) -> Vec<(String, Value)> {
+    let dir = agents_dir(savfox_home);
+    let mut configs = Vec::new();
+
+    let default_path = dir.join("default.json");
+    if default_path.exists() {
+        if let Some(config) = read_json_value(&default_path).await {
+            configs.push(("default".to_owned(), config));
+        }
+    } else {
+        configs.push(("default".to_owned(), default_agent_stub()));
+    }
+
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+        return configs;
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if stem.eq_ignore_ascii_case("default") {
+            continue;
+        }
+        if let Some(config) = read_json_value(&path).await {
+            configs.push((stem.to_owned(), config));
+        }
+    }
+
+    configs
+}
+
+async fn resolve_agent_config_value(savfox_home: &Path, agent_ref: &str) -> Option<Value> {
+    let dir = agents_dir(savfox_home);
+    let trimmed = agent_ref.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(safe_ref) = sanitize_agent_file_stem(trimmed) {
+        let direct = dir.join(format!("{safe_ref}.json"));
+        if direct.exists() {
+            return read_json_value(&direct).await;
+        }
+    }
+
+    for (stem, config) in load_all_agent_configs(savfox_home).await {
+        if stem.eq_ignore_ascii_case(trimmed) {
+            return Some(config);
+        }
+
+        let id_match = config
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some_and(|value| value.eq_ignore_ascii_case(trimmed));
+        if id_match {
+            return Some(config);
+        }
+
+        let name_match = config
+            .get("name")
+            .and_then(Value::as_str)
+            .and_then(normalized_agent_name_key)
+            .as_deref()
+            == normalized_agent_name_key(trimmed).as_deref();
+        if name_match {
+            return Some(config);
+        }
+    }
+
+    None
+}
+
+fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
+    match value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("keyword") => GroupActivation::Keyword,
+        Some("always") => GroupActivation::Always,
+        Some("command") => GroupActivation::Command,
+        Some("off") => GroupActivation::Off,
+        _ => GroupActivation::Mention,
+    }
+}
+
+pub(super) async fn load_agent_trigger_config(
+    savfox_home: &Path,
+    agent_ref: &str,
+) -> AgentTriggerConfig {
+    let Some(config) = resolve_agent_config_value(savfox_home, agent_ref).await else {
+        return AgentTriggerConfig::default();
+    };
+
+    let fallback_id = config
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or(agent_ref);
+    let group_keywords = config
+        .get("group_keywords")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    AgentTriggerConfig {
+        group_activation: parse_group_activation(config.get("group_activation")),
+        group_keywords,
+        ingest_policy: IngestPolicy::from_str(config.get("ingest_policy").and_then(Value::as_str)),
+        external_bot_policy: ExternalBotPolicy::from_str(
+            config.get("external_bot_policy").and_then(Value::as_str),
+        ),
+        agent_aliases: collect_agent_aliases(&config, fallback_id),
+    }
+}
+
+fn split_leading_alias<'a>(text: &'a str, alias: &str) -> Option<&'a str> {
+    let trimmed = text.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    let alias_lower = alias.trim().to_ascii_lowercase();
+    if alias_lower.is_empty() {
+        return None;
+    }
+
+    for candidate in [format!("@{alias_lower}"), alias_lower.clone()] {
+        let Some(rest) = lower.strip_prefix(&candidate) else {
+            continue;
+        };
+        let separator = rest.chars().next();
+        if rest.is_empty()
+            || separator
+                .is_some_and(|ch| matches!(ch, ':' | ',' | ' ' | '\t' | '，' | '：' | '\n' | '\r'))
+        {
+            let original_rest = &trimmed[candidate.len()..];
+            return Some(
+                original_rest
+                    .trim_start_matches(|ch: char| {
+                        matches!(ch, ':' | ',' | ' ' | '\t' | '，' | '：')
+                    })
+                    .trim(),
+            );
+        }
+    }
+
+    None
+}
+
+pub(super) async fn resolve_text_target_match(savfox_home: &Path, text: &str) -> TextTargetMatch {
+    let mut best_match: Option<(usize, TextTargetMatch)> = None;
+
+    for (stem, config) in load_all_agent_configs(savfox_home).await {
+        let aliases = collect_agent_aliases(&config, &stem);
+        for alias in aliases {
+            let Some(stripped_prompt) = split_leading_alias(text, &alias) else {
+                continue;
+            };
+            let rank = alias.len();
+            let candidate = TextTargetMatch {
+                agent_id: Some(
+                    config
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&stem)
+                        .to_owned(),
+                ),
+                stripped_prompt: if stripped_prompt.is_empty() {
+                    None
+                } else {
+                    Some(stripped_prompt.to_owned())
+                },
+            };
+            if best_match
+                .as_ref()
+                .is_none_or(|(best_rank, _)| rank > *best_rank)
+            {
+                best_match = Some((rank, candidate));
+            }
+        }
+    }
+
+    best_match.map(|(_, matched)| matched).unwrap_or_default()
 }
 
 pub(super) async fn resolve_linked_identity(
@@ -332,4 +632,80 @@ pub(super) async fn resolve_routed_agent(
     }
 
     "default".to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::{
+        AgentTriggerConfig, GroupActivation, load_agent_trigger_config, resolve_text_target_match,
+    };
+
+    #[tokio::test]
+    async fn text_target_match_uses_agent_aliases() {
+        let home = tempdir().expect("tempdir");
+        let agents_dir = home.path().join("agents");
+        tokio::fs::create_dir_all(&agents_dir).await.expect("mkdir");
+        tokio::fs::write(
+            agents_dir.join("reviewer.json"),
+            r#"{
+  "id": "reviewer",
+  "name": "Code Reviewer",
+  "agent_aliases": ["reviewer", "code-reviewer"]
+}"#,
+        )
+        .await
+        .expect("write config");
+
+        let matched = resolve_text_target_match(home.path(), "reviewer: inspect this diff").await;
+        assert_eq!(matched.agent_id.as_deref(), Some("reviewer"));
+        assert_eq!(
+            matched.stripped_prompt.as_deref(),
+            Some("inspect this diff")
+        );
+    }
+
+    #[tokio::test]
+    async fn load_agent_trigger_config_reads_runtime_policy_fields() {
+        let home = tempdir().expect("tempdir");
+        let agents_dir = home.path().join("agents");
+        tokio::fs::create_dir_all(&agents_dir).await.expect("mkdir");
+        tokio::fs::write(
+            agents_dir.join("reviewer.json"),
+            r#"{
+  "id": "reviewer",
+  "group_activation": "keyword",
+  "group_keywords": ["review", "diff"],
+  "agent_aliases": ["reviewer"],
+  "ingest_policy": "targeted_only",
+  "external_bot_policy": "ingest_only"
+}"#,
+        )
+        .await
+        .expect("write config");
+
+        let config = load_agent_trigger_config(home.path(), "reviewer").await;
+        assert_eq!(config.group_activation, GroupActivation::Keyword);
+        assert_eq!(
+            config.group_keywords,
+            vec!["review".to_owned(), "diff".to_owned()]
+        );
+        assert_eq!(config.agent_aliases, vec!["reviewer".to_owned()]);
+        assert!(matches!(
+            config.ingest_policy,
+            super::IngestPolicy::TargetedOnly
+        ));
+        assert!(matches!(
+            config.external_bot_policy,
+            super::ExternalBotPolicy::IngestOnly
+        ));
+    }
+
+    #[test]
+    fn default_agent_trigger_config_is_safe() {
+        let config = AgentTriggerConfig::default();
+        assert_eq!(config.group_activation, GroupActivation::Mention);
+        assert!(config.group_keywords.is_empty());
+    }
 }

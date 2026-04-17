@@ -121,6 +121,70 @@ fn to_runtime_start_meta(meta: DiscordStartMeta) -> runtime::StartThreadMeta {
     }
 }
 
+fn discord_sender_kind(payload: &Value, bot_user_id: &str) -> runtime::SenderKind {
+    let author_id = payload
+        .get("author")
+        .and_then(|author| author.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !author_id.is_empty() && author_id == bot_user_id {
+        return runtime::SenderKind::SelfBot;
+    }
+    if payload
+        .get("author")
+        .and_then(|author| author.get("bot"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || payload.get("webhook_id").is_some()
+    {
+        runtime::SenderKind::ExternalBot
+    } else {
+        runtime::SenderKind::Human
+    }
+}
+
+fn discord_is_command(prompt: &str) -> bool {
+    prompt.trim_start().starts_with('/')
+}
+
+fn discord_is_mentioned(payload: &Value, bot_user_id: &str) -> bool {
+    payload
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim_start)
+        .is_some_and(|content| {
+            content.starts_with(&format!("<@{bot_user_id}>"))
+                || content.starts_with(&format!("<@!{bot_user_id}>"))
+        })
+}
+
+fn discord_reply_to_self(payload: &Value, bot_user_id: &str) -> bool {
+    payload
+        .pointer("/referenced_message/author/id")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value == bot_user_id)
+}
+
+fn discord_explicitly_targets_other(payload: &Value, bot_user_id: &str) -> bool {
+    payload
+        .get("content")
+        .and_then(Value::as_str)
+        .map(str::trim_start)
+        .is_some_and(|content| {
+            content.starts_with("<@")
+                && !content.starts_with(&format!("<@{bot_user_id}>"))
+                && !content.starts_with(&format!("<@!{bot_user_id}>"))
+        })
+}
+
+fn discord_used_plain_text_fallback(payload: &Value, bot_user_id: &str, prompt: &str) -> bool {
+    let prompt = prompt.trim();
+    !prompt.is_empty()
+        && !discord_is_command(prompt)
+        && !discord_is_mentioned(payload, bot_user_id)
+        && !discord_reply_to_self(payload, bot_user_id)
+}
+
 async fn process_inbound_message(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
@@ -152,6 +216,14 @@ async fn process_inbound_message(
 
             let mut start_meta = to_runtime_start_meta(parse_start_meta(&event.payload));
             start_meta.saved_channel_config_id = Some(config_id);
+            start_meta.sender_kind = discord_sender_kind(&event.payload, &event.bot_user_id);
+            start_meta.is_mentioned = discord_is_mentioned(&event.payload, &event.bot_user_id);
+            start_meta.reply_to_self = discord_reply_to_self(&event.payload, &event.bot_user_id);
+            start_meta.is_command = discord_is_command(&prompt);
+            start_meta.used_plain_text_fallback =
+                discord_used_plain_text_fallback(&event.payload, &event.bot_user_id, &prompt);
+            start_meta.explicitly_targets_other_agent =
+                discord_explicitly_targets_other(&event.payload, &event.bot_user_id);
             // Use the user's own message ID as reply_target so the bot's
             // streamed response appears as a reply to the user's message.
             if start_meta.reply_target.is_none() {

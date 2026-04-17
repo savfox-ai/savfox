@@ -107,22 +107,30 @@ where
                         .unwrap_or("")
                         .to_owned();
 
-                    let Some(prompt) = extract_mentioned_prompt(text) else {
+                    let prompt = extract_mentioned_prompt(text)
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            let prompt = text.trim();
+                            if prompt.is_empty() {
+                                None
+                            } else {
+                                Some(prompt.to_owned())
+                            }
+                        });
+
+                    let Some(prompt) = prompt else {
                         return Ok(ChannelAction::Ignore);
                     };
 
                     if let Some(command_prompt) =
-                        normalize_command_prompt_with_resolver(prompt, &resolve_command_name)
+                        normalize_command_prompt_with_resolver(&prompt, &resolve_command_name)
                     {
                         Ok(ChannelAction::StartThread {
                             channel,
                             prompt: command_prompt,
                         })
                     } else {
-                        Ok(ChannelAction::StartThread {
-                            channel,
-                            prompt: prompt.to_owned(),
-                        })
+                        Ok(ChannelAction::StartThread { channel, prompt })
                     }
                 }
                 _ => Ok(ChannelAction::Ignore),
@@ -228,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn message_event_requires_leading_bot_mention() {
+    fn message_event_without_mention_reaches_runtime() {
         let payload = json!({
             "type": "event_callback",
             "event": {
@@ -239,7 +247,13 @@ mod tests {
         });
 
         let action = parse_event_with_resolver(&payload, resolve_command_name).expect("parse");
-        assert_eq!(action, ChannelAction::Ignore);
+        match action {
+            ChannelAction::StartThread { channel, prompt } => {
+                assert_eq!(channel, "C123");
+                assert_eq!(prompt, "not a bot mention > just some text");
+            }
+            _ => panic!("expected start thread action"),
+        }
     }
 
     #[test]

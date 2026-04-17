@@ -254,7 +254,15 @@ where
                 None => ChannelAction::Ignore,
             }
         } else {
-            ChannelAction::Ignore
+            let prompt = content.trim();
+            if prompt.is_empty() {
+                ChannelAction::Ignore
+            } else {
+                ChannelAction::StartThread {
+                    channel,
+                    prompt: prompt.to_owned(),
+                }
+            }
         };
 
     Ok(DiscordMessageParseResult { action, dedupe_key })
@@ -443,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn guild_message_requires_direct_context() {
+    fn guild_message_without_direct_context_reaches_runtime() {
         let payload = json!({
             "id": "99",
             "channel_id": "123",
@@ -454,7 +462,13 @@ mod tests {
 
         let parsed =
             parse_message_with_resolver(&payload, "bot-1", resolve_command_name).expect("parse");
-        assert!(matches!(parsed.action, ChannelAction::Ignore));
+        match parsed.action {
+            ChannelAction::StartThread { channel, prompt } => {
+                assert_eq!(channel, "123");
+                assert_eq!(prompt, "hello from discord");
+            }
+            _ => panic!("expected start thread action"),
+        }
     }
 
     #[test]

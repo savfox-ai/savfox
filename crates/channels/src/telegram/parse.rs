@@ -113,6 +113,14 @@ where
         }
     }
 
+    let prompt = text.trim();
+    if !prompt.is_empty() {
+        return Ok(ChannelAction::StartThread {
+            channel: chat_id,
+            prompt: prompt.to_owned(),
+        });
+    }
+
     if let Some(callback) = payload.get("callback_query") {
         let data = callback.get("data").and_then(Value::as_str).unwrap_or("");
 
@@ -247,6 +255,25 @@ mod tests {
         match action {
             ChannelAction::StartThread { channel, prompt } => {
                 assert_eq!(channel, "42");
+                assert_eq!(prompt, "summarize this");
+            }
+            _ => panic!("expected start thread action"),
+        }
+    }
+
+    #[test]
+    fn group_plain_text_reaches_runtime() {
+        let payload = json!({
+            "message": {
+                "text": "summarize this",
+                "chat": { "id": -10042, "type": "group" }
+            }
+        });
+
+        let action = parse_update_with_resolver(&payload, resolve_command_name).expect("parse");
+        match action {
+            ChannelAction::StartThread { channel, prompt } => {
+                assert_eq!(channel, "-10042");
                 assert_eq!(prompt, "summarize this");
             }
             _ => panic!("expected start thread action"),

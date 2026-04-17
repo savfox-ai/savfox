@@ -34,6 +34,59 @@ fn to_runtime_start_meta(meta: SlackStartMeta) -> runtime::StartThreadMeta {
     }
 }
 
+fn slack_sender_kind(body: &serde_json::Value) -> runtime::SenderKind {
+    if body
+        .pointer("/event/bot_id")
+        .and_then(|v| v.as_str())
+        .is_some()
+        || body
+            .pointer("/event/subtype")
+            .and_then(|v| v.as_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("bot_message"))
+    {
+        runtime::SenderKind::ExternalBot
+    } else {
+        runtime::SenderKind::Human
+    }
+}
+
+fn slack_is_mentioned(body: &serde_json::Value) -> bool {
+    body.pointer("/event/type")
+        .and_then(|v| v.as_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("app_mention"))
+}
+
+fn slack_self_user_id(body: &serde_json::Value) -> Option<&str> {
+    body.pointer("/authorizations/0/user_id")
+        .and_then(|value| value.as_str())
+        .or_else(|| body.get("user_id").and_then(|value| value.as_str()))
+}
+
+fn slack_reply_to_self(body: &serde_json::Value) -> bool {
+    let Some(self_user_id) = slack_self_user_id(body) else {
+        return false;
+    };
+    body.pointer("/event/parent_user_id")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value == self_user_id)
+}
+
+fn slack_is_command(prompt: &str) -> bool {
+    prompt.trim_start().starts_with('/')
+}
+
+fn slack_explicitly_targets_other(body: &serde_json::Value) -> bool {
+    body.pointer("/event/text")
+        .and_then(|value| value.as_str())
+        .map(str::trim_start)
+        .is_some_and(|text| text.starts_with("<@") && !slack_is_mentioned(body))
+}
+
+fn slack_used_plain_text_fallback(body: &serde_json::Value, prompt: &str) -> bool {
+    let prompt = prompt.trim();
+    !prompt.is_empty() && !slack_is_mentioned(body) && !slack_is_command(prompt)
+}
+
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     if !ensure_inbound_channel_enabled(depot, res, "slack").await {
@@ -173,7 +226,13 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                 .to_string(),
             ));
 
-            let start_meta = to_runtime_start_meta(parse_start_meta(&body));
+            let mut start_meta = to_runtime_start_meta(parse_start_meta(&body));
+            start_meta.sender_kind = slack_sender_kind(&body);
+            start_meta.is_mentioned = slack_is_mentioned(&body);
+            start_meta.reply_to_self = slack_reply_to_self(&body);
+            start_meta.is_command = slack_is_command(&prompt);
+            start_meta.used_plain_text_fallback = slack_used_plain_text_fallback(&body, &prompt);
+            start_meta.explicitly_targets_other_agent = slack_explicitly_targets_other(&body);
             tokio::spawn(async move {
                 runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                     gateway_channel,

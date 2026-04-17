@@ -89,6 +89,61 @@ fn telegram_update_summary(body: &Value) -> (String, String, String, String) {
     )
 }
 
+fn telegram_inbound_message(body: &Value) -> Option<&Value> {
+    body.get("message").or_else(|| body.get("channel_post"))
+}
+
+fn telegram_sender_kind(body: &Value) -> runtime::SenderKind {
+    if telegram_inbound_message(body)
+        .and_then(|message| message.get("from"))
+        .and_then(|from| from.get("is_bot"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        runtime::SenderKind::ExternalBot
+    } else {
+        runtime::SenderKind::Human
+    }
+}
+
+fn telegram_is_command(prompt: &str) -> bool {
+    prompt.trim_start().starts_with('/')
+}
+
+fn telegram_used_plain_text_fallback(body: &Value, prompt: &str) -> bool {
+    let prompt = prompt.trim();
+    if prompt.is_empty() || telegram_is_command(prompt) {
+        return false;
+    }
+
+    telegram_inbound_message(body)
+        .and_then(|message| message.get("chat"))
+        .and_then(|chat| chat.get("type"))
+        .and_then(Value::as_str)
+        .is_some_and(|chat_type| !chat_type.eq_ignore_ascii_case("private"))
+}
+
+fn telegram_explicitly_targets_other(body: &Value) -> bool {
+    let Some(message) = telegram_inbound_message(body) else {
+        return false;
+    };
+    for key in ["entities", "caption_entities"] {
+        let Some(entities) = message.get(key).and_then(Value::as_array) else {
+            continue;
+        };
+        if entities.iter().any(|entity| {
+            entity.get("offset").and_then(Value::as_u64) == Some(0)
+                && entity
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .is_some_and(|kind| matches!(kind, "mention" | "text_mention"))
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
 async fn process_update_payload(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
@@ -123,7 +178,11 @@ async fn process_update_payload(
                 return;
             }
 
-            let meta = to_runtime_start_meta(parse_start_meta(&body));
+            let mut meta = to_runtime_start_meta(parse_start_meta(&body));
+            meta.sender_kind = telegram_sender_kind(&body);
+            meta.is_command = telegram_is_command(&prompt);
+            meta.used_plain_text_fallback = telegram_used_plain_text_fallback(&body, &prompt);
+            meta.explicitly_targets_other_agent = telegram_explicitly_targets_other(&body);
             let name = parse_display_name(&body);
             debug!(
                 ?update_id, %channel_id, peer_id = ?meta.peer_id, thread_id = ?meta.thread_id,

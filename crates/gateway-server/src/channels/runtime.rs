@@ -21,10 +21,14 @@ use self::footer::{append_footer, current_response_footer_config, format_model_f
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
 use self::routing::{
-    PolicyDecision, check_channel_policies, resolve_linked_identity, resolve_routed_agent,
+    PolicyDecision, check_channel_policies, load_agent_trigger_config, resolve_linked_identity,
+    resolve_routed_agent, resolve_text_target_match,
 };
 pub(crate) use self::trigger::SenderKind;
-use self::trigger::{TriggerDecision, decide_trigger};
+use self::trigger::{
+    TriggerContext, TriggerDecision, TriggerReason, apply_agent_trigger_policy, decide_trigger,
+    effective_conversation_kind,
+};
 use crate::auto_reply::directives::{
     DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
 };
@@ -305,7 +309,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         name.as_deref(),
     )
     .await;
-    let routed_agent = resolve_routed_agent(
+    let default_routed_agent = resolve_routed_agent(
         &gateway_channel,
         &session_store,
         platform,
@@ -314,6 +318,16 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         &start_meta,
     )
     .await;
+    let text_target_match =
+        resolve_text_target_match(&gateway_channel.config().savfox_home, &cleaned_prompt).await;
+    let routed_agent = text_target_match
+        .agent_id
+        .clone()
+        .unwrap_or(default_routed_agent);
+    let cleaned_prompt = text_target_match
+        .stripped_prompt
+        .filter(|value| !value.is_empty())
+        .unwrap_or(cleaned_prompt);
     let dm_scope = if let Some(scope) = start_meta.dm_scope {
         scope
     } else {
@@ -419,14 +433,64 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     }
 
     let runtime_command = command_registry().has_command(&cleaned_prompt);
-    let trigger_decision = decide_trigger(
-        start_meta.sender_kind,
+    let agent_trigger_config =
+        load_agent_trigger_config(&gateway_channel.config().savfox_home, &routed_agent).await;
+    let effective_sender_kind = if matches!(start_meta.sender_kind, SenderKind::ExternalBot)
+        && matches!(
+            agent_trigger_config.external_bot_policy,
+            self::trigger::ExternalBotPolicy::ReplyAllowed
+        ) {
+        SenderKind::Human
+    } else {
+        start_meta.sender_kind
+    };
+    let text_targets_current_agent = text_target_match
+        .agent_id
+        .as_deref()
+        .is_some_and(|agent_id| agent_id.eq_ignore_ascii_case(&routed_agent));
+    let text_targets_other_agent = text_target_match
+        .agent_id
+        .as_deref()
+        .is_some_and(|agent_id| !agent_id.eq_ignore_ascii_case(&routed_agent));
+    let effective_is_mentioned = start_meta.is_mentioned || text_targets_current_agent;
+    let effective_targets_other_agent =
+        start_meta.explicitly_targets_other_agent || text_targets_other_agent;
+    let conversation_kind = effective_conversation_kind(
         start_meta.chat_type.as_deref(),
         start_meta.participant_count,
-        start_meta.is_mentioned,
-        start_meta.is_command || runtime_command,
-        start_meta.used_plain_text_fallback,
-        start_meta.explicitly_targets_other_agent,
+    );
+    let base_trigger_decision = if matches!(start_meta.sender_kind, SenderKind::ExternalBot)
+        && matches!(
+            agent_trigger_config.external_bot_policy,
+            self::trigger::ExternalBotPolicy::IngestOnly
+        ) {
+        TriggerDecision::IngestOnly {
+            reason: TriggerReason::ExternalBotIngestOnly,
+        }
+    } else {
+        decide_trigger(
+            effective_sender_kind,
+            start_meta.chat_type.as_deref(),
+            start_meta.participant_count,
+            effective_is_mentioned,
+            start_meta.reply_to_self,
+            start_meta.is_command || runtime_command,
+            start_meta.used_plain_text_fallback,
+            effective_targets_other_agent,
+        )
+    };
+    let trigger_decision = apply_agent_trigger_policy(
+        base_trigger_decision,
+        TriggerContext {
+            sender_kind: start_meta.sender_kind,
+            conversation_kind,
+            is_mentioned: effective_is_mentioned,
+            reply_to_self: start_meta.reply_to_self,
+            is_command: start_meta.is_command || runtime_command,
+            explicitly_targets_other_agent: effective_targets_other_agent,
+            text: &cleaned_prompt,
+        },
+        &agent_trigger_config,
     );
     match &trigger_decision {
         TriggerDecision::Ignore { reason } => {
@@ -491,7 +555,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             channel_id: outbound_channel.clone(),
             session_id: Some(tracked.session_id.clone()),
             is_authorized: true,
-            is_mentioned: start_meta.is_mentioned,
+            is_mentioned: effective_is_mentioned,
             is_group: matches!(tracked.chat_type.as_deref(), Some("group" | "channel")),
             metadata,
         };
