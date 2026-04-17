@@ -21,8 +21,8 @@ use self::footer::{append_footer, current_response_footer_config, format_model_f
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
 use self::routing::{
-    PolicyDecision, check_channel_policies, load_agent_trigger_config, resolve_linked_identity,
-    resolve_routed_agent, resolve_text_target_match,
+    PolicyDecision, check_channel_policies, load_agent_trigger_config, parse_group_activation_str,
+    resolve_linked_identity, resolve_routed_agent, resolve_text_target_match,
 };
 pub(crate) use self::trigger::SenderKind;
 use self::trigger::{
@@ -433,8 +433,11 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     }
 
     let runtime_command = command_registry().has_command(&cleaned_prompt);
-    let agent_trigger_config =
+    let mut agent_trigger_config =
         load_agent_trigger_config(&gateway_channel.config().savfox_home, &routed_agent).await;
+    if let Some(group_activation) = tracked.group_activation.as_deref() {
+        agent_trigger_config.group_activation = parse_group_activation_str(Some(group_activation));
+    }
     let effective_sender_kind = if matches!(start_meta.sender_kind, SenderKind::ExternalBot)
         && matches!(
             agent_trigger_config.external_bot_policy,

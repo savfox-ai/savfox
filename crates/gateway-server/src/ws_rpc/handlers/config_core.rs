@@ -613,6 +613,38 @@ pub(crate) async fn handle_config_schema() -> RpcResult {
                                 "description": "When to respond in group chats",
                                 "enum": ["mention", "keyword", "always", "command", "off"],
                                 "default": "mention"
+                            },
+                            "group_keywords": {
+                                "type": "array",
+                                "title": "Group Keywords",
+                                "description": "Keywords that activate the agent when group activation is set to keyword mode",
+                                "items": { "type": "string" }
+                            },
+                            "agent_aliases": {
+                                "type": "array",
+                                "title": "Agent Aliases",
+                                "description": "Additional names or call-signs that explicitly target this agent in chat",
+                                "items": { "type": "string" }
+                            },
+                            "ingest_policy": {
+                                "type": "string",
+                                "title": "Ingest Policy",
+                                "description": "How non-reply messages are buffered into ambient context",
+                                "enum": [
+                                    "none",
+                                    "reply_only",
+                                    "targeted_only",
+                                    "all_human_messages",
+                                    "all_non_bot_messages",
+                                    "all_messages"
+                                ]
+                            },
+                            "external_bot_policy": {
+                                "type": "string",
+                                "title": "External Bot Policy",
+                                "description": "How messages from third-party bots are handled",
+                                "enum": ["ignore", "ingest_only", "reply_allowed"],
+                                "default": "ignore"
                             }
                         }
                     }

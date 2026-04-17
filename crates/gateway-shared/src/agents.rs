@@ -51,6 +51,11 @@ pub struct AgentDetail {
     pub theme_color: Option<String>,
     pub is_default: Option<bool>,
     pub fallback_models: Option<Vec<String>>,
+    pub group_activation: Option<String>,
+    pub group_keywords: Option<Vec<String>>,
+    pub agent_aliases: Option<Vec<String>>,
+    pub ingest_policy: Option<String>,
+    pub external_bot_policy: Option<String>,
     /// Unified permission policy (sandbox + approval + tool access).
     pub permission_policy: Option<serde_json::Value>,
     /// List of Matrix appservice channel config IDs for which to auto-create

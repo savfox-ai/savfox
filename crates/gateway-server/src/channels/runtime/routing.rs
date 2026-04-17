@@ -283,9 +283,8 @@ async fn resolve_agent_config_value(savfox_home: &Path, agent_ref: &str) -> Opti
     None
 }
 
-fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
+pub(super) fn parse_group_activation_str(value: Option<&str>) -> GroupActivation {
     match value
-        .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_ascii_lowercase())
@@ -297,6 +296,10 @@ fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
         Some("off") => GroupActivation::Off,
         _ => GroupActivation::Mention,
     }
+}
+
+fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
+    parse_group_activation_str(value.and_then(Value::as_str))
 }
 
 pub(super) async fn load_agent_trigger_config(
@@ -639,7 +642,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        AgentTriggerConfig, GroupActivation, load_agent_trigger_config, resolve_text_target_match,
+        AgentTriggerConfig, GroupActivation, load_agent_trigger_config, parse_group_activation_str,
+        resolve_text_target_match,
     };
 
     #[tokio::test]
@@ -700,6 +704,22 @@ mod tests {
             config.external_bot_policy,
             super::ExternalBotPolicy::IngestOnly
         ));
+    }
+
+    #[test]
+    fn parse_group_activation_str_understands_session_override_values() {
+        assert_eq!(
+            parse_group_activation_str(Some("keyword")),
+            GroupActivation::Keyword
+        );
+        assert_eq!(
+            parse_group_activation_str(Some("off")),
+            GroupActivation::Off
+        );
+        assert_eq!(
+            parse_group_activation_str(Some("invalid-value")),
+            GroupActivation::Mention
+        );
     }
 
     #[test]

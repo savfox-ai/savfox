@@ -78,6 +78,30 @@ The message is appended to the session's conversation history and forwarded to t
 
 If the conversation history exceeds the model's context window, the ThreadManager compacts older messages into a summary before sending the request.
 
+## Group Activation
+
+For group chats, the agent does not respond to every message by default. The
+`group_activation` setting controls when the agent activates:
+
+- **mention** -- only respond when the bot is mentioned by name.
+- **keyword** -- respond when the message contains a configured trigger word.
+- **always** -- respond to every message in the group.
+- **command** -- only respond to slash commands (for example, `/savfox`).
+
+This is configured per-agent in the agent config. A live session may override
+`group_activation` through `sessions.patch`, but the rest of the trigger policy
+is currently agent-scoped.
+
+Additional trigger-related agent fields include:
+
+- `group_keywords` -- keywords used when `group_activation = "keyword"`.
+- `agent_aliases` -- explicit names that route a message to the agent when used
+  as a leading target such as `reviewer: ...`.
+- `ingest_policy` -- controls whether non-reply messages are buffered into
+  ambient context.
+- `external_bot_policy` -- controls whether third-party bot messages are
+  ignored, buffered, or allowed to reply.
+
 ## Outbound Flow
 
 ### 7. Response Delivery

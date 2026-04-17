@@ -228,6 +228,24 @@ fn normalized_reasoning_level(level: &str) -> Option<String> {
     Some(normalized.to_string())
 }
 
+fn normalize_multiline_list(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for part in raw.split([',', '\n', '\r']) {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|existing| existing == trimmed) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+fn multiline_list_value(values: Option<&Vec<String>>) -> String {
+    values.map(|items| items.join("\n")).unwrap_or_default()
+}
+
 fn reasoning_level_label(level: &str) -> &'static str {
     match level {
         "off" => "Off",
@@ -1308,6 +1326,11 @@ fn AgentOverviewTab(
         .and_then(normalized_reasoning_level)
         .unwrap_or_default();
     let mut form_reasoning = use_signal(move || initial_reasoning.clone());
+    let mut form_group_activation = use_signal(|| "mention".to_string());
+    let mut form_group_keywords = use_signal(String::new);
+    let mut form_agent_aliases = use_signal(String::new);
+    let mut form_ingest_policy = use_signal(String::new);
+    let mut form_external_bot_policy = use_signal(String::new);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
@@ -1364,6 +1387,16 @@ fn AgentOverviewTab(
                     .and_then(normalized_reasoning_level)
                     .unwrap_or_default(),
             );
+            form_group_activation.set(
+                detail
+                    .group_activation
+                    .clone()
+                    .unwrap_or_else(|| "mention".to_string()),
+            );
+            form_group_keywords.set(multiline_list_value(detail.group_keywords.as_ref()));
+            form_agent_aliases.set(multiline_list_value(detail.agent_aliases.as_ref()));
+            form_ingest_policy.set(detail.ingest_policy.clone().unwrap_or_default());
+            form_external_bot_policy.set(detail.external_bot_policy.clone().unwrap_or_default());
             detail_seeded.set(true);
         }
     }
@@ -1489,6 +1522,26 @@ fn AgentOverviewTab(
             .as_ref()
             .and_then(|detail| detail.fallback_models.clone())
             .unwrap_or_default();
+        let orig_group_activation = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.group_activation.clone())
+            .unwrap_or_else(|| "mention".to_string());
+        let orig_group_keywords = detail_snapshot
+            .as_ref()
+            .map(|detail| multiline_list_value(detail.group_keywords.as_ref()))
+            .unwrap_or_default();
+        let orig_agent_aliases = detail_snapshot
+            .as_ref()
+            .map(|detail| multiline_list_value(detail.agent_aliases.as_ref()))
+            .unwrap_or_default();
+        let orig_ingest_policy = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.ingest_policy.clone())
+            .unwrap_or_default();
+        let orig_external_bot_policy = detail_snapshot
+            .as_ref()
+            .and_then(|detail| detail.external_bot_policy.clone())
+            .unwrap_or_default();
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -1499,6 +1552,11 @@ fn AgentOverviewTab(
             || current_model != original_model
             || form_desc() != orig_desc
             || form_reasoning() != orig_reasoning
+            || form_group_activation() != orig_group_activation
+            || form_group_keywords() != orig_group_keywords
+            || form_agent_aliases() != orig_agent_aliases
+            || form_ingest_policy() != orig_ingest_policy
+            || form_external_bot_policy() != orig_external_bot_policy
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
@@ -1850,6 +1908,84 @@ fn AgentOverviewTab(
                 }
             }
 
+            // Chat trigger policy
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Chat Trigger Policy" }
+                p { style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;",
+                    "Control when this agent replies in group chats, which passive messages are buffered into ambient context, and which aliases explicitly target this agent."
+                }
+                div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;",
+                    div {
+                        label { class: "{LABEL}", "Group Activation" }
+                        select {
+                            value: "{form_group_activation}",
+                            onchange: move |e| form_group_activation.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "mention", "Mention only" }
+                            option { value: "keyword", "Mention or keyword" }
+                            option { value: "always", "Always reply" }
+                            option { value: "command", "Commands only" }
+                            option { value: "off", "Never reply in groups" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Ingest Policy" }
+                        select {
+                            value: "{form_ingest_policy}",
+                            onchange: move |e| form_ingest_policy.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "", "Default runtime behavior" }
+                            option { value: "none", "Ignore non-replies" }
+                            option { value: "reply_only", "Only keep replied messages" }
+                            option { value: "targeted_only", "Only keep targeted messages" }
+                            option { value: "all_human_messages", "Keep all human messages" }
+                            option { value: "all_non_bot_messages", "Keep all non-bot messages" }
+                            option { value: "all_messages", "Keep all messages" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "External Bot Policy" }
+                        select {
+                            value: "{form_external_bot_policy}",
+                            onchange: move |e| form_external_bot_policy.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "", "Default (ignore)" }
+                            option { value: "ignore", "Ignore" }
+                            option { value: "ingest_only", "Ingest only" }
+                            option { value: "reply_allowed", "Allow reply" }
+                        }
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    label { class: "{LABEL}", "Group Keywords" }
+                    textarea {
+                        value: "{form_group_keywords}",
+                        oninput: move |e| form_group_keywords.set(e.value()),
+                        placeholder: "One keyword per line, or comma-separated",
+                        rows: 4,
+                        class: "{INPUT}",
+                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    }
+                    p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                        "Used when group activation is set to keyword mode."
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    label { class: "{LABEL}", "Agent Aliases" }
+                    textarea {
+                        value: "{form_agent_aliases}",
+                        oninput: move |e| form_agent_aliases.set(e.value()),
+                        placeholder: "reviewer\ncode-reviewer",
+                        rows: 4,
+                        class: "{INPUT}",
+                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    }
+                    p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                        "Leading targets like 'reviewer: inspect this' will route to this agent."
+                    }
+                }
+            }
+
             // Test connectivity
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Connection Test" }
@@ -1918,12 +2054,19 @@ fn AgentOverviewTab(
                             let model_val = selected_model_value.clone();
                             let desc_val = form_desc();
                             let reasoning_val = form_reasoning();
+                            let group_activation_val = form_group_activation();
+                            let group_keywords_val = form_group_keywords();
+                            let agent_aliases_val = form_agent_aliases();
+                            let ingest_policy_val = form_ingest_policy();
+                            let external_bot_policy_val = form_external_bot_policy();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
                                 .cloned()
                                 .collect();
                             spawn(async move {
+                                let keyword_list = normalize_multiline_list(&group_keywords_val);
+                                let alias_list = normalize_multiline_list(&agent_aliases_val);
                                 let mut params = json!({
                                     "id": id,
                                     "name": name,
@@ -1944,6 +2087,33 @@ fn AgentOverviewTab(
                                 } else {
                                     json!(reasoning_val)
                                 };
+                                params["group_activation"] = if group_activation_val.trim().is_empty()
+                                {
+                                    serde_json::Value::Null
+                                } else {
+                                    json!(group_activation_val)
+                                };
+                                params["group_keywords"] = if keyword_list.is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    json!(keyword_list)
+                                };
+                                params["agent_aliases"] = if alias_list.is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    json!(alias_list)
+                                };
+                                params["ingest_policy"] = if ingest_policy_val.trim().is_empty() {
+                                    serde_json::Value::Null
+                                } else {
+                                    json!(ingest_policy_val)
+                                };
+                                params["external_bot_policy"] =
+                                    if external_bot_policy_val.trim().is_empty() {
+                                        serde_json::Value::Null
+                                    } else {
+                                        json!(external_bot_policy_val)
+                                    };
                                 {
                                     let channels: Vec<String> = form_matrix_channels.read().iter().cloned().collect();
                                     if channels.is_empty() {
