@@ -102,6 +102,143 @@ Additional trigger-related agent fields include:
 - `external_bot_policy` -- controls whether third-party bot messages are
   ignored, buffered, or allowed to reply.
 
+## Trigger Decision Model
+
+The runtime does not treat inbound messages as a simple yes/no reply decision.
+Every inbound message ends in one of three states:
+
+- `Reply` -- invoke the agent and send a message back to the channel.
+- `IngestOnly` -- do not reply now, but preserve the message as ambient context
+  for the next real reply in the same session.
+- `Ignore` -- do not reply and do not preserve the message.
+
+This decision is made in two layers:
+
+1. A platform-neutral base trigger decision from normalized message metadata.
+2. Agent-level policy overrides (`group_activation`, `ingest_policy`,
+   `external_bot_policy`, `group_keywords`, `agent_aliases`).
+
+## Base Trigger Strategy
+
+The base trigger logic is intentionally conservative for group traffic and more
+permissive for direct conversations.
+
+### Messages ignored immediately
+
+These messages are ignored before agent policy is evaluated:
+
+- Messages sent by the current bot itself.
+- Messages sent by the system's own agent ghost users.
+- Bridge ghost/system mirror messages.
+- Third-party bot messages, unless `external_bot_policy` overrides that
+  behavior later.
+
+### Messages that reply immediately
+
+These conditions produce an immediate `Reply` in the base layer:
+
+- The message replies to the agent's own previous message.
+- The message is recognized as a command.
+- The message explicitly mentions or targets the current agent.
+- The conversation is a direct message.
+- The room has exactly two participants. Pair rooms are treated as DM-like
+  conversations even if the upstream platform labels them as a group.
+
+### Messages that usually do not reply immediately
+
+For larger rooms, plain-text fallback traffic is treated conservatively:
+
+- If a platform parser forwards a plain group message through a permissive
+  fallback path, the base decision becomes `IngestOnly`.
+- If a message clearly targets some other agent, the base decision becomes
+  `IngestOnly`.
+
+This allows the system to keep useful context without generating message storms
+in shared rooms.
+
+## Agent-Level Policy Overrides
+
+After the base decision is computed, the runtime loads the target agent's
+trigger policy and applies overrides.
+
+### `group_activation`
+
+`group_activation` only affects group-like conversations (`group`,
+`broadcast`, or unknown room types). It does not suppress DM or pair-room
+replies.
+
+- `mention` -- only messages that explicitly mention the agent stay replyable;
+  other group messages degrade to `IngestOnly`.
+- `keyword` -- mention still replies; otherwise the message replies only when
+  its text contains one of `group_keywords`.
+- `always` -- group fallback traffic is promoted from `IngestOnly` to `Reply`.
+- `command` -- only commands reply; other group traffic degrades to
+  `IngestOnly`.
+- `off` -- group traffic never auto-replies and is reduced to `IngestOnly`.
+
+`sessions.patch` can override `group_activation` at runtime for a live session.
+The other trigger fields remain agent-scoped.
+
+### `agent_aliases`
+
+`agent_aliases` allows explicit text-based targeting such as:
+
+- `reviewer: inspect this diff`
+- `@reviewer summarize the thread`
+
+If a leading alias matches the current agent, the message is treated like a
+mention. If it matches a different agent, the current agent suppresses the
+reply path and treats the message as targeted elsewhere.
+
+### `external_bot_policy`
+
+This setting controls how third-party bot messages behave:
+
+- `ignore` -- keep the default behavior and drop them.
+- `ingest_only` -- preserve the message as ambient context without replying.
+- `reply_allowed` -- treat the external bot like a normal speaker for trigger
+  purposes.
+
+### `ingest_policy`
+
+This setting decides which non-reply messages should still be kept as ambient
+context:
+
+- `preserve_base` -- keep the base `IngestOnly` decisions unchanged.
+- `none` / `reply_only` -- drop `IngestOnly` messages instead of buffering
+  them.
+- `targeted_only` -- only keep `IngestOnly` traffic that was explicitly aimed
+  at another agent.
+- `all_human_messages` -- convert otherwise ignored human traffic into
+  `IngestOnly`.
+- `all_non_bot_messages` -- preserve non-bot traffic, including unknown human
+  senders.
+- `all_messages` -- preserve everything except self/ghost system traffic.
+
+## Ambient Context
+
+When a message ends in `IngestOnly`, it is stored in an in-memory ambient
+buffer for that session. The next time the agent actually replies in that
+session, the buffered messages are prepended to the prompt as ambient context
+and then consumed.
+
+This means the system can stay aware of relevant room activity without replying
+to every message.
+
+## Platform Notes
+
+Channel integrations are allowed to differ in how aggressively they forward raw
+ traffic into the runtime. The runtime compensates by relying on normalized
+ metadata rather than platform-specific reply rules alone.
+
+In practice:
+
+- Direct mentions and explicit replies remain the strongest universal reply
+  signals.
+- Two-person rooms are treated as direct conversations across platforms.
+- Group plain-text fallbacks are generally ingested first and only promoted to
+  replies when the agent's trigger policy allows it.
+
 ## Outbound Flow
 
 ### 7. Response Delivery
