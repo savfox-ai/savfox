@@ -133,6 +133,7 @@ impl ExternalBotPolicy {
 pub struct IdleReplyConfig {
     pub enabled: bool,
     pub delay_secs: u64,
+    pub max_per_hour: u32,
     pub prompt: Option<String>,
 }
 
@@ -141,6 +142,7 @@ impl Default for IdleReplyConfig {
         Self {
             enabled: false,
             delay_secs: 180,
+            max_per_hour: 1,
             prompt: None,
         }
     }

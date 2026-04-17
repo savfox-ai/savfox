@@ -15,6 +15,7 @@ use crate::channel::GatewayChannel;
 use crate::channels::policy::{
     DmScopePolicyConfig, load_dm_scope_policy, parse_dm_scope, write_dm_scope_policy,
 };
+use crate::channels::runtime::get_idle_reply_status;
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
     provider_from_model, resolve_abort_candidate_ids, validate_uuid_v7_session_id,
@@ -1085,6 +1086,36 @@ pub(crate) async fn handle_sessions_ambient_get(
     Ok(json!({
         "session_id": session_id,
         "messages": messages,
+    }))
+}
+
+pub(crate) async fn handle_sessions_idle_reply_get(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() {
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
+    }
+    if session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, format!("session not found: {session_id}")));
+    }
+
+    let status = get_idle_reply_status(session_id).await;
+    Ok(serde_json::to_value(status).unwrap_or_else(|_| {
+        json!({
+            "session_id": session_id,
+            "generation": 0,
+            "pending": null,
+            "recent_sent_count": 0,
+            "recent_sent_at_ms": [],
+            "last_suppressed_at_ms": null,
+            "suppressed_reason": null,
+        })
     }))
 }
 

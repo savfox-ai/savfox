@@ -135,6 +135,28 @@ pub struct SessionAmbientResponse {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct SessionIdleReplyPending {
+    pub session_id: String,
+    pub agent_id: String,
+    pub outbound_channel: String,
+    pub delay_secs: u64,
+    pub scheduled_at_ms: u64,
+    pub deadline_at_ms: u64,
+    pub message_preview: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionIdleReplyResponse {
+    pub session_id: String,
+    pub generation: u64,
+    pub pending: Option<SessionIdleReplyPending>,
+    pub recent_sent_count: usize,
+    pub recent_sent_at_ms: Vec<u64>,
+    pub last_suppressed_at_ms: Option<u64>,
+    pub suppressed_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct SessionDetail {
     pub session_id: Option<String>,
     pub id: Option<String>,

@@ -265,9 +265,14 @@ fn idle_reply_delay_value(value: Option<u64>) -> String {
     value.unwrap_or(180).to_string()
 }
 
-fn json_idle_reply_fields(value: Option<&Value>) -> (bool, String, String) {
+fn json_idle_reply_fields(value: Option<&Value>) -> (bool, String, String, String) {
     let Some(config) = value.and_then(Value::as_object) else {
-        return (false, idle_reply_delay_value(None), String::new());
+        return (
+            false,
+            idle_reply_delay_value(None),
+            "1".to_string(),
+            String::new(),
+        );
     };
 
     let enabled = config
@@ -275,26 +280,44 @@ fn json_idle_reply_fields(value: Option<&Value>) -> (bool, String, String) {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let delay = idle_reply_delay_value(config.get("delay_secs").and_then(Value::as_u64));
+    let max_per_hour = config
+        .get("max_per_hour")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .to_string();
     let prompt = config
         .get("prompt")
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    (enabled, delay, prompt)
+    (enabled, delay, max_per_hour, prompt)
 }
 
-fn detail_idle_reply_fields(detail: Option<&AgentIdleReplyConfig>) -> (bool, String, String) {
+fn detail_idle_reply_fields(
+    detail: Option<&AgentIdleReplyConfig>,
+) -> (bool, String, String, String) {
     let Some(config) = detail else {
-        return (false, idle_reply_delay_value(None), String::new());
+        return (
+            false,
+            idle_reply_delay_value(None),
+            "1".to_string(),
+            String::new(),
+        );
     };
     (
         config.enabled.unwrap_or(false),
         idle_reply_delay_value(config.delay_secs),
+        config.max_per_hour.unwrap_or(1).to_string(),
         config.prompt.clone().unwrap_or_default(),
     )
 }
 
-fn idle_reply_payload(enabled: bool, delay_raw: &str, prompt_raw: &str) -> Option<Value> {
+fn idle_reply_payload(
+    enabled: bool,
+    delay_raw: &str,
+    max_per_hour_raw: &str,
+    prompt_raw: &str,
+) -> Option<Value> {
     let prompt = prompt_raw.trim();
     let delay_secs = delay_raw
         .trim()
@@ -302,13 +325,20 @@ fn idle_reply_payload(enabled: bool, delay_raw: &str, prompt_raw: &str) -> Optio
         .ok()
         .filter(|value| *value >= 30)
         .unwrap_or(180);
-    if !enabled && delay_secs == 180 && prompt.is_empty() {
+    let max_per_hour = max_per_hour_raw
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or(1);
+    if !enabled && delay_secs == 180 && max_per_hour == 1 && prompt.is_empty() {
         return None;
     }
 
     let mut payload = json!({
         "enabled": enabled,
         "delay_secs": delay_secs,
+        "max_per_hour": max_per_hour,
     });
     if !prompt.is_empty() {
         payload["prompt"] = json!(prompt);
@@ -489,6 +519,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_external_bot_policy = use_signal(String::new);
     let mut new_idle_reply_enabled = use_signal(|| false);
     let mut new_idle_reply_delay = use_signal(|| "180".to_string());
+    let mut new_idle_reply_max_per_hour = use_signal(|| "1".to_string());
     let mut new_idle_reply_prompt = use_signal(String::new);
 
     // Fetch agent list
@@ -685,7 +716,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                             let agent_aliases = json_string_list(parsed.get("agent_aliases"));
                                             let ingest_policy = parsed.get("ingest_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let external_bot_policy = parsed.get("external_bot_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let (idle_reply_enabled, idle_reply_delay, idle_reply_prompt) =
+                                            let (idle_reply_enabled, idle_reply_delay, idle_reply_max_per_hour, idle_reply_prompt) =
                                                 json_idle_reply_fields(parsed.get("idle_reply"));
 
                                             let id_slug: String = name.chars()
@@ -723,6 +754,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 if let Some(idle_reply) = idle_reply_payload(
                                                     idle_reply_enabled,
                                                     &idle_reply_delay,
+                                                    &idle_reply_max_per_hour,
                                                     &idle_reply_prompt,
                                                 ) {
                                                     payload["idle_reply"] = idle_reply;
@@ -773,6 +805,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_external_bot_policy.set(String::new());
                                 new_idle_reply_enabled.set(false);
                                 new_idle_reply_delay.set("180".to_string());
+                                new_idle_reply_max_per_hour.set("1".to_string());
                                 new_idle_reply_prompt.set(String::new());
                             },
                             class: "{TOOL_BTN} tool-btn--primary",
@@ -886,6 +919,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                         new_external_bot_policy,
                         new_idle_reply_enabled,
                         new_idle_reply_delay,
+                        new_idle_reply_max_per_hour,
                         new_idle_reply_prompt,
                     }
                 } else if show_settings() {
@@ -964,6 +998,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_external_bot_policy.set(String::new());
                                     new_idle_reply_enabled.set(false);
                                     new_idle_reply_delay.set("180".to_string());
+                                    new_idle_reply_max_per_hour.set("1".to_string());
                                     new_idle_reply_prompt.set(String::new());
                                 },
                                 "Create Agent"
@@ -998,6 +1033,7 @@ fn AgentCreateForm(
     mut new_external_bot_policy: Signal<String>,
     mut new_idle_reply_enabled: Signal<bool>,
     mut new_idle_reply_delay: Signal<String>,
+    mut new_idle_reply_max_per_hour: Signal<String>,
     mut new_idle_reply_prompt: Signal<String>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
@@ -1298,6 +1334,15 @@ fn AgentCreateForm(
                             }
                         }
                         div {
+                            label { class: "{LABEL}", "Idle Max / Hour" }
+                            input {
+                                value: "{new_idle_reply_max_per_hour}",
+                                oninput: move |e| new_idle_reply_max_per_hour.set(e.value()),
+                                placeholder: "1",
+                                class: "{INPUT}",
+                            }
+                        }
+                        div {
                             label { class: "{LABEL}", "Idle Prompt Override" }
                             textarea {
                                 value: "{new_idle_reply_prompt}",
@@ -1333,6 +1378,7 @@ fn AgentCreateForm(
                                 new_external_bot_policy().trim().to_string();
                             let idle_reply_enabled = new_idle_reply_enabled();
                             let idle_reply_delay = new_idle_reply_delay();
+                            let idle_reply_max_per_hour = new_idle_reply_max_per_hour();
                             let idle_reply_prompt = new_idle_reply_prompt();
                             if id.is_empty() {
                                 toaster.error("Agent ID is required");
@@ -1382,6 +1428,7 @@ fn AgentCreateForm(
                                 if let Some(idle_reply) = idle_reply_payload(
                                     idle_reply_enabled,
                                     &idle_reply_delay,
+                                    &idle_reply_max_per_hour,
                                     &idle_reply_prompt,
                                 ) {
                                     payload["idle_reply"] = idle_reply;
@@ -1403,6 +1450,7 @@ fn AgentCreateForm(
                                         new_external_bot_policy.set(String::new());
                                         new_idle_reply_enabled.set(false);
                                         new_idle_reply_delay.set("180".to_string());
+                                        new_idle_reply_max_per_hour.set("1".to_string());
                                         new_idle_reply_prompt.set(String::new());
                                         refresh_tick += 1;
                                     }
@@ -1423,6 +1471,7 @@ fn AgentCreateForm(
                             new_external_bot_policy.set(String::new());
                             new_idle_reply_enabled.set(false);
                             new_idle_reply_delay.set("180".to_string());
+                            new_idle_reply_max_per_hour.set("1".to_string());
                             new_idle_reply_prompt.set(String::new());
                         },
                         class: "{TOOL_BTN} tool-btn--lg",
@@ -1622,6 +1671,7 @@ fn AgentOverviewTab(
     let mut form_external_bot_policy = use_signal(String::new);
     let mut form_idle_reply_enabled = use_signal(|| false);
     let mut form_idle_reply_delay = use_signal(|| "180".to_string());
+    let mut form_idle_reply_max_per_hour = use_signal(|| "1".to_string());
     let mut form_idle_reply_prompt = use_signal(String::new);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
@@ -1689,10 +1739,11 @@ fn AgentOverviewTab(
             form_agent_aliases.set(multiline_list_value(detail.agent_aliases.as_ref()));
             form_ingest_policy.set(detail.ingest_policy.clone().unwrap_or_default());
             form_external_bot_policy.set(detail.external_bot_policy.clone().unwrap_or_default());
-            let (idle_enabled, idle_delay, idle_prompt) =
+            let (idle_enabled, idle_delay, idle_max_per_hour, idle_prompt) =
                 detail_idle_reply_fields(detail.idle_reply.as_ref());
             form_idle_reply_enabled.set(idle_enabled);
             form_idle_reply_delay.set(idle_delay);
+            form_idle_reply_max_per_hour.set(idle_max_per_hour);
             form_idle_reply_prompt.set(idle_prompt);
             detail_seeded.set(true);
         }
@@ -1839,12 +1890,16 @@ fn AgentOverviewTab(
             .as_ref()
             .and_then(|detail| detail.external_bot_policy.clone())
             .unwrap_or_default();
-        let (orig_idle_reply_enabled, orig_idle_reply_delay, orig_idle_reply_prompt) =
-            detail_idle_reply_fields(
-                detail_snapshot
-                    .as_ref()
-                    .and_then(|detail| detail.idle_reply.as_ref()),
-            );
+        let (
+            orig_idle_reply_enabled,
+            orig_idle_reply_delay,
+            orig_idle_reply_max_per_hour,
+            orig_idle_reply_prompt,
+        ) = detail_idle_reply_fields(
+            detail_snapshot
+                .as_ref()
+                .and_then(|detail| detail.idle_reply.as_ref()),
+        );
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -1862,6 +1917,7 @@ fn AgentOverviewTab(
             || form_external_bot_policy() != orig_external_bot_policy
             || form_idle_reply_enabled() != orig_idle_reply_enabled
             || form_idle_reply_delay() != orig_idle_reply_delay
+            || form_idle_reply_max_per_hour() != orig_idle_reply_max_per_hour
             || form_idle_reply_prompt() != orig_idle_reply_prompt
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
@@ -2353,6 +2409,15 @@ fn AgentOverviewTab(
                         }
                     }
                     div {
+                        label { class: "{LABEL}", "Idle Max / Hour" }
+                        input {
+                            value: "{form_idle_reply_max_per_hour}",
+                            oninput: move |e| form_idle_reply_max_per_hour.set(e.value()),
+                            placeholder: "1",
+                            class: "{INPUT}",
+                        }
+                    }
+                    div {
                         label { class: "{LABEL}", "Idle Prompt Override" }
                         textarea {
                             value: "{form_idle_reply_prompt}",
@@ -2441,6 +2506,7 @@ fn AgentOverviewTab(
                             let external_bot_policy_val = form_external_bot_policy();
                             let idle_reply_enabled_val = form_idle_reply_enabled();
                             let idle_reply_delay_val = form_idle_reply_delay();
+                            let idle_reply_max_per_hour_val = form_idle_reply_max_per_hour();
                             let idle_reply_prompt_val = form_idle_reply_prompt();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
@@ -2500,6 +2566,7 @@ fn AgentOverviewTab(
                                 params["idle_reply"] = if let Some(idle_reply) = idle_reply_payload(
                                     idle_reply_enabled_val,
                                     &idle_reply_delay_val,
+                                    &idle_reply_max_per_hour_val,
                                     &idle_reply_prompt_val,
                                 ) {
                                     idle_reply

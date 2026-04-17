@@ -9,7 +9,7 @@ use wasm_bindgen::JsCast;
 use crate::api::client::stream_chat;
 use crate::api::types::{
     AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, SessionAmbientMessage,
-    SessionAmbientResponse, SessionEntry, SessionsResponse,
+    SessionAmbientResponse, SessionEntry, SessionIdleReplyResponse, SessionsResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
@@ -134,6 +134,42 @@ fn format_ambient_sidebar(messages: &[SessionAmbientMessage]) -> String {
     out
 }
 
+fn format_idle_reply_sidebar(status: &SessionIdleReplyResponse) -> String {
+    let mut out = String::from("## Idle Fallback\n\n");
+    match status.pending.as_ref() {
+        Some(pending) => {
+            out.push_str(&format!(
+                "- **Pending** for `{}`\n- Agent: `{}`\n- Delay: `{}` seconds\n- Preview: {}\n\n",
+                pending.outbound_channel,
+                pending.agent_id,
+                pending.delay_secs,
+                pending.message_preview.trim()
+            ));
+        }
+        None => {
+            out.push_str("No pending idle fallback reply for this session.\n\n");
+        }
+    }
+
+    out.push_str(&format!(
+        "- Recent replies in last hour: `{}`\n",
+        status.recent_sent_count
+    ));
+    if !status.recent_sent_at_ms.is_empty() {
+        out.push_str("- Recent trigger timestamps (ms):\n");
+        for timestamp in &status.recent_sent_at_ms {
+            out.push_str(&format!("  - `{timestamp}`\n"));
+        }
+    }
+    if let Some(reason) = status.suppressed_reason.as_deref() {
+        out.push_str(&format!("\n- Last suppression reason: `{reason}`\n"));
+    }
+    if let Some(timestamp) = status.last_suppressed_at_ms {
+        out.push_str(&format!("- Last suppression time (ms): `{timestamp}`\n"));
+    }
+    out
+}
+
 fn load_pending_session_model() -> Option<String> {
     web_sys::window()
         .and_then(|window| window.local_storage().ok())
@@ -252,6 +288,7 @@ pub fn Sessions() -> Element {
     let mut abort_ctl = use_signal(|| Option::<web_sys::AbortController>::None);
     let mut loading_session = use_signal(|| false);
     let mut ambient_loading = use_signal(|| false);
+    let mut idle_loading = use_signal(|| false);
 
     let mut sidebar_content = use_signal(|| Option::<String>::None);
     let mut session_search_query = use_signal(String::new);
@@ -383,6 +420,8 @@ pub fn Sessions() -> Element {
         session_group_activation.set(String::new());
         messages.write().clear();
         sidebar_content.set(None);
+        ambient_loading.set(false);
+        idle_loading.set(false);
         if let Some(pending) = pending_session_model() {
             selected_model.set(pending);
         }
@@ -971,6 +1010,38 @@ pub fn Sessions() -> Element {
                                     }
                                 },
                                 if ambient_loading() { "Ambient..." } else { "Ambient" }
+                            }
+                            button {
+                                class: "session-pill-btn",
+                                disabled: idle_loading(),
+                                onclick: {
+                                    let ws = ws.clone();
+                                    let active_session_id = active_session_id.clone();
+                                    move |_| {
+                                        let Some(session_id) = active_session_id.clone() else {
+                                            return;
+                                        };
+                                        let ws = ws.clone();
+                                        idle_loading.set(true);
+                                        spawn(async move {
+                                            let content = match ws
+                                                .call::<SessionIdleReplyResponse>(
+                                                    "sessions.idle_reply.get",
+                                                    Some(json!({ "session_id": session_id })),
+                                                )
+                                                .await
+                                            {
+                                                Ok(response) => format_idle_reply_sidebar(&response),
+                                                Err(err) => format!(
+                                                    "## Idle Fallback\n\nFailed to load idle reply state.\n\n`{err}`"
+                                                ),
+                                            };
+                                            idle_loading.set(false);
+                                            sidebar_content.set(Some(content));
+                                        });
+                                    }
+                                },
+                                if idle_loading() { "Idle..." } else { "Idle" }
                             }
                         }
                     }

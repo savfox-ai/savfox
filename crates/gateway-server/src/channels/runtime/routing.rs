@@ -318,6 +318,11 @@ fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
         .and_then(Value::as_u64)
         .unwrap_or(180)
         .max(30);
+    let max_per_hour = config
+        .get("max_per_hour")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, u32::MAX as u64) as u32;
     let prompt = config
         .get("prompt")
         .and_then(Value::as_str)
@@ -328,6 +333,7 @@ fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
     IdleReplyConfig {
         enabled,
         delay_secs,
+        max_per_hour,
         prompt,
     }
 }
@@ -718,6 +724,7 @@ mod tests {
   "idle_reply": {
     "enabled": true,
     "delay_secs": 240,
+    "max_per_hour": 2,
     "prompt": "Follow up if the room stays quiet."
   }
 }"#,
@@ -742,6 +749,7 @@ mod tests {
         ));
         assert!(config.idle_reply.enabled);
         assert_eq!(config.idle_reply.delay_secs, 240);
+        assert_eq!(config.idle_reply.max_per_hour, 2);
         assert_eq!(
             config.idle_reply.prompt.as_deref(),
             Some("Follow up if the room stays quiet.")

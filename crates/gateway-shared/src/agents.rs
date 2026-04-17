@@ -10,6 +10,7 @@ pub struct AgentModels {
 pub struct AgentIdleReplyConfig {
     pub enabled: Option<bool>,
     pub delay_secs: Option<u64>,
+    pub max_per_hour: Option<u32>,
     pub prompt: Option<String>,
 }
 

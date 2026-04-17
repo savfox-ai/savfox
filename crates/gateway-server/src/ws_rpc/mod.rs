@@ -119,6 +119,7 @@ pub(crate) async fn dispatch_rpc(
         // ── Sessions ────────────────────────────────────────────────────
         "sessions.list" => handle_sessions_list(session_mgr, session_store, channel).await,
         "sessions.ambient.get" => handle_sessions_ambient_get(&params, session_store).await,
+        "sessions.idle_reply.get" => handle_sessions_idle_reply_get(&params, session_store).await,
         "sessions.preview" => handle_sessions_preview(&params, session_store, channel).await,
         "sessions.patch" => handle_sessions_patch(&params, session_store).await,
         "sessions.reset" => {

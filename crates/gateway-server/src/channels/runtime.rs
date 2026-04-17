@@ -19,8 +19,10 @@ pub(crate) use self::delivery::{
 use self::delivery::{record_channel_event, send_with_retry};
 pub(crate) use self::footer::set_response_footer_config;
 use self::footer::{append_footer, current_response_footer_config, format_model_footer};
+pub(crate) use self::idle_reply::get_idle_reply_status;
 use self::idle_reply::{
-    IdleReplySchedule, record_inbound_activity, schedule_idle_reply, should_schedule_idle_reply,
+    IdleReplySchedule, IdleReplyScheduleOutcome, record_inbound_activity, schedule_idle_reply,
+    should_schedule_idle_reply,
 };
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
@@ -540,7 +542,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 },
                 &agent_trigger_config,
             ) {
-                schedule_idle_reply(
+                let idle_outcome = schedule_idle_reply(
                     Arc::clone(&gateway_channel),
                     Arc::clone(&session_store),
                     idle_generation,
@@ -553,18 +555,36 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                         reply_target: tracked.reply_target.clone(),
                         prompt_override: agent_trigger_config.idle_reply.prompt.clone(),
                         delay_secs: agent_trigger_config.idle_reply.delay_secs,
+                        max_per_hour: agent_trigger_config.idle_reply.max_per_hour,
+                        message_preview: cleaned_prompt.clone(),
                     },
-                );
-                log_store::append_log(
-                    "info",
-                    "channel/runtime",
-                    format!(
-                        "idle reply scheduled: channel={outbound_channel}, session_id={}, delay_secs={}",
-                        tracked.session_id,
-                        agent_trigger_config.idle_reply.delay_secs
-                    ),
                 )
                 .await;
+                match idle_outcome {
+                    IdleReplyScheduleOutcome::Scheduled => {
+                        log_store::append_log(
+                            "info",
+                            "channel/runtime",
+                            format!(
+                                "idle reply scheduled: channel={outbound_channel}, session_id={}, delay_secs={}",
+                                tracked.session_id,
+                                agent_trigger_config.idle_reply.delay_secs
+                            ),
+                        )
+                        .await;
+                    }
+                    IdleReplyScheduleOutcome::RateLimited => {
+                        log_store::append_log(
+                            "info",
+                            "channel/runtime",
+                            format!(
+                                "idle reply skipped by rate limit: channel={outbound_channel}, session_id={}",
+                                tracked.session_id
+                            ),
+                        )
+                        .await;
+                    }
+                }
             }
             log_store::append_log(
                 "info",

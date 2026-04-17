@@ -239,6 +239,8 @@ The `idle_reply` object currently supports:
 - `enabled` -- turn the delayed fallback on or off.
 - `delay_secs` -- how long the room must stay quiet before the fallback reply
   fires.
+- `max_per_hour` -- per-session guardrail limiting how many idle fallback
+  replies may be sent in one hour.
 - `prompt` -- optional custom instruction used when the delayed fallback
   triggers.
 

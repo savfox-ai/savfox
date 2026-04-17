@@ -204,6 +204,7 @@ runtime 对每条入站消息不是简单地做“回 / 不回”二选一，而
 
 - `enabled`：是否开启延迟补位回复
 - `delay_secs`：房间需要静置多久才触发补位
+- `max_per_hour`：每个 session 每小时最多允许触发多少次 idle fallback
 - `prompt`：触发延迟补位时附加的自定义提示词
 
 ## Ambient Context

@@ -664,6 +664,13 @@ pub(crate) async fn handle_config_schema() -> RpcResult {
                                         "default": 180,
                                         "minimum": 30
                                     },
+                                    "max_per_hour": {
+                                        "type": "integer",
+                                        "title": "Max Replies Per Hour",
+                                        "description": "Maximum number of idle fallback replies allowed per session each hour",
+                                        "default": 1,
+                                        "minimum": 1
+                                    },
                                     "prompt": {
                                         "type": "string",
                                         "title": "Idle Prompt",
