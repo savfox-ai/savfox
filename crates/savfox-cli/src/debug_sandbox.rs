@@ -1,6 +1,9 @@
 #![allow(clippy::exit)]
 
+// This macOS-only module uses kqueue/proc_listchildpids FFI to track descendants.
+// Keep the unsafe exception scoped to that implementation instead of weakening the crate policy.
 #[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
 mod pid_tracker;
 #[cfg(target_os = "macos")]
 mod seatbelt;
