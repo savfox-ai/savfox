@@ -3,6 +3,7 @@ mod delivery;
 mod footer;
 mod memory;
 mod routing;
+mod trigger;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -22,6 +23,8 @@ pub(crate) use self::routing::StartThreadMeta;
 use self::routing::{
     PolicyDecision, check_channel_policies, resolve_linked_identity, resolve_routed_agent,
 };
+pub(crate) use self::trigger::SenderKind;
+use self::trigger::{TriggerDecision, decide_trigger};
 use crate::auto_reply::directives::{
     DirectiveKind, fuzzy_match_model_name, parse_directives, parse_model_target,
 };
@@ -32,8 +35,9 @@ use crate::channels::policy::{
 };
 use crate::log_store;
 use crate::session::{
-    InboundSessionMeta, SessionOverrides, SessionStore, session_file_to_store_value,
-    track_inbound_message, track_token_usage,
+    AmbientMessage, InboundSessionMeta, SessionOverrides, SessionStore, format_ambient_context,
+    prepend_ambient_context, push_ambient_message, session_file_to_store_value,
+    take_ambient_messages, track_inbound_message, track_token_usage,
 };
 
 fn command_registry() -> &'static CommandRegistry {
@@ -414,7 +418,59 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         }
     }
 
-    if command_registry().has_command(&cleaned_prompt) {
+    let runtime_command = command_registry().has_command(&cleaned_prompt);
+    let trigger_decision = decide_trigger(
+        start_meta.sender_kind,
+        start_meta.chat_type.as_deref(),
+        start_meta.participant_count,
+        start_meta.is_mentioned,
+        start_meta.is_command || runtime_command,
+        start_meta.used_plain_text_fallback,
+        start_meta.explicitly_targets_other_agent,
+    );
+    match &trigger_decision {
+        TriggerDecision::Ignore { reason } => {
+            log_store::append_log(
+                "info",
+                "channel/runtime",
+                format!(
+                    "message ignored by trigger: channel={outbound_channel}, session_id={}, reason={}",
+                    tracked.session_id,
+                    reason.as_str()
+                ),
+            )
+            .await;
+            return;
+        }
+        TriggerDecision::IngestOnly { reason } => {
+            push_ambient_message(
+                &tracked.session_id,
+                AmbientMessage {
+                    timestamp_ms: crate::json_store::now_ms(),
+                    sender_id: start_meta.peer_id.clone(),
+                    sender_name: name.clone(),
+                    sender_kind: start_meta.sender_kind.as_str().to_owned(),
+                    text: cleaned_prompt.clone(),
+                    reason: reason.as_str().to_owned(),
+                },
+            )
+            .await;
+            log_store::append_log(
+                "info",
+                "channel/runtime",
+                format!(
+                    "message buffered without reply: channel={outbound_channel}, session_id={}, reason={}",
+                    tracked.session_id,
+                    reason.as_str()
+                ),
+            )
+            .await;
+            return;
+        }
+        TriggerDecision::Reply { .. } => {}
+    }
+
+    if runtime_command {
         let mut metadata = HashMap::new();
         if let Some(model) = tracked
             .overrides
@@ -435,7 +491,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
             channel_id: outbound_channel.clone(),
             session_id: Some(tracked.session_id.clone()),
             is_authorized: true,
-            is_mentioned: true,
+            is_mentioned: start_meta.is_mentioned,
             is_group: matches!(tracked.chat_type.as_deref(), Some("group" | "channel")),
             metadata,
         };
@@ -520,6 +576,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         )
         .await;
     }
+    let ambient_context = format_ambient_context(&take_ambient_messages(&tracked.session_id).await);
+    let effective_prompt = prepend_ambient_context(&effective_prompt, ambient_context.as_deref());
     // Set up streaming for channels that support progressive message editing.
     // Supported: Telegram, Discord, Slack, Mattermost, Feishu/Lark, DingTalk.
     use super::channel_stream::{

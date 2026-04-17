@@ -5,6 +5,7 @@ use std::sync::Arc;
 use savfox_core::config::channel_store::{ChannelConfig, Router};
 use tracing::warn;
 
+use super::trigger::SenderKind;
 use crate::agent_routing::{AgentRouter, RoutingContext};
 use crate::channel::GatewayChannel;
 use crate::identity_links::{
@@ -33,6 +34,12 @@ pub(crate) struct StartThreadMeta {
     pub dm_scope: Option<DmScope>,
     pub topic: Option<String>,
     pub saved_channel_config_id: Option<String>,
+    pub sender_kind: SenderKind,
+    pub is_mentioned: bool,
+    pub is_command: bool,
+    pub used_plain_text_fallback: bool,
+    pub participant_count: Option<u32>,
+    pub explicitly_targets_other_agent: bool,
 }
 
 fn extract_agent_from_routing_id(routing_id: &str) -> Option<String> {

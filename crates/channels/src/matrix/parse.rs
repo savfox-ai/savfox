@@ -26,6 +26,8 @@ pub struct MatrixCommandEvent {
     pub sender: String,
     pub prompt: String,
     pub dedupe_key: Option<String>,
+    pub is_mentioned: bool,
+    pub used_plain_text_fallback: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -64,21 +66,29 @@ fn parse_message_event_internal(
     }
     let text = content.get("body").and_then(Value::as_str).unwrap_or("");
     debug_matrix_inbound_message(room_id, sender, text);
-    let prompt = match extract_prompt(content, self_user_id) {
-        Some(prompt) => prompt,
-        None if allow_plain_text => {
-            let prompt = text.trim();
-            if prompt.is_empty() {
-                debug_matrix_message_ignored(room_id, sender, "empty_body");
+    let prefixed_prompt = extract_prefixed_prompt(text);
+    let mentioned_prompt = if prefixed_prompt.is_none() {
+        self_user_id.and_then(|user_id| extract_prompt_from_bot_mention(content, user_id))
+    } else {
+        None
+    };
+    let is_explicit_mention = mentioned_prompt.is_some();
+    let (prompt, is_mentioned, used_plain_text_fallback) =
+        match prefixed_prompt.or(mentioned_prompt) {
+            Some(prompt) => (prompt, is_explicit_mention, false),
+            None if allow_plain_text => {
+                let prompt = text.trim();
+                if prompt.is_empty() {
+                    debug_matrix_message_ignored(room_id, sender, "empty_body");
+                    return None;
+                }
+                (prompt.to_owned(), false, true)
+            }
+            None => {
+                debug_matrix_message_ignored(room_id, sender, "no_prefix_or_bot_mention");
                 return None;
             }
-            prompt.to_owned()
-        }
-        None => {
-            debug_matrix_message_ignored(room_id, sender, "no_prefix_or_bot_mention");
-            return None;
-        }
-    };
+        };
     if room_id.is_empty() {
         debug_matrix_message_ignored(room_id, sender, "missing_room_id");
         return None;
@@ -92,6 +102,8 @@ fn parse_message_event_internal(
         sender: sender.to_owned(),
         prompt,
         dedupe_key,
+        is_mentioned,
+        used_plain_text_fallback,
     })
 }
 
@@ -225,16 +237,6 @@ fn extract_prompt_from_bot_mention(content: &Value, self_user_id: &str) -> Optio
     }
 
     None
-}
-
-fn extract_prompt(content: &Value, self_user_id: Option<&str>) -> Option<String> {
-    let body = content.get("body").and_then(Value::as_str).unwrap_or("");
-    if let Some(prompt) = extract_prefixed_prompt(body) {
-        return Some(prompt);
-    }
-
-    let self_user_id = self_user_id?;
-    extract_prompt_from_bot_mention(content, self_user_id)
 }
 
 fn push_events<'a>(
@@ -573,6 +575,8 @@ mod tests {
             parsed.commands[0].dedupe_key.as_deref(),
             Some("matrix:$joined-1")
         );
+        assert!(!parsed.commands[0].is_mentioned);
+        assert!(!parsed.commands[0].used_plain_text_fallback);
         assert_eq!(parsed.commands[1].room_id, "!joined:matrix.org");
         assert_eq!(parsed.commands[1].sender, "@user-2:matrix.org");
         assert_eq!(parsed.commands[1].prompt, "second command");
@@ -580,6 +584,8 @@ mod tests {
             parsed.commands[1].dedupe_key.as_deref(),
             Some("matrix:$joined-2")
         );
+        assert!(!parsed.commands[1].is_mentioned);
+        assert!(!parsed.commands[1].used_plain_text_fallback);
     }
 
     #[test]
@@ -618,6 +624,8 @@ mod tests {
             parsed.commands[0].dedupe_key.as_deref(),
             Some("matrix:$mention-1")
         );
+        assert!(parsed.commands[0].is_mentioned);
+        assert!(!parsed.commands[0].used_plain_text_fallback);
     }
 
     #[test]
@@ -688,6 +696,8 @@ mod tests {
         assert_eq!(parsed.sender, "@user:matrix.org");
         assert_eq!(parsed.prompt, "hello");
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$appservice-1"));
+        assert!(!parsed.is_mentioned);
+        assert!(parsed.used_plain_text_fallback);
     }
 
     #[test]
@@ -712,5 +722,7 @@ mod tests {
         )
         .expect("mention appservice message should parse");
         assert_eq!(parsed.prompt, "hi there");
+        assert!(parsed.is_mentioned);
+        assert!(!parsed.used_plain_text_fallback);
     }
 }

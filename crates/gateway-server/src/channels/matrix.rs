@@ -710,6 +710,106 @@ impl MatrixAppserviceChannel {
         }
     }
 
+    fn sender_kind_for_user(&self, user_id: &str) -> runtime::SenderKind {
+        if user_id.eq_ignore_ascii_case(&self.inner.bot_user_id) {
+            return runtime::SenderKind::SelfBot;
+        }
+        if self.should_ignore_sender(user_id) {
+            return runtime::SenderKind::OwnAgentGhost;
+        }
+        let Some(localpart) = matrix_localpart(user_id) else {
+            return runtime::SenderKind::Unknown;
+        };
+        let localpart = localpart.to_ascii_lowercase();
+        if localpart.ends_with("bot")
+            || localpart.starts_with("bot")
+            || localpart.contains("_bot")
+            || localpart.contains("bot_")
+        {
+            runtime::SenderKind::ExternalBot
+        } else {
+            runtime::SenderKind::Human
+        }
+    }
+
+    fn leading_agent_id_in_body(&self, body: &str) -> Option<String> {
+        let trimmed = body.trim_start();
+        let token = trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches(|ch: char| matches!(ch, ':' | ',' | ';' | '>'));
+        let localpart = matrix_localpart(token)
+            .or_else(|| Some(token.trim_start_matches('@').trim()))
+            .filter(|value| !value.is_empty())?;
+        let agent_id = localpart.strip_prefix(&self.inner.user_prefix)?.trim();
+        if agent_id.is_empty() {
+            None
+        } else {
+            Some(agent_id.to_owned())
+        }
+    }
+
+    fn mentioned_agent_ids_for_event(&self, event: &Value) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Some(user_ids) = event
+            .get("content")
+            .and_then(|content| content.get("m.mentions"))
+            .and_then(|mentions| mentions.get("user_ids"))
+            .and_then(Value::as_array)
+        {
+            for user_id in user_ids.iter().filter_map(Value::as_str) {
+                if let Some(agent_id) = self.agent_id_for_user(user_id) {
+                    out.push(agent_id);
+                }
+            }
+        }
+        if let Some(body) = event
+            .get("content")
+            .and_then(|content| content.get("body"))
+            .and_then(Value::as_str)
+            && let Some(agent_id) = self.leading_agent_id_in_body(body)
+        {
+            out.push(agent_id);
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    async fn participant_count_for_room(&self, room_id: &str) -> Option<u32> {
+        let user_id = self.effective_room_user_id(room_id);
+        let (status, payload) = self
+            .appservice_request_json_as_user(
+                Method::GET,
+                &[
+                    "_matrix",
+                    "client",
+                    "v3",
+                    "rooms",
+                    room_id,
+                    "joined_members",
+                ],
+                &user_id,
+                None,
+            )
+            .await
+            .ok()?;
+        if !status.is_success() {
+            return None;
+        }
+        payload
+            .get("joined")
+            .and_then(Value::as_object)
+            .map(|joined| joined.len() as u32)
+            .or_else(|| {
+                payload
+                    .get("joined_members")
+                    .and_then(Value::as_object)
+                    .map(|joined| joined.len() as u32)
+            })
+    }
+
     fn joined_membership_user_for_event(
         &self,
         event: &Value,
@@ -1034,8 +1134,28 @@ impl MatrixAppserviceChannel {
             if let Some(command) =
                 parse_appservice_message_event_for_user(event, Some(&room_user_id))
             {
-                let forced_agent_id = self.agent_id_for_user(&room_user_id);
-                commands.push((command, forced_agent_id));
+                let mentioned_agent_ids = self.mentioned_agent_ids_for_event(event);
+                let mut forced_agent_id = self.agent_id_for_user(&room_user_id);
+                if forced_agent_id.is_none() && mentioned_agent_ids.len() == 1 {
+                    forced_agent_id = mentioned_agent_ids.first().cloned();
+                }
+                let explicitly_targets_other_agent = mentioned_agent_ids
+                    .iter()
+                    .any(|agent_id| Some(agent_id.as_str()) != forced_agent_id.as_deref());
+                let is_mentioned = command.is_mentioned
+                    || forced_agent_id.as_deref().is_some_and(|agent_id| {
+                        mentioned_agent_ids.iter().any(|value| value == agent_id)
+                    });
+                let participant_count = self.participant_count_for_room(room_id).await;
+                let sender_kind = self.sender_kind_for_user(&command.sender);
+                commands.push((
+                    command,
+                    forced_agent_id,
+                    is_mentioned,
+                    explicitly_targets_other_agent,
+                    participant_count,
+                    sender_kind,
+                ));
             }
         }
         debug_matrix_appservice(format!(
@@ -1049,7 +1169,15 @@ impl MatrixAppserviceChannel {
         let mut ignored_senders = 0_u32;
         let mut ignored_duplicates = 0_u32;
         let mut dispatched_commands = 0_u32;
-        for (command, forced_agent_id) in commands {
+        for (
+            command,
+            forced_agent_id,
+            is_mentioned,
+            explicitly_targets_other_agent,
+            participant_count,
+            sender_kind,
+        ) in commands
+        {
             if self.should_ignore_sender(&command.sender) {
                 ignored_senders = ignored_senders.saturating_add(1);
                 debug_matrix_appservice(format!(
@@ -1092,6 +1220,12 @@ impl MatrixAppserviceChannel {
                         group_id: Some(command.room_id),
                         chat_type: Some("group".to_owned()),
                         saved_channel_config_id: Some(config_id),
+                        sender_kind,
+                        is_mentioned,
+                        is_command: false,
+                        used_plain_text_fallback: command.used_plain_text_fallback,
+                        participant_count,
+                        explicitly_targets_other_agent,
                         ..runtime::StartThreadMeta::default()
                     }),
                 )
@@ -1322,6 +1456,8 @@ async fn dispatch_matrix_commands(task: &MatrixSyncTask, commands: Vec<MatrixCom
                     group_id: Some(command.room_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id: Some(config_id),
+                    is_mentioned: command.is_mentioned,
+                    used_plain_text_fallback: command.used_plain_text_fallback,
                     ..runtime::StartThreadMeta::default()
                 }),
             )
@@ -1731,6 +1867,8 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     group_id: Some(command.room_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id,
+                    is_mentioned: command.is_mentioned,
+                    used_plain_text_fallback: command.used_plain_text_fallback,
                     ..runtime::StartThreadMeta::default()
                 }),
             )
