@@ -82,6 +82,7 @@ pub struct SessionEntry {
     pub model: Option<String>,
     pub provider: Option<String>,
     pub thread_id: Option<String>,
+    pub group_activation: Option<String>,
 }
 
 impl SessionEntry {
@@ -115,6 +116,22 @@ impl SessionEntry {
 #[derive(Debug, Deserialize)]
 pub struct SessionsResponse {
     pub entries: Vec<SessionEntry>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionAmbientMessage {
+    pub timestamp_ms: u64,
+    pub sender_id: Option<String>,
+    pub sender_name: Option<String>,
+    pub sender_kind: String,
+    pub text: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionAmbientResponse {
+    pub session_id: String,
+    pub messages: Vec<SessionAmbientMessage>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

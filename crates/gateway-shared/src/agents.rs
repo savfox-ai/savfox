@@ -1,9 +1,16 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct AgentModels {
     pub primary: Option<String>,
     pub fallbacks: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct AgentIdleReplyConfig {
+    pub enabled: Option<bool>,
+    pub delay_secs: Option<u64>,
+    pub prompt: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -56,6 +63,7 @@ pub struct AgentDetail {
     pub agent_aliases: Option<Vec<String>>,
     pub ingest_policy: Option<String>,
     pub external_bot_policy: Option<String>,
+    pub idle_reply: Option<AgentIdleReplyConfig>,
     /// Unified permission policy (sandbox + approval + tool access).
     pub permission_policy: Option<serde_json::Value>,
     /// List of Matrix appservice channel config IDs for which to auto-create

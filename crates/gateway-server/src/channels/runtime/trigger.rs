@@ -129,6 +129,23 @@ impl ExternalBotPolicy {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdleReplyConfig {
+    pub enabled: bool,
+    pub delay_secs: u64,
+    pub prompt: Option<String>,
+}
+
+impl Default for IdleReplyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            delay_secs: 180,
+            prompt: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AgentTriggerConfig {
     pub group_activation: GroupActivation,
@@ -136,6 +153,7 @@ pub struct AgentTriggerConfig {
     pub ingest_policy: IngestPolicy,
     pub external_bot_policy: ExternalBotPolicy,
     pub agent_aliases: Vec<String>,
+    pub idle_reply: IdleReplyConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

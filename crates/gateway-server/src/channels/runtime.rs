@@ -1,6 +1,7 @@
 mod coordinator;
 mod delivery;
 mod footer;
+mod idle_reply;
 mod memory;
 mod routing;
 mod trigger;
@@ -18,6 +19,9 @@ pub(crate) use self::delivery::{
 use self::delivery::{record_channel_event, send_with_retry};
 pub(crate) use self::footer::set_response_footer_config;
 use self::footer::{append_footer, current_response_footer_config, format_model_footer};
+use self::idle_reply::{
+    IdleReplySchedule, record_inbound_activity, schedule_idle_reply, should_schedule_idle_reply,
+};
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
 use self::routing::{
@@ -371,6 +375,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         ),
     )
     .await;
+    let idle_generation = record_inbound_activity(&tracked.session_id).await;
 
     if looks_like_textual_approval_reply(&cleaned_prompt) {
         match gateway_channel
@@ -522,6 +527,45 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 },
             )
             .await;
+            if should_schedule_idle_reply(
+                &trigger_decision,
+                TriggerContext {
+                    sender_kind: start_meta.sender_kind,
+                    conversation_kind,
+                    is_mentioned: effective_is_mentioned,
+                    reply_to_self: start_meta.reply_to_self,
+                    is_command: start_meta.is_command || runtime_command,
+                    explicitly_targets_other_agent: effective_targets_other_agent,
+                    text: &cleaned_prompt,
+                },
+                &agent_trigger_config,
+            ) {
+                schedule_idle_reply(
+                    Arc::clone(&gateway_channel),
+                    Arc::clone(&session_store),
+                    idle_generation,
+                    IdleReplySchedule {
+                        session_id: tracked.session_id.clone(),
+                        outbound_channel: outbound_channel.clone(),
+                        platform: platform.to_owned(),
+                        agent_id: routed_agent.clone(),
+                        thread_id: tracked.thread_id.clone(),
+                        reply_target: tracked.reply_target.clone(),
+                        prompt_override: agent_trigger_config.idle_reply.prompt.clone(),
+                        delay_secs: agent_trigger_config.idle_reply.delay_secs,
+                    },
+                );
+                log_store::append_log(
+                    "info",
+                    "channel/runtime",
+                    format!(
+                        "idle reply scheduled: channel={outbound_channel}, session_id={}, delay_secs={}",
+                        tracked.session_id,
+                        agent_trigger_config.idle_reply.delay_secs
+                    ),
+                )
+                .await;
+            }
             log_store::append_log(
                 "info",
                 "channel/runtime",

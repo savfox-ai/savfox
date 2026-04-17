@@ -49,6 +49,19 @@ pub async fn take_ambient_messages(session_id: &str) -> Vec<AmbientMessage> {
         .unwrap_or_default()
 }
 
+pub async fn peek_ambient_messages(session_id: &str) -> Vec<AmbientMessage> {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return Vec::new();
+    }
+    ambient_store()
+        .lock()
+        .await
+        .get(session_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
 pub fn format_ambient_context(messages: &[AmbientMessage]) -> Option<String> {
     if messages.is_empty() {
         return None;

@@ -95,6 +95,7 @@ agent:{agent_id}:{channel}:group:{group_id}:topic:{thread_id}
 - `agent_aliases`：显式文本定向名称，例如 `reviewer: ...`
 - `ingest_policy`：控制未回复消息是否仍然进入 ambient context
 - `external_bot_policy`：控制第三方 bot 消息是忽略、只摄入还是允许回复
+- `idle_reply`：让 agent 在房间静置一段时间后做一次补位回复
 
 ## 触发决策模型
 
@@ -107,7 +108,7 @@ runtime 对每条入站消息不是简单地做“回 / 不回”二选一，而
 整条链路分两层：
 
 1. 先根据统一的消息元信息做基础触发判定
-2. 再套用 agent 级策略（`group_activation`、`ingest_policy`、`external_bot_policy`、`group_keywords`、`agent_aliases`）
+2. 再套用 agent 级策略（`group_activation`、`ingest_policy`、`external_bot_policy`、`group_keywords`、`agent_aliases`、`idle_reply`）
 
 ## 基础触发策略
 
@@ -186,6 +187,24 @@ runtime 对每条入站消息不是简单地做“回 / 不回”二选一，而
 - `all_human_messages`：把原本会被忽略的人类消息提升成 `IngestOnly`
 - `all_non_bot_messages`：保留所有非 bot 消息
 - `all_messages`：除 self/ghost 系统消息外，其余都保留
+
+### `idle_reply`
+
+`idle_reply` 增加了一条“延迟触发”的补充路径。它不是在消息到达当下立即回复，而是先观察房间是否继续有活动；如果房间静置了一段时间，再补位回复一次。
+
+当前 MVP 的规则是：
+
+- 只作用于群聊类会话
+- 只考虑最终落到 `IngestOnly` 的人类消息
+- 不会对显式 mention、命令、reply-to-self、或明确发给别的 agent 的消息做延迟补位
+- 同一个 session 里只要后续出现新的入站活动，就取消之前待触发的 idle fallback
+- 如果超时后仍然没有新活动，就用当前 session 的 ambient context 加上一段 idle prompt，触发一次 agent 回复
+
+`idle_reply` 当前支持这些字段：
+
+- `enabled`：是否开启延迟补位回复
+- `delay_secs`：房间需要静置多久才触发补位
+- `prompt`：触发延迟补位时附加的自定义提示词
 
 ## Ambient Context
 

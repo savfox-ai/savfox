@@ -101,6 +101,8 @@ Additional trigger-related agent fields include:
   ambient context.
 - `external_bot_policy` -- controls whether third-party bot messages are
   ignored, buffered, or allowed to reply.
+- `idle_reply` -- lets the agent wait for room inactivity and then send a
+  one-time fallback reply.
 
 ## Trigger Decision Model
 
@@ -116,7 +118,7 @@ This decision is made in two layers:
 
 1. A platform-neutral base trigger decision from normalized message metadata.
 2. Agent-level policy overrides (`group_activation`, `ingest_policy`,
-   `external_bot_policy`, `group_keywords`, `agent_aliases`).
+   `external_bot_policy`, `group_keywords`, `agent_aliases`, `idle_reply`).
 
 ## Base Trigger Strategy
 
@@ -214,6 +216,31 @@ context:
 - `all_non_bot_messages` -- preserve non-bot traffic, including unknown human
   senders.
 - `all_messages` -- preserve everything except self/ghost system traffic.
+
+### `idle_reply`
+
+`idle_reply` adds a second trigger path for buffered group traffic. Instead of
+replying immediately, the runtime can wait for room inactivity and then step in
+once.
+
+Current MVP behavior:
+
+- It only applies to group-like conversations.
+- It only considers human messages that ended in `IngestOnly`.
+- It does not fire for explicit mentions, commands, reply-to-self traffic, or
+  messages clearly aimed at another agent.
+- Any later inbound activity in the same session cancels the pending idle
+  fallback.
+- When the delay expires with no new activity, the agent is invoked once using
+  the buffered ambient context plus an idle-fallback prompt.
+
+The `idle_reply` object currently supports:
+
+- `enabled` -- turn the delayed fallback on or off.
+- `delay_secs` -- how long the room must stay quiet before the fallback reply
+  fires.
+- `prompt` -- optional custom instruction used when the delayed fallback
+  triggers.
 
 ## Ambient Context
 

@@ -1,12 +1,12 @@
 use dioxus::prelude::*;
 use lucide_dioxus::{ArrowLeft, Bot, X};
-use serde_json::json;
+use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
-    AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentsResponse, ModelInfo,
-    ModelsResponse, SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
+    AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig, AgentsResponse,
+    ModelInfo, ModelsResponse, SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::icon::Icon;
@@ -246,6 +246,76 @@ fn multiline_list_value(values: Option<&Vec<String>>) -> String {
     values.map(|items| items.join("\n")).unwrap_or_default()
 }
 
+fn json_string_list(value: Option<&Value>) -> Vec<String> {
+    match value {
+        Some(Value::Array(items)) => {
+            let joined = items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n");
+            normalize_multiline_list(&joined)
+        }
+        Some(Value::String(raw)) => normalize_multiline_list(raw),
+        _ => Vec::new(),
+    }
+}
+
+fn idle_reply_delay_value(value: Option<u64>) -> String {
+    value.unwrap_or(180).to_string()
+}
+
+fn json_idle_reply_fields(value: Option<&Value>) -> (bool, String, String) {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return (false, idle_reply_delay_value(None), String::new());
+    };
+
+    let enabled = config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let delay = idle_reply_delay_value(config.get("delay_secs").and_then(Value::as_u64));
+    let prompt = config
+        .get("prompt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    (enabled, delay, prompt)
+}
+
+fn detail_idle_reply_fields(detail: Option<&AgentIdleReplyConfig>) -> (bool, String, String) {
+    let Some(config) = detail else {
+        return (false, idle_reply_delay_value(None), String::new());
+    };
+    (
+        config.enabled.unwrap_or(false),
+        idle_reply_delay_value(config.delay_secs),
+        config.prompt.clone().unwrap_or_default(),
+    )
+}
+
+fn idle_reply_payload(enabled: bool, delay_raw: &str, prompt_raw: &str) -> Option<Value> {
+    let prompt = prompt_raw.trim();
+    let delay_secs = delay_raw
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value >= 30)
+        .unwrap_or(180);
+    if !enabled && delay_secs == 180 && prompt.is_empty() {
+        return None;
+    }
+
+    let mut payload = json!({
+        "enabled": enabled,
+        "delay_secs": delay_secs,
+    });
+    if !prompt.is_empty() {
+        payload["prompt"] = json!(prompt);
+    }
+    Some(payload)
+}
+
 fn reasoning_level_label(level: &str) -> &'static str {
     match level {
         "off" => "Off",
@@ -412,6 +482,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_provider = use_signal(String::new);
     let mut new_model = use_signal(String::new);
     let mut new_prompt = use_signal(String::new);
+    let mut new_group_activation = use_signal(String::new);
+    let mut new_group_keywords = use_signal(String::new);
+    let mut new_agent_aliases = use_signal(String::new);
+    let mut new_ingest_policy = use_signal(String::new);
+    let mut new_external_bot_policy = use_signal(String::new);
+    let mut new_idle_reply_enabled = use_signal(|| false);
+    let mut new_idle_reply_delay = use_signal(|| "180".to_string());
+    let mut new_idle_reply_prompt = use_signal(String::new);
 
     // Fetch agent list
     let ws_list = ws.clone();
@@ -602,6 +680,13 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                             let system_prompt = parsed.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let model = parsed.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let group_activation = parsed.get("group_activation").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let group_keywords = json_string_list(parsed.get("group_keywords"));
+                                            let agent_aliases = json_string_list(parsed.get("agent_aliases"));
+                                            let ingest_policy = parsed.get("ingest_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let external_bot_policy = parsed.get("external_bot_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let (idle_reply_enabled, idle_reply_delay, idle_reply_prompt) =
+                                                json_idle_reply_fields(parsed.get("idle_reply"));
 
                                             let id_slug: String = name.chars()
                                                 .map(|c| if c.is_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
@@ -619,6 +704,28 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 }
                                                 if !system_prompt.is_empty() {
                                                     payload["system_prompt"] = json!(system_prompt);
+                                                }
+                                                if !group_activation.is_empty() {
+                                                    payload["group_activation"] = json!(group_activation);
+                                                }
+                                                if !group_keywords.is_empty() {
+                                                    payload["group_keywords"] = json!(group_keywords);
+                                                }
+                                                if !agent_aliases.is_empty() {
+                                                    payload["agent_aliases"] = json!(agent_aliases);
+                                                }
+                                                if !ingest_policy.is_empty() {
+                                                    payload["ingest_policy"] = json!(ingest_policy);
+                                                }
+                                                if !external_bot_policy.is_empty() {
+                                                    payload["external_bot_policy"] = json!(external_bot_policy);
+                                                }
+                                                if let Some(idle_reply) = idle_reply_payload(
+                                                    idle_reply_enabled,
+                                                    &idle_reply_delay,
+                                                    &idle_reply_prompt,
+                                                ) {
+                                                    payload["idle_reply"] = idle_reply;
                                                 }
                                                 let _ = ws_spawn.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                                 refresh_tick += 1;
@@ -659,6 +766,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_provider.set(String::new());
                                 new_model.set(String::new());
                                 new_prompt.set(String::new());
+                                new_group_activation.set(String::new());
+                                new_group_keywords.set(String::new());
+                                new_agent_aliases.set(String::new());
+                                new_ingest_policy.set(String::new());
+                                new_external_bot_policy.set(String::new());
+                                new_idle_reply_enabled.set(false);
+                                new_idle_reply_delay.set("180".to_string());
+                                new_idle_reply_prompt.set(String::new());
                             },
                             class: "{TOOL_BTN} tool-btn--primary",
                             "+ New"
@@ -764,6 +879,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                         new_provider,
                         new_model,
                         new_prompt,
+                        new_group_activation,
+                        new_group_keywords,
+                        new_agent_aliases,
+                        new_ingest_policy,
+                        new_external_bot_policy,
+                        new_idle_reply_enabled,
+                        new_idle_reply_delay,
+                        new_idle_reply_prompt,
                     }
                 } else if show_settings() {
                     AgentSettingsPane {
@@ -834,6 +957,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_provider.set(String::new());
                                     new_model.set(String::new());
                                     new_prompt.set(String::new());
+                                    new_group_activation.set(String::new());
+                                    new_group_keywords.set(String::new());
+                                    new_agent_aliases.set(String::new());
+                                    new_ingest_policy.set(String::new());
+                                    new_external_bot_policy.set(String::new());
+                                    new_idle_reply_enabled.set(false);
+                                    new_idle_reply_delay.set("180".to_string());
+                                    new_idle_reply_prompt.set(String::new());
                                 },
                                 "Create Agent"
                             }
@@ -860,6 +991,14 @@ fn AgentCreateForm(
     mut new_provider: Signal<String>,
     mut new_model: Signal<String>,
     mut new_prompt: Signal<String>,
+    mut new_group_activation: Signal<String>,
+    mut new_group_keywords: Signal<String>,
+    mut new_agent_aliases: Signal<String>,
+    mut new_ingest_policy: Signal<String>,
+    mut new_external_bot_policy: Signal<String>,
+    mut new_idle_reply_enabled: Signal<bool>,
+    mut new_idle_reply_delay: Signal<String>,
+    mut new_idle_reply_prompt: Signal<String>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
@@ -1070,6 +1209,107 @@ fn AgentCreateForm(
                         class: "{INPUT}", style: "resize:vertical;font-family:var(--font-mono);font-size:13px;",
                     }
                 }
+                div { class: "{SECTION_CARD}", style: "padding:12px;margin-top:4px;",
+                    h4 { class: "{SECTION_TITLE}", "Chat Trigger Policy" }
+                    p { style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;",
+                        "Optional overrides for how this agent reacts in shared rooms."
+                    }
+                    div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;",
+                        div {
+                            label { class: "{LABEL}", "Group Activation" }
+                            select {
+                                value: "{new_group_activation}",
+                                onchange: move |e| new_group_activation.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "", "Use runtime default" }
+                                option { value: "mention", "Mention only" }
+                                option { value: "keyword", "Mention or keyword" }
+                                option { value: "always", "Always reply" }
+                                option { value: "command", "Commands only" }
+                                option { value: "off", "Never reply in groups" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Ingest Policy" }
+                            select {
+                                value: "{new_ingest_policy}",
+                                onchange: move |e| new_ingest_policy.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "", "Default runtime behavior" }
+                                option { value: "none", "Ignore non-replies" }
+                                option { value: "reply_only", "Only keep replied messages" }
+                                option { value: "targeted_only", "Only keep targeted messages" }
+                                option { value: "all_human_messages", "Keep all human messages" }
+                                option { value: "all_non_bot_messages", "Keep all non-bot messages" }
+                                option { value: "all_messages", "Keep all messages" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "External Bot Policy" }
+                            select {
+                                value: "{new_external_bot_policy}",
+                                onchange: move |e| new_external_bot_policy.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "", "Default (ignore)" }
+                                option { value: "ignore", "Ignore" }
+                                option { value: "ingest_only", "Ingest only" }
+                                option { value: "reply_allowed", "Allow reply" }
+                            }
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Group Keywords" }
+                        textarea {
+                            value: "{new_group_keywords}",
+                            oninput: move |e| new_group_keywords.set(e.value()),
+                            placeholder: "One keyword per line, or comma-separated",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Agent Aliases" }
+                        textarea {
+                            value: "{new_agent_aliases}",
+                            oninput: move |e| new_agent_aliases.set(e.value()),
+                            placeholder: "reviewer\ncode-reviewer",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                    div { style: "margin-top:12px;padding-top:12px;border-top:1px solid var(--border);",
+                        ToggleSwitch {
+                            label: "Idle Fallback Reply".to_string(),
+                            description: Some("If a buffered room message stays quiet for a while, let this agent step in once.".to_string()),
+                            checked: new_idle_reply_enabled(),
+                            on_toggle: move |value| new_idle_reply_enabled.set(value),
+                        }
+                    }
+                    div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                        div {
+                            label { class: "{LABEL}", "Idle Delay (seconds)" }
+                            input {
+                                value: "{new_idle_reply_delay}",
+                                oninput: move |e| new_idle_reply_delay.set(e.value()),
+                                placeholder: "180",
+                                class: "{INPUT}",
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Idle Prompt Override" }
+                            textarea {
+                                value: "{new_idle_reply_prompt}",
+                                oninput: move |e| new_idle_reply_prompt.set(e.value()),
+                                placeholder: "Optional custom instruction used when the delayed fallback fires",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                            }
+                        }
+                    }
+                }
                 div { style: "display:flex;gap:8px;",
                     button {
                         onclick: move |_| {
@@ -1085,6 +1325,15 @@ fn AgentCreateForm(
                                 format!("{provider}/{model_input}")
                             };
                             let prompt = new_prompt();
+                            let group_activation = new_group_activation().trim().to_string();
+                            let group_keywords = normalize_multiline_list(&new_group_keywords());
+                            let agent_aliases = normalize_multiline_list(&new_agent_aliases());
+                            let ingest_policy = new_ingest_policy().trim().to_string();
+                            let external_bot_policy =
+                                new_external_bot_policy().trim().to_string();
+                            let idle_reply_enabled = new_idle_reply_enabled();
+                            let idle_reply_delay = new_idle_reply_delay();
+                            let idle_reply_prompt = new_idle_reply_prompt();
                             if id.is_empty() {
                                 toaster.error("Agent ID is required");
                                 return;
@@ -1115,6 +1364,28 @@ fn AgentCreateForm(
                                 if !provider.is_empty() {
                                     payload["provider"] = json!(provider);
                                 }
+                                if !group_activation.is_empty() {
+                                    payload["group_activation"] = json!(group_activation);
+                                }
+                                if !group_keywords.is_empty() {
+                                    payload["group_keywords"] = json!(group_keywords);
+                                }
+                                if !agent_aliases.is_empty() {
+                                    payload["agent_aliases"] = json!(agent_aliases);
+                                }
+                                if !ingest_policy.is_empty() {
+                                    payload["ingest_policy"] = json!(ingest_policy);
+                                }
+                                if !external_bot_policy.is_empty() {
+                                    payload["external_bot_policy"] = json!(external_bot_policy);
+                                }
+                                if let Some(idle_reply) = idle_reply_payload(
+                                    idle_reply_enabled,
+                                    &idle_reply_delay,
+                                    &idle_reply_prompt,
+                                ) {
+                                    payload["idle_reply"] = idle_reply;
+                                }
                                 let res = ws.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                 match res {
                                     Ok(_) => {
@@ -1125,6 +1396,14 @@ fn AgentCreateForm(
                                         new_provider.set(String::new());
                                         new_model.set(String::new());
                                         new_prompt.set(String::new());
+                                        new_group_activation.set(String::new());
+                                        new_group_keywords.set(String::new());
+                                        new_agent_aliases.set(String::new());
+                                        new_ingest_policy.set(String::new());
+                                        new_external_bot_policy.set(String::new());
+                                        new_idle_reply_enabled.set(false);
+                                        new_idle_reply_delay.set("180".to_string());
+                                        new_idle_reply_prompt.set(String::new());
                                         refresh_tick += 1;
                                     }
                                     Err(e) => toaster.error(format!("Create failed: {e}")),
@@ -1135,7 +1414,17 @@ fn AgentCreateForm(
                         "Create"
                     }
                     button {
-                        onclick: move |_| show_create.set(false),
+                        onclick: move |_| {
+                            show_create.set(false);
+                            new_group_activation.set(String::new());
+                            new_group_keywords.set(String::new());
+                            new_agent_aliases.set(String::new());
+                            new_ingest_policy.set(String::new());
+                            new_external_bot_policy.set(String::new());
+                            new_idle_reply_enabled.set(false);
+                            new_idle_reply_delay.set("180".to_string());
+                            new_idle_reply_prompt.set(String::new());
+                        },
                         class: "{TOOL_BTN} tool-btn--lg",
                         "Cancel"
                     }
@@ -1331,6 +1620,9 @@ fn AgentOverviewTab(
     let mut form_agent_aliases = use_signal(String::new);
     let mut form_ingest_policy = use_signal(String::new);
     let mut form_external_bot_policy = use_signal(String::new);
+    let mut form_idle_reply_enabled = use_signal(|| false);
+    let mut form_idle_reply_delay = use_signal(|| "180".to_string());
+    let mut form_idle_reply_prompt = use_signal(String::new);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
@@ -1397,6 +1689,11 @@ fn AgentOverviewTab(
             form_agent_aliases.set(multiline_list_value(detail.agent_aliases.as_ref()));
             form_ingest_policy.set(detail.ingest_policy.clone().unwrap_or_default());
             form_external_bot_policy.set(detail.external_bot_policy.clone().unwrap_or_default());
+            let (idle_enabled, idle_delay, idle_prompt) =
+                detail_idle_reply_fields(detail.idle_reply.as_ref());
+            form_idle_reply_enabled.set(idle_enabled);
+            form_idle_reply_delay.set(idle_delay);
+            form_idle_reply_prompt.set(idle_prompt);
             detail_seeded.set(true);
         }
     }
@@ -1542,6 +1839,12 @@ fn AgentOverviewTab(
             .as_ref()
             .and_then(|detail| detail.external_bot_policy.clone())
             .unwrap_or_default();
+        let (orig_idle_reply_enabled, orig_idle_reply_delay, orig_idle_reply_prompt) =
+            detail_idle_reply_fields(
+                detail_snapshot
+                    .as_ref()
+                    .and_then(|detail| detail.idle_reply.as_ref()),
+            );
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -1557,6 +1860,9 @@ fn AgentOverviewTab(
             || form_agent_aliases() != orig_agent_aliases
             || form_ingest_policy() != orig_ingest_policy
             || form_external_bot_policy() != orig_external_bot_policy
+            || form_idle_reply_enabled() != orig_idle_reply_enabled
+            || form_idle_reply_delay() != orig_idle_reply_delay
+            || form_idle_reply_prompt() != orig_idle_reply_prompt
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
@@ -1630,6 +1936,28 @@ fn AgentOverviewTab(
                                                     });
                                                 }
                                             }
+                                            if let Some(ref group_activation) = detail.group_activation {
+                                                payload["group_activation"] = json!(group_activation);
+                                            }
+                                            if let Some(ref group_keywords) = detail.group_keywords
+                                                && !group_keywords.is_empty()
+                                            {
+                                                payload["group_keywords"] = json!(group_keywords);
+                                            }
+                                            if let Some(ref agent_aliases) = detail.agent_aliases
+                                                && !agent_aliases.is_empty()
+                                            {
+                                                payload["agent_aliases"] = json!(agent_aliases);
+                                            }
+                                            if let Some(ref ingest_policy) = detail.ingest_policy {
+                                                payload["ingest_policy"] = json!(ingest_policy);
+                                            }
+                                            if let Some(ref external_bot_policy) = detail.external_bot_policy {
+                                                payload["external_bot_policy"] = json!(external_bot_policy);
+                                            }
+                                            if let Some(ref idle_reply) = detail.idle_reply {
+                                                payload["idle_reply"] = json!(idle_reply);
+                                            }
                                         }
 
                                         let clone_id_for_select = clone_id.clone();
@@ -1672,6 +2000,28 @@ fn AgentOverviewTab(
                                         if !fallbacks.is_empty() {
                                             export_data["fallback_models"] = json!(fallbacks);
                                         }
+                                    }
+                                    if let Some(ref group_activation) = detail.group_activation {
+                                        export_data["group_activation"] = json!(group_activation);
+                                    }
+                                    if let Some(ref group_keywords) = detail.group_keywords
+                                        && !group_keywords.is_empty()
+                                    {
+                                        export_data["group_keywords"] = json!(group_keywords);
+                                    }
+                                    if let Some(ref agent_aliases) = detail.agent_aliases
+                                        && !agent_aliases.is_empty()
+                                    {
+                                        export_data["agent_aliases"] = json!(agent_aliases);
+                                    }
+                                    if let Some(ref ingest_policy) = detail.ingest_policy {
+                                        export_data["ingest_policy"] = json!(ingest_policy);
+                                    }
+                                    if let Some(ref external_bot_policy) = detail.external_bot_policy {
+                                        export_data["external_bot_policy"] = json!(external_bot_policy);
+                                    }
+                                    if let Some(ref idle_reply) = detail.idle_reply {
+                                        export_data["idle_reply"] = json!(idle_reply);
                                     }
                                     if let Some(ref pp) = detail.permission_policy {
                                         if let Some(tools) = pp.get("tool_access")
@@ -1984,6 +2334,36 @@ fn AgentOverviewTab(
                         "Leading targets like 'reviewer: inspect this' will route to this agent."
                     }
                 }
+                div { style: "margin-top:12px;padding-top:12px;border-top:1px solid var(--border);",
+                    ToggleSwitch {
+                        label: "Idle Fallback Reply".to_string(),
+                        description: Some("Let this agent step in once if a buffered room message stays quiet for a while.".to_string()),
+                        checked: form_idle_reply_enabled(),
+                        on_toggle: move |value| form_idle_reply_enabled.set(value),
+                    }
+                }
+                div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                    div {
+                        label { class: "{LABEL}", "Idle Delay (seconds)" }
+                        input {
+                            value: "{form_idle_reply_delay}",
+                            oninput: move |e| form_idle_reply_delay.set(e.value()),
+                            placeholder: "180",
+                            class: "{INPUT}",
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Idle Prompt Override" }
+                        textarea {
+                            value: "{form_idle_reply_prompt}",
+                            oninput: move |e| form_idle_reply_prompt.set(e.value()),
+                            placeholder: "Optional custom instruction used when the delayed fallback fires",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                }
             }
 
             // Test connectivity
@@ -2059,6 +2439,9 @@ fn AgentOverviewTab(
                             let agent_aliases_val = form_agent_aliases();
                             let ingest_policy_val = form_ingest_policy();
                             let external_bot_policy_val = form_external_bot_policy();
+                            let idle_reply_enabled_val = form_idle_reply_enabled();
+                            let idle_reply_delay_val = form_idle_reply_delay();
+                            let idle_reply_prompt_val = form_idle_reply_prompt();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
@@ -2114,6 +2497,15 @@ fn AgentOverviewTab(
                                     } else {
                                         json!(external_bot_policy_val)
                                     };
+                                params["idle_reply"] = if let Some(idle_reply) = idle_reply_payload(
+                                    idle_reply_enabled_val,
+                                    &idle_reply_delay_val,
+                                    &idle_reply_prompt_val,
+                                ) {
+                                    idle_reply
+                                } else {
+                                    serde_json::Value::Null
+                                };
                                 {
                                     let channels: Vec<String> = form_matrix_channels.read().iter().cloned().collect();
                                     if channels.is_empty() {

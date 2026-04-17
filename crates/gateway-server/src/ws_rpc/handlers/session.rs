@@ -25,7 +25,7 @@ use crate::identity_links::{
 use crate::media_store::MediaStore;
 use crate::session::{
     GatewaySessionManager, SessionEntry, SessionOverrides, SessionStore, build_history_payload,
-    build_routing_id, derive_session_label_from_history,
+    build_routing_id, derive_session_label_from_history, peek_ambient_messages,
 };
 
 // ── Chat ────────────────────────────────────────────────────────────────────
@@ -1052,6 +1052,7 @@ pub(crate) async fn handle_sessions_list(
             "model": entry.model,
             "provider": entry.provider,
             "thread_id": entry.thread_id,
+            "group_activation": entry.group_activation,
         }));
     }
     let stats = session_store.stats().await;
@@ -1061,6 +1062,29 @@ pub(crate) async fn handle_sessions_list(
         "entries": entries,
         "total_persistent": stats.total_sessions,
         "total_tokens": stats.total_tokens,
+    }))
+}
+
+pub(crate) async fn handle_sessions_ambient_get(
+    params: &Value,
+    session_store: &Arc<SessionStore>,
+) -> RpcResult {
+    let session_id = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if session_id.is_empty() {
+        return Err((INVALID_REQUEST, "missing 'session_id' parameter".to_owned()));
+    }
+    if session_store.get(session_id).await.is_none() {
+        return Err((INVALID_REQUEST, format!("session not found: {session_id}")));
+    }
+
+    let messages = peek_ambient_messages(session_id).await;
+    Ok(json!({
+        "session_id": session_id,
+        "messages": messages,
     }))
 }
 
@@ -1157,7 +1181,12 @@ pub(crate) async fn handle_sessions_patch(
     }
     // Group activation mode
     if let Some(ga) = patch_str(params, &patch, "group_activation") {
-        updated.group_activation = Some(ga.to_owned());
+        let normalized = ga.trim();
+        updated.group_activation = if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized.to_owned())
+        };
     }
 
     // Apply overrides from the patch object or from the top-level params.

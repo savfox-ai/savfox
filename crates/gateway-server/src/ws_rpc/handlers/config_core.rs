@@ -645,6 +645,31 @@ pub(crate) async fn handle_config_schema() -> RpcResult {
                                 "description": "How messages from third-party bots are handled",
                                 "enum": ["ignore", "ingest_only", "reply_allowed"],
                                 "default": "ignore"
+                            },
+                            "idle_reply": {
+                                "type": "object",
+                                "title": "Idle Reply",
+                                "description": "Delayed fallback reply settings for quiet rooms",
+                                "properties": {
+                                    "enabled": {
+                                        "type": "boolean",
+                                        "title": "Enabled",
+                                        "description": "Whether the agent should reply after a room stays quiet",
+                                        "default": false
+                                    },
+                                    "delay_secs": {
+                                        "type": "integer",
+                                        "title": "Delay Seconds",
+                                        "description": "How long to wait after the last buffered room message before replying",
+                                        "default": 180,
+                                        "minimum": 30
+                                    },
+                                    "prompt": {
+                                        "type": "string",
+                                        "title": "Idle Prompt",
+                                        "description": "Optional custom instruction used when the idle fallback reply fires"
+                                    }
+                                }
                             }
                         }
                     }

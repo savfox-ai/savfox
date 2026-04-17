@@ -8,7 +8,8 @@ use wasm_bindgen::JsCast;
 
 use crate::api::client::stream_chat;
 use crate::api::types::{
-    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, SessionEntry, SessionsResponse,
+    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, SessionAmbientMessage,
+    SessionAmbientResponse, SessionEntry, SessionsResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
@@ -109,6 +110,28 @@ fn parse_history_message(item: &Value) -> Option<ChatMessage> {
         timestamp: None,
         thinking: None,
     })
+}
+
+fn format_ambient_sidebar(messages: &[SessionAmbientMessage]) -> String {
+    if messages.is_empty() {
+        return "## Ambient Context\n\nNo buffered ambient messages for this session.".to_string();
+    }
+
+    let mut out = String::from("## Ambient Context\n\n");
+    for message in messages {
+        let speaker = message
+            .sender_name
+            .as_deref()
+            .or(message.sender_id.as_deref())
+            .unwrap_or("unknown");
+        out.push_str(&format!(
+            "- **{speaker}** (`{}` / `{}`)\n\n  {}\n\n",
+            message.sender_kind,
+            message.reason,
+            message.text.trim()
+        ));
+    }
+    out
 }
 
 fn load_pending_session_model() -> Option<String> {
@@ -216,6 +239,7 @@ pub fn Sessions() -> Element {
     let mut reasoning_mode = use_signal(|| "on".to_string());
     let mut verbose_mode = use_signal(|| "on".to_string());
     let mut selected_agent = use_signal(|| "default".to_string());
+    let mut session_group_activation = use_signal(String::new);
 
     let mut current_session_id = use_signal(|| Option::<String>::None);
     let mut session_refresh_tick = use_signal(|| 0u32);
@@ -227,6 +251,7 @@ pub fn Sessions() -> Element {
     let mut initial_sessions_refresh_done = use_signal(|| false);
     let mut abort_ctl = use_signal(|| Option::<web_sys::AbortController>::None);
     let mut loading_session = use_signal(|| false);
+    let mut ambient_loading = use_signal(|| false);
 
     let mut sidebar_content = use_signal(|| Option::<String>::None);
     let mut session_search_query = use_signal(String::new);
@@ -355,6 +380,7 @@ pub fn Sessions() -> Element {
         streaming.set(false);
         loading_session.set(false);
         current_session_id.set(None);
+        session_group_activation.set(String::new());
         messages.write().clear();
         sidebar_content.set(None);
         if let Some(pending) = pending_session_model() {
@@ -398,6 +424,7 @@ pub fn Sessions() -> Element {
         let active_thinking = thinking_level();
         let active_reasoning = normalize_reasoning_mode(&reasoning_mode());
         let active_verbose = normalize_verbose_mode(&verbose_mode());
+        let active_group_activation = session_group_activation();
         let ws_send = ws_for_send.clone();
 
         spawn(async move {
@@ -416,6 +443,7 @@ pub fn Sessions() -> Element {
                         Some(json!({
                             "label": session_label,
                             "model": patch_model,
+                            "group_activation": active_group_activation,
                             "overrides": {
                                 "model": patch_model_override,
                                 "thinking": active_thinking,
@@ -449,6 +477,7 @@ pub fn Sessions() -> Element {
                         Some(json!({
                             "session_id": existing_session_id,
                             "model": patch_model,
+                            "group_activation": active_group_activation,
                             "overrides": {
                                 "model": patch_model_override,
                                 "thinking": active_thinking,
@@ -631,6 +660,7 @@ pub fn Sessions() -> Element {
                                     };
                                     let item_model = entry.model.as_deref().unwrap_or("").to_string();
                                     let item_meta = entry.last_activity.as_deref().unwrap_or("-").to_string();
+                                    let entry_group_activation = entry.group_activation.clone();
                                     let item_active = active_session_id.as_deref() == Some(sid.as_str());
                                     let item_class = if item_active {
                                         "session-list-item session-list-item--active"
@@ -672,6 +702,7 @@ pub fn Sessions() -> Element {
                                                 onclick: move |_| {
                                                     println!("[DEBUG] Session menu item clicked: session_id={}", sid_for_click);
                                                     current_session_id.set(Some(sid_for_click.clone()));
+                                                    session_group_activation.set(entry_group_activation.clone().unwrap_or_default());
                                                     sidebar_content.set(None);
                                                     pending_session_model.set(None);
                                                     save_pending_session_model(None);
@@ -870,6 +901,76 @@ pub fn Sessions() -> Element {
                                 class: "session-pill-btn",
                                 onclick: on_clear,
                                 "Clear"
+                            }
+                        }
+                    }
+
+                    div { class: "session-control-row",
+                        div { class: "session-control-group",
+                            label { class: "session-control-label", "Group Replies" }
+                            select {
+                                class: "session-control-select",
+                                value: "{session_group_activation}",
+                                onchange: {
+                                    let ws = ws.clone();
+                                    move |e| {
+                                        let next = e.value();
+                                        session_group_activation.set(next.clone());
+                                        if let Some(session_id) = current_session_id() {
+                                            let ws = ws.clone();
+                                            spawn(async move {
+                                                let _ = ws.call::<Value>(
+                                                    "sessions.patch",
+                                                    Some(json!({
+                                                        "session_id": session_id,
+                                                        "group_activation": next,
+                                                    })),
+                                                ).await;
+                                                session_refresh_tick += 1;
+                                            });
+                                        }
+                                    }
+                                },
+                                option { value: "", "Use agent default" }
+                                option { value: "mention", "Mention only" }
+                                option { value: "keyword", "Mention or keyword" }
+                                option { value: "always", "Always reply" }
+                                option { value: "command", "Commands only" }
+                                option { value: "off", "Never reply in groups" }
+                            }
+                        }
+                        if current_session_id().is_some() {
+                            button {
+                                class: "session-pill-btn",
+                                disabled: ambient_loading(),
+                                onclick: {
+                                    let ws = ws.clone();
+                                    let active_session_id = active_session_id.clone();
+                                    move |_| {
+                                        let Some(session_id) = active_session_id.clone() else {
+                                            return;
+                                        };
+                                        let ws = ws.clone();
+                                        ambient_loading.set(true);
+                                        spawn(async move {
+                                            let content = match ws
+                                                .call::<SessionAmbientResponse>(
+                                                    "sessions.ambient.get",
+                                                    Some(json!({ "session_id": session_id })),
+                                                )
+                                                .await
+                                            {
+                                                Ok(response) => format_ambient_sidebar(&response.messages),
+                                                Err(err) => format!(
+                                                    "## Ambient Context\n\nFailed to load ambient messages.\n\n`{err}`"
+                                                ),
+                                            };
+                                            ambient_loading.set(false);
+                                            sidebar_content.set(Some(content));
+                                        });
+                                    }
+                                },
+                                if ambient_loading() { "Ambient..." } else { "Ambient" }
                             }
                         }
                     }
@@ -1276,6 +1377,40 @@ const SESSION_STYLES: &str = r#"
         gap: 8px;
         flex-wrap: wrap;
         justify-content: flex-end;
+    }
+
+    .session-control-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 24px 16px 24px;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 28%, transparent);
+        flex-wrap: wrap;
+    }
+
+    .session-control-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+    }
+
+    .session-control-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-weight: 600;
+        letter-spacing: 0.01em;
+    }
+
+    .session-control-select {
+        min-width: 220px;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        border: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 13px;
     }
 
     .session-main-title {

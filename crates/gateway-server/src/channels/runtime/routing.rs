@@ -6,7 +6,9 @@ use savfox_core::config::channel_store::{ChannelConfig, Router};
 use serde_json::{Value, json};
 use tracing::warn;
 
-use super::trigger::{AgentTriggerConfig, ExternalBotPolicy, IngestPolicy, SenderKind};
+use super::trigger::{
+    AgentTriggerConfig, ExternalBotPolicy, IdleReplyConfig, IngestPolicy, SenderKind,
+};
 use crate::agent_routing::{AgentRouter, RoutingContext};
 use crate::auto_reply::GroupActivation;
 use crate::channel::GatewayChannel;
@@ -302,6 +304,34 @@ fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
     parse_group_activation_str(value.and_then(Value::as_str))
 }
 
+fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return IdleReplyConfig::default();
+    };
+
+    let enabled = config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let delay_secs = config
+        .get("delay_secs")
+        .and_then(Value::as_u64)
+        .unwrap_or(180)
+        .max(30);
+    let prompt = config
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    IdleReplyConfig {
+        enabled,
+        delay_secs,
+        prompt,
+    }
+}
+
 pub(super) async fn load_agent_trigger_config(
     savfox_home: &Path,
     agent_ref: &str,
@@ -334,6 +364,7 @@ pub(super) async fn load_agent_trigger_config(
             config.get("external_bot_policy").and_then(Value::as_str),
         ),
         agent_aliases: collect_agent_aliases(&config, fallback_id),
+        idle_reply: parse_idle_reply_config(config.get("idle_reply")),
     }
 }
 
@@ -683,7 +714,12 @@ mod tests {
   "group_keywords": ["review", "diff"],
   "agent_aliases": ["reviewer"],
   "ingest_policy": "targeted_only",
-  "external_bot_policy": "ingest_only"
+  "external_bot_policy": "ingest_only",
+  "idle_reply": {
+    "enabled": true,
+    "delay_secs": 240,
+    "prompt": "Follow up if the room stays quiet."
+  }
 }"#,
         )
         .await
@@ -704,6 +740,12 @@ mod tests {
             config.external_bot_policy,
             super::ExternalBotPolicy::IngestOnly
         ));
+        assert!(config.idle_reply.enabled);
+        assert_eq!(config.idle_reply.delay_secs, 240);
+        assert_eq!(
+            config.idle_reply.prompt.as_deref(),
+            Some("Follow up if the room stays quiet.")
+        );
     }
 
     #[test]
