@@ -13,6 +13,7 @@
 # CLI Commands
 
 - [Exec (Non-Interactive)](cli/exec.md)
+- [Detailed CLI Reference](cli/reference.md)
 - [Gateway](cli/gateway.md)
 - [Plugins](cli/plugins.md)
 - [Skills](cli/skills.md)
@@ -20,6 +21,7 @@
 # Gateway
 
 - [Overview](gateway.md)
+- [Configuration Reference](gateway/configuration.md)
 - [Protocol](gateway/protocol.md)
 - [REST API](gateway/api.md)
 - [Channel Architecture](gateway/channel.md)
@@ -41,6 +43,7 @@
 - [Signal](channels/signal.md)
 - [Nostr](channels/nostr.md)
 - [Twitch](channels/twitch.md)
+- [Webhook](channels/webhook.md)
 
 # Providers
 
@@ -51,7 +54,10 @@
 
 # Concepts
 
+- [Agents](concepts/agents.md)
 - [Architecture](concepts/architecture.md)
+- [Channels](concepts/channels.md)
+- [Gateway](concepts/gateway.md)
 - [Sessions](concepts/sessions.md)
 - [Memory](concepts/memory.md)
 - [Models](concepts/models.md)
