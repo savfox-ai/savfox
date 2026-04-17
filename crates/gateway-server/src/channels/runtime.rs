@@ -377,7 +377,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         ),
     )
     .await;
-    let idle_generation = record_inbound_activity(&tracked.session_id).await;
+    let idle_generation =
+        record_inbound_activity(&gateway_channel.config().savfox_home, &tracked.session_id).await;
 
     if looks_like_textual_approval_reply(&cleaned_prompt) {
         match gateway_channel
@@ -518,6 +519,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         }
         TriggerDecision::IngestOnly { reason } => {
             push_ambient_message(
+                &gateway_channel.config().savfox_home,
                 &tracked.session_id,
                 AmbientMessage {
                     timestamp_ms: crate::json_store::now_ms(),
@@ -543,6 +545,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                 &agent_trigger_config,
             ) {
                 let idle_outcome = schedule_idle_reply(
+                    &gateway_channel.config().savfox_home,
                     Arc::clone(&gateway_channel),
                     Arc::clone(&session_store),
                     idle_generation,
@@ -707,7 +710,9 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         )
         .await;
     }
-    let ambient_context = format_ambient_context(&take_ambient_messages(&tracked.session_id).await);
+    let ambient_context = format_ambient_context(
+        &take_ambient_messages(&gateway_channel.config().savfox_home, &tracked.session_id).await,
+    );
     let effective_prompt = prepend_ambient_context(&effective_prompt, ambient_context.as_deref());
     // Set up streaming for channels that support progressive message editing.
     // Supported: Telegram, Discord, Slack, Mattermost, Feishu/Lark, DingTalk.

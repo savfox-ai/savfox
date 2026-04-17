@@ -233,6 +233,8 @@ Current MVP behavior:
   fallback.
 - When the delay expires with no new activity, the agent is invoked once using
   the buffered ambient context plus an idle-fallback prompt.
+- Pending idle-fallback state and recent per-session send counters are persisted
+  by the gateway, so they survive a normal gateway restart.
 
 The `idle_reply` object currently supports:
 
@@ -246,13 +248,16 @@ The `idle_reply` object currently supports:
 
 ## Ambient Context
 
-When a message ends in `IngestOnly`, it is stored in an in-memory ambient
+When a message ends in `IngestOnly`, it is stored in a gateway-managed ambient
 buffer for that session. The next time the agent actually replies in that
 session, the buffered messages are prepended to the prompt as ambient context
 and then consumed.
 
 This means the system can stay aware of relevant room activity without replying
 to every message.
+
+Ambient state is now persisted by the gateway, so buffered `IngestOnly`
+messages can survive a normal gateway restart until they are consumed.
 
 ## Platform Notes
 

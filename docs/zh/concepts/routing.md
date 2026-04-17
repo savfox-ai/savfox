@@ -199,6 +199,7 @@ runtime 对每条入站消息不是简单地做“回 / 不回”二选一，而
 - 不会对显式 mention、命令、reply-to-self、或明确发给别的 agent 的消息做延迟补位
 - 同一个 session 里只要后续出现新的入站活动，就取消之前待触发的 idle fallback
 - 如果超时后仍然没有新活动，就用当前 session 的 ambient context 加上一段 idle prompt，触发一次 agent 回复
+- gateway 会持久化 idle fallback 的待触发状态和每个 session 最近一小时的触发计数，因此正常重启后这些状态不会丢
 
 `idle_reply` 当前支持这些字段：
 
@@ -209,9 +210,11 @@ runtime 对每条入站消息不是简单地做“回 / 不回”二选一，而
 
 ## Ambient Context
 
-当消息最终判定为 `IngestOnly` 时，它会被放进该 session 的内存态 ambient buffer。下一次这个 session 真正触发回复时，这些 buffered 消息会先以 ambient context 的形式拼到 prompt 前面，然后被消费掉。
+当消息最终判定为 `IngestOnly` 时，它会被放进该 session 的 gateway 管理 ambient buffer。下一次这个 session 真正触发回复时，这些 buffered 消息会先以 ambient context 的形式拼到 prompt 前面，然后被消费掉。
 
 这意味着系统可以“看见”房间里最近发生了什么，但不需要对每条消息都立即回应。
+
+ambient 状态现在也会由 gateway 持久化，因此在被消费前，`IngestOnly` 缓冲消息可以跨正常重启保留下来。
 
 ## 平台差异说明
 

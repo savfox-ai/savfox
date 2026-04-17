@@ -41,6 +41,14 @@ pub(crate) fn heartbeat_config_path(savfox_home: &Path) -> PathBuf {
     home_file(savfox_home, "heartbeat-config.json")
 }
 
+pub(crate) fn ambient_state_path(savfox_home: &Path) -> PathBuf {
+    gateway_file(savfox_home, "ambient-state.json")
+}
+
+pub(crate) fn idle_reply_state_path(savfox_home: &Path) -> PathBuf {
+    gateway_file(savfox_home, "idle-reply-state.json")
+}
+
 pub(crate) fn hooks_config_path(savfox_home: &Path) -> PathBuf {
     home_file(savfox_home, "hooks-config.json")
 }

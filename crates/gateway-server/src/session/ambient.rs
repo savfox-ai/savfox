@@ -1,8 +1,13 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tracing::warn;
+
+use crate::home_paths::ambient_state_path;
+use crate::json_store;
 
 const MAX_AMBIENT_MESSAGES: usize = 16;
 const MAX_AMBIENT_CHARS: usize = 4_000;
@@ -17,46 +22,92 @@ pub struct AmbientMessage {
     pub reason: String,
 }
 
-fn ambient_store() -> &'static Mutex<HashMap<String, Vec<AmbientMessage>>> {
-    static STORE: OnceLock<Mutex<HashMap<String, Vec<AmbientMessage>>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct PersistedAmbientState {
+    sessions: HashMap<String, Vec<AmbientMessage>>,
 }
 
-pub async fn push_ambient_message(session_id: &str, message: AmbientMessage) {
+#[derive(Debug, Default)]
+struct AmbientRuntimeStore {
+    loaded_from: Option<PathBuf>,
+    sessions: HashMap<String, Vec<AmbientMessage>>,
+}
+
+fn ambient_store() -> &'static Mutex<AmbientRuntimeStore> {
+    static STORE: OnceLock<Mutex<AmbientRuntimeStore>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(AmbientRuntimeStore::default()))
+}
+
+async fn ensure_store_loaded(savfox_home: &Path) {
+    let path = ambient_state_path(savfox_home);
+    let mut store = ambient_store().lock().await;
+    if store.loaded_from.as_ref() == Some(&path) {
+        return;
+    }
+    let persisted: PersistedAmbientState = json_store::load_json(&path, "ambient state")
+        .await
+        .unwrap_or_default();
+    store.loaded_from = Some(path);
+    store.sessions = persisted.sessions;
+}
+
+async fn persist_snapshot(path: Option<PathBuf>, sessions: HashMap<String, Vec<AmbientMessage>>) {
+    let Some(path) = path else {
+        return;
+    };
+    let data = PersistedAmbientState { sessions };
+    if let Err(err) = json_store::save_json(&path, &data, "ambient state").await {
+        warn!("failed to persist ambient state: {err}");
+    }
+}
+
+pub async fn push_ambient_message(savfox_home: &Path, session_id: &str, message: AmbientMessage) {
     let session_id = session_id.trim();
     if session_id.is_empty() || message.text.trim().is_empty() {
         return;
     }
 
-    let mut lock = ambient_store().lock().await;
-    let entry = lock.entry(session_id.to_owned()).or_default();
-    entry.push(message);
-    if entry.len() > MAX_AMBIENT_MESSAGES {
-        let overflow = entry.len() - MAX_AMBIENT_MESSAGES;
-        entry.drain(0..overflow);
+    ensure_store_loaded(savfox_home).await;
+    let mut store = ambient_store().lock().await;
+    {
+        let entry = store.sessions.entry(session_id.to_owned()).or_default();
+        entry.push(message);
+        if entry.len() > MAX_AMBIENT_MESSAGES {
+            let overflow = entry.len() - MAX_AMBIENT_MESSAGES;
+            entry.drain(0..overflow);
+        }
     }
+    let path = store.loaded_from.clone();
+    let snapshot = store.sessions.clone();
+    drop(store);
+    persist_snapshot(path, snapshot).await;
 }
 
-pub async fn take_ambient_messages(session_id: &str) -> Vec<AmbientMessage> {
+pub async fn take_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<AmbientMessage> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
         return Vec::new();
     }
-    ambient_store()
-        .lock()
-        .await
-        .remove(session_id)
-        .unwrap_or_default()
+    ensure_store_loaded(savfox_home).await;
+    let mut store = ambient_store().lock().await;
+    let messages = store.sessions.remove(session_id).unwrap_or_default();
+    let path = store.loaded_from.clone();
+    let snapshot = store.sessions.clone();
+    drop(store);
+    persist_snapshot(path, snapshot).await;
+    messages
 }
 
-pub async fn peek_ambient_messages(session_id: &str) -> Vec<AmbientMessage> {
+pub async fn peek_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<AmbientMessage> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
         return Vec::new();
     }
+    ensure_store_loaded(savfox_home).await;
     ambient_store()
         .lock()
         .await
+        .sessions
         .get(session_id)
         .cloned()
         .unwrap_or_default()
@@ -112,7 +163,12 @@ pub fn prepend_ambient_context(prompt: &str, ambient_context: Option<&str>) -> S
 
 #[cfg(test)]
 mod tests {
-    use super::{AmbientMessage, format_ambient_context, prepend_ambient_context};
+    use tempfile::tempdir;
+
+    use super::{
+        AmbientMessage, ambient_store, format_ambient_context, peek_ambient_messages,
+        prepend_ambient_context, push_ambient_message, take_ambient_messages,
+    };
 
     #[test]
     fn format_ambient_context_renders_lines() {
@@ -147,5 +203,42 @@ mod tests {
         assert!(out.contains("[ambient]"));
         assert!(out.contains("[current message]"));
         assert!(out.ends_with("answer this"));
+    }
+
+    #[tokio::test]
+    async fn ambient_messages_reload_from_disk() {
+        let temp = tempdir().expect("tempdir");
+        let session_id = "session-ambient-persist";
+        let message = AmbientMessage {
+            timestamp_ms: 42,
+            sender_id: Some("user-1".to_owned()),
+            sender_name: Some("Alice".to_owned()),
+            sender_kind: "human".to_owned(),
+            text: "persist me".to_owned(),
+            reason: "no_trigger".to_owned(),
+        };
+
+        push_ambient_message(temp.path(), session_id, message.clone()).await;
+
+        {
+            let mut store = ambient_store().lock().await;
+            store.loaded_from = None;
+            store.sessions.clear();
+        }
+
+        let peeked = peek_ambient_messages(temp.path(), session_id).await;
+        assert_eq!(peeked, vec![message.clone()]);
+
+        let taken = take_ambient_messages(temp.path(), session_id).await;
+        assert_eq!(taken, vec![message.clone()]);
+
+        {
+            let mut store = ambient_store().lock().await;
+            store.loaded_from = None;
+            store.sessions.clear();
+        }
+
+        let after_take = peek_ambient_messages(temp.path(), session_id).await;
+        assert!(after_take.is_empty());
     }
 }
