@@ -10,6 +10,7 @@ use tracing::warn;
 use super::delivery::send_with_retry;
 use super::footer::{append_footer, current_response_footer_config, format_model_footer};
 use super::memory::maybe_auto_memory_flush;
+use super::routing::load_agent_trigger_config;
 use super::trigger::{
     AgentTriggerConfig, ConversationKind, SenderKind, TriggerContext, TriggerDecision,
     TriggerReason,
@@ -20,8 +21,8 @@ use crate::home_paths::idle_reply_state_path;
 use crate::json_store;
 use crate::log_store;
 use crate::session::{
-    SessionStore, format_ambient_context, prepend_ambient_context, session_file_to_store_value,
-    take_ambient_messages, track_token_usage,
+    SessionStore, clear_ambient_messages, format_ambient_context, peek_ambient_messages,
+    prepend_ambient_context, session_file_to_store_value, track_token_usage,
 };
 
 const ONE_HOUR_MS: u64 = 60 * 60 * 1000;
@@ -133,6 +134,14 @@ fn prune_recent_sent(state: &mut IdleReplyState, now_ms: u64) {
     state
         .recent_sent_at_ms
         .retain(|timestamp| now_ms.saturating_sub(*timestamp) <= ONE_HOUR_MS);
+}
+
+fn remaining_delay_secs(now_ms: u64, deadline_at_ms: u64) -> u64 {
+    if deadline_at_ms <= now_ms {
+        0
+    } else {
+        (deadline_at_ms - now_ms).div_ceil(1000)
+    }
 }
 
 pub(crate) async fn get_idle_reply_status(
@@ -277,7 +286,24 @@ pub(super) async fn schedule_idle_reply(
         persist_snapshot(path, snapshot).await;
     }
 
-    let state_home = savfox_home.to_path_buf();
+    spawn_idle_reply_task(
+        savfox_home.to_path_buf(),
+        gateway_channel,
+        session_store,
+        generation,
+        schedule,
+    );
+
+    IdleReplyScheduleOutcome::Scheduled
+}
+
+fn spawn_idle_reply_task(
+    state_home: PathBuf,
+    gateway_channel: Arc<GatewayChannel>,
+    session_store: Arc<SessionStore>,
+    generation: u64,
+    schedule: IdleReplySchedule,
+) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(schedule.delay_secs)).await;
 
@@ -294,12 +320,72 @@ pub(super) async fn schedule_idle_reply(
             return;
         }
 
-        if let Err(err) = fire_idle_reply(gateway_channel, session_store, schedule).await {
+        if let Err(err) = fire_idle_reply(gateway_channel, session_store, schedule.clone()).await {
             warn!("idle reply trigger failed: {err}");
+            mark_idle_reply_failed(&schedule.session_id, "trigger_failed").await;
         }
     });
+}
 
-    IdleReplyScheduleOutcome::Scheduled
+pub(crate) async fn resume_pending_idle_replies(
+    savfox_home: &Path,
+    gateway_channel: Arc<GatewayChannel>,
+    session_store: Arc<SessionStore>,
+) {
+    ensure_store_loaded(savfox_home).await;
+    let now_ms = crate::json_store::now_ms();
+    let pending = {
+        let store = state_store().lock().await;
+        store
+            .sessions
+            .iter()
+            .filter_map(|(session_id, state)| {
+                state
+                    .pending
+                    .clone()
+                    .map(|pending| (session_id.clone(), state.generation, pending))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for (session_id, generation, pending) in pending {
+        let Some(entry) = session_store.get(&session_id).await else {
+            remove_idle_reply_session(savfox_home, &session_id).await;
+            continue;
+        };
+
+        let config = load_agent_trigger_config(savfox_home, &pending.agent_id).await;
+        if !config.idle_reply.enabled {
+            clear_pending(&session_id).await;
+            continue;
+        }
+
+        let schedule = IdleReplySchedule {
+            session_id: pending.session_id.clone(),
+            outbound_channel: pending.outbound_channel.clone(),
+            platform: pending
+                .outbound_channel
+                .split(':')
+                .next()
+                .unwrap_or("unknown")
+                .to_owned(),
+            agent_id: pending.agent_id.clone(),
+            thread_id: entry.thread_id.clone(),
+            reply_target: entry.reply_target.clone(),
+            prompt_override: config.idle_reply.prompt.clone(),
+            delay_secs: remaining_delay_secs(now_ms, pending.deadline_at_ms),
+            max_per_hour: config.idle_reply.max_per_hour,
+            message_preview: pending.message_preview.clone(),
+        };
+
+        spawn_idle_reply_task(
+            savfox_home.to_path_buf(),
+            Arc::clone(&gateway_channel),
+            Arc::clone(&session_store),
+            generation,
+            schedule,
+        );
+    }
 }
 
 fn idle_reply_prompt(delay_secs: u64, prompt_override: Option<&str>) -> String {
@@ -331,6 +417,8 @@ async fn fire_idle_reply(
     .await;
 
     let Some(entry) = session_store.get(&schedule.session_id).await else {
+        remove_idle_reply_session(&gateway_channel.config().savfox_home, &schedule.session_id)
+            .await;
         return Ok(());
     };
 
@@ -343,7 +431,7 @@ async fn fire_idle_reply(
     let prompt = idle_reply_prompt(schedule.delay_secs, schedule.prompt_override.as_deref());
     let prompt = append_channel_tone_suffix(&prompt, tone_suffix.as_deref());
     let ambient_context = format_ambient_context(
-        &take_ambient_messages(&gateway_channel.config().savfox_home, &schedule.session_id).await,
+        &peek_ambient_messages(&gateway_channel.config().savfox_home, &schedule.session_id).await,
     );
     let prompt = prepend_ambient_context(&prompt, ambient_context.as_deref());
 
@@ -431,6 +519,7 @@ async fn fire_idle_reply(
     )
     .await?;
 
+    clear_ambient_messages(&gateway_channel.config().savfox_home, &schedule.session_id).await;
     mark_idle_reply_sent(&schedule.session_id).await;
 
     log_store::append_log(
@@ -459,6 +548,19 @@ async fn clear_pending(session_id: &str) {
     persist_snapshot(path, snapshot).await;
 }
 
+async fn mark_idle_reply_failed(session_id: &str, reason: &str) {
+    let mut store = state_store().lock().await;
+    let now_ms = crate::json_store::now_ms();
+    let state = store.sessions.entry(session_id.to_owned()).or_default();
+    state.pending = None;
+    state.last_suppressed_at_ms = Some(now_ms);
+    state.suppressed_reason = Some(reason.to_owned());
+    let path = store.loaded_from.clone();
+    let snapshot = store.sessions.clone();
+    drop(store);
+    persist_snapshot(path, snapshot).await;
+}
+
 async fn mark_idle_reply_sent(session_id: &str) {
     let mut store = state_store().lock().await;
     let now_ms = crate::json_store::now_ms();
@@ -474,11 +576,25 @@ async fn mark_idle_reply_sent(session_id: &str) {
     persist_snapshot(path, snapshot).await;
 }
 
+pub(crate) async fn remove_idle_reply_session(savfox_home: &Path, session_id: &str) {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return;
+    }
+    ensure_store_loaded(savfox_home).await;
+    let mut store = state_store().lock().await;
+    store.sessions.remove(session_id);
+    let path = store.loaded_from.clone();
+    let snapshot = store.sessions.clone();
+    drop(store);
+    persist_snapshot(path, snapshot).await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         IdleReplyScheduleOutcome, IdleReplyState, ONE_HOUR_MS, idle_reply_prompt,
-        prune_recent_sent, should_schedule_idle_reply,
+        prune_recent_sent, remaining_delay_secs, should_schedule_idle_reply,
     };
     use crate::auto_reply::GroupActivation;
     use crate::channels::runtime::trigger::{
@@ -532,6 +648,14 @@ mod tests {
         let prompt = idle_reply_prompt(120, None);
         assert!(prompt.contains("120 seconds"));
         assert!(prompt.contains("idle room fallback"));
+    }
+
+    #[test]
+    fn remaining_delay_secs_rounds_up() {
+        assert_eq!(remaining_delay_secs(1_000, 1_000), 0);
+        assert_eq!(remaining_delay_secs(1_000, 1_001), 1);
+        assert_eq!(remaining_delay_secs(1_000, 1_999), 1);
+        assert_eq!(remaining_delay_secs(1_000, 2_001), 2);
     }
 
     #[test]

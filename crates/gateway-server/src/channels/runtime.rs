@@ -19,10 +19,12 @@ pub(crate) use self::delivery::{
 use self::delivery::{record_channel_event, send_with_retry};
 pub(crate) use self::footer::set_response_footer_config;
 use self::footer::{append_footer, current_response_footer_config, format_model_footer};
-pub(crate) use self::idle_reply::get_idle_reply_status;
 use self::idle_reply::{
     IdleReplySchedule, IdleReplyScheduleOutcome, record_inbound_activity, schedule_idle_reply,
     should_schedule_idle_reply,
+};
+pub(crate) use self::idle_reply::{
+    get_idle_reply_status, remove_idle_reply_session, resume_pending_idle_replies,
 };
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
@@ -45,14 +47,24 @@ use crate::channels::policy::{
 };
 use crate::log_store;
 use crate::session::{
-    AmbientMessage, InboundSessionMeta, SessionOverrides, SessionStore, format_ambient_context,
-    prepend_ambient_context, push_ambient_message, session_file_to_store_value,
-    take_ambient_messages, track_inbound_message, track_token_usage,
+    AmbientMessage, InboundSessionMeta, SessionOverrides, SessionStore, clear_ambient_messages,
+    format_ambient_context, peek_ambient_messages, prepend_ambient_context, push_ambient_message,
+    remove_ambient_session, session_file_to_store_value, track_inbound_message, track_token_usage,
 };
 
 fn command_registry() -> &'static CommandRegistry {
     static REGISTRY: OnceLock<CommandRegistry> = OnceLock::new();
     REGISTRY.get_or_init(CommandRegistry::new)
+}
+
+pub(crate) async fn cleanup_session_runtime_state(
+    savfox_home: &std::path::Path,
+    session_ids: &[String],
+) {
+    for session_id in session_ids {
+        remove_ambient_session(savfox_home, session_id).await;
+        remove_idle_reply_session(savfox_home, session_id).await;
+    }
 }
 
 fn command_result_message(
@@ -711,7 +723,7 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
         .await;
     }
     let ambient_context = format_ambient_context(
-        &take_ambient_messages(&gateway_channel.config().savfox_home, &tracked.session_id).await,
+        &peek_ambient_messages(&gateway_channel.config().savfox_home, &tracked.session_id).await,
     );
     let effective_prompt = prepend_ambient_context(&effective_prompt, ambient_context.as_deref());
     // Set up streaming for channels that support progressive message editing.
@@ -880,6 +892,11 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     )
                     .await;
                 } else {
+                    clear_ambient_messages(
+                        &gateway_channel.config().savfox_home,
+                        &tracked.session_id,
+                    )
+                    .await;
                     log_store::append_log(
                         "info",
                         "channel/runtime",
@@ -891,6 +908,8 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
                     .await;
                 }
             } else {
+                clear_ambient_messages(&gateway_channel.config().savfox_home, &tracked.session_id)
+                    .await;
                 log_store::append_log(
                     "info",
                     "channel/runtime",

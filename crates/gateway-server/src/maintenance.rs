@@ -3,12 +3,14 @@
 //! Runs background health checks, state cleanup, and resource management
 //! on a configurable interval.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::watch;
 use tracing::{info, warn};
 
+use crate::channels::runtime::cleanup_session_runtime_state;
 use crate::session::SessionStore;
 
 /// Configuration for the maintenance timer.
@@ -57,6 +59,7 @@ pub(crate) struct MaintenanceReport {
 pub(crate) struct MaintenanceService {
     config: MaintenanceConfig,
     session_store: Arc<SessionStore>,
+    savfox_home: PathBuf,
     /// Shutdown signal receiver.
     shutdown_rx: watch::Receiver<bool>,
 }
@@ -65,11 +68,13 @@ impl MaintenanceService {
     pub(crate) fn new(
         config: MaintenanceConfig,
         session_store: Arc<SessionStore>,
+        savfox_home: PathBuf,
         shutdown_rx: watch::Receiver<bool>,
     ) -> Self {
         Self {
             config,
             session_store,
+            savfox_home,
             shutdown_rx,
         }
     }
@@ -116,7 +121,9 @@ impl MaintenanceService {
 
         // 1. Prune expired sessions.
         if self.config.prune_sessions {
-            report.sessions_pruned = self.session_store.prune().await;
+            let pruned = self.session_store.prune_report().await;
+            cleanup_session_runtime_state(&self.savfox_home, &pruned.session_ids).await;
+            report.sessions_pruned = pruned.pruned;
         }
 
         // 2. Check channel health.

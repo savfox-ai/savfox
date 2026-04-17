@@ -98,6 +98,25 @@ pub async fn take_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<
     messages
 }
 
+pub async fn clear_ambient_messages(savfox_home: &Path, session_id: &str) -> usize {
+    let session_id = session_id.trim();
+    if session_id.is_empty() {
+        return 0;
+    }
+    ensure_store_loaded(savfox_home).await;
+    let mut store = ambient_store().lock().await;
+    let removed = store
+        .sessions
+        .remove(session_id)
+        .map(|messages| messages.len())
+        .unwrap_or(0);
+    let path = store.loaded_from.clone();
+    let snapshot = store.sessions.clone();
+    drop(store);
+    persist_snapshot(path, snapshot).await;
+    removed
+}
+
 pub async fn peek_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<AmbientMessage> {
     let session_id = session_id.trim();
     if session_id.is_empty() {
@@ -111,6 +130,10 @@ pub async fn peek_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<
         .get(session_id)
         .cloned()
         .unwrap_or_default()
+}
+
+pub async fn remove_ambient_session(savfox_home: &Path, session_id: &str) {
+    let _ = clear_ambient_messages(savfox_home, session_id).await;
 }
 
 pub fn format_ambient_context(messages: &[AmbientMessage]) -> Option<String> {
@@ -166,8 +189,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        AmbientMessage, ambient_store, format_ambient_context, peek_ambient_messages,
-        prepend_ambient_context, push_ambient_message, take_ambient_messages,
+        AmbientMessage, ambient_store, clear_ambient_messages, format_ambient_context,
+        peek_ambient_messages, prepend_ambient_context, push_ambient_message,
+        take_ambient_messages,
     };
 
     #[test]
@@ -240,5 +264,39 @@ mod tests {
 
         let after_take = peek_ambient_messages(temp.path(), session_id).await;
         assert!(after_take.is_empty());
+    }
+
+    #[tokio::test]
+    async fn clear_ambient_messages_removes_persisted_entries() {
+        let temp = tempdir().expect("tempdir");
+        let session_id = "session-ambient-clear";
+        push_ambient_message(
+            temp.path(),
+            session_id,
+            AmbientMessage {
+                timestamp_ms: 7,
+                sender_id: None,
+                sender_name: Some("Bob".to_owned()),
+                sender_kind: "human".to_owned(),
+                text: "clear me".to_owned(),
+                reason: "no_trigger".to_owned(),
+            },
+        )
+        .await;
+
+        let removed = clear_ambient_messages(temp.path(), session_id).await;
+        assert_eq!(removed, 1);
+
+        {
+            let mut store = ambient_store().lock().await;
+            store.loaded_from = None;
+            store.sessions.clear();
+        }
+
+        assert!(
+            peek_ambient_messages(temp.path(), session_id)
+                .await
+                .is_empty()
+        );
     }
 }

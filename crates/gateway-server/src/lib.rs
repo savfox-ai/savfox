@@ -206,11 +206,18 @@ pub async fn run_main(
     // Spawn a background task to periodically prune stale sessions (every 5 minutes).
     {
         let store = Arc::clone(&session_store);
+        let config_for_prune = Arc::clone(&config);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
             loop {
                 interval.tick().await;
-                let pruned = store.prune().await;
+                let report = store.prune_report().await;
+                channels::runtime::cleanup_session_runtime_state(
+                    &config_for_prune.savfox_home,
+                    &report.session_ids,
+                )
+                .await;
+                let pruned = report.pruned;
                 if pruned > 0 {
                     info!(pruned, "session store maintenance: pruned stale entries");
                 }
@@ -240,6 +247,14 @@ pub async fn run_main(
         warn!(error = %err, "some channels failed to initialize");
     }
     info!("channel initialization complete");
+
+    channels::runtime::resume_pending_idle_replies(
+        &config.savfox_home,
+        Arc::clone(&channel),
+        Arc::clone(&session_store),
+    )
+    .await;
+    info!("idle reply pending timers resumed");
 
     // Print startup info.
     let scheme = if gateway_config.tls_cert.is_some() {

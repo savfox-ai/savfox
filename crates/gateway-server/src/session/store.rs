@@ -916,14 +916,13 @@ impl SessionStore {
     }
 
     /// Prune stale entries and cap total count.
-    /// Returns the number of entries pruned.
-    pub async fn prune(&self) -> usize {
+    pub async fn prune_report(&self) -> SessionPruneResult {
         self.refresh_cache().await;
 
-        let (pruned, stale_keys) = {
+        let (pruned, stale_keys, removed_session_ids) = {
             let mut cache = self.cache.write().await;
             let Some(cache) = cache.as_mut() else {
-                return 0;
+                return SessionPruneResult::default();
             };
 
             let before = cache.entries.len();
@@ -941,15 +940,39 @@ impl SessionStore {
                 .entries
                 .retain(|_, entry| !entry.is_stale(self.config.max_age));
 
+            let mut removed_session_ids = stale_keys
+                .iter()
+                .map(|(session_id, _)| session_id.clone())
+                .collect::<Vec<_>>();
+
             // Cap at max_entries (keep most recently updated).
             if cache.entries.len() > self.config.max_entries {
                 let mut entries_vec: Vec<_> = cache.entries.drain().collect();
                 entries_vec.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+                let retained = entries_vec
+                    .iter()
+                    .take(self.config.max_entries)
+                    .map(|(session_id, _)| session_id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                removed_session_ids.extend(
+                    entries_vec
+                        .iter()
+                        .skip(self.config.max_entries)
+                        .map(|(session_id, _)| session_id.clone()),
+                );
                 entries_vec.truncate(self.config.max_entries);
                 cache.entries = entries_vec.into_iter().collect();
+                removed_session_ids.retain(|session_id| !retained.contains(session_id));
             }
 
-            (before - cache.entries.len(), stale_keys)
+            removed_session_ids.sort();
+            removed_session_ids.dedup();
+
+            (
+                before - cache.entries.len(),
+                stale_keys,
+                removed_session_ids,
+            )
         };
 
         if pruned > 0 {
@@ -972,7 +995,16 @@ impl SessionStore {
             self.persist_cache().await;
         }
 
-        pruned
+        SessionPruneResult {
+            pruned,
+            session_ids: removed_session_ids,
+        }
+    }
+
+    /// Prune stale entries and cap total count.
+    /// Returns the number of entries pruned.
+    pub async fn prune(&self) -> usize {
+        self.prune_report().await.pruned
     }
 
     /// Get summary statistics.
@@ -1007,11 +1039,19 @@ pub struct SessionStoreStats {
     pub newest_updated_at: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SessionPruneResult {
+    pub pruned: usize,
+    pub session_ids: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use tempfile::tempdir;
 
-    use super::SessionStore;
+    use super::{SessionEntry, SessionStore};
 
     #[tokio::test]
     async fn persists_routing_ids_across_store_reloads() {
@@ -1029,6 +1069,37 @@ mod tests {
             .expect("routing id should be restored");
 
         assert_eq!(restored.session_id, created.session_id);
+    }
+
+    #[tokio::test]
+    async fn prune_report_returns_removed_session_ids() {
+        let home = tempdir().expect("tempdir");
+        let store = SessionStore::from_home(home.path());
+
+        let active_id = {
+            let mut entry = SessionEntry::new();
+            entry.updated_at = crate::json_store::now_ms();
+            let id = entry.session_id.clone();
+            store.upsert(entry).await;
+            id
+        };
+
+        let stale_id = {
+            let mut entry = SessionEntry::new();
+            entry.updated_at = crate::json_store::now_ms()
+                .saturating_sub(Duration::from_secs(31 * 24 * 3600).as_millis() as u64);
+            let id = entry.session_id.clone();
+            store.upsert(entry).await;
+            id
+        };
+
+        let report = store.prune_report().await;
+        assert_eq!(report.pruned, 1);
+        assert_eq!(report.session_ids, vec![stale_id.clone()]);
+
+        let remaining = store.list().await;
+        assert!(remaining.iter().any(|entry| entry.session_id == active_id));
+        assert!(!remaining.iter().any(|entry| entry.session_id == stale_id));
     }
 }
 
