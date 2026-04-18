@@ -12,7 +12,7 @@ use tempfile::TempDir;
 const LINUX_SANDBOX_ARG0: &str = "savfox-linux-sandbox";
 const APPLY_PATCH_ARG0: &str = "apply_patch";
 const MISSPELLED_APPLY_PATCH_ARG0: &str = "applypatch";
-const TOKIO_WORKER_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
+const WINDOWS_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
 
 #[must_use]
 pub fn arg0_dispatch() -> Option<TempDir> {
@@ -85,8 +85,8 @@ pub fn arg0_dispatch() -> Option<TempDir> {
 /// in this workspace that depends on these helper CLIs.
 pub fn arg0_dispatch_or_else<F, Fut>(main_fn: F) -> anyhow::Result<()>
 where
-    F: FnOnce(Option<PathBuf>) -> Fut,
-    Fut: Future<Output = anyhow::Result<()>>,
+    F: FnOnce(Option<PathBuf>) -> Fut + Send + 'static,
+    Fut: Future<Output = anyhow::Result<()>> + 'static,
 {
     // Retain the TempDir so it exists for the lifetime of the invocation of
     // this executable. Admittedly, we could invoke `keep()` on it, but it
@@ -96,22 +96,48 @@ where
     // Regular invocation – create a Tokio runtime and execute the provided
     // async entry-point.
     //
-    // On Windows debug builds we observed startup stack overflows in worker
-    // threads with the default runtime stack size. Use a larger stack to keep
-    // gateway startup stable.
-    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
-    runtime_builder.enable_all();
-    runtime_builder.thread_stack_size(TOKIO_WORKER_STACK_SIZE_BYTES);
-    let runtime = runtime_builder.build()?;
-    runtime.block_on(async move {
-        let savfox_linux_sandbox_exe: Option<PathBuf> = if cfg!(target_os = "linux") {
-            std::env::current_exe().ok()
-        } else {
-            None
-        };
+    // On Windows we explicitly run the async main on a larger bootstrap stack
+    // and give Tokio worker threads the same 8 MiB stack. This avoids relying
+    // on linker-wide `/STACK` settings for every Windows binary in the workspace.
+    run_async_main_on_configured_stack(move || {
+        let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+        runtime_builder.enable_all();
+        runtime_builder.thread_stack_size(WINDOWS_STACK_SIZE_BYTES);
+        let runtime = runtime_builder.build()?;
+        runtime.block_on(async move {
+            let savfox_linux_sandbox_exe: Option<PathBuf> = if cfg!(target_os = "linux") {
+                std::env::current_exe().ok()
+            } else {
+                None
+            };
 
-        main_fn(savfox_linux_sandbox_exe).await
+            main_fn(savfox_linux_sandbox_exe).await
+        })
     })
+}
+
+#[cfg(windows)]
+fn run_async_main_on_configured_stack<F>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> anyhow::Result<()> + Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .name("savfox-main".to_owned())
+        .stack_size(WINDOWS_STACK_SIZE_BYTES)
+        .spawn(main_fn)?;
+
+    match handle.join() {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+#[cfg(not(windows))]
+fn run_async_main_on_configured_stack<F>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> anyhow::Result<()>,
+{
+    main_fn()
 }
 
 const ILLEGAL_ENV_VAR_PREFIX: &str = "SAVFOX_";

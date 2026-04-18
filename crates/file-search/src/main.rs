@@ -5,8 +5,19 @@ use clap::Parser;
 use savfox_file_search::{Cli, FileMatch, Reporter, run_main};
 use serde_json::json;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+const WINDOWS_STACK_SIZE_BYTES: usize = 8 * 1024 * 1024;
+
+fn main() -> anyhow::Result<()> {
+    run_on_configured_stack(|| {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(WINDOWS_STACK_SIZE_BYTES)
+            .build()?;
+        runtime.block_on(async_main())
+    })
+}
+
+async fn async_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let reporter = StdioReporter {
         write_output_as_json: cli.json,
@@ -72,4 +83,28 @@ impl Reporter for StdioReporter {
             search_directory.to_string_lossy()
         );
     }
+}
+
+#[cfg(windows)]
+fn run_on_configured_stack<F>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> anyhow::Result<()> + Send + 'static,
+{
+    let handle = std::thread::Builder::new()
+        .name("savfox-file-search-main".to_owned())
+        .stack_size(WINDOWS_STACK_SIZE_BYTES)
+        .spawn(main_fn)?;
+
+    match handle.join() {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+#[cfg(not(windows))]
+fn run_on_configured_stack<F>(main_fn: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> anyhow::Result<()>,
+{
+    main_fn()
 }
