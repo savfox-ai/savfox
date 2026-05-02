@@ -127,7 +127,9 @@ memory = "memory-lancedb"  # exclusive slot
 
 ```bash
 savfox plugins list              # List installed plugins
-savfox plugins install <path>    # Install a plugin
-savfox plugins enable <id>       # Enable a plugin
-savfox plugins disable <id>      # Disable a plugin
+savfox plugins install <path>    # Install a local plugin
+savfox plugins install <id> --registry ./plugins-registry.json
+savfox plugins update <id>       # Update one registry plugin
+savfox plugins update --all      # Update all installed registry plugins
+savfox plugins uninstall <id>    # Remove a plugin
 ```

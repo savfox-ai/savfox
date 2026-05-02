@@ -21,24 +21,29 @@ Install from a local directory:
 savfox plugins install ./my-plugin/
 ```
 
-## Enable/Disable
+Install from a registry id:
 
 ```bash
-savfox plugins enable <plugin-id>
-savfox plugins disable <plugin-id>
+savfox plugins install <plugin-id> --registry ./plugins-registry.json
 ```
 
-## Plugin Diagnostics
+## Update Plugins
 
 ```bash
-savfox plugins doctor
+savfox plugins update <plugin-id>
+savfox plugins update --all
 ```
 
-Checks:
-- Plugin manifest validity
-- Required dependencies available
-- Configuration schema compliance
-- Slot conflicts (exclusive slots like memory)
+`update --all` refreshes every installed registry-backed plugin. Pinned plugins are skipped unless
+you pass `--force`.
+
+## Pinning And Removal
+
+```bash
+savfox plugins pin <plugin-id>
+savfox plugins unpin <plugin-id>
+savfox plugins uninstall <plugin-id>
+```
 
 ## Configuration
 

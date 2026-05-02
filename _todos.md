@@ -87,25 +87,48 @@ Use recent `E:\Repos\codex` `origin/main` commits as references, but implement S
   - Core `view_image` now emits item started/completed events and fans out the legacy `ViewImageToolCall` from completion.
   - App-server forwards canonical item lifecycle notifications instead of reconstructing them from the legacy event.
 
-## Useful But Not This Pass
+## Completed In Follow-Up
 
 ### Multi-environment choices in environment context
 
+- Status: closed after exploration
 - Reference: `2952beb009 Surface multi-environment choices in environment context (#20646)`
-- Reason:
-  - Useful conceptually, but upstream depends on `context/*`, `environment_selection.rs`, and session/turn-context architecture that does not map cleanly to Savfox's current core layout. Do after a dedicated design pass.
+- Finding:
+  - Codex adds selected environment ids/cwds to live prompt rendering only after introducing `TurnEnvironment`, `EnvironmentManager`, and selected-environment routing.
+  - Savfox currently has a single-cwd `TurnContext`, no `TurnEnvironmentSelection`, no `environment_id`, and no process-tool `environment_id` routing.
+- Result:
+  - No Savfox-native code change was made because adding only an `<environments>` renderer would be dead prompt surface with no real execution semantics.
+  - Revisit when Savfox has a real multi-environment/session routing model.
 
-### Plugin marketplace upgrade flow
+### Plugin registry upgrade flow
 
+- Status: done
 - Reference: `610eefb86b /plugins: add marketplace upgrade flow (#20478)`
-- Reason:
-  - Useful only if Savfox wants the same interactive marketplace upgrade UX. Upstream implementation is tied to `chatwidget` and background request plumbing that Savfox does not share.
+- Finding:
+  - Savfox does not have Codex's TUI marketplace/chatwidget/app-server plugin marketplace path.
+  - Savfox does have a CLI plugin registry and per-plugin `savfox plugins update <id>` path.
+- Tasks:
+  - Add a Savfox-native bulk registry update path.
+  - Preserve existing single-plugin update behavior.
+  - Respect pinned plugins on bulk updates unless `--force` is supplied.
+  - Keep plugin registry/archive HTTP fetches on the shared custom-CA client path.
+  - Update CLI plugin docs.
+- Implementation:
+  - Added `savfox plugins update --all`.
+  - Added deterministic all-target resolution and unit tests.
+  - Routed plugin registry and archive HTTP downloads through `savfox-http-client` custom CA handling.
 
 ### Clear live hook rows when turns finalize
 
+- Status: closed after exploration
 - Reference: `d55479488e Clear live hook rows when turns finalize (#20674)`
-- Reason:
-  - Useful if Savfox has stale live hook rows, but upstream patch is `chatwidget`-specific. Need a Savfox TUI status-row bug reproduction first.
+- Finding:
+  - Codex fixes a separate `active_hook_cell` that can outlive a turn.
+  - Savfox has no hook start/completion protocol events and no separate active hook row in TUI.
+  - Savfox's transient live UI is centralized in `ChatScreen::active_cell`; `finalize_turn` already calls `finalize_active_cell_as_failed`, clears running command state, and clears unified exec process footer state.
+  - Existing TUI coverage includes `interrupt_exec_marks_failed_snapshot`, which verifies a turn abort flushes and finalizes active transient exec UI.
+- Result:
+  - No separate hook-row code was added because there is no equivalent Savfox state to clear.
 
 ## Not Applicable
 
@@ -128,3 +151,4 @@ Use recent `E:\Repos\codex` `origin/main` commits as references, but implement S
 - `cargo test --locked -p savfox-login-oauth`
 - `cargo test --locked -p savfox-skill-registry`
 - `cargo test --locked -p savfox-cli --lib`
+- `cargo test --locked -p savfox-cli plugins_cmd`

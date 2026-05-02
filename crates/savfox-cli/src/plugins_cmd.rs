@@ -9,10 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 use savfox_core::config::find_savfox_home;
+use savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use tracing::warn;
 use zip::ZipArchive;
 
 const PRIMARY_MANIFEST_FILE: &str = "savfox.plugin.toml";
@@ -51,7 +53,10 @@ pub enum PluginsAction {
     /// Update a plugin from registry metadata.
     Update {
         /// Plugin id.
-        plugin: String,
+        plugin: Option<String>,
+        /// Update every installed registry plugin.
+        #[clap(long)]
+        all: bool,
         /// Optional registry URL or file path (JSON).
         #[clap(long)]
         registry: Option<String>,
@@ -222,48 +227,26 @@ pub async fn run(cmd: PluginsCommand) -> Result<(), Box<dyn std::error::Error>> 
         }
         PluginsAction::Update {
             plugin,
+            all,
             registry,
             force,
         } => {
             let registry_doc = load_registry_doc(&savfox_home, registry.as_deref()).await?;
-            let install_order = resolve_registry_install_order(&registry_doc, &plugin)?;
             let installed = scan_installed_plugins_map(&plugins_dir);
-
-            let pinned = lock
-                .plugins
-                .get(&plugin)
-                .map(|entry| entry.pinned)
-                .unwrap_or(false);
-            if pinned && !force {
-                println!("Plugin '{plugin}' is pinned; use --force to update pinned versions");
+            let update_targets = resolve_update_targets(plugin, all, &installed, &lock)?;
+            if update_targets.is_empty() {
+                println!("No installed registry plugins to update");
                 return Ok(());
             }
-
-            for plugin_id in &install_order {
-                let Some(entry) = find_registry_entry(&registry_doc, plugin_id) else {
-                    continue;
-                };
-                let should_update = match installed.get(plugin_id) {
-                    Some(local) => compare_versions(&local.version, &entry.version),
-                    None => true,
-                } || force;
-
-                if should_update {
-                    install_registry_entry(entry, &plugins_dir, true).await?;
-                    let pin_state = lock
-                        .plugins
-                        .get(plugin_id)
-                        .map(|e| e.pinned)
-                        .unwrap_or(false);
-                    upsert_lock(&mut lock, plugin_id, &entry.version, &entry.url, pin_state);
-                    println!("Updated plugin '{}' to {}", plugin_id, entry.version);
-                } else {
-                    println!(
-                        "Plugin '{}' already up-to-date ({})",
-                        plugin_id, entry.version
-                    );
-                }
-            }
+            update_registry_plugins(
+                &registry_doc,
+                &update_targets,
+                &installed,
+                &plugins_dir,
+                force,
+                &mut lock,
+            )
+            .await?;
 
             save_lock_file(&lock_path, &lock)?;
         }
@@ -738,6 +721,91 @@ fn compare_versions(local: &str, remote: &str) -> bool {
     remote_ver > local_ver
 }
 
+fn resolve_update_targets(
+    plugin: Option<String>,
+    all: bool,
+    installed: &HashMap<String, InstalledPlugin>,
+    lock: &PluginLockFile,
+) -> Result<Vec<String>, String> {
+    match (plugin, all) {
+        (Some(_), true) => Err("provide either a plugin id or --all, not both".to_owned()),
+        (Some(plugin), false) => Ok(vec![plugin]),
+        (None, true) => {
+            let mut targets = installed
+                .keys()
+                .filter(|id| {
+                    lock.plugins
+                        .get(id.as_str())
+                        .is_some_and(|entry| !entry.source.starts_with("local:"))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            targets.sort();
+            Ok(targets)
+        }
+        (None, false) => Err("provide a plugin id or --all".to_owned()),
+    }
+}
+
+async fn update_registry_plugins(
+    registry_doc: &PluginRegistryDoc,
+    update_targets: &[String],
+    installed: &HashMap<String, InstalledPlugin>,
+    plugins_dir: &Path,
+    force: bool,
+    lock: &mut PluginLockFile,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut processed = HashSet::new();
+    for plugin in update_targets {
+        let pinned = lock
+            .plugins
+            .get(plugin)
+            .map(|entry| entry.pinned)
+            .unwrap_or(false);
+        if pinned && !force {
+            println!("Plugin '{plugin}' is pinned; use --force to update pinned versions");
+            processed.insert(plugin.clone());
+            continue;
+        }
+
+        let install_order = resolve_registry_install_order(registry_doc, plugin)?;
+        for plugin_id in install_order {
+            if !processed.insert(plugin_id.clone()) {
+                continue;
+            }
+            let pin_state = lock
+                .plugins
+                .get(&plugin_id)
+                .map(|entry| entry.pinned)
+                .unwrap_or(false);
+            if pin_state && !force {
+                println!("Plugin '{plugin_id}' is pinned; use --force to update pinned versions");
+                continue;
+            }
+
+            let Some(entry) = find_registry_entry(registry_doc, &plugin_id) else {
+                continue;
+            };
+            let should_update = match installed.get(&plugin_id) {
+                Some(local) => compare_versions(&local.version, &entry.version),
+                None => true,
+            } || force;
+
+            if should_update {
+                install_registry_entry(entry, plugins_dir, true).await?;
+                upsert_lock(lock, &plugin_id, &entry.version, &entry.url, pin_state);
+                println!("Updated plugin '{}' to {}", plugin_id, entry.version);
+            } else {
+                println!(
+                    "Plugin '{}' already up-to-date ({})",
+                    plugin_id, entry.version
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn install_registry_plugins(
     registry_doc: &PluginRegistryDoc,
     install_order: &[String],
@@ -814,7 +882,7 @@ async fn install_registry_entry(
 
 async fn download_registry_archive(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     if url.starts_with("http://") || url.starts_with("https://") {
-        let response = reqwest::get(url).await?;
+        let response = plugin_http_client().get(url).send().await?;
         if !response.status().is_success() {
             return Err(format!("download failed (HTTP {}): {}", response.status(), url).into());
         }
@@ -856,7 +924,7 @@ async fn load_registry_doc(
         })?;
 
     let content = if source.starts_with("http://") || source.starts_with("https://") {
-        let response = reqwest::get(&source).await?;
+        let response = plugin_http_client().get(&source).send().await?;
         if !response.status().is_success() {
             return Err(format!(
                 "failed to fetch registry (HTTP {}): {source}",
@@ -873,6 +941,16 @@ async fn load_registry_doc(
     let doc = serde_json::from_str::<PluginRegistryDoc>(&content)
         .map_err(|err| format!("invalid registry JSON from '{source}': {err}"))?;
     Ok(doc)
+}
+
+fn plugin_http_client() -> reqwest::Client {
+    match build_reqwest_client_with_custom_ca(reqwest::Client::builder()) {
+        Ok(client) => client,
+        Err(err) => {
+            warn!("failed to load custom CA bundle for plugin downloads: {err}");
+            reqwest::Client::new()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -945,5 +1023,87 @@ mod tests {
 
         let order = resolve_registry_install_order(&registry, "a").expect("valid dependencies");
         assert_eq!(order, vec!["b".to_owned(), "a".to_owned()]);
+    }
+
+    #[test]
+    fn resolve_update_targets_requires_plugin_or_all() {
+        let installed = HashMap::new();
+        let lock = PluginLockFile::default();
+        let err =
+            resolve_update_targets(None, false, &installed, &lock).expect_err("missing target");
+        assert_eq!(err, "provide a plugin id or --all");
+    }
+
+    #[test]
+    fn resolve_update_targets_rejects_plugin_with_all() {
+        let installed = HashMap::new();
+        let lock = PluginLockFile::default();
+        let err = resolve_update_targets(Some("a".to_owned()), true, &installed, &lock)
+            .expect_err("ambiguous target");
+        assert_eq!(err, "provide either a plugin id or --all, not both");
+    }
+
+    #[test]
+    fn resolve_update_targets_all_uses_sorted_registry_installed_ids() {
+        let installed = HashMap::from([
+            (
+                "zeta".to_owned(),
+                InstalledPlugin {
+                    id: "zeta".to_owned(),
+                    name: "Zeta".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    path: "/plugins/zeta".to_owned(),
+                    dependencies: Vec::new(),
+                    pinned: false,
+                },
+            ),
+            (
+                "alpha".to_owned(),
+                InstalledPlugin {
+                    id: "alpha".to_owned(),
+                    name: "Alpha".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    path: "/plugins/alpha".to_owned(),
+                    dependencies: Vec::new(),
+                    pinned: false,
+                },
+            ),
+            (
+                "local-only".to_owned(),
+                InstalledPlugin {
+                    id: "local-only".to_owned(),
+                    name: "Local".to_owned(),
+                    version: "1.0.0".to_owned(),
+                    path: "/plugins/local-only".to_owned(),
+                    dependencies: Vec::new(),
+                    pinned: false,
+                },
+            ),
+        ]);
+        let mut lock = PluginLockFile::default();
+        upsert_lock(
+            &mut lock,
+            "zeta",
+            "1.0.0",
+            "https://example.invalid/zeta.zip",
+            false,
+        );
+        upsert_lock(
+            &mut lock,
+            "alpha",
+            "1.0.0",
+            "https://example.invalid/alpha.zip",
+            false,
+        );
+        upsert_lock(
+            &mut lock,
+            "local-only",
+            "1.0.0",
+            "local:/tmp/local-only",
+            false,
+        );
+
+        let targets = resolve_update_targets(None, true, &installed, &lock).expect("all targets");
+        assert_eq!(targets, vec!["alpha".to_owned(), "zeta".to_owned()]);
     }
 }
