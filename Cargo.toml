@@ -98,7 +98,7 @@ salvo = { version = "0.91", default-features = false, features = [
     "websocket",
     "sse",
 ] }
-salvo_extra = { version = "0.89", default-features = false, features = [
+salvo_extra = { version = "0.91", default-features = false, features = [
     "tower-compat",
 ] }
 backoff = { version = "0.4" }

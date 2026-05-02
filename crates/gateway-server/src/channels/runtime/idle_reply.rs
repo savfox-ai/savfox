@@ -18,12 +18,11 @@ use super::trigger::{
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{append_channel_tone_suffix, configured_channel_tone_suffix};
 use crate::home_paths::idle_reply_state_path;
-use crate::json_store;
-use crate::log_store;
 use crate::session::{
     SessionStore, clear_ambient_messages, format_ambient_context, peek_ambient_messages,
     prepend_ambient_context, session_file_to_store_value, track_token_usage,
 };
+use crate::{json_store, log_store};
 
 const ONE_HOUR_MS: u64 = 60 * 60 * 1000;
 

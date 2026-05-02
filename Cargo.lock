@@ -8055,7 +8055,7 @@ dependencies = [
  "once_cell",
  "ring",
  "rustls-pki-types",
- "rustls-webpki 0.103.10",
+ "rustls-webpki 0.103.13",
  "subtle",
  "zeroize",
 ]
@@ -8096,7 +8096,7 @@ dependencies = [
  "rustls 0.23.37",
  "rustls-native-certs",
  "rustls-platform-verifier-android",
- "rustls-webpki 0.103.10",
+ "rustls-webpki 0.103.13",
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
@@ -8122,9 +8122,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.10"
+version = "0.103.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df33b2b81ac578cabaf06b89b0631153a3f416b0a886e8a7a1707fb51abbd1ef"
+checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -8205,7 +8205,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77fab67d0b522290dd88006cb84b4462d83d6a7125c71da6826cd333618ab21b"
 dependencies = [
  "salvo_core 0.91.1",
- "salvo_extra 0.91.1",
+ "salvo_extra",
 ]
 
 [[package]]
@@ -8390,19 +8390,6 @@ dependencies = [
 
 [[package]]
 name = "salvo_extra"
-version = "0.89.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4929b192e8563f228f4f0686b3bf33a33752cfc8e5b03ed409859504c4b2ce2"
-dependencies = [
- "futures-util",
- "http-body-util",
- "salvo_core 0.89.3",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "salvo_extra"
 version = "0.91.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "672456a8d426b13efd7cfc574ffb408cd9ba91e7d4e7d963360d906d6817dee6"
@@ -8515,7 +8502,7 @@ dependencies = [
  "pretty_assertions",
  "rmcp",
  "salvo 0.91.1",
- "salvo_extra 0.89.3",
+ "salvo_extra",
  "savfox-app-server-protocol",
  "savfox-arg0",
  "savfox-common",
@@ -9324,7 +9311,7 @@ dependencies = [
  "reqwest 0.13.2",
  "rmcp",
  "salvo 0.91.1",
- "salvo_extra 0.89.3",
+ "salvo_extra",
  "savfox-keyring-store",
  "savfox-protocol",
  "savfox-utils",

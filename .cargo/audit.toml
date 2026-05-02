@@ -4,4 +4,15 @@
 ignore = [
     "RUSTSEC-2023-0071",  # rsa: Marvin Attack
     "RUSTSEC-2026-0049",  # rustls-webpki: CPU-intensive certificate verification
+    # hickory-proto: transitive via rama 0.3.0-alpha.4 in savfox-network-proxy.
+    # RUSTSEC-2026-0118 has no fixed upgrade; RUSTSEC-2026-0119 requires
+    # hickory >=0.26.1, which is not reachable until rama updates.
+    "RUSTSEC-2026-0118",
+    "RUSTSEC-2026-0119",
+    # rustls-webpki 0.102.x: transitive via serenity 0.12.5 -> tokio-tungstenite
+    # 0.21 -> rustls 0.22. serenity 0.12.5 is current, so this is blocked
+    # until serenity moves to a newer tungstenite/rustls stack.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
 ]
