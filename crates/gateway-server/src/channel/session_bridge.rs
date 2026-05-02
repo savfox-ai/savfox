@@ -178,6 +178,14 @@ impl GatewayChannel {
             }
         }
 
+        if let Some(invocation) = self
+            .invoke_terminal_delegate_agent(prompt, model, model, requested_session_id.as_deref())
+            .await?
+        {
+            on_delta(&invocation.result.reply);
+            return Ok(invocation.result);
+        }
+
         let resolved_session = if concurrent_fork {
             self.resolve_agent_session_concurrent(config, requested_session_id.as_deref())
                 .await?

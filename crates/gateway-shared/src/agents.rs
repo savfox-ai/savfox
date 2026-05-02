@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct AgentModels {
@@ -14,12 +15,25 @@ pub struct AgentIdleReplyConfig {
     pub prompt: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct AgentTerminalDelegateConfig {
+    pub enabled: Option<bool>,
+    pub command: Option<String>,
+    pub args: Option<Vec<String>>,
+    pub stdin: Option<String>,
+    pub cwd: Option<String>,
+    pub env: Option<BTreeMap<String, String>>,
+    pub timeout_secs: Option<u64>,
+    pub include_system_prompt: Option<bool>,
+}
+
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct AgentEntry {
     pub id: Option<String>,
     pub name: String,
     pub model: Option<String>,
     pub models: Option<AgentModels>,
+    pub terminal_delegate: Option<AgentTerminalDelegateConfig>,
     pub system_prompt: Option<String>,
     pub thinking: Option<String>,
     pub verbose: Option<String>,
@@ -50,6 +64,7 @@ pub struct AgentFilesResponse {
 pub struct AgentDetail {
     pub name: String,
     pub model: Option<String>,
+    pub terminal_delegate: Option<AgentTerminalDelegateConfig>,
     pub system_prompt: Option<String>,
     pub status: Option<String>,
     pub created_at: Option<String>,

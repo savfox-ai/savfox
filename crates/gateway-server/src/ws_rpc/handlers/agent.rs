@@ -960,6 +960,7 @@ pub(crate) async fn handle_agents_create(
         "dm_scope",
         "identity",
         "permission_policy",
+        "terminal_delegate",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {
@@ -1085,6 +1086,7 @@ pub(crate) async fn handle_agents_update(
         "dm_scope",
         "identity",
         "permission_policy",
+        "terminal_delegate",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {

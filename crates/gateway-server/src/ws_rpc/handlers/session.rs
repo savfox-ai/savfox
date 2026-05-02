@@ -337,6 +337,168 @@ pub(crate) async fn handle_chat_send(
 
     let provider = provider_from_model(&effective_model);
 
+    if channel.resolve_terminal_delegate(agent).await.is_some() {
+        let logical_session_id = requested_session_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        let thread_id = logical_session_id.clone();
+        let terminal_model_for_start = format!("terminal/{agent}");
+
+        session_mgr
+            .broadcast_to_all(
+                "agent.stream",
+                json!({
+                    "request_id": request_id,
+                    "session_id": logical_session_id,
+                    "thread_id": thread_id,
+                    "phase": "start",
+                    "model": terminal_model_for_start,
+                    "provider": "terminal",
+                    "profile": model_profile,
+                }),
+            )
+            .await;
+
+        let invocation = match channel
+            .invoke_terminal_delegate_agent(
+                &prompt,
+                agent,
+                &effective_model,
+                Some(logical_session_id.as_str()),
+            )
+            .await
+        {
+            Ok(Some(invocation)) => invocation,
+            Ok(None) => {
+                let message = "terminal delegate disappeared during invocation".to_owned();
+                session_mgr
+                    .broadcast_to_all(
+                        "agent.error",
+                        json!({
+                            "request_id": request_id,
+                            "session_id": logical_session_id,
+                            "error": message,
+                        }),
+                    )
+                    .await;
+                return Err((INTERNAL_ERROR, message));
+            }
+            Err(err) => {
+                let message = format!("terminal delegate error: {err}");
+                session_mgr
+                    .broadcast_to_all(
+                        "agent.error",
+                        json!({
+                            "request_id": request_id,
+                            "session_id": logical_session_id,
+                            "error": message,
+                        }),
+                    )
+                    .await;
+                return Err((INTERNAL_ERROR, message));
+            }
+        };
+        let reply = invocation.result.reply;
+        let rollout_path = invocation.result.rollout_path;
+        let model = invocation.model;
+        let provider = invocation.provider;
+
+        session_mgr
+            .broadcast_to_all(
+                "agent.stream",
+                json!({
+                    "request_id": request_id,
+                    "session_id": logical_session_id,
+                    "kind": "text",
+                    "delta": reply,
+                }),
+            )
+            .await;
+
+        let mut block_counter = 0_u64;
+        let block_id = next_stream_block_id(&request_id, "text", &mut block_counter);
+        emit_stream_block_start(
+            session_mgr,
+            &request_id,
+            &logical_session_id,
+            &block_id,
+            "text",
+        )
+        .await;
+        emit_stream_block_delta(
+            session_mgr,
+            &request_id,
+            &logical_session_id,
+            &block_id,
+            "text",
+            &reply,
+        )
+        .await;
+        emit_stream_block_progress(
+            session_mgr,
+            &request_id,
+            &logical_session_id,
+            &block_id,
+            "text",
+            reply.chars().count(),
+            "complete",
+        )
+        .await;
+        emit_stream_block_end(
+            session_mgr,
+            &request_id,
+            &logical_session_id,
+            &block_id,
+            "text",
+            "complete",
+        )
+        .await;
+
+        let footer = format_model_footer(&model, &provider, model_profile.as_deref());
+        let response = append_footer(&reply, &footer);
+
+        persist_chat_session_metadata(
+            session_store.as_ref(),
+            &channel.config().savfox_home,
+            &logical_session_id,
+            &thread_id,
+            &model,
+            &provider,
+            rollout_path.as_deref(),
+            None,
+        )
+        .await;
+
+        session_mgr
+            .broadcast_to_all(
+                "agent.complete",
+                json!({
+                    "request_id": request_id,
+                    "session_id": logical_session_id,
+                    "thread_id": thread_id,
+                    "response": response,
+                    "raw_response": reply,
+                    "model": model,
+                    "provider": provider,
+                    "profile": model_profile,
+                    "aborted": false,
+                }),
+            )
+            .await;
+
+        return Ok(json!({
+            "response": response,
+            "raw_response": reply,
+            "footer": footer,
+            "model": model,
+            "provider": provider,
+            "profile": model_profile,
+            "session_id": logical_session_id,
+            "thread_id": thread_id,
+            "aborted": false,
+        }));
+    }
+
     let mut config = (**channel.config()).clone();
     if !effective_model.trim().is_empty() {
         config.model = Some(effective_model.clone());

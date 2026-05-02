@@ -5,8 +5,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
-    AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig, AgentsResponse,
-    ModelInfo, ModelsResponse, SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
+    AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig,
+    AgentTerminalDelegateConfig, AgentsResponse, ModelInfo, ModelsResponse, SkillDetail,
+    SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::icon::Icon;
@@ -32,10 +33,12 @@ fn agent_status_color(entry: &AgentEntry) -> &'static str {
         Some(_) => "#9ca3af",
         None => {
             // Derive status from config: if agent has no model configured, show gray (offline)
-            if entry.model.as_deref().unwrap_or("").trim().is_empty() {
-                "#9ca3af"
-            } else {
+            if entry_has_terminal_delegate(entry)
+                || !entry.model.as_deref().unwrap_or("").trim().is_empty()
+            {
                 "#22c55e"
+            } else {
+                "#9ca3af"
             }
         }
     }
@@ -48,13 +51,29 @@ fn agent_status_label(entry: &AgentEntry) -> &'static str {
         Some("idle") | Some("stopped") | Some("offline") => "Offline",
         Some(_) => "Offline",
         None => {
-            if entry.model.as_deref().unwrap_or("").trim().is_empty() {
-                "Offline"
-            } else {
+            if entry_has_terminal_delegate(entry)
+                || !entry.model.as_deref().unwrap_or("").trim().is_empty()
+            {
                 "Online"
+            } else {
+                "Offline"
             }
         }
     }
+}
+
+fn entry_has_terminal_delegate(entry: &AgentEntry) -> bool {
+    entry
+        .terminal_delegate
+        .as_ref()
+        .and_then(|config| config.enabled)
+        .unwrap_or(false)
+        && entry
+            .terminal_delegate
+            .as_ref()
+            .and_then(|config| config.command.as_deref())
+            .map(str::trim)
+            .is_some_and(|command| !command.is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +365,213 @@ fn idle_reply_payload(
     Some(payload)
 }
 
+fn terminal_args_value(args: Option<&Vec<String>>) -> String {
+    args.map(|items| items.join("\n")).unwrap_or_default()
+}
+
+fn terminal_env_value(env: Option<&std::collections::BTreeMap<String, String>>) -> String {
+    env.map(|items| {
+        items
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+    .unwrap_or_default()
+}
+
+fn json_terminal_delegate_fields(
+    value: Option<&Value>,
+) -> (bool, String, String, String, String, String, String, bool) {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return (
+            false,
+            String::new(),
+            "{{prompt}}".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "300".to_string(),
+            true,
+        );
+    };
+
+    let enabled = config
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let command = config
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let args = config
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_else(|| "{{prompt}}".to_string());
+    let stdin = config
+        .get("stdin")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let cwd = config
+        .get("cwd")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let env = config
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|(key, value)| value.as_str().map(|value| format!("{key}={value}")))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    let timeout = config
+        .get("timeout_secs")
+        .and_then(Value::as_u64)
+        .unwrap_or(300)
+        .to_string();
+    let include_system_prompt = config
+        .get("include_system_prompt")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    (
+        enabled,
+        command,
+        args,
+        stdin,
+        cwd,
+        env,
+        timeout,
+        include_system_prompt,
+    )
+}
+
+fn detail_terminal_delegate_fields(
+    detail: Option<&AgentTerminalDelegateConfig>,
+) -> (bool, String, String, String, String, String, String, bool) {
+    let Some(config) = detail else {
+        return (
+            false,
+            String::new(),
+            "{{prompt}}".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "300".to_string(),
+            true,
+        );
+    };
+
+    (
+        config.enabled.unwrap_or(false),
+        config.command.clone().unwrap_or_default(),
+        terminal_args_value(config.args.as_ref()),
+        config.stdin.clone().unwrap_or_default(),
+        config.cwd.clone().unwrap_or_default(),
+        terminal_env_value(config.env.as_ref()),
+        config.timeout_secs.unwrap_or(300).to_string(),
+        config.include_system_prompt.unwrap_or(true),
+    )
+}
+
+fn normalize_terminal_args(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn normalize_terminal_env(raw: &str) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        out.insert(key.to_string(), value.trim().to_string());
+    }
+    out
+}
+
+fn terminal_delegate_payload(
+    enabled: bool,
+    command_raw: &str,
+    args_raw: &str,
+    stdin_raw: &str,
+    cwd_raw: &str,
+    env_raw: &str,
+    timeout_raw: &str,
+    include_system_prompt: bool,
+) -> Option<Value> {
+    let command = command_raw.trim();
+    let args = normalize_terminal_args(args_raw);
+    let stdin = stdin_raw.trim();
+    let cwd = cwd_raw.trim();
+    let env = normalize_terminal_env(env_raw);
+    let timeout_secs = timeout_raw
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value >= 5)
+        .unwrap_or(300);
+
+    if !enabled
+        && command.is_empty()
+        && args == vec!["{{prompt}}".to_string()]
+        && stdin.is_empty()
+        && cwd.is_empty()
+        && env.is_empty()
+        && timeout_secs == 300
+        && include_system_prompt
+    {
+        return None;
+    }
+
+    let mut payload = json!({
+        "enabled": enabled,
+        "timeout_secs": timeout_secs,
+        "include_system_prompt": include_system_prompt,
+    });
+    if !command.is_empty() {
+        payload["command"] = json!(command);
+    }
+    if !args.is_empty() {
+        payload["args"] = json!(args);
+    }
+    if !stdin.is_empty() {
+        payload["stdin"] = json!(stdin);
+    }
+    if !cwd.is_empty() {
+        payload["cwd"] = json!(cwd);
+    }
+    if !env.is_empty() {
+        payload["env"] = json!(env);
+    }
+
+    Some(payload)
+}
+
 fn reasoning_level_label(level: &str) -> &'static str {
     match level {
         "off" => "Off",
@@ -521,6 +747,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_idle_reply_delay = use_signal(|| "180".to_string());
     let mut new_idle_reply_max_per_hour = use_signal(|| "1".to_string());
     let mut new_idle_reply_prompt = use_signal(String::new);
+    let mut new_terminal_enabled = use_signal(|| false);
+    let mut new_terminal_command = use_signal(String::new);
+    let mut new_terminal_args = use_signal(|| "{{prompt}}".to_string());
+    let mut new_terminal_stdin = use_signal(String::new);
+    let mut new_terminal_cwd = use_signal(String::new);
+    let mut new_terminal_env = use_signal(String::new);
+    let mut new_terminal_timeout = use_signal(|| "300".to_string());
+    let mut new_terminal_include_system_prompt = use_signal(|| true);
 
     // Fetch agent list
     let ws_list = ws.clone();
@@ -718,6 +952,16 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                             let external_bot_policy = parsed.get("external_bot_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let (idle_reply_enabled, idle_reply_delay, idle_reply_max_per_hour, idle_reply_prompt) =
                                                 json_idle_reply_fields(parsed.get("idle_reply"));
+                                            let (
+                                                terminal_enabled,
+                                                terminal_command,
+                                                terminal_args,
+                                                terminal_stdin,
+                                                terminal_cwd,
+                                                terminal_env,
+                                                terminal_timeout,
+                                                terminal_include_system_prompt,
+                                            ) = json_terminal_delegate_fields(parsed.get("terminal_delegate"));
 
                                             let id_slug: String = name.chars()
                                                 .map(|c| if c.is_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
@@ -758,6 +1002,18 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                     &idle_reply_prompt,
                                                 ) {
                                                     payload["idle_reply"] = idle_reply;
+                                                }
+                                                if let Some(terminal_delegate) = terminal_delegate_payload(
+                                                    terminal_enabled,
+                                                    &terminal_command,
+                                                    &terminal_args,
+                                                    &terminal_stdin,
+                                                    &terminal_cwd,
+                                                    &terminal_env,
+                                                    &terminal_timeout,
+                                                    terminal_include_system_prompt,
+                                                ) {
+                                                    payload["terminal_delegate"] = terminal_delegate;
                                                 }
                                                 let _ = ws_spawn.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                                 refresh_tick += 1;
@@ -807,6 +1063,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_idle_reply_delay.set("180".to_string());
                                 new_idle_reply_max_per_hour.set("1".to_string());
                                 new_idle_reply_prompt.set(String::new());
+                                new_terminal_enabled.set(false);
+                                new_terminal_command.set(String::new());
+                                new_terminal_args.set("{{prompt}}".to_string());
+                                new_terminal_stdin.set(String::new());
+                                new_terminal_cwd.set(String::new());
+                                new_terminal_env.set(String::new());
+                                new_terminal_timeout.set("300".to_string());
+                                new_terminal_include_system_prompt.set(true);
                             },
                             class: "{TOOL_BTN} tool-btn--primary",
                             "+ New"
@@ -880,7 +1144,17 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                         }
                                                     }
                                                 }
-                                                if let Some(ref model) = agent.model {
+                                                if entry_has_terminal_delegate(agent) {
+                                                    {
+                                                        let command = agent.terminal_delegate
+                                                            .as_ref()
+                                                            .and_then(|config| config.command.as_deref())
+                                                            .unwrap_or("terminal");
+                                                        rsx! {
+                                                            div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "terminal: {command}" }
+                                                        }
+                                                    }
+                                                } else if let Some(ref model) = agent.model {
                                                     div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "{model}" }
                                                 }
                                             }
@@ -921,6 +1195,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                         new_idle_reply_delay,
                         new_idle_reply_max_per_hour,
                         new_idle_reply_prompt,
+                        new_terminal_enabled,
+                        new_terminal_command,
+                        new_terminal_args,
+                        new_terminal_stdin,
+                        new_terminal_cwd,
+                        new_terminal_env,
+                        new_terminal_timeout,
+                        new_terminal_include_system_prompt,
                     }
                 } else if show_settings() {
                     AgentSettingsPane {
@@ -1000,6 +1282,14 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_idle_reply_delay.set("180".to_string());
                                     new_idle_reply_max_per_hour.set("1".to_string());
                                     new_idle_reply_prompt.set(String::new());
+                                    new_terminal_enabled.set(false);
+                                    new_terminal_command.set(String::new());
+                                    new_terminal_args.set("{{prompt}}".to_string());
+                                    new_terminal_stdin.set(String::new());
+                                    new_terminal_cwd.set(String::new());
+                                    new_terminal_env.set(String::new());
+                                    new_terminal_timeout.set("300".to_string());
+                                    new_terminal_include_system_prompt.set(true);
                                 },
                                 "Create Agent"
                             }
@@ -1035,6 +1325,14 @@ fn AgentCreateForm(
     mut new_idle_reply_delay: Signal<String>,
     mut new_idle_reply_max_per_hour: Signal<String>,
     mut new_idle_reply_prompt: Signal<String>,
+    mut new_terminal_enabled: Signal<bool>,
+    mut new_terminal_command: Signal<String>,
+    mut new_terminal_args: Signal<String>,
+    mut new_terminal_stdin: Signal<String>,
+    mut new_terminal_cwd: Signal<String>,
+    mut new_terminal_env: Signal<String>,
+    mut new_terminal_timeout: Signal<String>,
+    mut new_terminal_include_system_prompt: Signal<bool>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
@@ -1235,6 +1533,116 @@ fn AgentCreateForm(
                         }
                     }
                 }
+                div { class: "{SECTION_CARD}", style: "padding:12px;margin-top:4px;",
+                    h4 { class: "{SECTION_TITLE}", "Execution Backend" }
+                    ToggleSwitch {
+                        label: "Delegate to Terminal CLI".to_string(),
+                        description: Some("Run a local CLI command for this agent and return its output.".to_string()),
+                        checked: new_terminal_enabled(),
+                        on_toggle: move |value| new_terminal_enabled.set(value),
+                    }
+                    div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
+                        button {
+                            class: "{TOOL_BTN}",
+                            onclick: move |_| {
+                                new_terminal_enabled.set(true);
+                                new_terminal_command.set("claude".to_string());
+                                new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                new_terminal_stdin.set(String::new());
+                            },
+                            "Claude"
+                        }
+                        button {
+                            class: "{TOOL_BTN}",
+                            onclick: move |_| {
+                                new_terminal_enabled.set(true);
+                                new_terminal_command.set("codex".to_string());
+                                new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                new_terminal_stdin.set(String::new());
+                            },
+                            "Codex"
+                        }
+                        button {
+                            class: "{TOOL_BTN}",
+                            onclick: move |_| {
+                                new_terminal_enabled.set(true);
+                                new_terminal_args.set(String::new());
+                                new_terminal_stdin.set("{{prompt}}".to_string());
+                            },
+                            "Use stdin"
+                        }
+                    }
+                    div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                        div {
+                            label { class: "{LABEL}", "Command" }
+                            input {
+                                value: "{new_terminal_command}",
+                                oninput: move |e| new_terminal_command.set(e.value()),
+                                placeholder: "claude",
+                                class: "{INPUT}",
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Timeout (seconds)" }
+                            input {
+                                value: "{new_terminal_timeout}",
+                                oninput: move |e| new_terminal_timeout.set(e.value()),
+                                placeholder: "300",
+                                class: "{INPUT}",
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Working Directory" }
+                            input {
+                                value: "{new_terminal_cwd}",
+                                oninput: move |e| new_terminal_cwd.set(e.value()),
+                                placeholder: "Use Savfox cwd",
+                                class: "{INPUT}",
+                            }
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Arguments" }
+                        textarea {
+                            value: "{new_terminal_args}",
+                            oninput: move |e| new_terminal_args.set(e.value()),
+                            placeholder: "One argument per line; use {{prompt}}",
+                            rows: 4,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Stdin Template" }
+                        textarea {
+                            value: "{new_terminal_stdin}",
+                            oninput: move |e| new_terminal_stdin.set(e.value()),
+                            placeholder: "Optional; use {{prompt}} to pass the request via stdin",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        label { class: "{LABEL}", "Environment" }
+                        textarea {
+                            value: "{new_terminal_env}",
+                            oninput: move |e| new_terminal_env.set(e.value()),
+                            placeholder: "KEY=value",
+                            rows: 3,
+                            class: "{INPUT}",
+                            style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                        }
+                    }
+                    div { style: "margin-top:12px;",
+                        ToggleSwitch {
+                            label: "Include system prompt".to_string(),
+                            description: Some("Prepend this agent's instructions to {{prompt}} before invoking the CLI.".to_string()),
+                            checked: new_terminal_include_system_prompt(),
+                            on_toggle: move |value| new_terminal_include_system_prompt.set(value),
+                        }
+                    }
+                }
                 div {
                     label { class: "{LABEL}", "System Prompt" }
                     textarea {
@@ -1380,12 +1788,25 @@ fn AgentCreateForm(
                             let idle_reply_delay = new_idle_reply_delay();
                             let idle_reply_max_per_hour = new_idle_reply_max_per_hour();
                             let idle_reply_prompt = new_idle_reply_prompt();
+                            let terminal_enabled = new_terminal_enabled();
+                            let terminal_command = new_terminal_command();
+                            let terminal_args = new_terminal_args();
+                            let terminal_stdin = new_terminal_stdin();
+                            let terminal_cwd = new_terminal_cwd();
+                            let terminal_env = new_terminal_env();
+                            let terminal_timeout = new_terminal_timeout();
+                            let terminal_include_system_prompt =
+                                new_terminal_include_system_prompt();
                             if id.is_empty() {
                                 toaster.error("Agent ID is required");
                                 return;
                             }
                             if name.is_empty() {
                                 toaster.error("Agent name is required");
+                                return;
+                            }
+                            if terminal_enabled && terminal_command.trim().is_empty() {
+                                toaster.error("Terminal command is required when delegation is enabled");
                                 return;
                             }
                             let agents_clone = agents.clone();
@@ -1433,6 +1854,18 @@ fn AgentCreateForm(
                                 ) {
                                     payload["idle_reply"] = idle_reply;
                                 }
+                                if let Some(terminal_delegate) = terminal_delegate_payload(
+                                    terminal_enabled,
+                                    &terminal_command,
+                                    &terminal_args,
+                                    &terminal_stdin,
+                                    &terminal_cwd,
+                                    &terminal_env,
+                                    &terminal_timeout,
+                                    terminal_include_system_prompt,
+                                ) {
+                                    payload["terminal_delegate"] = terminal_delegate;
+                                }
                                 let res = ws.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                 match res {
                                     Ok(_) => {
@@ -1452,6 +1885,14 @@ fn AgentCreateForm(
                                         new_idle_reply_delay.set("180".to_string());
                                         new_idle_reply_max_per_hour.set("1".to_string());
                                         new_idle_reply_prompt.set(String::new());
+                                        new_terminal_enabled.set(false);
+                                        new_terminal_command.set(String::new());
+                                        new_terminal_args.set("{{prompt}}".to_string());
+                                        new_terminal_stdin.set(String::new());
+                                        new_terminal_cwd.set(String::new());
+                                        new_terminal_env.set(String::new());
+                                        new_terminal_timeout.set("300".to_string());
+                                        new_terminal_include_system_prompt.set(true);
                                         refresh_tick += 1;
                                     }
                                     Err(e) => toaster.error(format!("Create failed: {e}")),
@@ -1473,6 +1914,14 @@ fn AgentCreateForm(
                             new_idle_reply_delay.set("180".to_string());
                             new_idle_reply_max_per_hour.set("1".to_string());
                             new_idle_reply_prompt.set(String::new());
+                            new_terminal_enabled.set(false);
+                            new_terminal_command.set(String::new());
+                            new_terminal_args.set("{{prompt}}".to_string());
+                            new_terminal_stdin.set(String::new());
+                            new_terminal_cwd.set(String::new());
+                            new_terminal_env.set(String::new());
+                            new_terminal_timeout.set("300".to_string());
+                            new_terminal_include_system_prompt.set(true);
                         },
                         class: "{TOOL_BTN} tool-btn--lg",
                         "Cancel"
@@ -1673,6 +2122,14 @@ fn AgentOverviewTab(
     let mut form_idle_reply_delay = use_signal(|| "180".to_string());
     let mut form_idle_reply_max_per_hour = use_signal(|| "1".to_string());
     let mut form_idle_reply_prompt = use_signal(String::new);
+    let mut form_terminal_enabled = use_signal(|| false);
+    let mut form_terminal_command = use_signal(String::new);
+    let mut form_terminal_args = use_signal(|| "{{prompt}}".to_string());
+    let mut form_terminal_stdin = use_signal(String::new);
+    let mut form_terminal_cwd = use_signal(String::new);
+    let mut form_terminal_env = use_signal(String::new);
+    let mut form_terminal_timeout = use_signal(|| "300".to_string());
+    let mut form_terminal_include_system_prompt = use_signal(|| true);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
@@ -1745,6 +2202,24 @@ fn AgentOverviewTab(
             form_idle_reply_delay.set(idle_delay);
             form_idle_reply_max_per_hour.set(idle_max_per_hour);
             form_idle_reply_prompt.set(idle_prompt);
+            let (
+                terminal_enabled,
+                terminal_command,
+                terminal_args,
+                terminal_stdin,
+                terminal_cwd,
+                terminal_env,
+                terminal_timeout,
+                terminal_include_system_prompt,
+            ) = detail_terminal_delegate_fields(detail.terminal_delegate.as_ref());
+            form_terminal_enabled.set(terminal_enabled);
+            form_terminal_command.set(terminal_command);
+            form_terminal_args.set(terminal_args);
+            form_terminal_stdin.set(terminal_stdin);
+            form_terminal_cwd.set(terminal_cwd);
+            form_terminal_env.set(terminal_env);
+            form_terminal_timeout.set(terminal_timeout);
+            form_terminal_include_system_prompt.set(terminal_include_system_prompt);
             detail_seeded.set(true);
         }
     }
@@ -1900,6 +2375,20 @@ fn AgentOverviewTab(
                 .as_ref()
                 .and_then(|detail| detail.idle_reply.as_ref()),
         );
+        let (
+            orig_terminal_enabled,
+            orig_terminal_command,
+            orig_terminal_args,
+            orig_terminal_stdin,
+            orig_terminal_cwd,
+            orig_terminal_env,
+            orig_terminal_timeout,
+            orig_terminal_include_system_prompt,
+        ) = detail_terminal_delegate_fields(
+            detail_snapshot
+                .as_ref()
+                .and_then(|detail| detail.terminal_delegate.as_ref()),
+        );
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -1919,6 +2408,14 @@ fn AgentOverviewTab(
             || form_idle_reply_delay() != orig_idle_reply_delay
             || form_idle_reply_max_per_hour() != orig_idle_reply_max_per_hour
             || form_idle_reply_prompt() != orig_idle_reply_prompt
+            || form_terminal_enabled() != orig_terminal_enabled
+            || form_terminal_command() != orig_terminal_command
+            || form_terminal_args() != orig_terminal_args
+            || form_terminal_stdin() != orig_terminal_stdin
+            || form_terminal_cwd() != orig_terminal_cwd
+            || form_terminal_env() != orig_terminal_env
+            || form_terminal_timeout() != orig_terminal_timeout
+            || form_terminal_include_system_prompt() != orig_terminal_include_system_prompt
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
@@ -2014,6 +2511,9 @@ fn AgentOverviewTab(
                                             if let Some(ref idle_reply) = detail.idle_reply {
                                                 payload["idle_reply"] = json!(idle_reply);
                                             }
+                                            if let Some(ref terminal_delegate) = detail.terminal_delegate {
+                                                payload["terminal_delegate"] = json!(terminal_delegate);
+                                            }
                                         }
 
                                         let clone_id_for_select = clone_id.clone();
@@ -2078,6 +2578,9 @@ fn AgentOverviewTab(
                                     }
                                     if let Some(ref idle_reply) = detail.idle_reply {
                                         export_data["idle_reply"] = json!(idle_reply);
+                                    }
+                                    if let Some(ref terminal_delegate) = detail.terminal_delegate {
+                                        export_data["terminal_delegate"] = json!(terminal_delegate);
                                     }
                                     if let Some(ref pp) = detail.permission_policy {
                                         if let Some(tools) = pp.get("tool_access")
@@ -2190,6 +2693,117 @@ fn AgentOverviewTab(
                         p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
                             "{reasoning_helper}"
                         }
+                    }
+                }
+            }
+
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Execution Backend" }
+                ToggleSwitch {
+                    label: "Delegate to Terminal CLI".to_string(),
+                    description: Some("Run a local CLI command for this agent and return its output instead of using the native model loop.".to_string()),
+                    checked: form_terminal_enabled(),
+                    on_toggle: move |value| form_terminal_enabled.set(value),
+                }
+                div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
+                    button {
+                        class: "{TOOL_BTN}",
+                        onclick: move |_| {
+                            form_terminal_enabled.set(true);
+                            form_terminal_command.set("claude".to_string());
+                            form_terminal_args.set("-p\n{{prompt}}".to_string());
+                            form_terminal_stdin.set(String::new());
+                        },
+                        "Claude"
+                    }
+                    button {
+                        class: "{TOOL_BTN}",
+                        onclick: move |_| {
+                            form_terminal_enabled.set(true);
+                            form_terminal_command.set("codex".to_string());
+                            form_terminal_args.set("exec\n{{prompt}}".to_string());
+                            form_terminal_stdin.set(String::new());
+                        },
+                        "Codex"
+                    }
+                    button {
+                        class: "{TOOL_BTN}",
+                        onclick: move |_| {
+                            form_terminal_enabled.set(true);
+                            form_terminal_args.set(String::new());
+                            form_terminal_stdin.set("{{prompt}}".to_string());
+                        },
+                        "Use stdin"
+                    }
+                }
+                div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                    div {
+                        label { class: "{LABEL}", "Command" }
+                        input {
+                            value: "{form_terminal_command}",
+                            oninput: move |e| form_terminal_command.set(e.value()),
+                            placeholder: "claude",
+                            class: "{INPUT}",
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Timeout (seconds)" }
+                        input {
+                            value: "{form_terminal_timeout}",
+                            oninput: move |e| form_terminal_timeout.set(e.value()),
+                            placeholder: "300",
+                            class: "{INPUT}",
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Working Directory" }
+                        input {
+                            value: "{form_terminal_cwd}",
+                            oninput: move |e| form_terminal_cwd.set(e.value()),
+                            placeholder: "Use Savfox cwd",
+                            class: "{INPUT}",
+                        }
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    label { class: "{LABEL}", "Arguments" }
+                    textarea {
+                        value: "{form_terminal_args}",
+                        oninput: move |e| form_terminal_args.set(e.value()),
+                        placeholder: "One argument per line; use {{prompt}}",
+                        rows: 4,
+                        class: "{INPUT}",
+                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    label { class: "{LABEL}", "Stdin Template" }
+                    textarea {
+                        value: "{form_terminal_stdin}",
+                        oninput: move |e| form_terminal_stdin.set(e.value()),
+                        placeholder: "Optional; use {{prompt}} to pass the request via stdin",
+                        rows: 3,
+                        class: "{INPUT}",
+                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    label { class: "{LABEL}", "Environment" }
+                    textarea {
+                        value: "{form_terminal_env}",
+                        oninput: move |e| form_terminal_env.set(e.value()),
+                        placeholder: "KEY=value",
+                        rows: 3,
+                        class: "{INPUT}",
+                        style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                    }
+                }
+                div { style: "margin-top:12px;",
+                    ToggleSwitch {
+                        label: "Include system prompt".to_string(),
+                        description: Some("Prepend this agent's instructions to {{prompt}} before invoking the CLI.".to_string()),
+                        checked: form_terminal_include_system_prompt(),
+                        on_toggle: move |value| form_terminal_include_system_prompt.set(value),
                     }
                 }
             }
@@ -2508,11 +3122,24 @@ fn AgentOverviewTab(
                             let idle_reply_delay_val = form_idle_reply_delay();
                             let idle_reply_max_per_hour_val = form_idle_reply_max_per_hour();
                             let idle_reply_prompt_val = form_idle_reply_prompt();
+                            let terminal_enabled_val = form_terminal_enabled();
+                            let terminal_command_val = form_terminal_command();
+                            let terminal_args_val = form_terminal_args();
+                            let terminal_stdin_val = form_terminal_stdin();
+                            let terminal_cwd_val = form_terminal_cwd();
+                            let terminal_env_val = form_terminal_env();
+                            let terminal_timeout_val = form_terminal_timeout();
+                            let terminal_include_system_prompt_val =
+                                form_terminal_include_system_prompt();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
                                 .cloned()
                                 .collect();
+                            if terminal_enabled_val && terminal_command_val.trim().is_empty() {
+                                toaster.error("Terminal command is required when delegation is enabled");
+                                return;
+                            }
                             spawn(async move {
                                 let keyword_list = normalize_multiline_list(&group_keywords_val);
                                 let alias_list = normalize_multiline_list(&agent_aliases_val);
@@ -2570,6 +3197,21 @@ fn AgentOverviewTab(
                                     &idle_reply_prompt_val,
                                 ) {
                                     idle_reply
+                                } else {
+                                    serde_json::Value::Null
+                                };
+                                params["terminal_delegate"] = if let Some(terminal_delegate) =
+                                    terminal_delegate_payload(
+                                        terminal_enabled_val,
+                                        &terminal_command_val,
+                                        &terminal_args_val,
+                                        &terminal_stdin_val,
+                                        &terminal_cwd_val,
+                                        &terminal_env_val,
+                                        &terminal_timeout_val,
+                                        terminal_include_system_prompt_val,
+                                    ) {
+                                    terminal_delegate
                                 } else {
                                     serde_json::Value::Null
                                 };
