@@ -2197,6 +2197,10 @@ impl From<CoreTurnItem> for SessionItem {
                 query: search.query,
                 action: Some(WebSearchAction::from(search.action)),
             },
+            CoreTurnItem::ImageView(image) => Self::ImageView {
+                id: image.id,
+                path: image.path.to_string_lossy().into_owned(),
+            },
             CoreTurnItem::ContextCompaction(compaction) => {
                 Self::ContextCompaction { id: compaction.id }
             }
@@ -2976,6 +2980,19 @@ mod tests {
                     query: Some("docs".to_owned()),
                     queries: None,
                 }),
+            }
+        );
+
+        let image_view_item = TurnItem::ImageView(savfox_protocol::items::ImageViewItem {
+            id: "view-image-1".to_owned(),
+            path: PathBuf::from("/tmp/view-image.png"),
+        });
+
+        assert_eq!(
+            SessionItem::from(image_view_item),
+            SessionItem::ImageView {
+                id: "view-image-1".to_owned(),
+                path: "/tmp/view-image.png".to_owned(),
             }
         );
     }

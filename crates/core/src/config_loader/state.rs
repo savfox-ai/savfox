@@ -113,6 +113,9 @@ pub struct ConfigLayerStack {
     /// sources. This preserves the original allow-lists so they can be
     /// surfaced via APIs.
     requirements_toml: ConfigRequirementsToml,
+
+    /// Warnings discovered while building the stack.
+    startup_warnings: Vec<String>,
 }
 
 impl ConfigLayerStack {
@@ -127,7 +130,19 @@ impl ConfigLayerStack {
             user_layer_index,
             requirements,
             requirements_toml,
+            startup_warnings: Vec::new(),
         })
+    }
+
+    #[must_use]
+    pub fn with_startup_warnings(mut self, startup_warnings: Vec<String>) -> Self {
+        self.startup_warnings = startup_warnings;
+        self
+    }
+
+    #[must_use]
+    pub fn startup_warnings(&self) -> &[String] {
+        &self.startup_warnings
     }
 
     /// Returns the user config layer, if any.
@@ -168,6 +183,7 @@ impl ConfigLayerStack {
                 user_layer_index: self.user_layer_index,
                 requirements: self.requirements.clone(),
                 requirements_toml: self.requirements_toml.clone(),
+                startup_warnings: self.startup_warnings.clone(),
             }
         } else {
             let user_layer_index = if let Some(index) = layers
@@ -185,6 +201,7 @@ impl ConfigLayerStack {
                 user_layer_index: Some(user_layer_index),
                 requirements: self.requirements.clone(),
                 requirements_toml: self.requirements_toml.clone(),
+                startup_warnings: self.startup_warnings.clone(),
             }
         }
     }

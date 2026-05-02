@@ -200,6 +200,12 @@ fn emit_deprecation_notice(app_event_tx: &AppEventSender, notice: Option<Depreca
 }
 
 fn emit_project_config_warnings(app_event_tx: &AppEventSender, config: &Config) {
+    for warning in config.config_layer_stack.startup_warnings() {
+        app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
+            history_cell::new_warning_event(warning.clone()),
+        )));
+    }
+
     let mut disabled_folders = Vec::new();
 
     for layer in config

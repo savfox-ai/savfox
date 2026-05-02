@@ -7,6 +7,18 @@ use ratatui::text::Text;
 use crate::markdown_render::render_markdown_text;
 use insta::assert_snapshot;
 
+fn plain_lines(text: &Text<'_>) -> Vec<String> {
+    text.lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.clone())
+                .collect::<String>()
+        })
+        .collect()
+}
+
 #[test]
 fn empty() {
     assert_eq!(render_markdown_text(""), Text::default());
@@ -784,6 +796,40 @@ fn code_block_inside_unordered_list_item_multiple_lines() {
         })
         .collect();
     assert_eq!(lines, vec!["- Item", "", "  first", "  second"]);
+}
+
+#[test]
+fn list_item_after_code_block_keeps_blank_separator() {
+    let md = "1. First:\n\n   ```rust\n   fn first() {}\n   ```\n\n2. Second:\n";
+    let text = render_markdown_text(md);
+    assert_eq!(
+        plain_lines(&text),
+        vec!["1. First:", "", "   fn first() {}", "", "2. Second:"]
+    );
+}
+
+#[test]
+fn outer_list_item_after_nested_code_block_keeps_blank_separator() {
+    let md = "1. First:\n   - Nested:\n\n     ```rust\n     fn first() {}\n     ```\n\n2. Second:\n";
+    let text = render_markdown_text(md);
+    assert_eq!(
+        plain_lines(&text),
+        vec![
+            "1. First:",
+            "    - Nested:",
+            "",
+            "      fn first() {}",
+            "",
+            "2. Second:",
+        ]
+    );
+}
+
+#[test]
+fn list_item_after_simple_item_stays_compact() {
+    let md = "1. First\n\n2. Second\n";
+    let text = render_markdown_text(md);
+    assert_eq!(plain_lines(&text), vec!["1. First", "2. Second"]);
 }
 
 #[test]

@@ -3,6 +3,9 @@ use std::sync::{LazyLock, Mutex, RwLock};
 use reqwest::header::{HeaderMap, HeaderValue};
 use savfox_http_client::HttpClient;
 pub use savfox_http_client::RequestBuilder;
+use savfox_http_client::custom_ca::{
+    BuildCustomCaTransportError, build_reqwest_client_with_custom_ca,
+};
 
 use crate::config_loader::ResidencyRequirement;
 use crate::spawn::SAVFOX_SANDBOX_ENV_VAR;
@@ -182,6 +185,13 @@ pub fn create_client() -> HttpClient {
 }
 
 pub fn build_reqwest_client() -> reqwest::Client {
+    try_build_reqwest_client().unwrap_or_else(|err| {
+        tracing::warn!("failed to build default HTTP client: {err}");
+        reqwest::Client::new()
+    })
+}
+
+pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransportError> {
     let mut headers = HeaderMap::new();
     headers.insert("originator", originator().header_value);
     if let Ok(guard) = REQUIREMENTS_RESIDENCY.read()
@@ -203,7 +213,7 @@ pub fn build_reqwest_client() -> reqwest::Client {
         builder = builder.no_proxy();
     }
 
-    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+    build_reqwest_client_with_custom_ca(builder)
 }
 
 fn is_sandboxed() -> bool {

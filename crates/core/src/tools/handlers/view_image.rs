@@ -1,3 +1,4 @@
+use savfox_protocol::items::{ImageViewItem, TurnItem};
 use savfox_protocol::models::{
     ContentItem, ResponseInputItem, local_image_content_items_with_label_number,
 };
@@ -6,7 +7,6 @@ use tokio::fs;
 
 use super::parse_arguments;
 use crate::function_tool::{FunctionCallError, model_err};
-use crate::protocol::{EventMsg, ViewImageToolCallEvent};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
 
@@ -60,15 +60,17 @@ impl ToolHandler for ViewImageHandler {
                 )
             })?;
 
+        let item = TurnItem::ImageView(ImageViewItem {
+            id: invocation.call_id.clone(),
+            path: event_path,
+        });
         invocation
             .session
-            .send_event(
-                invocation.turn.as_ref(),
-                EventMsg::ViewImageToolCall(ViewImageToolCallEvent {
-                    call_id: invocation.call_id.clone(),
-                    path: event_path,
-                }),
-            )
+            .emit_turn_item_started(invocation.turn.as_ref(), &item)
+            .await;
+        invocation
+            .session
+            .emit_turn_item_completed(invocation.turn.as_ref(), item)
             .await;
 
         Ok(ToolOutput::ok("attached local image path".to_owned()))

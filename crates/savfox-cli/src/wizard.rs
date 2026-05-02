@@ -5,6 +5,7 @@ use std::time::Duration;
 use clap::Parser;
 use owo_colors::OwoColorize;
 use savfox_core::config::CONFIG_TOML_FILE;
+use savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca;
 use serde::{Deserialize, Serialize};
 
 /// Interactive setup wizard.
@@ -682,9 +683,9 @@ fn step_channel_config(state: &mut WizardState, non_interactive: bool) -> anyhow
 }
 
 async fn run_connection_probe(state: &WizardState) -> anyhow::Result<bool> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
-        .build()?;
+    let client = build_reqwest_client_with_custom_ca(
+        reqwest::Client::builder().timeout(Duration::from_secs(12)),
+    )?;
 
     let provider = state.provider.as_str();
     let key = state

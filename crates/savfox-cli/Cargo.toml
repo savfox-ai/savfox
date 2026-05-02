@@ -27,6 +27,7 @@ savfox-core = { workspace = true }
 savfox-exec = { workspace = true }
 savfox-exec-policy = { workspace = true }
 savfox-gateway-server = { workspace = true }
+savfox-http-client = { workspace = true }
 savfox-login-oauth = { workspace = true }
 savfox-mcp-server = { workspace = true }
 savfox-protocol = { workspace = true }

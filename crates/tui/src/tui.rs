@@ -9,14 +9,14 @@ use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange, KeyEvent,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, supports_keyboard_enhancement,
-};
+#[cfg(not(unix))]
+use crossterm::terminal::supports_keyboard_enhancement;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{Command, SynchronizedUpdate};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use ratatui::layout::{Offset, Rect};
+use ratatui::layout::{Offset, Position, Rect};
 use ratatui::text::Line;
 use savfox_core::config::types::NotificationMethod;
 use tokio::sync::broadcast;
@@ -193,11 +193,54 @@ pub fn init() -> Result<Terminal> {
     }
     set_modes()?;
 
+    flush_terminal_input_buffer();
+
     set_panic_hook();
 
+    #[cfg(unix)]
     let backend = CrosstermBackend::new(stdout());
-    let tui = CustomTerminal::with_options(backend)?;
+
+    #[cfg(unix)]
+    let cursor_pos =
+        match crate::terminal_probe::cursor_position(crate::terminal_probe::DEFAULT_TIMEOUT) {
+            Ok(Some(pos)) => pos,
+            Ok(None) => {
+                tracing::warn!("initial cursor position probe timed out; defaulting to origin");
+                Position { x: 0, y: 0 }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "failed to read initial cursor position; defaulting to origin: {err}"
+                );
+                Position { x: 0, y: 0 }
+            }
+        };
+
+    #[cfg(not(unix))]
+    let mut backend = CrosstermBackend::new(stdout());
+
+    #[cfg(not(unix))]
+    let cursor_pos = cursor_position_with_crossterm(&mut backend)?;
+
+    let tui = CustomTerminal::with_options_and_cursor_position(backend, cursor_pos)?;
     Ok(tui)
+}
+
+#[cfg(not(unix))]
+fn cursor_position_with_crossterm(backend: &mut CrosstermBackend<Stdout>) -> Result<Position> {
+    backend.get_cursor_position()
+}
+
+#[cfg(unix)]
+fn detect_keyboard_enhancement_supported() -> bool {
+    crate::terminal_probe::keyboard_enhancement_supported(crate::terminal_probe::DEFAULT_TIMEOUT)
+        .unwrap_or(None)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn detect_keyboard_enhancement_supported() -> bool {
+    supports_keyboard_enhancement().unwrap_or(false)
 }
 
 fn set_panic_hook() {
@@ -241,7 +284,7 @@ impl Tui {
 
         // Detect keyboard enhancement support before any EventStream is created so the
         // crossterm poller can acquire its lock without contention.
-        let enhanced_keys_supported = supports_keyboard_enhancement().unwrap_or(false);
+        let enhanced_keys_supported = detect_keyboard_enhancement_supported();
         // Cache this to avoid contention with the event reader.
         supports_color::on_cached(supports_color::Stream::Stdout);
         let _ = crate::terminal_palette::default_colors();

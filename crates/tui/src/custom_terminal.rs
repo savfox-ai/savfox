@@ -140,7 +140,29 @@ where
     pub fn with_options(mut backend: B) -> io::Result<Self> {
         let screen_size = backend.size()?;
         let cursor_pos = backend.get_cursor_position()?;
-        Ok(Self {
+        Ok(Self::with_screen_size_and_cursor_position(
+            backend,
+            screen_size,
+            cursor_pos,
+        ))
+    }
+
+    /// Creates a new [`Terminal`] from a caller-provided initial cursor position.
+    pub fn with_options_and_cursor_position(backend: B, cursor_pos: Position) -> io::Result<Self> {
+        let screen_size = backend.size()?;
+        Ok(Self::with_screen_size_and_cursor_position(
+            backend,
+            screen_size,
+            cursor_pos,
+        ))
+    }
+
+    fn with_screen_size_and_cursor_position(
+        backend: B,
+        screen_size: Size,
+        cursor_pos: Position,
+    ) -> Self {
+        Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
             current: 0,
@@ -148,7 +170,7 @@ where
             viewport_area: Rect::new(0, cursor_pos.y, 0, 0),
             last_known_screen_size: screen_size,
             last_known_cursor_pos: cursor_pos,
-        })
+        }
     }
 
     /// Get a Frame object which provides a consistent view into the terminal state for rendering.

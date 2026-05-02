@@ -1,6 +1,7 @@
 #![allow(missing_debug_implementations)]
 #![allow(clippy::result_large_err)]
 
+pub mod custom_ca;
 mod default_client;
 mod error;
 mod request;

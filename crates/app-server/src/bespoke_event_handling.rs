@@ -606,28 +606,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 }))
                 .await;
         }
-        EventMsg::ViewImageToolCall(view_image_event) => {
-            let item = SessionItem::ImageView {
-                id: view_image_event.call_id.clone(),
-                path: view_image_event.path.to_string_lossy().into_owned(),
-            };
-            let started = ItemStartedNotification {
-                session_id: conversation_id.to_string(),
-                turn_id: event_turn_id.clone(),
-                item: item.clone(),
-            };
-            outgoing
-                .send_server_notification(ServerNotification::ItemStarted(started))
-                .await;
-            let completed = ItemCompletedNotification {
-                session_id: conversation_id.to_string(),
-                turn_id: event_turn_id.clone(),
-                item,
-            };
-            outgoing
-                .send_server_notification(ServerNotification::ItemCompleted(completed))
-                .await;
-        }
+        EventMsg::ViewImageToolCall(_) => {}
         EventMsg::EnteredReviewMode(review_request) => {
             let review = review_request
                 .user_facing_hint

@@ -51,6 +51,21 @@ const DEFAULT_REQUIREMENTS_TOML_FILE_UNIX: &str = "/etc/savfox/requirements.toml
 pub const SYSTEM_CONFIG_TOML_FILE_UNIX: &str = "/etc/savfox/config.toml";
 const DEFAULT_PROJECT_ROOT_MARKERS: &[&str] = &[".git"];
 
+// Project-local config comes from repository contents, so it must not choose
+// where credentials are sent or which local notification command is run.
+// These settings remain supported from user, system, managed, and runtime
+// config layers.
+const PROJECT_LOCAL_CONFIG_DENYLIST: &[&str] = &[
+    "openai_base_url",
+    "chatgpt_base_url",
+    "model_provider",
+    "model_providers",
+    "notify",
+    "profile",
+    "profiles",
+    "experimental_realtime_ws_base_url",
+];
+
 async fn resolve_preferred_config_file(
     default_toml_file: &AbsolutePathBuf,
 ) -> io::Result<AbsolutePathBuf> {
@@ -206,6 +221,7 @@ pub async fn load_config_layers_state(
     .await?;
     layers.push(user_layer);
 
+    let mut startup_warnings = Vec::new();
     if let Some(cwd) = cwd {
         let mut merged_so_far = TomlValue::Table(toml::map::Map::new());
         for layer in &layers {
@@ -260,7 +276,8 @@ pub async fn load_config_layers_state(
             savfox_home,
         )
         .await?;
-        layers.extend(project_layers);
+        startup_warnings.extend(project_layers.startup_warnings);
+        layers.extend(project_layers.layers);
     }
 
     // Add a layer for runtime overrides from the CLI or UI, if any exist.
@@ -271,11 +288,12 @@ pub async fn load_config_layers_state(
         ));
     }
 
-    ConfigLayerStack::new(
+    Ok(ConfigLayerStack::new(
         layers,
         config_requirements_toml.clone().try_into()?,
         config_requirements_toml.into_toml(),
-    )
+    )?
+    .with_startup_warnings(startup_warnings))
 }
 
 /// Attempts to load a config file from `config_file`.
@@ -771,6 +789,11 @@ async fn find_project_root(
     Ok(cwd.clone())
 }
 
+struct ProjectLayers {
+    layers: Vec<ConfigLayerEntry>,
+    startup_warnings: Vec<String>,
+}
+
 /// Return the appropriate list of layers (each with
 /// [ConfigLayerSource::Project] as the source) between `cwd` and
 /// `project_root`, inclusive. The list is ordered in _increasing_ precdence,
@@ -781,7 +804,7 @@ async fn load_project_layers(
     project_root: &AbsolutePathBuf,
     trust_context: &ProjectTrustContext,
     savfox_home: &Path,
-) -> io::Result<Vec<ConfigLayerEntry>> {
+) -> io::Result<ProjectLayers> {
     let savfox_home_abs = AbsolutePathBuf::from_absolute_path(savfox_home)?;
     let savfox_home_normalized =
         normalize_path(savfox_home_abs.as_path()).unwrap_or_else(|_| savfox_home_abs.to_path_buf());
@@ -802,6 +825,7 @@ async fn load_project_layers(
     dirs.reverse();
 
     let mut layers = Vec::new();
+    let mut startup_warnings = Vec::new();
     for dir in dirs {
         let dot_savfox = dir.join(".savfox");
         if !tokio::fs::metadata(&dot_savfox)
@@ -849,10 +873,18 @@ async fn load_project_layers(
                         continue;
                     }
                 };
+                let mut config = config;
+                let ignored_keys = strip_project_local_config_denied_keys(&mut config);
                 let config =
                     resolve_relative_paths_in_config_toml(config, dot_savfox_abs.as_path())?;
                 let entry =
                     project_layer_entry(trust_context, &dot_savfox_abs, &layer_dir, config, true);
+                if !ignored_keys.is_empty() && !entry.is_disabled() {
+                    startup_warnings.push(format_ignored_project_config_keys_warning(
+                        config_file.as_path(),
+                        &ignored_keys,
+                    ));
+                }
                 layers.push(entry);
             }
             Err(err) => {
@@ -878,7 +910,35 @@ async fn load_project_layers(
         }
     }
 
-    Ok(layers)
+    Ok(ProjectLayers {
+        layers,
+        startup_warnings,
+    })
+}
+
+fn strip_project_local_config_denied_keys(config: &mut TomlValue) -> Vec<String> {
+    let Some(table) = config.as_table_mut() else {
+        return Vec::new();
+    };
+
+    let mut ignored_keys = Vec::new();
+    for key in PROJECT_LOCAL_CONFIG_DENYLIST {
+        if table.remove(*key).is_some() {
+            ignored_keys.push((*key).to_owned());
+        }
+    }
+    ignored_keys
+}
+
+fn format_ignored_project_config_keys_warning(
+    config_file: &Path,
+    ignored_keys: &[String],
+) -> String {
+    format!(
+        "Ignored unsupported project config keys in {}: {}. Move these settings to user-level config.toml if you need them.",
+        config_file.display(),
+        ignored_keys.join(", ")
+    )
 }
 
 // Cannot name this `mod tests` because of tests.rs in this folder.

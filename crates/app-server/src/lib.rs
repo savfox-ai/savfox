@@ -160,6 +160,20 @@ fn project_config_warning(config: &Config) -> Option<ConfigWarningNotification> 
     })
 }
 
+fn config_stack_startup_warnings(config: &Config) -> Vec<ConfigWarningNotification> {
+    config
+        .config_layer_stack
+        .startup_warnings()
+        .iter()
+        .map(|warning| ConfigWarningNotification {
+            summary: warning.clone(),
+            details: None,
+            path: None,
+            range: None,
+        })
+        .collect()
+}
+
 pub async fn run_main(
     savfox_linux_sandbox_exe: Option<PathBuf>,
     loader_overrides: LoaderOverrides,
@@ -254,6 +268,7 @@ pub async fn run_main(
     if let Some(warning) = project_config_warning(&config) {
         config_warnings.push(warning);
     }
+    config_warnings.extend(config_stack_startup_warnings(&config));
 
     let feedback = SavfoxFeedback::new();
 

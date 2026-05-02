@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -5,7 +7,7 @@ use ts_rs::TS;
 use crate::models::WebSearchAction;
 use crate::protocol::{
     AgentMessageEvent, AgentReasoningEvent, AgentReasoningRawContentEvent, EventMsg,
-    UserMessageEvent, WebSearchEndEvent,
+    UserMessageEvent, ViewImageToolCallEvent, WebSearchEndEvent,
 };
 use crate::user_input::{ByteRange, TextElement, UserInput};
 
@@ -18,6 +20,7 @@ pub enum TurnItem {
     Plan(PlanItem),
     Reasoning(ReasoningItem),
     WebSearch(WebSearchItem),
+    ImageView(ImageViewItem),
     ContextCompaction(ContextCompactionItem),
 }
 
@@ -59,6 +62,12 @@ pub struct WebSearchItem {
     pub id: String,
     pub query: String,
     pub action: WebSearchAction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema, PartialEq)]
+pub struct ImageViewItem {
+    pub id: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema)]
@@ -230,6 +239,7 @@ impl TurnItem {
             Self::Plan(item) => item.id.clone(),
             Self::Reasoning(item) => item.id.clone(),
             Self::WebSearch(item) => item.id.clone(),
+            Self::ImageView(item) => item.id.clone(),
             Self::ContextCompaction(item) => item.id.clone(),
         }
     }
@@ -241,6 +251,10 @@ impl TurnItem {
             Self::AgentMessage(item) => item.as_legacy_events(),
             Self::Plan(_) => Vec::new(),
             Self::WebSearch(item) => vec![item.as_legacy_event()],
+            Self::ImageView(item) => vec![EventMsg::ViewImageToolCall(ViewImageToolCallEvent {
+                call_id: item.id.clone(),
+                path: item.path.clone(),
+            })],
             Self::Reasoning(item) => item.as_legacy_events(show_raw_agent_reasoning),
             Self::ContextCompaction(_) => Vec::new(),
         }

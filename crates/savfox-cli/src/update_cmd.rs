@@ -7,6 +7,7 @@ use std::{env, fs};
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca;
 use serde::Deserialize;
 
 const GITHUB_API_URL: &str = "https://api.github.com/repos/anomalyco/savfox/releases";
@@ -278,10 +279,10 @@ fn install_binary(temp_file: &Path, current_exe: &Path) -> Result<()> {
 }
 
 async fn fetch_releases() -> Result<Vec<GitHubRelease>> {
-    let client = reqwest::Client::builder()
-        .user_agent(format!("savfox/{CURRENT_VERSION}"))
-        .build()
-        .context("Failed to create HTTP client")?;
+    let client = build_reqwest_client_with_custom_ca(
+        reqwest::Client::builder().user_agent(format!("savfox/{CURRENT_VERSION}")),
+    )
+    .context("Failed to create HTTP client")?;
 
     let response = client
         .get(GITHUB_API_URL)
@@ -358,7 +359,13 @@ fn get_target_triple() -> Result<String> {
 }
 
 async fn download_file(url: &str, path: &Path) -> Result<()> {
-    let response = reqwest::get(url).await.context("Failed to download file")?;
+    let client = build_reqwest_client_with_custom_ca(reqwest::Client::builder())
+        .context("Failed to create HTTP client")?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .context("Failed to download file")?;
 
     if !response.status().is_success() {
         anyhow::bail!("Download failed with status {}", response.status());

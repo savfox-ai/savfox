@@ -67,8 +67,6 @@ pub fn palette_version() -> u64 {
 
 #[cfg(all(unix, not(test)))]
 mod imp {
-    use std::io::{self, Write};
-    use std::os::unix::io::AsRawFd;
     use std::sync::{Mutex, OnceLock};
 
     use super::DefaultColors;
@@ -111,7 +109,7 @@ mod imp {
     pub(super) fn default_colors() -> Option<DefaultColors> {
         let cache = default_colors_cache();
         let mut cache = cache.lock().ok()?;
-        cache.get_or_init_with(|| query_default_colors().unwrap_or_default())
+        cache.get_or_init_with(query_default_colors)
     }
 
     pub(super) fn requery_default_colors() {
@@ -120,112 +118,18 @@ mod imp {
             if cache.attempted && cache.value.is_none() {
                 return;
             }
-            cache.refresh_with(|| query_default_colors().unwrap_or_default());
+            cache.refresh_with(query_default_colors);
         }
     }
 
-    fn query_default_colors() -> io::Result<Option<DefaultColors>> {
-        let fg = query_osc_color(10)?;
-        let bg = query_osc_color(11)?;
-        Ok(fg.zip(bg).map(|(fg, bg)| DefaultColors { fg, bg }))
-    }
-
-    /// Query a terminal color via OSC escape sequence.
-    /// OSC 10 = default foreground, OSC 11 = default background.
-    fn query_osc_color(osc_code: u8) -> io::Result<Option<(u8, u8, u8)>> {
-        let was_raw = crossterm::terminal::is_raw_mode_enabled()?;
-        if !was_raw {
-            crossterm::terminal::enable_raw_mode()?;
-        }
-
-        let result = query_osc_color_inner(osc_code);
-
-        if !was_raw {
-            let _ = crossterm::terminal::disable_raw_mode();
-        }
-
-        result
-    }
-
-    fn query_osc_color_inner(osc_code: u8) -> io::Result<Option<(u8, u8, u8)>> {
-        let mut stdout = io::stdout().lock();
-        write!(stdout, "\x1b]{osc_code};?\x1b\\")?;
-        stdout.flush()?;
-
-        let stdin_fd = io::stdin().as_raw_fd();
-        let mut fds = [libc::pollfd {
-            fd: stdin_fd,
-            events: libc::POLLIN,
-            revents: 0,
-        }];
-
-        // Wait up to 100ms for the terminal to respond.
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, 100) };
-        if ready <= 0 {
-            return Ok(None);
-        }
-
-        let mut buf = [0u8; 128];
-        let mut total = 0;
-        loop {
-            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, 50) };
-            if ready <= 0 || total >= buf.len() {
-                break;
-            }
-            let n = {
-                let slice = &mut buf[total..];
-                let n = unsafe {
-                    libc::read(
-                        stdin_fd,
-                        slice.as_mut_ptr() as *mut libc::c_void,
-                        slice.len(),
-                    )
-                };
-                if n <= 0 {
-                    break;
-                }
-                n as usize
-            };
-            total += n;
-            // Stop if we see ST (\x1b\\) or BEL (\x07).
-            if buf[..total].contains(&0x07) || buf[..total].windows(2).any(|w| w == b"\x1b\\") {
-                break;
-            }
-        }
-
-        parse_osc_color_response(&buf[..total])
-    }
-
-    /// Parse an OSC color response like `\x1b]10;rgb:RRRR/GGGG/BBBB\x1b\\`.
-    fn parse_osc_color_response(buf: &[u8]) -> io::Result<Option<(u8, u8, u8)>> {
-        let response = String::from_utf8_lossy(buf);
-        let Some(rgb_start) = response.find("rgb:") else {
-            return Ok(None);
-        };
-        let rgb_part = &response[rgb_start + 4..];
-        let parts: Vec<&str> = rgb_part
-            .split('/')
-            .map(|s| s.trim_end_matches(|c: char| !c.is_ascii_hexdigit()))
-            .collect();
-        if parts.len() < 3 {
-            return Ok(None);
-        }
-        // Terminal may return 2 or 4 hex digits per component; take the high byte.
-        let parse_component = |s: &str| -> Option<u8> {
-            let s = s.trim_end_matches(|c: char| !c.is_ascii_hexdigit());
-            if s.len() >= 4 {
-                u8::from_str_radix(&s[..2], 16).ok()
-            } else {
-                u8::from_str_radix(s, 16).ok()
-            }
-        };
-        let r = parse_component(parts[0]);
-        let g = parse_component(parts[1]);
-        let b = parse_component(parts[2]);
-        match (r, g, b) {
-            (Some(r), Some(g), Some(b)) => Ok(Some((r, g, b))),
-            _ => Ok(None),
-        }
+    fn query_default_colors() -> Option<DefaultColors> {
+        crate::terminal_probe::default_colors(crate::terminal_probe::DEFAULT_TIMEOUT)
+            .ok()
+            .flatten()
+            .map(|colors| DefaultColors {
+                fg: colors.fg,
+                bg: colors.bg,
+            })
     }
 }
 

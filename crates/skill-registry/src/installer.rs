@@ -1,8 +1,9 @@
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
+use savfox_http_client::custom_ca::build_reqwest_client_with_custom_ca;
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn};
 use zip::ZipArchive;
 
 use crate::package::{SkillManifest, SkillPackage, SkillSourceType};
@@ -46,14 +47,16 @@ pub struct SkillInstaller {
 impl SkillInstaller {
     #[must_use]
     pub fn new(skills_dir: PathBuf) -> Self {
-        let http_client = reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .user_agent(format!(
                 "savfox-skill-registry/{}",
                 env!("CARGO_PKG_VERSION")
-            ))
-            .build()
-            .unwrap_or_default();
+            ));
+        let http_client = build_reqwest_client_with_custom_ca(builder).unwrap_or_else(|err| {
+            warn!("failed to build skill registry HTTP client: {err}");
+            reqwest::Client::new()
+        });
 
         Self {
             skills_dir,
