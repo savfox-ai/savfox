@@ -8,14 +8,14 @@ use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;
 
 use rmcp::model::{ClientNotification, ClientRequest, JsonRpcMessage};
+use savfox_common::service_runtime::{
+    DEFAULT_CHANNEL_CAPACITY, init_stderr_tracing, spawn_stdin_json_reader,
+};
 use savfox_core::config::Config;
 use serde_json::Value;
-use tokio::io::{
-    AsyncBufReadExt, AsyncWriteExt, BufReader, {self},
-};
+use tokio::io::{AsyncWriteExt, {self}};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
-use tracing_subscriber::EnvFilter;
+use tracing::{error, info};
 
 mod agent_tool_config;
 mod agent_tool_runner;
@@ -31,47 +31,19 @@ use crate::message_processor::MessageProcessor;
 use crate::outgoing_message::{OutgoingJsonRpcMessage, OutgoingMessage, OutgoingMessageSender};
 pub use crate::patch_approval::{PatchApprovalElicitRequestParams, PatchApprovalResponse};
 
-/// Size of the bounded channels used to communicate between tasks. The value
-/// is a balance between throughput and memory usage – 128 messages should be
-/// plenty for an interactive CLI.
-const CHANNEL_CAPACITY: usize = 128;
-
 type IncomingMessage = JsonRpcMessage<ClientRequest, Value, ClientNotification>;
 
 pub async fn run_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()> {
-    // Install a simple subscriber so `tracing` output is visible.  Users can
-    // control the log level with `RUST_LOG`.
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    init_stderr_tracing("info");
 
     // Set up channels.
-    let (incoming_tx, mut incoming_rx) = mpsc::channel::<IncomingMessage>(CHANNEL_CAPACITY);
+    let (incoming_tx, mut incoming_rx) =
+        mpsc::channel::<IncomingMessage>(DEFAULT_CHANNEL_CAPACITY);
     let (outgoing_tx, mut outgoing_rx) = mpsc::unbounded_channel::<OutgoingMessage>();
 
     // Task: read from stdin, push to `incoming_tx`.
-    let stdin_reader_handle = tokio::spawn({
-        async move {
-            let stdin = io::stdin();
-            let reader = BufReader::new(stdin);
-            let mut lines = reader.lines();
-
-            while let Some(line) = lines.next_line().await.unwrap_or_default() {
-                match serde_json::from_str::<IncomingMessage>(&line) {
-                    Ok(msg) => {
-                        if incoming_tx.send(msg).await.is_err() {
-                            // Receiver gone – nothing left to do.
-                            break;
-                        }
-                    }
-                    Err(e) => error!("Failed to deserialize JSON-RPC message: {e}"),
-                }
-            }
-
-            debug!("stdin reader finished (EOF)");
-        }
-    });
+    let stdin_reader_handle =
+        spawn_stdin_json_reader(incoming_tx, "Failed to deserialize JSON-RPC message");
 
     // Load configuration.
     let config =

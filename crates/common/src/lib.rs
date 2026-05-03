@@ -20,6 +20,9 @@ pub use sandbox_mode_cli_arg::SandboxModeCliArg;
 #[cfg(feature = "cli")]
 pub mod format_env_display;
 
+#[cfg(feature = "cli")]
+pub mod service_runtime;
+
 mod sandbox_summary;
 
 #[cfg(feature = "sandbox_summary")]

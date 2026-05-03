@@ -26,20 +26,18 @@ use std::io::{ErrorKind, Result as IoResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_common::service_runtime::env_filter_from_default;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::CloudRequirementsLoader;
 use savfox_feedback::SavfoxFeedback;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-mod agent_routing;
 mod agent_terminal_delegate;
 mod approval_policy_store;
 pub mod audit;
-pub mod auth;
 pub mod auto_reply;
 mod cached_db;
 pub mod canvas_host;
@@ -74,34 +72,30 @@ pub mod pairing_store;
 pub mod plugin;
 pub mod protocol;
 pub mod provider_health;
-pub mod rate_limit;
-pub mod redaction;
 pub mod resilience;
 pub mod response_chunker;
-pub mod routing;
-pub mod security_audit;
+pub mod runtime;
+pub mod security;
 pub mod send_policy;
 mod server;
-pub mod session;
 pub mod skills_api;
 mod skills_store;
-pub mod ssrf;
 mod static_assets;
-pub mod stt;
 pub(crate) mod tailscale;
-pub mod talk_mode;
 mod tools_invoke;
-mod tts_deepgram;
-mod tts_edge;
-mod tts_service;
 pub mod utils;
-mod voice_store;
-pub mod voice_wake;
-pub(crate) mod webchat;
+pub mod voice;
+pub mod web;
 mod webhooks;
 mod wizard_store;
-mod ws;
-mod ws_rpc;
+
+pub use security::{auth, rate_limit, redaction, security_audit, ssrf};
+pub(crate) use runtime::agent_routing;
+pub use runtime::{routing, session};
+pub use voice::{stt, talk_mode, voice_wake};
+pub(crate) use voice::{tts_deepgram, tts_edge, tts_service, voice_store};
+pub(crate) use web::{server, static_assets, webchat};
+pub use web::{ws, ws_rpc};
 
 pub use config::{GatewayCommand, GatewaySubcommand};
 
@@ -123,7 +117,7 @@ pub async fn run_main(
 
     // Install tracing subscriber with a reloadable filter so the log level
     // can be changed at runtime via the `log.set_level` RPC.
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = env_filter_from_default("info");
     let (filter_layer, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
 
     let stderr_fmt = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);

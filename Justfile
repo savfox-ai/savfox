@@ -1,4 +1,4 @@
-﻿# Savfox Justfile
+# Savfox Justfile
 # Usage: just <recipe>
 # Install just: winget install Casey.Just
 
@@ -66,6 +66,30 @@ fmt:
 # Run all tests
 test:
     cargo test --workspace
+
+# Targeted tests: core/runtime crates
+test-core:
+    cargo test -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+
+# Targeted tests: protocol and editor-facing services
+test-protocol:
+    cargo test -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+
+# Targeted tests: interactive TUI surface
+test-tui:
+    cargo test -p savfox-tui
+
+# Targeted tests: gateway, shared gateway types, and channels
+test-gateway:
+    cargo test -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+
+# Targeted tests: channel adapters only
+test-channels:
+    cargo test -p savfox-channels
+
+# Targeted build check: web frontend
+test-web:
+    Push-Location crates/gateway-dioxus; dx build --web; Pop-Location
 
 # ── Install ─────────────────────────────────────────────────────────────────
 

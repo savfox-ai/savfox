@@ -25,7 +25,7 @@ pub mod api_bridge;
 mod apply_patch;
 pub mod auth;
 pub mod auth_profiles;
-pub mod bash;
+pub mod commands;
 pub mod channel;
 mod client;
 mod client_common;
@@ -35,12 +35,10 @@ pub mod savfox;
 mod savfox_session;
 pub use savfox_session::{SavfoxSession, SessionConfigSnapshot};
 mod agent;
-mod command_safety;
 pub mod config;
 pub mod config_loader;
 pub mod connectors;
 mod context_manager;
-pub mod custom_prompts;
 pub mod embedding;
 pub mod env;
 mod environment_context;
@@ -52,12 +50,12 @@ pub mod external_content;
 pub mod features;
 mod flags;
 pub mod git_info;
-pub mod instructions;
 pub mod landlock;
 pub mod mcp;
 mod mcp_connection_manager;
 pub mod md_memory;
-pub mod models_manager;
+pub mod prompting;
+pub mod providers;
 #[path = "agent_delegate.rs"]
 mod savfox_delegate;
 mod transport_manager;
@@ -67,13 +65,12 @@ pub use mcp_connection_manager::{
 mod mcp_tool_call;
 mod mentions;
 mod message_history;
-pub mod model_fallback;
-mod model_identifiers;
-mod model_provider_info;
-pub mod parse_command;
+pub use providers::fallback as model_fallback;
+pub(crate) use providers::identifiers as model_identifiers;
+pub(crate) use providers::info as model_provider_info;
+pub use providers::manager as models_manager;
+pub use providers::remote as remote_models;
 pub mod path_utils;
-pub mod personality_migration;
-pub mod powershell;
 mod proposed_plan_parser;
 pub mod sandboxing;
 mod session_prefix;
@@ -94,9 +91,7 @@ pub use model_provider_info::{
     set_bearer_token_override, set_env_override,
 };
 mod event_mapping;
-pub mod remote_models;
-pub mod review_format;
-pub mod review_prompts;
+pub mod reviewing;
 mod session_manager;
 pub mod web_search;
 // Re-export common auth types for workspace consumers
@@ -104,13 +99,10 @@ pub use auth::{AuthManager, SavfoxAuth};
 pub use savfox_protocol::protocol::InitialHistory;
 pub use session_manager::{NewSession, SessionManager};
 pub mod default_client;
-pub mod project_doc;
 pub mod rollout;
 pub(crate) mod safety;
 #[allow(unsafe_code)]
 pub mod seatbelt;
-pub mod shell;
-pub mod shell_snapshot;
 pub mod skills;
 pub mod spawn;
 pub mod state_db;
@@ -123,7 +115,6 @@ pub mod transcript_policy;
 pub mod a2a {
     pub use crate::tools::handlers::a2a_types::*;
 }
-pub mod turn_diff_tracker;
 mod turn_metadata;
 pub mod updater;
 pub use rollout::list::{
@@ -137,6 +128,8 @@ pub use rollout::{
     find_session_path_by_id_str, find_session_path_by_name_str, rollout_date_parts,
 };
 pub use transport_manager::TransportManager;
+pub use prompting::{custom_prompts, instructions, personality_migration, project_doc};
+pub use reviewing::{review_format, review_prompts, turn_diff_tracker};
 mod function_tool;
 mod state;
 mod tasks;
@@ -145,10 +138,12 @@ mod user_shell_command;
 pub mod util;
 
 pub use apply_patch::SAVFOX_APPLY_PATCH_ARG1;
+pub use commands::{bash, parse_command, powershell, shell, shell_snapshot};
 pub use client::{
     ModelClient, ModelClientSession, WEB_SEARCH_ELIGIBLE_HEADER, X_SAVFOX_TURN_METADATA_HEADER,
 };
 pub use client_common::{Prompt, REVIEW_PROMPT, ResponseEvent, ResponseStream};
+pub(crate) use commands::safety as command_safety;
 pub use command_safety::{is_dangerous_command, is_safe_command};
 pub use compact::content_items_to_text;
 pub use event_mapping::parse_turn_item;

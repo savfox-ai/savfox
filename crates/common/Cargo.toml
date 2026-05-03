@@ -14,11 +14,15 @@ savfox-lmstudio = { workspace = true }
 savfox-ollama = { workspace = true }
 savfox-protocol = { workspace = true }
 serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["io-std", "io-util", "rt", "sync"], optional = true }
 toml = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"], optional = true }
 
 [features]
 # Separate feature so that `clap` is not a mandatory dependency.
-cli = ["clap", "serde", "toml"]
+cli = ["clap", "serde", "serde_json", "tokio", "toml", "tracing", "tracing-subscriber"]
 elapsed = []
 sandbox_summary = []
 

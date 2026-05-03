@@ -22,6 +22,7 @@
 
 - [Overview](gateway.md)
 - [Configuration Reference](gateway/configuration.md)
+- [Web Build and Release](gateway/web-build-release.md)
 - [Protocol](gateway/protocol.md)
 - [REST API](gateway/api.md)
 - [Channel Architecture](gateway/channel.md)
@@ -29,6 +30,7 @@
 
 # Channels
 
+- [Adapter Contract](channels/adapter-contract.md)
 - [Discord](channels/discord.md)
 - [Telegram](channels/telegram.md)
 - [Slack](channels/slack.md)
@@ -56,12 +58,17 @@
 
 - [Agents](concepts/agents.md)
 - [Architecture](concepts/architecture.md)
+- [Crate Boundaries](concepts/crate-boundaries.md)
 - [Channels](concepts/channels.md)
 - [Gateway](concepts/gateway.md)
+- [Protocol Ownership](concepts/protocol-ownership.md)
 - [Sessions](concepts/sessions.md)
 - [Memory](concepts/memory.md)
 - [Models](concepts/models.md)
 - [Routing](concepts/routing.md)
+- [Testing Matrix](concepts/testing-matrix.md)
+- [Git Dependencies](concepts/git-dependencies.md)
+- [Doc Sync](concepts/doc-sync.md)
 
 # Tools
 

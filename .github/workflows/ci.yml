@@ -17,6 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      core: ${{ steps.filter.outputs.core }}
+      protocol: ${{ steps.filter.outputs.protocol }}
+      tui: ${{ steps.filter.outputs.tui }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      channels: ${{ steps.filter.outputs.channels }}
       docs: ${{ steps.filter.outputs.docs }}
       docker: ${{ steps.filter.outputs.docker }}
       web: ${{ steps.filter.outputs.web }}
@@ -30,12 +35,33 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+            core:
+              - 'crates/core/**'
+              - 'crates/config/**'
+              - 'crates/model/**'
+              - 'crates/http-client/**'
+              - 'crates/api-client/**'
+              - 'crates/common/**'
+            protocol:
+              - 'crates/protocol/**'
+              - 'crates/app-server/**'
+              - 'crates/app-server-protocol/**'
+              - 'crates/mcp-server/**'
+            tui:
+              - 'crates/tui/**'
+              - 'crates/ansi-escape/**'
+            gateway:
+              - 'crates/gateway-server/**'
+              - 'crates/gateway-shared/**'
+              - 'scripts/build-web.ps1'
+            channels:
+              - 'crates/channels/**'
             docs:
               - 'docs/**'
               - '*.md'
             docker:
               - 'Dockerfile*'
-              - 'docker-compose.yml'
+              - 'compose.yml'
             web:
               - 'crates/gateway-dioxus/**'
 
@@ -82,6 +108,28 @@ jobs:
       - run: cargo test --workspace
         env:
           RUST_LOG: debug
+
+  # ─── Targeted domain tests ────────────────────────────────────────
+  test-targeted:
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Core matrix
+        if: needs.changes.outputs.core == 'true' || github.ref == 'refs/heads/main'
+        run: cargo test -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+      - name: Protocol matrix
+        if: needs.changes.outputs.protocol == 'true' || github.ref == 'refs/heads/main'
+        run: cargo test -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+      - name: TUI matrix
+        if: needs.changes.outputs.tui == 'true' || github.ref == 'refs/heads/main'
+        run: cargo test -p savfox-tui
+      - name: Gateway and channel matrix
+        if: needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.ref == 'refs/heads/main'
+        run: cargo test -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:

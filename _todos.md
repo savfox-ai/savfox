@@ -1,154 +1,188 @@
-# Codex Upstream Functional Sync Todos
+# Savfox 项目改进待办
 
-## Scope
+## 状态
 
-Use recent `E:\Repos\codex` `origin/main` commits as references, but implement Savfox-native equivalents instead of direct cherry-picks. Current Codex local `main` is behind `origin/main` by 1551 commits, and Savfox has no common Git ancestor with that repository.
+本文件中的事项已按当前仓库范围全部落地，以下保留为完成记录。
 
-## Useful Features To Implement
+## 已完成
 
-### 1. Project-local config safety
+### 1. 修正文档与元数据漂移
 
-- Status: done
-- Reference: `9ddb267e9c fix: ignore dangerous project-level config keys (#20098)`
-- Tasks:
-  - Strip credential-routing and command-execution keys from trusted project `.savfox/config.toml` layers.
-  - Keep safe project-local keys working.
-  - Preserve startup warnings in `ConfigLayerStack`.
-  - Surface warnings through TUI startup history and app-server config warnings.
-  - Add config-layer and `ConfigBuilder` regression tests.
+- 状态：`done`
+- 已完成内容：
+  - 更新根 `Cargo.toml` 的 workspace 描述。
+  - 更新 `crates/savfox/Cargo.toml` 描述。
+  - 重写 `README.md` 中的定位、文档入口和 gateway 开发命令建议。
+  - 重写 `docs/en/concepts/architecture.md`，移除旧命名和过时版本描述。
+  - 新增 `docs/zh/concepts/architecture.md`，并修正 `docs/zh/getting-started.md` 的 Rust 版本要求。
 
-### 2. ConfigBuilder stack usage
+### 2. 产出 crate 边界与依赖规则文档
 
-- Status: done
-- Reference: `2817866a32 fix: reduce ConfigBuilder::build stack usage (#20650)`
-- Tasks:
-  - Keep public `ConfigBuilder::build` as a thin async wrapper.
-  - Move the existing implementation into `build_inner`.
-  - Box the large config-loading future before awaiting it.
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/concepts/crate-boundaries.md`
+  - 新增 `docs/zh/concepts/crate-boundaries.md`
 
-### 3. TUI markdown list spacing after code blocks
+### 3. 做一次协议类型盘点
 
-- Status: done
-- Reference: `52c06b8759 Preserve TUI markdown list spacing after code blocks (#19706)`
-- Tasks:
-  - Track whether active list items contain code blocks.
-  - Add a blank separator before the next list item only when needed.
-  - Add focused markdown renderer regression tests.
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/concepts/protocol-ownership.md`
+  - 新增 `docs/zh/concepts/protocol-ownership.md`
 
-### 4. Custom CA support for shared outbound HTTP clients
+### 4. 抽取共享 bootstrap/runtime 骨架
 
-- Status: done
-- Reference: `9e905528bb Fix custom CA login behind TLS-inspecting proxies (#20676)`
-- Why useful:
-  - Enterprise TLS-inspecting proxies can break login, token refresh, model list, update checks, and plugin/network calls unless Savfox consistently honors a custom root CA.
-- Tasks:
-  - Add a Savfox custom-CA helper that reads `SAVFOX_CA_CERTIFICATE`, falls back to `CODEX_CA_CERTIFICATE`, then `SSL_CERT_FILE`.
-  - Parse PEM bundles, including OpenSSL `TRUSTED CERTIFICATE` labels and ignorable CRL blocks.
-  - Force reqwest onto rustls before adding custom roots, preserving native roots.
-  - Route `crates/core/src/default_client.rs` through the helper.
-  - Replace high-value raw `reqwest::Client::new()` / `reqwest::Client::builder().build()` paths that affect login or user-visible network operations.
-  - Add unit tests for env precedence and invalid bundle errors.
-- Implementation:
-  - Added shared custom CA handling in `savfox-http-client`.
-  - Wired core default clients, OAuth/device login, skill registry downloads, CLI update downloads, and wizard connection probes through the shared helper.
-  - Uses `SAVFOX_CA_CERTIFICATE`, then `CODEX_CA_CERTIFICATE`, then `SSL_CERT_FILE`.
+- 状态：`done`
+- 已完成内容：
+  - 在 `crates/common/src/service_runtime.rs` 中新增共享 helper：
+    - `DEFAULT_CHANNEL_CAPACITY`
+    - `env_filter_from_default`
+    - `init_stderr_tracing`
+    - `spawn_stdin_json_reader`
+  - `savfox-mcp-server` 改为复用共享 tracing 与 stdin JSON 读取骨架。
+  - `savfox-app-server` 改为复用共享 stdin JSON 读取骨架。
+  - `savfox-gateway-server` 改为复用共享 env filter helper。
 
-### 5. Bounded TUI startup terminal probes
+### 5. 对 `gateway-server` 做一个领域拆分试点
 
-- Status: done
-- Reference: `127434cd8b fix(tui): bound startup terminal probes (#20654)`
-- Why useful:
-  - Unsupported terminals should not stall TUI startup for seconds while cursor, keyboard, or OSC color probes wait for responses.
-- Tasks:
-  - Add a small bounded Unix terminal probe module for cursor-position and OSC 10/11 default-color queries.
-  - Let `custom_terminal::Terminal` accept a caller-provided startup cursor position.
-  - Use the bounded probe during Unix TUI initialization.
-  - Keep non-Unix fallback behavior unchanged.
-  - Add parser and timeout-path tests that do not require a real terminal.
-- Implementation:
-  - Added bounded parser/probe module for startup cursor, keyboard enhancement, and OSC color queries.
-  - Wired Unix TUI startup to bounded probes; non-Unix keeps existing fallback behavior.
-  - Added parser tests that do not require a real terminal.
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/gateway-server/src/voice/mod.rs`
+  - 将 `stt` / `talk_mode` / `tts_*` / `voice_*` 归入 voice 域。
+  - 在根 `lib.rs` 继续保留兼容性 re-export，避免一次性打断调用点。
 
-### 6. Core-produced ImageView item lifecycle
+### 6. 对 `savfox-core` 做一个模块化试点
 
-- Status: done
-- Reference: `aed74e5ee4 [codex] Emit image view as core item (#20512)`
-- Why useful:
-  - App-server clients should receive image-view results from the same core item lifecycle as other tool-visible items, instead of reconstructing them from a legacy event.
-- Tasks:
-  - Inspect current Savfox `ViewImageToolCall` flow and existing `ItemStarted` / `ItemCompleted` conversion.
-  - Add or reuse a protocol `TurnItem` / app-server `SessionItem` image-view variant.
-  - Emit item start/completion from the core `view_image` handler.
-  - Keep legacy `ViewImageToolCall` compatibility for TUI, rollout, and older app-server clients.
-  - Add focused core/app-server regression tests.
-- Implementation:
-  - Added `TurnItem::ImageView`.
-  - Core `view_image` now emits item started/completed events and fans out the legacy `ViewImageToolCall` from completion.
-  - App-server forwards canonical item lifecycle notifications instead of reconstructing them from the legacy event.
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/core/src/providers/mod.rs`
+  - 将 provider/model runtime 相关模块聚合到 `providers` 域。
+  - 在 `crates/core/src/lib.rs` 保留兼容性 re-export，控制根模块继续平铺扩张。
 
-## Completed In Follow-Up
+### 7. 建立分层测试矩阵
 
-### Multi-environment choices in environment context
+- 状态：`done`
+- 已完成内容：
+  - `Justfile` 新增：
+    - `test-core`
+    - `test-protocol`
+    - `test-tui`
+    - `test-gateway`
+    - `test-channels`
+    - `test-web`
+  - `.github/workflows/ci.yml` 新增按领域路径过滤与 `test-targeted` 任务。
+  - 新增中英文测试矩阵文档：
+    - `docs/en/concepts/testing-matrix.md`
+    - `docs/zh/concepts/testing-matrix.md`
 
-- Status: closed after exploration
-- Reference: `2952beb009 Surface multi-environment choices in environment context (#20646)`
-- Finding:
-  - Codex adds selected environment ids/cwds to live prompt rendering only after introducing `TurnEnvironment`, `EnvironmentManager`, and selected-environment routing.
-  - Savfox currently has a single-cwd `TurnContext`, no `TurnEnvironmentSelection`, no `environment_id`, and no process-tool `environment_id` routing.
-- Result:
-  - No Savfox-native code change was made because adding only an `<environments>` renderer would be dead prompt surface with no real execution semantics.
-  - Revisit when Savfox has a real multi-environment/session routing model.
+### 8. 建立 git 依赖治理策略
 
-### Plugin registry upgrade flow
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/concepts/git-dependencies.md`
+  - 新增 `docs/zh/concepts/git-dependencies.md`
 
-- Status: done
-- Reference: `610eefb86b /plugins: add marketplace upgrade flow (#20478)`
-- Finding:
-  - Savfox does not have Codex's TUI marketplace/chatwidget/app-server plugin marketplace path.
-  - Savfox does have a CLI plugin registry and per-plugin `savfox plugins update <id>` path.
-- Tasks:
-  - Add a Savfox-native bulk registry update path.
-  - Preserve existing single-plugin update behavior.
-  - Respect pinned plugins on bulk updates unless `--force` is supplied.
-  - Keep plugin registry/archive HTTP fetches on the shared custom-CA client path.
-  - Update CLI plugin docs.
-- Implementation:
-  - Added `savfox plugins update --all`.
-  - Added deterministic all-target resolution and unit tests.
-  - Routed plugin registry and archive HTTP downloads through `savfox-http-client` custom CA handling.
+### 9. 标准化 channel adapter contract
 
-### Clear live hook rows when turns finalize
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/channels/adapter-contract.md`
+  - 新增 `docs/zh/channels/adapter-contract.md`
 
-- Status: closed after exploration
-- Reference: `d55479488e Clear live hook rows when turns finalize (#20674)`
-- Finding:
-  - Codex fixes a separate `active_hook_cell` that can outlive a turn.
-  - Savfox has no hook start/completion protocol events and no separate active hook row in TUI.
-  - Savfox's transient live UI is centralized in `ChatScreen::active_cell`; `finalize_turn` already calls `finalize_active_cell_as_failed`, clears running command state, and clears unified exec process footer state.
-  - Existing TUI coverage includes `interrupt_exec_marks_failed_snapshot`, which verifies a turn abort flushes and finalizes active transient exec UI.
-- Result:
-  - No separate hook-row code was added because there is no equivalent Savfox state to clear.
+### 10. 梳理 web 构建与发布职责边界
 
-## Not Applicable
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/gateway/web-build-release.md`
+  - 新增 `docs/zh/gateway/web-build-release.md`
+  - `README.md` 与 `docs/*/SUMMARY.md` 已补充入口。
 
-- `cd2760fc08` / `466798aa83`: Bazel Windows CI. Savfox does not have a Bazel workspace.
-- `a5fbcf1ab4`: code-mode globals. Savfox does not have `crates/code-mode`.
-- `ff66b3c7eb`: Alt+Enter newline alias. Savfox's current composer path already lets Alt+Enter fall through as newline.
+### 11. 建立中英文公共文档同步机制
 
-## Final Verification
+- 状态：`done`
+- 已完成内容：
+  - 新增 `docs/en/concepts/doc-sync.md`
+  - 新增 `docs/zh/concepts/doc-sync.md`
+  - 新增 `.github/pull_request_template.md`，加入双语同步与测试切片检查项。
 
-- `cargo fmt --all`
-- `git diff --check`
-- `cargo test --locked -p savfox-http-client custom_ca`
-- `cargo test --locked -p savfox-protocol -p savfox-app-server-protocol`
-- `cargo test --locked -p savfox-app-server`
-- `cargo test --locked -p savfox-core project_layer_ignores_unsupported_config_keys`
-- `cargo test --locked -p savfox-core config_builder_ignores_project_local_credential_routing`
-- `cargo test --locked -p savfox-core --test all view_image_tool_attaches_local_image` (0 tests on Windows due suite cfg)
-- `cargo test --locked -p savfox-tui terminal_probe`
-- `cargo test --locked -p savfox-tui markdown_render_tests`
-- `cargo test --locked -p savfox-login-oauth`
-- `cargo test --locked -p savfox-skill-registry`
-- `cargo test --locked -p savfox-cli --lib`
-- `cargo test --locked -p savfox-cli plugins_cmd`
+## 结果
+
+当前 `_todos.md` 中列出的 11 项改进均已完成落地。
+## 第二轮结构收敛
+
+以下项目在第一轮完成后继续追加，目的是把领域分组从单点试验推进到连续模式。
+
+### 12. 对 `gateway-server` 做第二个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/gateway-server/src/web/mod.rs`
+  - 将 `server` / `static_assets` / `webchat` / `ws` / `ws_rpc` 收敛到 `web` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，避免破坏现有调用路径
+
+### 13. 对 `savfox-core` 做第二个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/core/src/prompting/mod.rs`
+  - 将 `custom_prompts` / `instructions` / `personality_migration` / `project_doc` 收敛到 `prompting` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，避免破坏现有公开路径
+## 第二轮结构收敛
+
+以下项目在第一轮完成后继续追加，目的是把领域分组从单点试验推进到连续模式。
+
+### 12. 对 `gateway-server` 做第二个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/gateway-server/src/web/mod.rs`
+  - 将 `server` / `static_assets` / `webchat` / `ws` / `ws_rpc` 收敛到 `web` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，避免破坏现有调用路径
+
+### 13. 对 `savfox-core` 做第二个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/core/src/prompting/mod.rs`
+  - 将 `custom_prompts` / `instructions` / `personality_migration` / `project_doc` 收敛到 `prompting` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，避免破坏现有公开路径
+## 第三轮结构收敛
+
+以下项目在第二轮完成后继续追加，目的是把领域分组进一步推进到 gateway 安全域和 core 命令域。
+
+### 14. 对 `gateway-server` 做第三个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/gateway-server/src/security/mod.rs`
+  - 将 `auth` / `rate_limit` / `redaction` / `security_audit` / `ssrf` 收敛到 `security` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，避免破坏现有调用路径
+
+### 15. 对 `savfox-core` 做第三个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/core/src/commands/mod.rs`
+  - 将 `bash` / `command_safety` / `parse_command` / `powershell` / `shell` / `shell_snapshot` 收敛到 `commands` 域
+  - 在根 `lib.rs` 保留兼容性 re-export，并保留 `command_safety` 的内部别名以兼容现有 crate 内引用
+## 第四轮结构收敛
+
+以下项目在第三轮完成后继续追加，目的是把 gateway 运行域与 core review 域继续收拢到单独命名空间。
+
+### 16. 对 `gateway-server` 做第四个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/gateway-server/src/runtime/mod.rs`
+  - 将 `agent_routing` / `routing` / `session` 收敛到 `runtime` 域
+  - `channel` / `identity_links` / `message_queue` / `pairing_store` 在 `runtime` 域中复用根模块导出，避免重复定义同一文件
+  - 在根 `lib.rs` 保留 `routing` / `session` 兼容性 re-export
+
+### 17. 对 `savfox-core` 做第四个领域分组试点
+
+- 状态：`done`
+- 已完成内容：
+  - 新增 `crates/core/src/reviewing/mod.rs`
+  - 将 `review_format` / `review_prompts` / `turn_diff_tracker` 收敛到 `reviewing` 域
+  - `transcript_policy` 在 `reviewing` 域中复用根模块导出，避免与现有根模块声明冲突
+  - 在根 `lib.rs` 保留兼容性 re-export

@@ -1,9 +1,9 @@
-﻿# Savfox
+# Savfox
 
 [![CI](https://github.com/savfox-ai/savfox/workflows/CI/badge.svg)](https://github.com/savfox-ai/savfox/actions)
 [![codecov](https://codecov.io/gh/savfox-ai/savfox/graph/badge.svg)](https://codecov.io/gh/savfox-ai/savfox)
 
-Savfox is a Rust-based AI coding assistant forked from [Codex](https://github.com/openai/codex). It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI. Savfox extends the original with a full gateway server layer — providing remote HTTP/WebSocket access, session management, cron scheduling, and multi-channel chat integration (Discord, Telegram, Slack, and more).
+Savfox is a Rust-based AI coding assistant forked from [Codex](https://github.com/openai/codex). It connects to LLM providers (OpenAI, Ollama, LM Studio, and more) to help you write, review, and refactor code through an interactive TUI or non-interactive CLI. Savfox extends the original with a full gateway server layer, editor/app-server integration, MCP support, and a web frontend for remote operation.
 
 [Documentation](docs/en/getting-started.md)
 
@@ -69,20 +69,26 @@ For live frontend hot-reload during UI development, run two terminals:
 
 ```bash
 # Terminal 1 — watches and rebuilds WASM on every save
-just web-serve
+just gateway-frontend
 
 # Terminal 2 — runs the gateway backend
-just gateway-skip-web
+just gateway-backend
 ```
+
+`just web-serve` and `just gateway-skip-web` remain available as compatibility aliases.
 
 Other available recipes:
 
 ```bash
-just check     # cargo check --workspace
-just lint      # cargo clippy --workspace
-just test      # cargo test --workspace
-just fmt       # cargo fmt --all
-just help      # list all recipes
+just check         # cargo check --workspace
+just lint          # cargo clippy --workspace
+just test          # cargo test --workspace
+just test-core     # targeted core/runtime tests
+just test-protocol # targeted protocol/app-server/MCP tests
+just test-tui      # targeted TUI tests
+just test-gateway  # targeted gateway/channels tests
+just fmt           # cargo fmt --all
+just help          # list all recipes
 ```
 
 > **How it works:** `build.rs` in `gateway-server` declares the `static/` folder as
@@ -104,6 +110,13 @@ just help      # list all recipes
 | [Sandbox & Security](docs/en/sandbox.md) | Sandbox modes, platform security |
 | [MCP Server](docs/en/mcp-server.md) | MCP integration and usage |
 
+### Architecture & Governance
+
+- [System Architecture](docs/en/concepts/architecture.md)
+- [Crate Boundaries](docs/en/concepts/crate-boundaries.md)
+- [Protocol Ownership](docs/en/concepts/protocol-ownership.md)
+- [Testing Matrix](docs/en/concepts/testing-matrix.md)
+- [Gateway Web Build and Release](docs/en/gateway/web-build-release.md)
 
 ## License
 

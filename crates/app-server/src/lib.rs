@@ -14,6 +14,7 @@ use savfox_app_server_protocol::{
     ConfigLayerSource, ConfigWarningNotification, JsonRpcMessage, TextPosition as AppTextPosition,
     TextRange as AppTextRange,
 };
+use savfox_common::service_runtime::{DEFAULT_CHANNEL_CAPACITY, spawn_stdin_json_reader};
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::{
     CloudRequirementsLoader, ConfigLayerStackOrdering, ConfigLoadError, LoaderOverrides,
@@ -21,9 +22,7 @@ use savfox_core::config_loader::{
 };
 use savfox_core::{ExecPolicyError, check_execpolicy_for_warnings};
 use savfox_feedback::SavfoxFeedback;
-use tokio::io::{
-    AsyncBufReadExt, AsyncWriteExt, BufReader, {self},
-};
+use tokio::io::{AsyncWriteExt, {self}};
 use tokio::sync::mpsc;
 use toml::Value as TomlValue;
 use tracing::{debug, error, info, warn};
@@ -44,11 +43,6 @@ mod message_processor;
 mod models;
 mod outgoing_message;
 mod savfox_message_processor;
-
-/// Size of the bounded channels used to communicate between tasks. The value
-/// is a balance between throughput and memory usage – 128 messages should be
-/// plenty for an interactive CLI.
-const CHANNEL_CAPACITY: usize = 128;
 
 fn config_warning_from_error(
     summary: impl Into<String>,
@@ -180,31 +174,14 @@ pub async fn run_main(
     default_analytics_enabled: bool,
 ) -> IoResult<()> {
     // Set up channels.
-    let (incoming_tx, mut incoming_rx) = mpsc::channel::<JsonRpcMessage>(CHANNEL_CAPACITY);
-    let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<OutgoingMessage>(CHANNEL_CAPACITY);
+    let (incoming_tx, mut incoming_rx) =
+        mpsc::channel::<JsonRpcMessage>(DEFAULT_CHANNEL_CAPACITY);
+    let (outgoing_tx, mut outgoing_rx) =
+        mpsc::channel::<OutgoingMessage>(DEFAULT_CHANNEL_CAPACITY);
 
     // Task: read from stdin, push to `incoming_tx`.
-    let stdin_reader_handle = tokio::spawn({
-        async move {
-            let stdin = io::stdin();
-            let reader = BufReader::new(stdin);
-            let mut lines = reader.lines();
-
-            while let Some(line) = lines.next_line().await.unwrap_or_default() {
-                match serde_json::from_str::<JsonRpcMessage>(&line) {
-                    Ok(msg) => {
-                        if incoming_tx.send(msg).await.is_err() {
-                            // Receiver gone – nothing left to do.
-                            break;
-                        }
-                    }
-                    Err(e) => error!("Failed to deserialize JsonRpcMessage: {e}"),
-                }
-            }
-
-            debug!("stdin reader finished (EOF)");
-        }
-    });
+    let stdin_reader_handle =
+        spawn_stdin_json_reader(incoming_tx, "Failed to deserialize JsonRpcMessage");
 
     // Load configuration.
     // Run personality migration from a preliminary config load.
