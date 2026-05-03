@@ -248,6 +248,8 @@ enum TraversalMode {
     Existing,
 }
 
+const DEFAULT_MODEL_PROVIDER_ID: &str = "openai";
+
 impl ConfigFile {
     fn new(doc: DocumentMut) -> Self {
         Self { doc }
@@ -275,10 +277,26 @@ impl ConfigFile {
                 Ok({
                     let mut mutated = false;
                     if let Some(slug_value) = slug {
-                        let Some(provider_to_write) = provider else {
-                            anyhow::bail!(
-                                "model.provider is required when setting model `{slug_value}`"
-                            );
+                        let provider_to_write = if let Some(provider_to_write) = provider {
+                            provider_to_write
+                        } else {
+                            let has_legacy_model_provider =
+                                self.doc.get("model_provider").is_some();
+                            let existing_provider = self
+                                .descend(&[String::from("model")], TraversalMode::Existing)
+                                .and_then(|table| table.get("provider"))
+                                .and_then(TomlItem::as_str)
+                                .map(ToOwned::to_owned);
+
+                            if let Some(existing_provider) = existing_provider {
+                                existing_provider
+                            } else if !has_legacy_model_provider {
+                                DEFAULT_MODEL_PROVIDER_ID.to_owned()
+                            } else {
+                                anyhow::bail!(
+                                    "model.provider is required when setting model `{slug_value}`"
+                                );
+                            }
                         };
 
                         mutated |=
@@ -289,6 +307,8 @@ impl ConfigFile {
                             &["model", "provider"],
                             value(provider_to_write),
                         );
+                        mutated |= self.clear(Scope::Global, &["model_provider"]);
+                        mutated |= self.clear(Scope::Global, &["model_reasoning_effort"]);
                         match effort {
                             Some(effort_value)
                                 if !matches!(effort_value, &ReasoningEffort::None) =>
@@ -985,8 +1005,10 @@ enabled = false
         assert!(meta.file_type().is_symlink());
 
         let contents = std::fs::read_to_string(&target_path).expect("read target");
-        let expected = r#"model = "gpt-5.1-savfox"
-model_reasoning_effort = "high"
+        let expected = r#"[model]
+slug = "gpt-5.1-savfox"
+provider = "openai"
+reasoning_effort = "high"
 "#;
         assert_eq!(contents, expected);
     }
@@ -1006,9 +1028,9 @@ model_reasoning_effort = "high"
 
         apply_blocking(
             savfox_home,
-            None,
             &[ConfigEdit::SetModel {
-                model: Some("gpt-5.1-savfox".to_string()),
+                slug: Some("gpt-5.1-savfox".to_string()),
+                provider: None,
                 effort: None,
             }],
         )
@@ -1018,7 +1040,9 @@ model_reasoning_effort = "high"
         assert!(!meta.file_type().is_symlink());
 
         let contents = std::fs::read_to_string(&config_path).expect("read config");
-        let expected = r#"model = "gpt-5.1-savfox"
+        let expected = r#"[model]
+slug = "gpt-5.1-savfox"
+provider = "openai"
 "#;
         assert_eq!(contents, expected);
     }

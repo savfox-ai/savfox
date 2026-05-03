@@ -193,7 +193,7 @@ mod imp {
     use std::io;
     use std::io::Write;
     use std::os::fd::{AsRawFd, FromRawFd};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use ratatui::layout::Position;
 

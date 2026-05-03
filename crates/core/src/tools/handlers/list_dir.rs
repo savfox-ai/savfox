@@ -202,7 +202,7 @@ fn format_entry_component(name: &OsStr) -> String {
 
 fn format_entry_line(entry: &DirEntry) -> String {
     let indent = " ".repeat(entry.depth * INDENTATION_SPACES);
-    let mut name = entry.name.clone();
+    let mut name = entry.display_name.clone();
     match entry.kind {
         DirEntryKind::Directory => name.push('/'),
         DirEntryKind::Symlink => name.push('@'),
@@ -215,7 +215,6 @@ fn format_entry_line(entry: &DirEntry) -> String {
 #[derive(Clone)]
 struct DirEntry {
     name: String,
-    #[allow(dead_code)]
     display_name: String,
     depth: usize,
     kind: DirEntryKind,

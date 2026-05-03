@@ -206,7 +206,7 @@ pub enum WireApi {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ModelProviderInfo {
-    #[serde(default)]
+    #[serde(default, alias = "slug")]
     pub id: String,
     /// Friendly display name.
     #[serde(default)]

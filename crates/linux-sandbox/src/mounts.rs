@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, clippy::result_large_err)]
 
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
@@ -199,7 +199,7 @@ fn write_proc_file(path: &str, contents: impl AsRef<[u8]>) -> Result<()> {
 /// Ensure mounts are private so remounting does not propagate outside the namespace.
 fn make_mounts_private() -> Result<()> {
     let root = CString::new("/").map_err(|_| {
-        SavfoxError::UnsupportedOperation("Sandbox mount path contains NUL byte: /".to_string())
+        SavfoxError::UnsupportedOperation("Sandbox mount path contains NUL byte: /".to_owned())
     })?;
     let result = unsafe {
         libc::mount(

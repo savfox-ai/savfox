@@ -3,43 +3,40 @@
   "additionalProperties": false,
   "definitions": {
     "AbsolutePathBuf": {
-      "description": "A path that is guaranteed to be absolute and normalized (though it is not guaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set using [AbsolutePathBufGuard::new]. If no base path is set, the deserialization will fail unless the path being deserialized is already absolute.",
+      "description": "A path that is guaranteed to be absolute and normalized (though it is not\nguaranteed to be canonicalized or exist on the filesystem).\n\nIMPORTANT: When deserializing an `AbsolutePathBuf`, a base path must be set\nusing [AbsolutePathBufGuard::new]. If no base path is set, the\ndeserialization will fail unless the path being deserialized is already\nabsolute.",
       "type": "string"
     },
     "AgentsToml": {
       "additionalProperties": false,
       "properties": {
         "max_sessions": {
-          "description": "Maximum number of agent sessions that can be open concurrently. When unset, no limit is enforced.",
+          "description": "Maximum number of agent sessions that can be open concurrently.\nWhen unset, no limit is enforced.",
           "format": "uint",
-          "minimum": 1.0,
-          "type": "integer"
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
     },
     "AltScreenMode": {
-      "description": "Controls whether the TUI uses the terminal's alternate screen buffer.\n\n**Background:** The alternate screen buffer provides a cleaner fullscreen experience without polluting the terminal's scrollback history. However, it conflicts with terminal multiplexers like Zellij that strictly follow the xterm specification, which defines that alternate screen buffers should not have scrollback.\n\n**Zellij's behavior:** Zellij intentionally disables scrollback in alternate screen mode (see https://github.com/zellij-org/zellij/pull/1032) to comply with the xterm spec. This is by design and not configurable in Zellij—there is no option to enable scrollback in alternate screen mode.\n\n**Solution:** This setting provides a pragmatic workaround: - `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij, disable alternate screen to preserve scrollback. Enable it everywhere else. - `always`: Always use alternate screen mode (original behavior before this fix). - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback in all multiplexers.\n\nThe CLI flag `--alt-screen <always|auto|never>` can override this setting at runtime.",
+      "description": "Controls whether the TUI uses the terminal's alternate screen buffer.\n\n**Background:** The alternate screen buffer provides a cleaner fullscreen experience\nwithout polluting the terminal's scrollback history. However, it conflicts with terminal\nmultiplexers like Zellij that strictly follow the xterm specification, which defines\nthat alternate screen buffers should not have scrollback.\n\n**Zellij's behavior:** Zellij intentionally disables scrollback in alternate screen mode\n(see https://github.com/zellij-org/zellij/pull/1032) to comply with the xterm spec. This\nis by design and not configurable in Zellij—there is no option to enable scrollback in\nalternate screen mode.\n\n**Solution:** This setting provides a pragmatic workaround:\n- `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij, disable\n  alternate screen to preserve scrollback. Enable it everywhere else.\n- `always`: Always use alternate screen mode (original behavior before this fix).\n- `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback in all\n  multiplexers.\n\nThe CLI flag `--alt-screen <always|auto|never>` can override this setting at runtime.",
       "oneOf": [
         {
+          "const": "auto",
           "description": "Auto-detect: disable alternate screen in Zellij, enable elsewhere.",
-          "enum": [
-            "auto"
-          ],
           "type": "string"
         },
         {
+          "const": "always",
           "description": "Always use alternate screen (original behavior).",
-          "enum": [
-            "always"
-          ],
           "type": "string"
         },
         {
+          "const": "never",
           "description": "Never use alternate screen (inline mode only).",
-          "enum": [
-            "never"
-          ],
           "type": "string"
         }
       ]
@@ -50,40 +47,35 @@
       "properties": {
         "enabled": {
           "description": "When `false`, disables analytics across Savfox product surfaces in this profile.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
     },
     "AskForApproval": {
-      "description": "Determines the conditions under which the user is consulted to approve running the command proposed by Savfox.",
+      "description": "Determines the conditions under which the user is consulted to approve\nrunning the command proposed by Savfox.",
       "oneOf": [
         {
-          "description": "Under this policy, only \"known safe\" commands—as determined by `is_safe_command()`—that **only read files** are auto‑approved. Everything else will ask the user to approve.",
-          "enum": [
-            "untrusted"
-          ],
+          "const": "untrusted",
+          "description": "Under this policy, only \"known safe\" commands—as determined by\n`is_safe_command()`—that **only read files** are auto‑approved.\nEverything else will ask the user to approve.",
           "type": "string"
         },
         {
-          "description": "*All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox.",
-          "enum": [
-            "on-failure"
-          ],
+          "const": "on-failure",
+          "description": "*All* commands are auto‑approved, but they are expected to run inside a\nsandbox where network access is disabled and writes are confined to a\nspecific set of paths. If the command fails, it will be escalated to\nthe user to approve execution without a sandbox.",
           "type": "string"
         },
         {
+          "const": "on-request",
           "description": "The model decides when to ask the user for approval.",
-          "enum": [
-            "on-request"
-          ],
           "type": "string"
         },
         {
-          "description": "Never ask the user to approve commands. Failures are immediately returned to the model, and never escalated to the user for approval.",
-          "enum": [
-            "never"
-          ],
+          "const": "never",
+          "description": "Never ask the user to approve commands. Failures are immediately returned\nto the model, and never escalated to the user for approval.",
           "type": "string"
         }
       ]
@@ -92,31 +84,23 @@
       "description": "Determine where Savfox should store CLI auth credentials.",
       "oneOf": [
         {
+          "const": "file",
           "description": "Persist credentials in SAVFOX_HOME/models/openai.json.",
-          "enum": [
-            "file"
-          ],
           "type": "string"
         },
         {
+          "const": "keyring",
           "description": "Persist credentials in the keyring. Fail if unavailable.",
-          "enum": [
-            "keyring"
-          ],
           "type": "string"
         },
         {
+          "const": "auto",
           "description": "Use keyring when available; otherwise, fall back to a file in SAVFOX_HOME.",
-          "enum": [
-            "auto"
-          ],
           "type": "string"
         },
         {
+          "const": "ephemeral",
           "description": "Store credentials in memory only for the current process.",
-          "enum": [
-            "ephemeral"
-          ],
           "type": "string"
         }
       ]
@@ -126,7 +110,10 @@
       "properties": {
         "enabled": {
           "description": "When `false`, disables the feedback flow across Savfox product surfaces.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -143,17 +130,26 @@
       "properties": {
         "disable_warnings": {
           "description": "Disable all ghost snapshot warning events.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "ignore_large_untracked_dirs": {
-          "description": "Ignore untracked directories that contain this many files or more. (Still emits a warning unless warnings are disabled.)",
+          "description": "Ignore untracked directories that contain this many files or more.\n(Still emits a warning unless warnings are disabled.)",
           "format": "int64",
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "ignore_large_untracked_files": {
           "description": "Exclude untracked files larger than this many bytes from ghost snapshots.",
           "format": "int64",
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -163,10 +159,13 @@
       "description": "Settings that govern if and what will be written to `~/.savfox/history.jsonl`.",
       "properties": {
         "max_bytes": {
-          "description": "If set, the maximum size of the history file in bytes. The oldest entries are dropped once the file exceeds this limit.",
+          "description": "If set, the maximum size of the history file in bytes. The oldest entries\nare dropped once the file exceeds this limit.",
           "format": "uint",
-          "minimum": 0.0,
-          "type": "integer"
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "persistence": {
           "allOf": [
@@ -185,17 +184,13 @@
     "HistoryPersistence": {
       "oneOf": [
         {
+          "const": "save-all",
           "description": "Save all history entries to disk.",
-          "enum": [
-            "save-all"
-          ],
           "type": "string"
         },
         {
+          "const": "none",
           "description": "Do not write history to disk.",
-          "enum": [
-            "none"
-          ],
           "type": "string"
         }
       ]
@@ -217,70 +212,102 @@
       "properties": {
         "base_url": {
           "description": "Base URL for the provider's OpenAI-compatible API.",
-          "type": "string"
-        },
-        "name": {
-          "description": "Friendly display name.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "env_http_headers": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Optional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and _environment variable_ whose value should be used. If the environment variable is not set, or the value is empty, the header will not be included in the request.",
-          "type": "object"
+          "description": "Optional HTTP headers to include in requests to this provider where the\n(key, value) pairs are the header name and _environment variable_ whose\nvalue should be used. If the environment variable is not set, or the\nvalue is empty, the header will not be included in the request.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "env_key": {
           "description": "Environment variable that stores the user's API key for this provider.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "env_key_instructions": {
-          "description": "Optional instructions to help the user get a valid value for the variable and set it.",
-          "type": "string"
+          "description": "Optional instructions to help the user get a valid value for the\nvariable and set it.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "experimental_bearer_token": {
-          "description": "Value to use with `Authorization: Bearer <token>` header. Use of this config is discouraged in favor of `env_key` for security reasons, but this may be necessary when using this programmatically.",
-          "type": "string"
+          "description": "Value to use with `Authorization: Bearer <token>` header. Use of this\nconfig is discouraged in favor of `env_key` for security reasons, but\nthis may be necessary when using this programmatically.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "http_headers": {
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Additional HTTP headers to include in requests to this provider where the (key, value) pairs are the header name and value.",
-          "type": "object"
+          "description": "Additional HTTP headers to include in requests to this provider where\nthe (key, value) pairs are the header name and value.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Friendly display name.",
+          "type": "string"
         },
         "query_params": {
           "additionalProperties": {
             "type": "string"
           },
           "description": "Optional query parameters to append to the base URL.",
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "request_max_retries": {
           "description": "Maximum number of times to retry a failed HTTP request to this provider.",
           "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "requires_openai_auth": {
           "default": false,
-          "description": "Does this provider require an OpenAI API Key or ChatGPT login token? If true, user is presented with login screen on first run, and login preference and token/key are stored in auth storage. If false (which is the default), login screen is skipped, and API key (if needed) comes from the \"env_key\" environment variable.",
+          "description": "Does this provider require an OpenAI API Key or ChatGPT login token? If true,\nuser is presented with login screen on first run, and login preference and token/key\nare stored in auth storage. If false (which is the default), login screen is skipped,\nand API key (if needed) comes from the \"env_key\" environment variable.",
           "type": "boolean"
         },
-        "slug": {
-          "type": "string"
-        },
         "stream_idle_timeout_ms": {
-          "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating the connection as lost.",
+          "description": "Idle timeout (in milliseconds) to wait for activity on a streaming response before treating\nthe connection as lost.",
           "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "stream_max_retries": {
           "description": "Number of times to retry reconnecting a dropped streaming response before failing.",
           "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "supports_websockets": {
           "default": false,
@@ -297,34 +324,45 @@
           "description": "Which wire protocol this provider expects."
         }
       },
-      "required": [
-        "name",
-        "slug"
-      ],
       "type": "object"
     },
     "Notice": {
-      "description": "Settings for notices we display to users via the tui and app-server clients (primarily the Savfox IDE extension). NOTE: these are different from notifications - notices are warnings, NUX screens, acknowledgements, etc.",
+      "description": "Settings for notices we display to users via the tui and app-server clients\n(primarily the Savfox IDE extension). NOTE: these are different from\nnotifications - notices are warnings, NUX screens, acknowledgements, etc.",
       "properties": {
         "hide_full_access_warning": {
           "description": "Tracks whether the user has acknowledged the full access warning prompt.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "hide_gpt-5.1-savfox-max_migration_prompt": {
           "description": "Tracks whether the user has seen the gpt-5.1-savfox-max migration prompt",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "hide_gpt5_1_migration_prompt": {
           "description": "Tracks whether the user has seen the model migration prompt",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "hide_rate_limit_model_nudge": {
           "description": "Tracks whether the user opted out of the rate limit model switch reminder.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "hide_world_writable_warning": {
           "description": "Tracks whether the user has acknowledged the Windows world-writable directories warning.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "model_migrations": {
           "additionalProperties": {
@@ -362,24 +400,18 @@
       "description": "Determine where Savfox should store and read MCP credentials.",
       "oneOf": [
         {
-          "description": "`Keyring` when available; otherwise, `File`. Credentials stored in the keyring will only be readable by Savfox unless the user explicitly grants access via OS-level keyring access.",
-          "enum": [
-            "auto"
-          ],
+          "const": "auto",
+          "description": "`Keyring` when available; otherwise, `File`.\nCredentials stored in the keyring will only be readable by Savfox unless the user explicitly\ngrants access via OS-level keyring access.",
           "type": "string"
         },
         {
-          "description": "SAVFOX_HOME/.credentials.json This file will be readable to Savfox and other applications running as the same user.",
-          "enum": [
-            "file"
-          ],
+          "const": "file",
+          "description": "SAVFOX_HOME/.credentials.json\nThis file will be readable to Savfox and other applications running as the same user.",
           "type": "string"
         },
         {
+          "const": "keyring",
           "description": "Keyring when available, otherwise fail.",
-          "enum": [
-            "keyring"
-          ],
           "type": "string"
         }
       ]
@@ -390,24 +422,36 @@
       "properties": {
         "environment": {
           "description": "Mark traces with environment (dev, staging, prod, test). Defaults to dev.",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "exporter": {
-          "allOf": [
+          "anyOf": [
             {
               "$ref": "#/definitions/OtelExporterKind"
+            },
+            {
+              "type": "null"
             }
           ],
           "description": "Optional log exporter"
         },
         "log_user_prompt": {
           "description": "Log user prompt in traces",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "trace_exporter": {
-          "allOf": [
+          "anyOf": [
             {
               "$ref": "#/definitions/OtelExporterKind"
+            },
+            {
+              "type": "null"
             }
           ],
           "description": "Optional trace exporter"
@@ -445,9 +489,12 @@
                   "$ref": "#/definitions/OtelHttpProtocol"
                 },
                 "tls": {
-                  "allOf": [
+                  "anyOf": [
                     {
                       "$ref": "#/definitions/OtelTlsConfig"
+                    },
+                    {
+                      "type": "null"
                     }
                   ],
                   "default": null
@@ -482,9 +529,12 @@
                   "type": "object"
                 },
                 "tls": {
-                  "allOf": [
+                  "anyOf": [
                     {
                       "$ref": "#/definitions/OtelTlsConfig"
+                    },
+                    {
+                      "type": "null"
                     }
                   ],
                   "default": null
@@ -506,17 +556,13 @@
     "OtelHttpProtocol": {
       "oneOf": [
         {
+          "const": "binary",
           "description": "Binary payload",
-          "enum": [
-            "binary"
-          ],
           "type": "string"
         },
         {
+          "const": "json",
           "description": "JSON payload",
-          "enum": [
-            "json"
-          ],
           "type": "string"
         }
       ]
@@ -525,13 +571,34 @@
       "additionalProperties": false,
       "properties": {
         "ca-certificate": {
-          "$ref": "#/definitions/AbsolutePathBuf"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "client-certificate": {
-          "$ref": "#/definitions/AbsolutePathBuf"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "client-private-key": {
-          "$ref": "#/definitions/AbsolutePathBuf"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AbsolutePathBuf"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -547,7 +614,14 @@
       "additionalProperties": false,
       "properties": {
         "trust_level": {
-          "$ref": "#/definitions/TrustLevel"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TrustLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object"
@@ -560,91 +634,142 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "bearer_token": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "bearer_token_env_var": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "command": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "cwd": {
           "default": null,
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "disabled_tools": {
           "default": null,
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "enabled": {
           "default": null,
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "enabled_tools": {
           "default": null,
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "env": {
           "additionalProperties": {
             "type": "string"
           },
           "default": null,
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "env_http_headers": {
           "additionalProperties": {
             "type": "string"
           },
           "default": null,
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "env_vars": {
           "default": null,
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "http_headers": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "scopes": {
           "default": null,
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "startup_timeout_ms": {
           "default": null,
           "format": "uint64",
-          "minimum": 0.0,
-          "type": "integer"
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "startup_timeout_sec": {
           "default": null,
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "tool_timeout_sec": {
           "default": null,
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "url": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -662,7 +787,7 @@
       "type": "string"
     },
     "ReasoningSummary": {
-      "description": "A summary of the reasoning performed by the model. This can be useful for debugging and understanding the model's reasoning process. See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#reasoning-summaries",
+      "description": "A summary of the reasoning performed by the model. This can be useful for\ndebugging and understanding the model's reasoning process.\nSee https://platform.openai.com/docs/guides/reasoning?api-mode=responses#reasoning-summaries",
       "oneOf": [
         {
           "enum": [
@@ -673,13 +798,22 @@
           "type": "string"
         },
         {
+          "const": "none",
           "description": "Option to disable reasoning summaries.",
-          "enum": [
-            "none"
-          ],
           "type": "string"
         }
       ]
+    },
+    "RegistryConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "git": {
+          "default": "https://github.com/savhub-ai/registry.git",
+          "description": "Git URL to clone for the registry.",
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "SandboxMode": {
       "enum": [
@@ -721,75 +855,98 @@
           "type": "string"
         },
         "reasoning_effort": {
-          "$ref": "#/definitions/ReasoningEffort"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReasoningEffort"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "slug": {
           "type": "string"
         }
       },
       "required": [
-        "provider",
-        "slug"
+        "slug",
+        "provider"
       ],
       "type": "object"
     },
     "ShellEnvironmentPolicyInherit": {
       "oneOf": [
         {
-          "description": "\"Core\" environment variables for the platform. On UNIX, this would include HOME, LOGNAME, PATH, SHELL, and USER, among others.",
-          "enum": [
-            "core"
-          ],
+          "const": "core",
+          "description": "\"Core\" environment variables for the platform. On UNIX, this would\ninclude HOME, LOGNAME, PATH, SHELL, and USER, among others.",
           "type": "string"
         },
         {
+          "const": "all",
           "description": "Inherits the full environment from the parent process.",
-          "enum": [
-            "all"
-          ],
           "type": "string"
         },
         {
+          "const": "none",
           "description": "Do not inherit any environment variables from the parent process.",
-          "enum": [
-            "none"
-          ],
           "type": "string"
         }
       ]
     },
     "ShellEnvironmentPolicyToml": {
       "additionalProperties": false,
-      "description": "Policy for building the `env` when spawning a process via either the `shell` or `local_shell` tool.",
+      "description": "Policy for building the `env` when spawning a process via either the\n`shell` or `local_shell` tool.",
       "properties": {
         "exclude": {
           "description": "List of regular expressions.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "experimental_use_profile": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "ignore_default_excludes": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "include_only": {
           "description": "List of regular expressions.",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "inherit": {
-          "$ref": "#/definitions/ShellEnvironmentPolicyInherit"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ShellEnvironmentPolicyInherit"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "set": {
           "additionalProperties": {
             "type": "string"
           },
-          "type": "object"
+          "type": [
+            "object",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -805,8 +962,8 @@
         }
       },
       "required": [
-        "enabled",
-        "path"
+        "path",
+        "enabled"
       ],
       "type": "object"
     },
@@ -828,17 +985,23 @@
         "view_image": {
           "default": null,
           "description": "Enable the `view_image` tool that lets the agent attach local images.",
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "web_search": {
           "default": null,
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "type": "object"
     },
     "TrustLevel": {
-      "description": "Represents the trust level for a project directory. This determines the approval policy and sandbox mode applied.",
+      "description": "Represents the trust level for a project directory.\nThis determines the approval policy and sandbox mode applied.",
       "enum": [
         "trusted",
         "untrusted"
@@ -856,21 +1019,24 @@
             }
           ],
           "default": "auto",
-          "description": "Controls whether the TUI uses the terminal's alternate screen buffer.\n\n- `auto` (default): Disable alternate screen in Zellij, enable elsewhere. - `always`: Always use alternate screen (original behavior). - `never`: Never use alternate screen (inline mode only, preserves scrollback).\n\nUsing alternate screen provides a cleaner fullscreen experience but prevents scrollback in terminal multiplexers like Zellij that follow the xterm spec."
+          "description": "Controls whether the TUI uses the terminal's alternate screen buffer.\n\n- `auto` (default): Disable alternate screen in Zellij, enable elsewhere.\n- `always`: Always use alternate screen (original behavior).\n- `never`: Never use alternate screen (inline mode only, preserves scrollback).\n\nUsing alternate screen provides a cleaner fullscreen experience but prevents\nscrollback in terminal multiplexers like Zellij that follow the xterm spec."
         },
         "animations": {
           "default": true,
-          "description": "Enable animations (welcome screen, shimmer effects, spinners). Defaults to `true`.",
+          "description": "Enable animations (welcome screen, shimmer effects, spinners).\nDefaults to `true`.",
           "type": "boolean"
         },
         "experimental_mode": {
-          "allOf": [
+          "anyOf": [
             {
               "$ref": "#/definitions/ModeKind"
+            },
+            {
+              "type": "null"
             }
           ],
           "default": null,
-          "description": "Start the TUI in the specified collaboration mode (plan/execute/etc.). Defaults to unset."
+          "description": "Start the TUI in the specified collaboration mode (plan/execute/etc.).\nDefaults to unset."
         },
         "notification_method": {
           "allOf": [
@@ -879,7 +1045,7 @@
             }
           ],
           "default": "auto",
-          "description": "Notification method to use for unfocused terminal notifications. Defaults to `auto`."
+          "description": "Notification method to use for unfocused terminal notifications.\nDefaults to `auto`."
         },
         "notifications": {
           "allOf": [
@@ -888,11 +1054,11 @@
             }
           ],
           "default": true,
-          "description": "Enable desktop notifications from the TUI when the terminal is unfocused. Defaults to `true`."
+          "description": "Enable desktop notifications from the TUI when the terminal is unfocused.\nDefaults to `true`."
         },
         "show_tooltips": {
           "default": true,
-          "description": "Show startup tooltips in the TUI welcome screen. Defaults to `true`.",
+          "description": "Show startup tooltips in the TUI welcome screen.\nDefaults to `true`.",
           "type": "boolean"
         }
       },
@@ -910,16 +1076,14 @@
           "type": "string"
         },
         {
+          "const": "none",
           "description": "Option to disable the URI-based file opener.",
-          "enum": [
-            "none"
-          ],
           "type": "string"
         }
       ]
     },
     "Verbosity": {
-      "description": "Controls output length/detail on GPT-5 models via the Responses API. Serialized with lowercase values to match the OpenAI API.",
+      "description": "Controls output length/detail on GPT-5 models via the Responses API.\nSerialized with lowercase values to match the OpenAI API.",
       "enum": [
         "low",
         "medium",
@@ -936,27 +1100,21 @@
       "type": "string"
     },
     "WireApi": {
-      "description": "Wire protocol that the provider speaks. Most third-party services only implement the classic OpenAI Chat Completions JSON schema, whereas OpenAI itself (and a handful of others) additionally expose the more modern *Responses* API. The two protocols use different request/response shapes and *cannot* be auto-detected at runtime, therefore each provider entry must declare which one it expects.",
+      "description": "Wire protocol that the provider speaks. Most third-party services only\nimplement the classic OpenAI Chat Completions JSON schema, whereas OpenAI\nitself (and a handful of others) additionally expose the more modern\n*Responses* API. The two protocols use different request/response shapes\nand *cannot* be auto-detected at runtime, therefore each provider entry\nmust declare which one it expects.",
       "oneOf": [
         {
+          "const": "responses",
           "description": "The Responses API exposed by OpenAI at `/v1/responses`.",
-          "enum": [
-            "responses"
-          ],
           "type": "string"
         },
         {
+          "const": "chat",
           "description": "Regular Chat Completions compatible with `/v1/chat/completions`.",
-          "enum": [
-            "chat"
-          ],
           "type": "string"
         },
         {
+          "const": "anthropic",
           "description": "Anthropic Messages API at `/v1/messages`.",
-          "enum": [
-            "anthropic"
-          ],
           "type": "string"
         }
       ]
@@ -965,67 +1123,108 @@
   "description": "Base config deserialized from ~/.savfox/config.toml.",
   "properties": {
     "agents": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/AgentsToml"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Agent-related settings (session limits, etc.)."
     },
     "analytics": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/AnalyticsConfigToml"
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "When `false`, disables analytics across Savfox product surfaces in this machine. Defaults to `true`."
+      "description": "When `false`, disables analytics across Savfox product surfaces in this machine.\nDefaults to `true`."
     },
     "approval_policy": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/AskForApproval"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Default approval policy for executing commands."
     },
     "chatgpt_base_url": {
       "description": "Base URL for requests to ChatGPT (as opposed to the OpenAI API).",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "check_for_update_on_startup": {
-      "description": "When `true`, checks for Savfox updates on startup and surfaces update prompts. Set to `false` only if your Savfox updates are centrally managed. Defaults to `true`.",
-      "type": "boolean"
+      "description": "When `true`, checks for Savfox updates on startup and surfaces update prompts.\nSet to `false` only if your Savfox updates are centrally managed.\nDefaults to `true`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "cli_auth_credentials_store": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/AuthCredentialsStoreMode"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
-      "description": "Preferred backend for storing CLI auth credentials. file (default): Use a file in the Savfox home directory. keyring: Use an OS-specific keyring service. auto: Use the keyring if available, otherwise use a file."
+      "description": "Preferred backend for storing CLI auth credentials.\nfile (default): Use a file in the Savfox home directory.\nkeyring: Use an OS-specific keyring service.\nauto: Use the keyring if available, otherwise use a file."
     },
     "compact_prompt": {
       "description": "Compact prompt used for history compaction.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "developer_instructions": {
       "default": null,
       "description": "Developer instructions inserted as a `developer` role message.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "disable_paste_burst": {
-      "description": "When true, disables burst-paste detection for typed input entirely. All characters are inserted as they are received, and no buffering or placeholder replacement will occur for fast keypress bursts.",
-      "type": "boolean"
+      "description": "When true, disables burst-paste detection for typed input entirely.\nAll characters are inserted as they are received, and no buffering\nor placeholder replacement will occur for fast keypress bursts.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "experimental_compact_prompt_file": {
-      "$ref": "#/definitions/AbsolutePathBuf"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/AbsolutePathBuf"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Legacy, now use features"
     },
     "experimental_use_freeform_apply_patch": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "experimental_use_unified_exec_tool": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "features": {
       "additionalProperties": false,
@@ -1132,52 +1331,73 @@
       "type": "object"
     },
     "feedback": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/FeedbackConfigToml"
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "When `false`, disables feedback collection across Savfox product surfaces. Defaults to `true`."
+      "description": "When `false`, disables feedback collection across Savfox product surfaces.\nDefaults to `true`."
     },
     "file_opener": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/UriBasedFileOpener"
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "Optional URI-based file opener. If set, citations to files in the model output will be hyperlinked using the specified URI scheme."
+      "description": "Optional URI-based file opener. If set, citations to files in the model\noutput will be hyperlinked using the specified URI scheme."
     },
     "forced_chatgpt_workspace_id": {
       "default": null,
       "description": "When set, restricts ChatGPT login to a specific workspace identifier.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "forced_login_method": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/ForcedLoginMethod"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
       "description": "When set, restricts the login mechanism users may use."
     },
     "ghost_snapshot": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/GhostSnapshotToml"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
       "description": "Settings for ghost snapshots (used for undo)."
     },
     "hide_agent_reasoning": {
-      "description": "When set to `true`, `AgentReasoning` events will be hidden from the UI/output. Defaults to `false`.",
-      "type": "boolean"
+      "description": "When set to `true`, `AgentReasoning` events will be hidden from the\nUI/output. Defaults to `false`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "history": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/History"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
@@ -1185,22 +1405,32 @@
     },
     "instructions": {
       "description": "System instructions.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "mcp_oauth_callback_port": {
-      "description": "Optional fixed port for the local HTTP callback server used during MCP OAuth login. When unset, Savfox will bind to an ephemeral port chosen by the OS.",
+      "description": "Optional fixed port for the local HTTP callback server used during MCP OAuth login.\nWhen unset, Savfox will bind to an ephemeral port chosen by the OS.",
       "format": "uint16",
-      "minimum": 0.0,
-      "type": "integer"
+      "maximum": 65535,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "mcp_oauth_credentials_store": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/OAuthCredentialsStoreMode"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
-      "description": "Preferred backend for storing MCP OAuth credentials. keyring: Use an OS-specific keyring service. https://github.com/openai/savfox/blob/main/savfox-rs/rmcp-client/src/oauth.rs#L2 file: Use a file in the Savfox home directory. auto (default): Use the OS-specific keyring service if available, otherwise use a file."
+      "description": "Preferred backend for storing MCP OAuth credentials.\nkeyring: Use an OS-specific keyring service.\n         https://github.com/openai/savfox/blob/main/savfox-rs/rmcp-client/src/oauth.rs#L2\nfile: Use a file in the Savfox home directory.\nauto (default): Use the OS-specific keyring service if available, otherwise use a file."
     },
     "mcp_servers": {
       "additionalProperties": {
@@ -1211,35 +1441,50 @@
       "type": "object"
     },
     "model": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/SelectedModel"
+        },
+        {
+          "type": "null"
         }
       ],
       "default": null,
-      "description": "Optional override of model selection.\n\nAccepted form: - `{ slug = \"glm-5\", provider = \"openai\", reasoning_effort = \"medium\" }`"
+      "description": "Optional override of model selection.\n\nAccepted form:\n- `{ slug = \"glm-5\", provider = \"openai\", reasoning_effort = \"medium\" }`"
     },
     "model_auto_compact_token_limit": {
       "description": "Token usage threshold triggering auto-compaction of conversation history.",
       "format": "int64",
-      "type": "integer"
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "model_context_window": {
       "description": "Size of the context window for the model, in tokens.",
       "format": "int64",
-      "type": "integer"
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "model_instructions_file": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/AbsolutePathBuf"
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "Optional path to a file containing model instructions that will override the built-in instructions for the selected model. Users are STRONGLY DISCOURAGED from using this field, as deviating from the instructions sanctioned by Savfox will likely degrade model performance."
+      "description": "Optional path to a file containing model instructions that will override\nthe built-in instructions for the selected model. Users are STRONGLY\nDISCOURAGED from using this field, as deviating from the instructions\nsanctioned by Savfox will likely degrade model performance."
     },
     "model_provider": {
       "description": "Provider to use from the model_providers map.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "model_providers": {
       "additionalProperties": {
@@ -1250,30 +1495,53 @@
       "type": "object"
     },
     "model_reasoning_effort": {
-      "$ref": "#/definitions/ReasoningEffort"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ReasoningEffort"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "model_reasoning_summary": {
-      "$ref": "#/definitions/ReasoningSummary"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ReasoningSummary"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "model_supports_reasoning_summaries": {
       "description": "Override to force-enable reasoning summaries for the configured model.",
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "model_verbosity": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/Verbosity"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Optional verbosity control for GPT-5 models (Responses API `text.verbosity`)."
     },
     "notice": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/Notice"
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "Collection of in-product notices (different from notifications) See [`crate::config::types::Notices`] for more details"
+      "description": "Collection of in-product notices (different from notifications)\nSee [`crate::config::types::Notices`] for more details"
     },
     "notify": {
       "default": null,
@@ -1281,24 +1549,36 @@
       "items": {
         "type": "string"
       },
-      "type": "array"
+      "type": [
+        "array",
+        "null"
+      ]
     },
     "oss_provider": {
       "description": "Preferred OSS provider for local models, e.g. \"lmstudio\", \"ollama\", or \"ollama-chat\".",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "otel": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/OtelConfigToml"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "OTEL configuration."
     },
     "personality": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/Personality"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Optionally specify a personality for the model"
@@ -1308,44 +1588,76 @@
       "items": {
         "type": "string"
       },
-      "type": "array"
+      "type": [
+        "array",
+        "null"
+      ]
     },
     "project_doc_max_bytes": {
       "description": "Maximum number of bytes to include from an AGENTS.md project doc file.",
       "format": "uint",
-      "minimum": 0.0,
-      "type": "integer"
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "project_root_markers": {
       "default": null,
-      "description": "Markers used to detect the project root when searching parent directories for `.savfox` folders. Defaults to [\".git\"] when unset.",
+      "description": "Markers used to detect the project root when searching parent\ndirectories for `.savfox` folders. Defaults to [\".git\"] when unset.",
       "items": {
         "type": "string"
       },
-      "type": "array"
+      "type": [
+        "array",
+        "null"
+      ]
     },
     "projects": {
       "additionalProperties": {
         "$ref": "#/definitions/ProjectConfig"
       },
-      "type": "object"
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "registry": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RegistryConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Git-based skill registry configuration."
     },
     "review_model": {
       "description": "Review model override used by the `/review` feature.",
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "sandbox_mode": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/SandboxMode"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Sandbox mode to use."
     },
     "sandbox_workspace_write": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/SandboxWorkspaceWrite"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Sandbox configuration to apply if `sandbox` is `WorkspaceWrite`."
@@ -1366,54 +1678,78 @@
       }
     },
     "show_raw_agent_reasoning": {
-      "description": "When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output. Defaults to `false`.",
-      "type": "boolean"
+      "description": "When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.\nDefaults to `false`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "skills": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/SkillsConfig"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "User-level skill config entries keyed by SKILL.md path."
     },
     "suppress_unstable_features_warning": {
       "description": "Suppress warnings about unstable (under development) features.",
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "tool_output_token_limit": {
       "description": "Token budget applied when storing tool/function outputs in the context manager.",
       "format": "uint",
-      "minimum": 0.0,
-      "type": "integer"
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "tools": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/ToolsToml"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Nested tools section for feature toggles"
     },
     "tui": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/Tui"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Collection of settings that are specific to the TUI."
     },
     "web_search": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/WebSearchMode"
+        },
+        {
+          "type": "null"
         }
       ],
       "description": "Controls the web search tool mode: disabled, cached, or live."
     },
     "windows_wsl_setup_acknowledged": {
       "description": "Tracks whether the Windows onboarding screen has been acknowledged.",
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     }
   },
   "title": "ConfigToml",

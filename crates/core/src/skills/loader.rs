@@ -182,6 +182,11 @@ fn skill_roots_from_layer_stack_inner(
                 });
             }
             ConfigLayerSource::User { .. } => {
+                roots.push(SkillRoot {
+                    path: config_folder.as_path().join(SKILLS_DIR_NAME),
+                    scope: SkillScope::User,
+                });
+
                 // `$HOME/.agents/skills` (user-installed skills).
                 if let Some(home_dir) = home_dir {
                     roots.push(SkillRoot {
