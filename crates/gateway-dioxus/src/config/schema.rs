@@ -150,7 +150,7 @@ impl SchemaAnalyzer {
         }
 
         // Sort sections by order
-        sections.sort_by(|a, b| a.order.cmp(&b.order));
+        sections.sort_by_key(|section| section.order);
 
         AnalyzedSchema {
             sections,

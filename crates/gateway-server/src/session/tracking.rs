@@ -44,9 +44,9 @@ pub async fn track_inbound_message(
         .identity
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .map(str::to_owned);
     let mut effective_dm_scope = meta.dm_scope;
-    let mut effective_peer_id = meta.peer_id.map(str::to_string);
+    let mut effective_peer_id = meta.peer_id.map(str::to_owned);
     if let Some(identity) = linked_identity.as_ref() {
         effective_dm_scope = DmScope::PerPeer;
         effective_peer_id = Some(identity.clone());

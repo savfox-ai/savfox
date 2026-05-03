@@ -69,7 +69,7 @@ pub async fn send_message_returning_id(
     let msg_id = resp_body
         .get("id")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string);
+        .map(str::to_owned);
     println!("[discord:client] send_message OK, msg_id={msg_id:?}");
     Ok(msg_id)
 }

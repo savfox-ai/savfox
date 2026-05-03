@@ -1,5 +1,5 @@
 use serde::de::DeserializeOwned;
-use tokio::io::{AsyncBufReadExt, BufReader, self};
+use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error};
@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 
 pub const DEFAULT_CHANNEL_CAPACITY: usize = 128;
 
+#[must_use]
 pub fn env_filter_from_default(default_directive: &str) -> EnvFilter {
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_directive))
 }
@@ -18,6 +19,7 @@ pub fn init_stderr_tracing(default_directive: &str) {
         .try_init();
 }
 
+#[must_use]
 pub fn spawn_stdin_json_reader<T>(
     sender: mpsc::Sender<T>,
     decode_error_label: &'static str,

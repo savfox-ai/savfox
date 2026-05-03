@@ -51,7 +51,7 @@ impl FeishuActionSink for FeishuRuntimeSink {
                 chat_type: meta.chat_type,
                 thread_id: meta.thread_id.clone(),
                 parent_thread_id: meta.thread_id,
-                reply_target: message_id.map(str::to_string),
+                reply_target: message_id.map(str::to_owned),
                 ..runtime::StartThreadMeta::default()
             };
             let gateway_channel = Arc::clone(&self.channel);

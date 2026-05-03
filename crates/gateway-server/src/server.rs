@@ -723,11 +723,10 @@ async fn read_config_json(path: &std::path::Path) -> Result<Value, String> {
 /// `${VAR:?error}` in JSON string values.
 fn substitute_env_vars(value: &mut Value) -> Result<(), String> {
     match value {
-        Value::String(s) => {
-            if s.contains('$') {
-                *s = expand_env_string(s)?;
-            }
+        Value::String(s) if s.contains('$') => {
+            *s = expand_env_string(s)?;
         }
+        Value::String(_) => {}
         Value::Object(map) => {
             for v in map.values_mut() {
                 substitute_env_vars(v)?;

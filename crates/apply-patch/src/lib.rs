@@ -461,7 +461,7 @@ fn compute_replacements(
         }
     }
 
-    replacements.sort_by(|(lhs_idx, ..), (rhs_idx, ..)| lhs_idx.cmp(rhs_idx));
+    replacements.sort_by_key(|(lhs_idx, ..)| *lhs_idx);
 
     Ok(replacements)
 }

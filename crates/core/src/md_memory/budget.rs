@@ -46,7 +46,7 @@ pub fn assemble_memory_prompt(entries: &[MdMemoryEntry], max_bytes: usize) -> St
 
     // 1. Include pinned entries first.
     let mut pinned: Vec<&MdMemoryEntry> = entries.iter().filter(|e| e.frontmatter.pinned).collect();
-    pinned.sort_by(|a, b| b.frontmatter.priority.cmp(&a.frontmatter.priority));
+    pinned.sort_by_key(|entry| std::cmp::Reverse(entry.frontmatter.priority));
 
     let mut included_slugs = Vec::new();
 

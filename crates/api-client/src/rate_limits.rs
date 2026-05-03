@@ -46,7 +46,7 @@ pub fn parse_promo_message(headers: &HeaderMap) -> Option<String> {
     parse_header_str(headers, "x-savfox-promo-message")
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(std::string::ToString::to_string)
+        .map(str::to_owned)
 }
 
 fn parse_rate_limit_window(
@@ -79,7 +79,7 @@ fn parse_credits_snapshot(headers: &HeaderMap) -> Option<CreditsSnapshot> {
     let balance = parse_header_str(headers, "x-savfox-credits-balance")
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(std::string::ToString::to_string);
+        .map(str::to_owned);
     Some(CreditsSnapshot {
         has_credits,
         unlimited,

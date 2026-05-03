@@ -237,7 +237,7 @@ impl OtelManager {
                             kind = value
                                 .get("type")
                                 .and_then(|value| value.as_str())
-                                .map(std::string::ToString::to_string);
+                                .map(str::to_owned);
                             if kind.as_deref() == Some("response.failed") {
                                 success = false;
                                 error_message = value

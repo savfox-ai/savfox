@@ -607,7 +607,7 @@ mod tests {
         ListSelectionView::new(
             SelectionViewParams {
                 title: Some("Select Approval Mode".to_owned()),
-                subtitle: subtitle.map(str::to_string),
+                subtitle: subtitle.map(str::to_owned),
                 footer_hint: Some(standard_popup_hint_line()),
                 items,
                 ..Default::default()

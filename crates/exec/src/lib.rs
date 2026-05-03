@@ -359,7 +359,7 @@ pub async fn run_main(cli: Cli, savfox_linux_sandbox_exe: Option<PathBuf>) -> an
             let prompt_text = resolve_prompt(prompt_arg);
             let mut items: Vec<UserInput> = imgs
                 .into_iter()
-                .chain(args.images.into_iter())
+                .chain(args.images)
                 .map(|path| UserInput::LocalImage { path })
                 .collect();
             items.push(UserInput::Text {
@@ -680,7 +680,7 @@ fn decode_prompt_bytes(input: &[u8]) -> Result<String, PromptDecodeError> {
     }
 
     std::str::from_utf8(input)
-        .map(str::to_string)
+        .map(str::to_owned)
         .map_err(|e| PromptDecodeError::InvalidUtf8 {
             valid_up_to: e.valid_up_to(),
         })

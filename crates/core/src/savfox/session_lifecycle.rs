@@ -488,7 +488,7 @@ impl Session {
                 rollout_path,
             }),
         })
-        .chain(post_session_configured_events.into_iter());
+        .chain(post_session_configured_events);
         for event in events {
             sess.send_event_raw(event).await;
         }

@@ -549,7 +549,7 @@ pub(crate) async fn read_summary_from_rollout(
     };
     let model_provider = session_meta
         .model_provider_id()
-        .map(str::to_string)
+        .map(str::to_owned)
         .unwrap_or_else(|| fallback_provider.to_owned());
     let git_info = git.as_ref().map(map_git_info);
     let updated_at = updated_at.or_else(|| timestamp.clone());
@@ -622,7 +622,7 @@ fn extract_conversation_summary(
     let conversation_id = session_meta.id;
     let model_provider = session_meta
         .model_provider_id()
-        .map(str::to_string)
+        .map(str::to_owned)
         .unwrap_or_else(|| fallback_provider.to_owned());
     let git_info = git.map(map_git_info);
     let updated_at = updated_at.or_else(|| timestamp.clone());
@@ -666,7 +666,7 @@ async fn read_updated_at(path: &Path, created_at: Option<&str>) -> Option<String
             let updated_at: DateTime<Utc> = modified.into();
             updated_at.to_rfc3339_opts(SecondsFormat::Secs, true)
         });
-    updated_at.or_else(|| created_at.map(str::to_string))
+    updated_at.or_else(|| created_at.map(str::to_owned))
 }
 
 fn build_ephemeral_session(

@@ -32,7 +32,7 @@ pub(crate) fn builder_from_session_meta(
         created_at,
         session_meta.meta.source.clone(),
     );
-    builder.model_provider = session_meta.meta.model_provider_id().map(str::to_string);
+    builder.model_provider = session_meta.meta.model_provider_id().map(str::to_owned);
     builder.cwd = session_meta.meta.cwd.clone();
     builder.sandbox_policy = SandboxPolicy::ReadOnly;
     builder.approval_mode = AskForApproval::OnRequest;

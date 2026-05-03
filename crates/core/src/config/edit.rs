@@ -223,7 +223,7 @@ mod document_helpers {
         I: IntoIterator<Item = (&'a String, &'a String)>,
     {
         let mut entries: Vec<_> = pairs.into_iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(a, _)| *a);
         let mut table = TomlTable::new();
         table.set_implicit(false);
         for (key, val) in entries {

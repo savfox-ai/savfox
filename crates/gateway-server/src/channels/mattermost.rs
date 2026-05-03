@@ -92,7 +92,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         let name = body
             .get("user_name")
             .and_then(|v| v.as_str())
-            .map(ToString::to_string);
+            .map(str::to_owned);
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gateway_channel,

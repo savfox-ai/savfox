@@ -12,7 +12,7 @@ pub enum SenderKind {
 }
 
 impl SenderKind {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Human => "human",
             Self::SelfBot => "self_bot",
@@ -50,7 +50,7 @@ pub enum TriggerReason {
 }
 
 impl TriggerReason {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::DirectMessage => "direct_message",
             Self::PairRoom => "pair_room",
@@ -196,6 +196,7 @@ pub fn effective_conversation_kind(
     }
 }
 
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn decide_trigger(
     sender_kind: SenderKind,
     chat_type: Option<&str>,

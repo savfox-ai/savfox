@@ -122,7 +122,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                         .get("source")
                         .and_then(|s| s.get("userId"))
                         .and_then(|v| v.as_str())
-                        .map(ToString::to_string)
+                        .map(str::to_owned)
                 })
             });
         tokio::spawn(async move {

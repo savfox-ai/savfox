@@ -176,16 +176,16 @@ fn collect_agent_aliases(config: &Value, fallback_id: &str) -> Vec<String> {
     let mut aliases = Vec::new();
     for value in [
         Some(fallback_id.to_owned()),
-        config.get("id").and_then(Value::as_str).map(str::to_string),
+        config.get("id").and_then(Value::as_str).map(str::to_owned),
         config
             .get("name")
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(str::to_owned),
         config
             .get("identity")
             .and_then(|value| value.get("name"))
             .and_then(Value::as_str)
-            .map(str::to_string),
+            .map(str::to_owned),
     ]
     .into_iter()
     .flatten()
@@ -328,7 +328,7 @@ fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .map(str::to_owned);
 
     IdleReplyConfig {
         enabled,
@@ -357,7 +357,7 @@ pub(super) async fn load_agent_trigger_config(
             items
                 .iter()
                 .filter_map(Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -382,7 +382,7 @@ fn split_leading_alias<'a>(text: &'a str, alias: &str) -> Option<&'a str> {
         return None;
     }
 
-    for candidate in [format!("@{alias_lower}"), alias_lower.clone()] {
+    for candidate in [format!("@{alias_lower}"), alias_lower] {
         let Some(rest) = lower.strip_prefix(&candidate) else {
             continue;
         };
@@ -615,10 +615,7 @@ pub(super) async fn resolve_routed_agent(
     let routing_ctx = RoutingContext {
         channel: platform.to_owned(),
         channel_id: Some(channel_id.to_owned()),
-        sender_id: meta
-            .peer_id
-            .clone()
-            .or_else(|| name.map(std::string::ToString::to_string)),
+        sender_id: meta.peer_id.clone().or_else(|| name.map(str::to_owned)),
         group_id: meta.group_id.clone(),
         guild_id: meta.guild_id.clone(),
         team_id: meta.team_id.clone(),

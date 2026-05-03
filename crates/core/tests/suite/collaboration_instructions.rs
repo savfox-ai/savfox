@@ -25,7 +25,7 @@ fn collab_mode_with_mode_and_instructions(
         settings: Settings {
             model: "gpt-5.1".to_owned(),
             reasoning_effort: None,
-            developer_instructions: instructions.map(str::to_string),
+            developer_instructions: instructions.map(str::to_owned),
         },
     }
 }

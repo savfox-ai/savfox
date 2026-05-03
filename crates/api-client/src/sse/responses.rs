@@ -54,7 +54,7 @@ pub fn spawn_response_stream(
         .headers
         .get("X-Models-Etag")
         .and_then(|v| v.to_str().ok())
-        .map(ToString::to_string);
+        .map(str::to_owned);
     let reasoning_included = stream_response
         .headers
         .get(X_REASONING_INCLUDED_HEADER)

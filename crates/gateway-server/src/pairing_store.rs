@@ -98,7 +98,7 @@ pub(crate) async fn create_request_for_home(
 pub(crate) async fn list_requests() -> Result<Vec<PairingRecord>, String> {
     let home = savfox_home();
     let mut records = load_records_for_home(&home).await?;
-    records.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    records.sort_by_key(|record| std::cmp::Reverse(record.updated_at));
     Ok(records)
 }
 

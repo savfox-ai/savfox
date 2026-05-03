@@ -602,194 +602,181 @@ pub(crate) async fn handle_chat_send(
                             last_token_usage = Some(info.last_token_usage.clone());
                         }
                     }
-                    EventMsg::AgentMessage(msg) => {
-                        if !msg.message.is_empty() {
-                            reply.push_str(&msg.message);
+                    EventMsg::AgentMessage(msg) if !msg.message.is_empty() => {
+                        reply.push_str(&msg.message);
 
-                            session_mgr
-                                .broadcast_to_all(
-                                    "agent.stream",
-                                    json!({
-                                        "request_id": request_id,
-                                        "session_id": session_id,
-                                        "kind": "text",
-                                        "delta": msg.message,
-                                    }),
-                                )
-                                .await;
+                        session_mgr
+                            .broadcast_to_all(
+                                "agent.stream",
+                                json!({
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "kind": "text",
+                                    "delta": msg.message,
+                                }),
+                            )
+                            .await;
 
-                            if text_block_id.is_none() {
-                                let id =
-                                    next_stream_block_id(&request_id, "text", &mut block_counter);
-                                emit_stream_block_start(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    &id,
-                                    "text",
-                                )
-                                .await;
-                                text_block_id = Some(id);
-                            }
+                        if text_block_id.is_none() {
+                            let id = next_stream_block_id(&request_id, "text", &mut block_counter);
+                            emit_stream_block_start(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                &id,
+                                "text",
+                            )
+                            .await;
+                            text_block_id = Some(id);
+                        }
 
-                            if let Some(block_id) = text_block_id.as_ref() {
-                                emit_stream_block_delta(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "text",
-                                    &msg.message,
-                                )
-                                .await;
-                                let completed = {
-                                    let entry = block_progress.entry(block_id.clone()).or_insert(0);
-                                    *entry += msg.message.chars().count();
-                                    *entry
-                                };
-                                emit_stream_block_progress(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "text",
-                                    completed,
-                                    "streaming",
-                                )
-                                .await;
-                            }
+                        if let Some(block_id) = text_block_id.as_ref() {
+                            emit_stream_block_delta(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "text",
+                                &msg.message,
+                            )
+                            .await;
+                            let completed = {
+                                let entry = block_progress.entry(block_id.clone()).or_insert(0);
+                                *entry += msg.message.chars().count();
+                                *entry
+                            };
+                            emit_stream_block_progress(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "text",
+                                completed,
+                                "streaming",
+                            )
+                            .await;
                         }
                     }
-                    EventMsg::AgentMessageDelta(delta) => {
-                        if !delta.delta.is_empty() {
-                            reply.push_str(&delta.delta);
-                            session_mgr
-                                .broadcast_to_all(
-                                    "agent.stream",
-                                    json!({
-                                        "request_id": request_id,
-                                        "session_id": session_id,
-                                        "kind": "text",
-                                        "delta": delta.delta,
-                                    }),
-                                )
-                                .await;
+                    EventMsg::AgentMessageDelta(delta) if !delta.delta.is_empty() => {
+                        reply.push_str(&delta.delta);
+                        session_mgr
+                            .broadcast_to_all(
+                                "agent.stream",
+                                json!({
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "kind": "text",
+                                    "delta": delta.delta,
+                                }),
+                            )
+                            .await;
 
-                            if text_block_id.is_none() {
-                                let id =
-                                    next_stream_block_id(&request_id, "text", &mut block_counter);
-                                emit_stream_block_start(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    &id,
-                                    "text",
-                                )
-                                .await;
-                                text_block_id = Some(id);
-                            }
+                        if text_block_id.is_none() {
+                            let id = next_stream_block_id(&request_id, "text", &mut block_counter);
+                            emit_stream_block_start(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                &id,
+                                "text",
+                            )
+                            .await;
+                            text_block_id = Some(id);
+                        }
 
-                            if let Some(block_id) = text_block_id.as_ref() {
-                                emit_stream_block_delta(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "text",
-                                    &delta.delta,
-                                )
-                                .await;
-                                let completed = {
-                                    let entry = block_progress.entry(block_id.clone()).or_insert(0);
-                                    *entry += delta.delta.chars().count();
-                                    *entry
-                                };
-                                emit_stream_block_progress(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "text",
-                                    completed,
-                                    "streaming",
-                                )
-                                .await;
-                            }
+                        if let Some(block_id) = text_block_id.as_ref() {
+                            emit_stream_block_delta(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "text",
+                                &delta.delta,
+                            )
+                            .await;
+                            let completed = {
+                                let entry = block_progress.entry(block_id.clone()).or_insert(0);
+                                *entry += delta.delta.chars().count();
+                                *entry
+                            };
+                            emit_stream_block_progress(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "text",
+                                completed,
+                                "streaming",
+                            )
+                            .await;
                         }
                     }
-                    EventMsg::AgentReasoningDelta(delta) => {
-                        if !delta.delta.is_empty() {
-                            if thinking_block_id.is_none() {
-                                let id = next_stream_block_id(
-                                    &request_id,
-                                    "thinking",
-                                    &mut block_counter,
-                                );
-                                emit_stream_block_start(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    &id,
-                                    "thinking",
-                                )
-                                .await;
-                                thinking_block_id = Some(id);
-                            }
+                    EventMsg::AgentReasoningDelta(delta) if !delta.delta.is_empty() => {
+                        if thinking_block_id.is_none() {
+                            let id =
+                                next_stream_block_id(&request_id, "thinking", &mut block_counter);
+                            emit_stream_block_start(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                &id,
+                                "thinking",
+                            )
+                            .await;
+                            thinking_block_id = Some(id);
+                        }
 
-                            session_mgr
-                                .broadcast_to_all(
-                                    "agent.stream",
-                                    json!({
-                                        "request_id": request_id,
-                                        "session_id": session_id,
-                                        "kind": "reasoning",
-                                        "delta": delta.delta,
-                                    }),
-                                )
-                                .await;
+                        session_mgr
+                            .broadcast_to_all(
+                                "agent.stream",
+                                json!({
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "kind": "reasoning",
+                                    "delta": delta.delta,
+                                }),
+                            )
+                            .await;
 
-                            if let Some(block_id) = thinking_block_id.as_ref() {
-                                emit_stream_block_delta(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "thinking",
-                                    &delta.delta,
-                                )
-                                .await;
-                                let completed = {
-                                    let entry = block_progress.entry(block_id.clone()).or_insert(0);
-                                    *entry += delta.delta.chars().count();
-                                    *entry
-                                };
-                                emit_stream_block_progress(
-                                    session_mgr,
-                                    &request_id,
-                                    &session_id,
-                                    block_id,
-                                    "thinking",
-                                    completed,
-                                    "streaming",
-                                )
-                                .await;
-                            }
+                        if let Some(block_id) = thinking_block_id.as_ref() {
+                            emit_stream_block_delta(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "thinking",
+                                &delta.delta,
+                            )
+                            .await;
+                            let completed = {
+                                let entry = block_progress.entry(block_id.clone()).or_insert(0);
+                                *entry += delta.delta.chars().count();
+                                *entry
+                            };
+                            emit_stream_block_progress(
+                                session_mgr,
+                                &request_id,
+                                &session_id,
+                                block_id,
+                                "thinking",
+                                completed,
+                                "streaming",
+                            )
+                            .await;
                         }
                     }
-                    EventMsg::AgentReasoningRawContentDelta(delta) => {
-                        if !delta.delta.is_empty() {
-                            session_mgr
-                                .broadcast_to_all(
-                                    "agent.stream",
-                                    json!({
-                                        "request_id": request_id,
-                                        "session_id": session_id,
-                                        "kind": "reasoning_raw",
-                                        "delta": delta.delta,
-                                    }),
-                                )
-                                .await;
-                        }
+                    EventMsg::AgentReasoningRawContentDelta(delta) if !delta.delta.is_empty() => {
+                        session_mgr
+                            .broadcast_to_all(
+                                "agent.stream",
+                                json!({
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "kind": "reasoning_raw",
+                                    "delta": delta.delta,
+                                }),
+                            )
+                            .await;
                     }
                     EventMsg::McpToolCallBegin(begin) => {
                         let block_id =
@@ -1180,7 +1167,7 @@ pub(crate) async fn handle_sessions_list(
     let ws_ids = session_mgr.session_ids().await;
     let persistent = session_store.list().await;
     let mut sorted_sessions = persistent.clone();
-    sorted_sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    sorted_sessions.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
 
     let persistent_keys: Vec<String> = sorted_sessions
         .iter()
@@ -1610,7 +1597,7 @@ pub(crate) async fn handle_identity_link(params: &Value, channel: &GatewayChanne
             items
                 .iter()
                 .filter_map(|v| v.as_str())
-                .map(std::string::ToString::to_string)
+                .map(str::to_owned)
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

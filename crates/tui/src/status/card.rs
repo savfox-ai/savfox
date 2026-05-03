@@ -161,7 +161,7 @@ impl StatusHistoryCell {
         let agents_summary = compose_agents_summary(config);
         let model_provider = format_model_provider(config);
         let account = compose_account_display(auth_manager, plan_type);
-        let session_id = session_id.as_ref().map(std::string::ToString::to_string);
+        let session_id = session_id.as_ref().map(|session_id| session_id.to_string());
         let forked_from = forked_from.map(|id| id.to_string());
         let default_usage = TokenUsage::default();
         let (context_usage, context_window) = match token_info {
@@ -189,7 +189,7 @@ impl StatusHistoryCell {
             approval,
             sandbox,
             agents_summary,
-            collaboration_mode: collaboration_mode.map(ToString::to_string),
+            collaboration_mode: collaboration_mode.map(str::to_owned),
             model_provider,
             account,
             session_name,
@@ -370,7 +370,7 @@ impl HistoryCell for StatusHistoryCell {
         let mut labels: Vec<String> =
             vec!["Model", "Directory", "Approval", "Sandbox", "Agents.md"]
                 .into_iter()
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect();
         let mut seen: BTreeSet<String> = labels.iter().cloned().collect();
         let session_name = normalized_session_name(self.session_name.as_deref());

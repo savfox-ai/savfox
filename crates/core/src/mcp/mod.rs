@@ -255,9 +255,9 @@ pub(crate) async fn collect_mcp_snapshot_from_manager(
                             let (uri, resource_name) = match value {
                                 Value::Object(obj) => (
                                     obj.get("uri")
-                                        .and_then(|v| v.as_str().map(ToString::to_string)),
+                                        .and_then(|v| v.as_str().map(str::to_owned)),
                                     obj.get("name")
-                                        .and_then(|v| v.as_str().map(ToString::to_string)),
+                                        .and_then(|v| v.as_str().map(str::to_owned)),
                                 ),
                                 _ => (None, None),
                             };
@@ -291,9 +291,9 @@ pub(crate) async fn collect_mcp_snapshot_from_manager(
                                 Value::Object(obj) => (
                                     obj.get("uriTemplate")
                                         .or_else(|| obj.get("uri_template"))
-                                        .and_then(|v| v.as_str().map(ToString::to_string)),
+                                        .and_then(|v| v.as_str().map(str::to_owned)),
                                     obj.get("name")
-                                        .and_then(|v| v.as_str().map(ToString::to_string)),
+                                        .and_then(|v| v.as_str().map(str::to_owned)),
                                 ),
                                 _ => (None, None),
                             };

@@ -162,15 +162,11 @@ pub fn CommandPalette(open: bool, on_close: EventHandler<()>) -> Element {
                                 query.set(String::new());
                                 selected.set(0);
                             }
-                            Key::ArrowDown => {
-                                if count > 0 {
-                                    selected.set((selected() + 1) % count);
-                                }
+                            Key::ArrowDown if count > 0 => {
+                                selected.set((selected() + 1) % count);
                             }
-                            Key::ArrowUp => {
-                                if count > 0 {
-                                    selected.set(selected().checked_sub(1).unwrap_or(count - 1));
-                                }
+                            Key::ArrowUp if count > 0 => {
+                                selected.set(selected().checked_sub(1).unwrap_or(count - 1));
                             }
                             Key::Enter => {
                                 select_and_close(selected());

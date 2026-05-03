@@ -47,27 +47,27 @@ pub fn parse_start_meta(payload: &Value) -> MattermostStartMeta {
             .get("user_id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
         username: payload
             .get("user_name")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
         channel_id: payload
             .get("channel_id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
         root_id: payload
             .get("root_id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
         post_id: payload
             .get("post_id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
     }
 }
 

@@ -194,7 +194,7 @@ fn normalize_connector_value(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
 }
 
 #[must_use]

@@ -281,22 +281,21 @@ fn extract_messages(items: &[RolloutItem]) -> Vec<Value> {
     let mut from_events: Vec<(usize, String, String, &'static str)> = Vec::new();
     for (index, item) in items.iter().enumerate() {
         match item {
-            RolloutItem::EventMsg(EventMsg::UserMessage(message)) => {
+            RolloutItem::EventMsg(EventMsg::UserMessage(message))
                 if !message.message.is_empty()
-                    && !is_internal_session_message(message.message.as_str())
-                {
-                    from_events.push((index, "user".to_owned(), message.message.clone(), "event"));
-                }
+                    && !is_internal_session_message(message.message.as_str()) =>
+            {
+                from_events.push((index, "user".to_owned(), message.message.clone(), "event"));
             }
-            RolloutItem::EventMsg(EventMsg::AgentMessage(message)) => {
-                if !message.message.is_empty() {
-                    from_events.push((
-                        index,
-                        "assistant".to_owned(),
-                        message.message.clone(),
-                        "event",
-                    ));
-                }
+            RolloutItem::EventMsg(EventMsg::AgentMessage(message))
+                if !message.message.is_empty() =>
+            {
+                from_events.push((
+                    index,
+                    "assistant".to_owned(),
+                    message.message.clone(),
+                    "event",
+                ));
             }
             _ => {}
         }

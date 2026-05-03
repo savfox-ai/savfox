@@ -416,7 +416,7 @@ fn replace_text_elements_with_sentinels(
         replacements.push(ElementReplacement {
             sentinel,
             text: rest[start..end].to_string(),
-            placeholder: elem.placeholder(rest).map(str::to_string),
+            placeholder: elem.placeholder(rest).map(str::to_owned),
         });
         cursor = end;
     }

@@ -13,7 +13,7 @@ fn discord_message_id(payload: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
+        .map(str::to_owned)
 }
 
 fn discord_message_content(payload: &Value) -> &str {
@@ -29,7 +29,7 @@ fn discord_channel_id(payload: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
+        .map(str::to_owned)
 }
 
 fn split_discord_command(text: &str) -> Option<(String, String)> {
@@ -106,10 +106,8 @@ fn strip_leading_bot_mention<'a>(text: &'a str, bot_user_id: &str) -> Option<&'a
     let bang_mention = format!("<@!{bot_user_id}>");
     let rest = if let Some(rest) = trimmed.strip_prefix(&mention) {
         rest
-    } else if let Some(rest) = trimmed.strip_prefix(&bang_mention) {
-        rest
     } else {
-        return None;
+        trimmed.strip_prefix(&bang_mention)?
     };
 
     Some(rest.trim_start_matches(|ch: char| ch.is_whitespace() || ch == ':' || ch == ','))
@@ -329,14 +327,14 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             payload
                 .pointer("/author/global_name")
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .or_else(|| {
             payload
@@ -344,7 +342,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .or_else(|| {
             payload
@@ -352,7 +350,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .or_else(|| {
             payload
@@ -360,7 +358,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
 }
 

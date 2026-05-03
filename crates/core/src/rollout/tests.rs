@@ -30,7 +30,7 @@ const TEST_PROVIDER: &str = "test-provider";
 fn provider_vec(providers: &[&str]) -> Vec<String> {
     providers
         .iter()
-        .map(std::string::ToString::to_string)
+        .map(|provider| (*provider).to_owned())
         .collect()
 }
 
@@ -278,7 +278,7 @@ async fn test_list_conversations_latest_first() {
                 .first()
                 .and_then(|value| value.get("id"))
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert_eq!(ids, vec![u3.to_string(), u2.to_string(), u1.to_string()]);
@@ -371,7 +371,7 @@ async fn test_pagination_cursor() {
                 .first()
                 .and_then(|value| value.get("id"))
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert_eq!(page1_ids, vec![u5.to_string(), u4.to_string()]);
@@ -397,7 +397,7 @@ async fn test_pagination_cursor() {
                 .first()
                 .and_then(|value| value.get("id"))
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert_eq!(page2_ids, vec![u3.to_string(), u2.to_string()]);
@@ -759,7 +759,7 @@ async fn test_stable_ordering_same_second_pagination() {
                 .first()
                 .and_then(|value| value.get("id"))
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert_eq!(page1_ids, vec![u3.to_string(), u2.to_string()]);
@@ -922,7 +922,7 @@ async fn test_model_provider_filter_selects_only_matching_sessions() -> Result<(
                 .first()
                 .and_then(|value| value.get("id"))
                 .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert!(openai_ids.contains(&openai_id_str));

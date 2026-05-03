@@ -105,7 +105,7 @@ impl SessionEntry {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .or_else(|| self.title.clone())
             .or_else(|| self.subject.clone())
             .or_else(|| self.sender.as_ref().and_then(|s| s.name.clone()))

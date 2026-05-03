@@ -110,8 +110,8 @@ where
             target: metadata.target().to_owned(),
             message: visitor.message,
             session_id,
-            module_path: metadata.module_path().map(ToString::to_string),
-            file: metadata.file().map(ToString::to_string),
+            module_path: metadata.module_path().map(str::to_owned),
+            file: metadata.file().map(str::to_owned),
             line: metadata.line().map(|line| line as i64),
         };
 

@@ -64,7 +64,7 @@ impl<T: HttpTransport, A: AuthProvider> ModelsClient<T, A> {
             .headers
             .get(ETAG)
             .and_then(|value| value.to_str().ok())
-            .map(ToString::to_string);
+            .map(str::to_owned);
 
         let ModelsResponse { models } = decode_models_response(&resp.body)?;
 

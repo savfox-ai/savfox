@@ -5,10 +5,9 @@
 //! reqwest clients so login, model, update, and registry requests can all share
 //! the same behavior.
 
-use std::env;
-use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use rustls_pemfile::Item;
 use thiserror::Error;
@@ -79,14 +78,14 @@ impl From<BuildCustomCaTransportError> for io::Error {
     fn from(error: BuildCustomCaTransportError) -> Self {
         match error {
             BuildCustomCaTransportError::ReadCaFile { ref source, .. } => {
-                io::Error::new(source.kind(), error)
+                Self::new(source.kind(), error)
             }
             BuildCustomCaTransportError::InvalidCaFile { .. }
             | BuildCustomCaTransportError::RegisterCertificate { .. } => {
-                io::Error::new(io::ErrorKind::InvalidData, error)
+                Self::new(io::ErrorKind::InvalidData, error)
             }
             BuildCustomCaTransportError::BuildClientWithCustomCa { .. }
-            | BuildCustomCaTransportError::BuildClientWithSystemRoots(_) => io::Error::other(error),
+            | BuildCustomCaTransportError::BuildClientWithSystemRoots(_) => Self::other(error),
         }
     }
 }
@@ -214,16 +213,15 @@ impl ConfiguredCaBundle {
                     })?;
                     certificates.push(der.to_vec());
                 }
-                Item::Crl(_) => {
-                    if !ignored_crl {
-                        info!(
-                            source_env = self.source_env,
-                            ca_path = %self.path.display(),
-                            "ignoring X509 CRL entries found in custom CA bundle"
-                        );
-                        ignored_crl = true;
-                    }
+                Item::Crl(_) if !ignored_crl => {
+                    info!(
+                        source_env = self.source_env,
+                        ca_path = %self.path.display(),
+                        "ignoring X509 CRL entries found in custom CA bundle"
+                    );
+                    ignored_crl = true;
                 }
+                Item::Crl(_) => {}
                 _ => {}
             }
         }

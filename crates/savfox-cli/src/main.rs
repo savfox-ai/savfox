@@ -1153,7 +1153,7 @@ mod tests {
             session_id: conversation_id
                 .map(SessionId::from_string)
                 .map(Result::unwrap),
-            session_name: session_name.map(str::to_string),
+            session_name: session_name.map(str::to_owned),
             model_display: Some("gpt-5.3-codex xhigh".to_owned()),
             directory: Some(PathBuf::from("workspace")),
             update_action: None,

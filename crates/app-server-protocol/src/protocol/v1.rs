@@ -1948,7 +1948,7 @@ impl From<CoreTextElement> for TextElement {
     fn from(value: CoreTextElement) -> Self {
         Self::new(
             value.byte_range.into(),
-            value._placeholder_for_conversion_only().map(str::to_string),
+            value._placeholder_for_conversion_only().map(str::to_owned),
         )
     }
 }

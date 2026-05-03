@@ -306,14 +306,14 @@ fn parse_string_list(value: &Value) -> Vec<String> {
             .split(['\n', ','])
             .map(str::trim)
             .filter(|part| !part.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .collect(),
         Value::Array(items) => items
             .iter()
             .filter_map(Value::as_str)
             .map(str::trim)
             .filter(|part| !part.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .collect(),
         _ => Vec::new(),
     }

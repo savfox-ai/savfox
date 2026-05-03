@@ -9,7 +9,7 @@ fn non_empty(map: &Map<String, serde_json::Value>, keys: &[&str]) -> Option<Stri
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
     })
 }
 

@@ -252,7 +252,7 @@ fn function_call_output_text(body: &Value, call_id: &str) -> Option<String> {
         })
         .and_then(|item| item.get("output"))
         .and_then(Value::as_str)
-        .map(str::to_string)
+        .map(str::to_owned)
 }
 
 fn create_config_toml(savfox_home: &Path, server_uri: &str) -> std::io::Result<()> {

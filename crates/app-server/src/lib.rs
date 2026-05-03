@@ -22,10 +22,12 @@ use savfox_core::config_loader::{
 };
 use savfox_core::{ExecPolicyError, check_execpolicy_for_warnings};
 use savfox_feedback::SavfoxFeedback;
-use tokio::io::{AsyncWriteExt, {self}};
+use tokio::io::{
+    AsyncWriteExt, {self},
+};
 use tokio::sync::mpsc;
 use toml::Value as TomlValue;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -43,6 +45,9 @@ mod message_processor;
 mod models;
 mod outgoing_message;
 mod savfox_message_processor;
+
+#[cfg(test)]
+pub(crate) const CHANNEL_CAPACITY: usize = DEFAULT_CHANNEL_CAPACITY;
 
 fn config_warning_from_error(
     summary: impl Into<String>,
@@ -174,10 +179,8 @@ pub async fn run_main(
     default_analytics_enabled: bool,
 ) -> IoResult<()> {
     // Set up channels.
-    let (incoming_tx, mut incoming_rx) =
-        mpsc::channel::<JsonRpcMessage>(DEFAULT_CHANNEL_CAPACITY);
-    let (outgoing_tx, mut outgoing_rx) =
-        mpsc::channel::<OutgoingMessage>(DEFAULT_CHANNEL_CAPACITY);
+    let (incoming_tx, mut incoming_rx) = mpsc::channel::<JsonRpcMessage>(DEFAULT_CHANNEL_CAPACITY);
+    let (outgoing_tx, mut outgoing_rx) = mpsc::channel::<OutgoingMessage>(DEFAULT_CHANNEL_CAPACITY);
 
     // Task: read from stdin, push to `incoming_tx`.
     let stdin_reader_handle =

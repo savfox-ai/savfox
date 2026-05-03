@@ -386,7 +386,7 @@ fn tmux_version_from_env(env: &dyn Environment) -> Option<String> {
 fn split_term_program_and_version(value: &str) -> (String, Option<String>) {
     let mut parts = value.split_whitespace();
     let program = parts.next().unwrap_or_default().to_owned();
-    let version = parts.next().map(ToString::to_string);
+    let version = parts.next().map(str::to_owned);
     (program, version)
 }
 
@@ -488,8 +488,8 @@ mod tests {
 
         fn with_tmux_client_info(mut self, termtype: Option<&str>, termname: Option<&str>) -> Self {
             self.tmux_client_info = TmuxClientInfo {
-                termtype: termtype.map(ToString::to_string),
-                termname: termname.map(ToString::to_string),
+                termtype: termtype.map(str::to_owned),
+                termname: termname.map(str::to_owned),
             };
             self
         }
@@ -514,9 +514,9 @@ mod tests {
     ) -> TerminalInfo {
         TerminalInfo {
             name,
-            term_program: term_program.map(ToString::to_string),
-            version: version.map(ToString::to_string),
-            term: term.map(ToString::to_string),
+            term_program: term_program.map(str::to_owned),
+            version: version.map(str::to_owned),
+            term: term.map(str::to_owned),
             multiplexer,
         }
     }

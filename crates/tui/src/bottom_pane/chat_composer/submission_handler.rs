@@ -42,7 +42,7 @@ impl ChatComposer {
                 if new_start >= new_end {
                     return None;
                 }
-                let placeholder = trimmed.get(new_start..new_end).map(str::to_string);
+                let placeholder = trimmed.get(new_start..new_end).map(str::to_owned);
                 Some(TextElement::new(
                     ByteRange {
                         start: new_start,
@@ -90,7 +90,7 @@ impl ChatComposer {
                 rebuilt.push_str(&text[cursor..start]);
             }
             let elem_text = &text[start..end];
-            let placeholder = elem.placeholder(text).map(str::to_string);
+            let placeholder = elem.placeholder(text).map(str::to_owned);
             let replacement = placeholder
                 .as_deref()
                 .and_then(|ph| pending_by_placeholder.get_mut(ph))

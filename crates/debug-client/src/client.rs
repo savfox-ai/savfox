@@ -283,11 +283,10 @@ impl AppServerClient {
             };
 
             match message {
-                JsonRpcMessage::Response(response) => {
-                    if &response.id == request_id {
-                        return Ok(response);
-                    }
+                JsonRpcMessage::Response(response) if &response.id == request_id => {
+                    return Ok(response);
                 }
+                JsonRpcMessage::Response(_) => {}
                 JsonRpcMessage::Request(request) => {
                     let _ = handle_server_request(request, &stdin);
                 }

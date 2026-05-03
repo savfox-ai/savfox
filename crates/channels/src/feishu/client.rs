@@ -98,7 +98,7 @@ pub async fn send_message_returning_id(
         .get("data")
         .and_then(|d| d.get("message_id"))
         .and_then(|v| v.as_str())
-        .map(ToString::to_string);
+        .map(str::to_owned);
     Ok(mid)
 }
 

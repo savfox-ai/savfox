@@ -105,7 +105,7 @@ impl ChatComposer {
 
         let image_placeholders: HashSet<String> = text_elements
             .iter()
-            .filter_map(|elem| elem.placeholder(&text).map(str::to_string))
+            .filter_map(|elem| elem.placeholder(&text).map(str::to_owned))
             .collect();
         for (idx, path) in local_image_paths.into_iter().enumerate() {
             let placeholder = local_image_label_text(idx + 1);

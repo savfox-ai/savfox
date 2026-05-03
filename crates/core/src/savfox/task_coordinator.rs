@@ -132,11 +132,10 @@ pub(super) async fn submission_loop(
             } => {
                 handlers::resolve_elicitation(&sess, server_name, request_id, decision).await;
             }
-            Op::Shutdown => {
-                if handlers::shutdown(&sess, sub.id.clone()).await {
-                    break;
-                }
+            Op::Shutdown if handlers::shutdown(&sess, sub.id.clone()).await => {
+                break;
             }
+            Op::Shutdown => {}
             Op::Review { review_request } => {
                 handlers::review(&sess, &config, sub.id.clone(), review_request).await;
             }

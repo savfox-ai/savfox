@@ -39,7 +39,7 @@ pub async fn fetch_access_token(
     payload
         .get("accessToken")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string)
+        .map(str::to_owned)
         .ok_or_else(|| anyhow::anyhow!("DingTalk accessToken response missing accessToken field"))
 }
 
@@ -83,7 +83,7 @@ pub async fn send_dm_message_returning_id(
     Ok(payload
         .get("processQueryKey")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string))
+        .map(str::to_owned))
 }
 
 /// Send a text message to a group conversation and return the `processQueryKey`.
@@ -126,7 +126,7 @@ pub async fn send_group_message_returning_id(
     Ok(payload
         .get("processQueryKey")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string))
+        .map(str::to_owned))
 }
 
 /// Recall a DM message by its `processQueryKey`.

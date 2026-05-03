@@ -17,8 +17,8 @@ pub(crate) fn collect_tool_mentions_from_messages(messages: &[String]) -> Collec
     let mut paths = HashSet::new();
     for message in messages {
         let mentions = extract_tool_mentions(message);
-        plain_names.extend(mentions.plain_names().map(str::to_string));
-        paths.extend(mentions.paths().map(str::to_string));
+        plain_names.extend(mentions.plain_names().map(str::to_owned));
+        paths.extend(mentions.paths().map(str::to_owned));
     }
     CollectedToolMentions { plain_names, paths }
 }

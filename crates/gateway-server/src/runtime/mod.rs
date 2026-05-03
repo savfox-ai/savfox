@@ -6,10 +6,7 @@
 
 #[path = "../agent_routing.rs"]
 pub(crate) mod agent_routing;
-pub use crate::channel;
-pub use crate::identity_links;
-pub use crate::message_queue;
-pub use crate::pairing_store;
+pub use crate::{channel, identity_links, message_queue, pairing_store};
 #[path = "../routing/mod.rs"]
 pub mod routing;
 #[path = "../session/mod.rs"]

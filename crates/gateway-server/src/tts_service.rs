@@ -412,7 +412,7 @@ pub(crate) async fn convert(
             let voice_family = model.as_deref().unwrap_or("Neural2");
             let voice_name = voice
                 .as_deref()
-                .map(str::to_string)
+                .map(str::to_owned)
                 .unwrap_or_else(|| default_google_voice(locale, voice_family));
             let ssml = params.get("ssml").and_then(|v| v.as_str());
             let input = if let Some(ssml) = ssml {

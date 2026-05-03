@@ -374,7 +374,7 @@ fn model_test_extract_request_id(headers: &reqwest::header::HeaderMap) -> Option
         .or_else(|| headers.get("x-oai-request-id"))
         .or_else(|| headers.get("cf-ray"))
         .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
+        .map(str::to_owned)
 }
 
 fn model_test_truncate_oneline(input: &str, max_chars: usize) -> String {
@@ -399,7 +399,7 @@ fn model_test_nonempty_string(value: Option<&Value>) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|item| !item.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
 }
 
 fn model_test_remote_requested(params: &Value) -> bool {
@@ -655,7 +655,7 @@ fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
             Value::Object(provider) => provider
                 .get("id")
                 .and_then(Value::as_str)
-                .map(ToString::to_string),
+                .map(str::to_owned),
             _ => None,
         })
         .map(|value| canonical_models_provider_id(&value))
@@ -672,7 +672,7 @@ fn extract_model_provider_and_slug(entry: &Value) -> Option<(String, String)> {
         .or_else(|| entry.get("code").and_then(Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
+        .map(str::to_owned)
         .or_else(|| parsed_from_id.map(|(_, model_slug)| model_slug))?;
 
     Some((provider_id, model_slug))
@@ -1280,7 +1280,7 @@ pub(crate) async fn handle_models_import(
                     .and_then(|v| v.as_str())
                     .map(str::trim)
                     .filter(|slug| !slug.is_empty())
-                    .map(ToString::to_string)
+                    .map(str::to_owned)
             })?;
         if normalized_model.trim().is_empty() {
             return None;

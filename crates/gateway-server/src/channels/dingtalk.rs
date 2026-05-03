@@ -52,7 +52,7 @@ impl DingtalkActionSink for DingtalkRuntimeSink {
                 },
                 thread_id: meta.thread_id.clone(),
                 parent_thread_id: meta.thread_id,
-                reply_target: meta.reply_target.or_else(|| message_id.map(str::to_string)),
+                reply_target: meta.reply_target.or_else(|| message_id.map(str::to_owned)),
                 chat_type: meta.chat_type,
                 ..runtime::StartThreadMeta::default()
             };

@@ -11,7 +11,7 @@ fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
     })
 }
 
@@ -184,7 +184,7 @@ pub fn parse_start_meta(payload: &Value) -> QQStartMeta {
         .get("message_type")
         .or_else(|| payload.get("chat_type"))
         .and_then(Value::as_str)
-        .map(ToString::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             if group_id.is_some() || channel_id.is_some() || guild_id.is_some() {
                 Some("group".to_owned())

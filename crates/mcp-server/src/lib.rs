@@ -13,7 +13,9 @@ use savfox_common::service_runtime::{
 };
 use savfox_core::config::Config;
 use serde_json::Value;
-use tokio::io::{AsyncWriteExt, {self}};
+use tokio::io::{
+    AsyncWriteExt, {self},
+};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
@@ -37,8 +39,7 @@ pub async fn run_main(savfox_linux_sandbox_exe: Option<PathBuf>) -> IoResult<()>
     init_stderr_tracing("info");
 
     // Set up channels.
-    let (incoming_tx, mut incoming_rx) =
-        mpsc::channel::<IncomingMessage>(DEFAULT_CHANNEL_CAPACITY);
+    let (incoming_tx, mut incoming_rx) = mpsc::channel::<IncomingMessage>(DEFAULT_CHANNEL_CAPACITY);
     let (outgoing_tx, mut outgoing_rx) = mpsc::unbounded_channel::<OutgoingMessage>();
 
     // Task: read from stdin, push to `incoming_tx`.

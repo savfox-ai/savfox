@@ -86,7 +86,7 @@ pub async fn send_message_returning_id(
     Ok(resp_body
         .get("id")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string))
+        .map(str::to_owned))
 }
 
 /// Edit an existing Mattermost post.

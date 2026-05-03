@@ -1,10 +1,11 @@
 ---
 source: crates/tui/src/app/mod.rs
-assertion_line: 3258
+assertion_line: 3257
 expression: model_migration_copy_to_plain_text(&copy)
 ---
-**Savfox just got an upgrade. Introducing gpt-5.2-codex.**
 
-Savfox is now powered by gpt-5.2-codex, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about gpt-5.2-codex at https://openai.com/index/introducing-gpt-5-2-savfox
+                **Savfox just got an upgrade. Introducing gpt-5.2-codex.**
 
-You can continue using gpt-5-codex if you prefer.
+                Savfox is now powered by gpt-5.2-codex, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about gpt-5.2-codex at https://openai.com/index/introducing-gpt-5-2-savfox
+
+                You can continue using gpt-5-codex if you prefer.

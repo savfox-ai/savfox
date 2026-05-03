@@ -58,7 +58,7 @@ pub fn parse_start_meta(payload: &Value) -> WhatsAppStartMeta {
         .get("from")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .map(ToString::to_string);
+        .map(str::to_owned);
 
     // Try to resolve display name from contacts array.
     let display_name = first_value(payload)
@@ -69,7 +69,7 @@ pub fn parse_start_meta(payload: &Value) -> WhatsAppStartMeta {
         .and_then(|p| p.get("name"))
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .map(ToString::to_string);
+        .map(str::to_owned);
 
     WhatsAppStartMeta {
         from,
@@ -78,12 +78,12 @@ pub fn parse_start_meta(payload: &Value) -> WhatsAppStartMeta {
             .get("id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
         timestamp: message
             .get("timestamp")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string),
+            .map(str::to_owned),
     }
 }
 

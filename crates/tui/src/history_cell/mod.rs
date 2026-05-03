@@ -853,7 +853,7 @@ fn with_border_internal(
         let span_count = line.spans.len();
         let mut spans: Vec<Span<'static>> = Vec::with_capacity(span_count + 4);
         spans.push(Span::from("│ ").dim());
-        spans.extend(line.into_iter());
+        spans.extend(line);
         if used_width < content_width {
             spans.push(Span::from(" ".repeat(content_width - used_width)).dim());
         }
@@ -1423,7 +1423,7 @@ pub(crate) fn new_mcp_tools_output(
     }
 
     let mut servers: Vec<_> = config.mcp_servers.iter().collect();
-    servers.sort_by(|(a, _), (b, _)| a.cmp(b));
+    servers.sort_by_key(|(a, _)| *a);
 
     for (server, cfg) in servers {
         let prefix = format!("mcp__{server}__");
@@ -1443,7 +1443,11 @@ pub(crate) fn new_mcp_tools_output(
             header.push(" ".into());
             header.push("(disabled)".red());
             lines.push(header.into());
-            if let Some(reason) = cfg.disabled_reason.as_ref().map(ToString::to_string) {
+            if let Some(reason) = cfg
+                .disabled_reason
+                .as_ref()
+                .map(|reason| reason.to_string())
+            {
                 lines.push(vec!["    • Reason: ".into(), reason.dim()].into());
             }
             lines.push(Line::from(""));
@@ -1489,7 +1493,7 @@ pub(crate) fn new_mcp_tools_output(
                     && !headers.is_empty()
                 {
                     let mut pairs: Vec<_> = headers.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(a, _)| *a);
                     let display = pairs
                         .into_iter()
                         .map(|(name, _)| format!("{name}=*****"))
@@ -1501,7 +1505,7 @@ pub(crate) fn new_mcp_tools_output(
                     && !headers.is_empty()
                 {
                     let mut pairs: Vec<_> = headers.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(a, _)| *a);
                     let display = pairs
                         .into_iter()
                         .map(|(name, var)| format!("{name}={var}"))
@@ -2008,8 +2012,8 @@ mod tests {
         serde_json::to_value(Content::resource_link(rmcp::model::RawResource {
             uri: uri.to_owned(),
             name: name.to_owned(),
-            title: title.map(str::to_string),
-            description: description.map(str::to_string),
+            title: title.map(str::to_owned),
+            description: description.map(str::to_owned),
             mime_type: None,
             size: None,
             icons: None,

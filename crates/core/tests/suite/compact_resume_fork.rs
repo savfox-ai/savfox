@@ -832,11 +832,10 @@ async fn compact_resume_after_second_compaction_preserves_history() {
 
 fn normalize_line_endings(value: &mut Value) {
     match value {
-        Value::String(text) => {
-            if text.contains('\r') {
-                *text = text.replace("\r\n", "\n").replace('\r', "\n");
-            }
+        Value::String(text) if text.contains('\r') => {
+            *text = text.replace("\r\n", "\n").replace('\r', "\n");
         }
+        Value::String(_) => {}
         Value::Array(items) => {
             for item in items {
                 normalize_line_endings(item);
@@ -948,7 +947,7 @@ async fn start_test_conversation(
     Arc<SavfoxSession>,
 ) {
     let base_url = format!("{}/v1", server.uri());
-    let model = model.map(str::to_string);
+    let model = model.map(str::to_owned);
     let mut builder = test_savfox().with_config(move |config| {
         config.model_provider.name = "Non-OpenAI Model provider".to_owned();
         config.model_provider.base_url = Some(base_url);

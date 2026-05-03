@@ -365,7 +365,7 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             config
                 .get("identity")
@@ -373,7 +373,7 @@ fn default_agent_name_from_config(config: &Value, fallback: &str) -> String {
                 .and_then(|v| v.as_str())
                 .map(str::trim)
                 .filter(|v| !v.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .unwrap_or_else(|| fallback.to_owned())
 }
@@ -404,7 +404,7 @@ fn normalize_agent_model_fields(config: &mut Value) {
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .map(str::to_owned);
 
     if let Some(primary) = primary {
         let model_missing = config
@@ -435,7 +435,7 @@ fn normalize_agent_model_fields(config: &mut Value) {
         .filter_map(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .collect();
     if !normalized.is_empty() {
         config["fallback_models"] = json!(normalized);
@@ -648,7 +648,7 @@ async fn find_agent_name_conflict(
         let Some(stem) = path
             .file_stem()
             .and_then(|value| value.to_str())
-            .map(str::to_string)
+            .map(str::to_owned)
         else {
             continue;
         };
@@ -894,7 +894,7 @@ pub(crate) async fn handle_agents_create(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .unwrap_or_default();
     if name.is_empty() {
         return Err((INVALID_REQUEST, "missing 'name' parameter".to_owned()));

@@ -948,7 +948,7 @@ async fn read_head_summary(path: &Path, head_limit: usize) -> io::Result<HeadTai
                 summary.model_provider = session_meta_line
                     .meta
                     .model_provider_id()
-                    .map(str::to_string);
+                    .map(str::to_owned);
                 summary.created_at = Some(session_meta_line.meta.timestamp.clone());
                 summary.saw_session_meta = true;
                 if summary.head.len() < head_limit

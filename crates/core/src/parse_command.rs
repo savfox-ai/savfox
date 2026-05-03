@@ -47,18 +47,17 @@ pub fn parse_command(command: &[String]) -> Vec<ParsedCommand> {
 /// Tests are at the top to encourage using TDD + Savfox to fix the implementation.
 mod tests {
     use std::path::PathBuf;
-    use std::string::ToString;
 
     use pretty_assertions::assert_eq;
 
     use super::*;
 
     fn shlex_split_safe(s: &str) -> Vec<String> {
-        shlex_split(s).unwrap_or_else(|| s.split_whitespace().map(ToString::to_string).collect())
+        shlex_split(s).unwrap_or_else(|| s.split_whitespace().map(str::to_owned).collect())
     }
 
     fn vec_str(args: &[&str]) -> Vec<String> {
-        args.iter().map(ToString::to_string).collect()
+        args.iter().map(|arg| (*arg).to_owned()).collect()
     }
 
     fn assert_parsed(args: &[String], expected: Vec<ParsedCommand>) {
@@ -1591,7 +1590,7 @@ fn short_display_path(path: &str) -> String {
     });
     parts
         .next()
-        .map(str::to_string)
+        .map(str::to_owned)
         .unwrap_or_else(|| trimmed.to_owned())
 }
 

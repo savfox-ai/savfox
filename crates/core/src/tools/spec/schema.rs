@@ -86,7 +86,7 @@ fn sanitize_json_schema(value: &mut JsonValue) {
                 }
             }
 
-            let mut ty = map.get("type").and_then(|v| v.as_str()).map(str::to_string);
+            let mut ty = map.get("type").and_then(|v| v.as_str()).map(str::to_owned);
 
             if ty.is_none()
                 && let Some(JsonValue::Array(types)) = map.get("type")

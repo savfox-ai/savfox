@@ -267,13 +267,9 @@ pub fn Usage() -> Element {
     // Derived stats
     let avg_tokens_per_msg = detail
         .and_then(|d| {
-            let msgs = d.total_messages?;
-            let toks = d.total_tokens?;
-            if msgs > 0 {
-                Some(format_number(toks / msgs))
-            } else {
-                None
-            }
+            d.total_tokens?
+                .checked_div(d.total_messages?)
+                .map(format_number)
         })
         .unwrap_or_else(|| "-".into());
 

@@ -334,7 +334,7 @@ pub fn parse_invite_event(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string);
+        .map(str::to_owned);
 
     debug_matrix_invite_detected(room_id, invited_user_id.as_deref());
     Some((room_id.to_owned(), invited_user_id))

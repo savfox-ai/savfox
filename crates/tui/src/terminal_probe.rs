@@ -189,21 +189,18 @@ fn find_all_subslices<'a>(
 #[cfg(unix)]
 #[cfg_attr(test, allow(dead_code))]
 mod imp {
-    use std::fs::File;
-    use std::fs::OpenOptions;
+    use std::fs::{File, OpenOptions};
     use std::io;
     use std::io::Write;
-    use std::os::fd::AsRawFd;
-    use std::os::fd::FromRawFd;
+    use std::os::fd::{AsRawFd, FromRawFd};
     use std::time::Instant;
 
     use ratatui::layout::Position;
 
-    use super::DefaultColors;
-    use super::KeyboardProbeState;
-    use super::parse_cursor_position;
-    use super::parse_default_colors;
-    use super::parse_keyboard_enhancement_support;
+    use super::{
+        DefaultColors, KeyboardProbeState, parse_cursor_position, parse_default_colors,
+        parse_keyboard_enhancement_support,
+    };
 
     /// Temporary terminal handle used while a startup probe owns terminal input.
     struct Tty {
@@ -433,8 +430,9 @@ pub(crate) use imp::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use pretty_assertions::assert_eq;
+
+    use super::*;
 
     #[test]
     fn parses_cursor_position_as_zero_based() {

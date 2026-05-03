@@ -49,11 +49,7 @@ pub async fn discover_prompts_in_excluding(
         if !is_md {
             continue;
         }
-        let Some(name) = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(str::to_string)
-        else {
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
             continue;
         };
         if exclude.contains(&name) {

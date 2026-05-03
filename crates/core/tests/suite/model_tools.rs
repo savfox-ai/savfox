@@ -20,7 +20,7 @@ fn tool_identifiers(body: &serde_json::Value) -> Vec<String> {
             tool.get("name")
                 .and_then(|v| v.as_str())
                 .or_else(|| tool.get("type").and_then(|v| v.as_str()))
-                .map(std::string::ToString::to_string)
+                .map(str::to_owned)
                 .expect("tool should have either name or type")
         })
         .collect()

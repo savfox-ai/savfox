@@ -1307,7 +1307,7 @@ impl ChatScreen {
                 let mut to_show: Vec<String> = starting
                     .iter()
                     .take(max_to_show)
-                    .map(ToString::to_string)
+                    .map(|name| (*name).clone())
                     .collect();
                 if starting.len() > max_to_show {
                     to_show.push("…".to_owned());
@@ -4517,7 +4517,7 @@ impl ChatScreen {
             .to_ascii_lowercase()
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .filter(|token| Self::is_meaningful_provider_alias(token))
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .collect()
     }
 
@@ -6455,7 +6455,7 @@ impl ChatScreen {
             .as_deref()
             .map(str::trim)
             .filter(|description| !description.is_empty())
-            .map(str::to_string)
+            .map(str::to_owned)
     }
 
     /// Forward file-search results to the bottom pane.
@@ -7102,7 +7102,7 @@ fn provider_model_to_preset(provider_id: &str, model: &serde_json::Value) -> Opt
         .as_str()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             value_string(model, &["id", "model"])
                 .or_else(|| value_string(model, &["model_slug"]))

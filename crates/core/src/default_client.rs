@@ -184,6 +184,7 @@ pub fn create_client() -> HttpClient {
     HttpClient::new(inner)
 }
 
+#[must_use]
 pub fn build_reqwest_client() -> reqwest::Client {
     try_build_reqwest_client().unwrap_or_else(|err| {
         tracing::warn!("failed to build default HTTP client: {err}");

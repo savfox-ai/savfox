@@ -1757,12 +1757,12 @@ fn session_peer_id(entry: &SessionEntry) -> Option<String> {
         .or(entry.last_to.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             latest_provenance(entry)
                 .map(|item| item.user_id.trim())
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .or_else(|| {
             entry
@@ -1770,7 +1770,7 @@ fn session_peer_id(entry: &SessionEntry) -> Option<String> {
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
 }
 
@@ -1780,12 +1780,12 @@ fn session_display_name(entry: &SessionEntry) -> Option<String> {
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             latest_provenance(entry)
                 .map(|item| item.name.trim())
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
 }
 

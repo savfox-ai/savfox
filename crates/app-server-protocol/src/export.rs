@@ -834,11 +834,10 @@ impl ScanState {
             '(' => self.depth.paren += 1,
             ')' => self.depth.paren = (self.depth.paren - 1).max(0),
             '<' => self.depth.angle += 1,
-            '>' => {
-                if self.depth.angle > 0 {
-                    self.depth.angle -= 1;
-                }
+            '>' if self.depth.angle > 0 => {
+                self.depth.angle -= 1;
             }
+            '>' => {}
             _ => {}
         }
     }
@@ -991,7 +990,7 @@ where
             .with_context(|| format!("Failed to write JSON schema for {file_stem}"))?;
     }
 
-    let namespace = raw_namespace.map(str::to_string);
+    let namespace = raw_namespace.map(str::to_owned);
     Ok(GeneratedSchema {
         namespace,
         logical_name: logical_name.to_owned(),
@@ -1541,22 +1540,19 @@ mod tests {
                                 continue;
                             }
                             match ch {
-                                '\\' => {
+                                '\\' if in_single || in_double => {
                                     // Only treat as escape when inside a string.
-                                    if in_single || in_double {
-                                        escape = true;
-                                    }
+                                    escape = true;
                                 }
-                                '\'' => {
-                                    if !in_double {
-                                        in_single = !in_single;
-                                    }
+                                '\\' => {}
+                                '\'' if !in_double => {
+                                    in_single = !in_single;
                                 }
-                                '"' => {
-                                    if !in_single {
-                                        in_double = !in_double;
-                                    }
+                                '\'' => {}
+                                '"' if !in_single => {
+                                    in_double = !in_double;
                                 }
+                                '"' => {}
                                 '{' if !in_single && !in_double => level_brace += 1,
                                 '}' if !in_single && !in_double => level_brace -= 1,
                                 '[' if !in_single && !in_double => level_brack += 1,

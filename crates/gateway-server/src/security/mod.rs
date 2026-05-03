@@ -4,7 +4,7 @@
 //! audit helpers under one namespace while keeping root-level compatibility
 //! re-exports for existing call sites.
 
-#[path = "../auth.rs"]
+#[path = "../auth/mod.rs"]
 pub mod auth;
 #[path = "../rate_limit.rs"]
 pub mod rate_limit;

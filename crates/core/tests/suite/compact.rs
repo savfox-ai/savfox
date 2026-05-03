@@ -282,11 +282,10 @@ async fn summarize_context_three_requests_and_instructions() {
             RolloutItem::TurnContext(_) => {
                 api_turn_count += 1;
             }
-            RolloutItem::Compacted(ci) => {
-                if ci.message == expected_summary_message {
-                    saw_compacted_summary = true;
-                }
+            RolloutItem::Compacted(ci) if ci.message == expected_summary_message => {
+                saw_compacted_summary = true;
             }
+            RolloutItem::Compacted(_) => {}
             _ => {}
         }
     }
@@ -1210,7 +1209,7 @@ async fn auto_compact_runs_after_token_limit_hit() {
                 .and_then(|arr| arr.first())
                 .and_then(|entry| entry.get("text"))
                 .and_then(|v| v.as_str())
-                .map(std::string::ToString::to_string)
+                .map(str::to_owned)
         })
         .collect();
     assert!(

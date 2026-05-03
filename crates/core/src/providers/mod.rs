@@ -10,7 +10,7 @@ pub mod fallback;
 pub(crate) mod identifiers;
 #[path = "../model_provider_info.rs"]
 pub(crate) mod info;
-#[path = "../models_manager.rs"]
+#[path = "../models_manager/mod.rs"]
 pub mod manager;
 #[path = "../remote_models.rs"]
 pub mod remote;

@@ -870,6 +870,6 @@ impl ChatComposer {
             .as_deref()
             .map(str::trim)
             .filter(|description| !description.is_empty())
-            .map(str::to_string)
+            .map(str::to_owned)
     }
 }

@@ -260,7 +260,7 @@ mod tests {
             .and_then(|v| v.as_array())
             .into_iter()
             .flatten()
-            .map(|item| item.get("id").and_then(|v| v.as_str().map(str::to_string)))
+            .map(|item| item.get("id").and_then(|v| v.as_str().map(str::to_owned)))
             .collect();
         assert_eq!(ids, vec![Some("m1".to_owned()), None]);
 

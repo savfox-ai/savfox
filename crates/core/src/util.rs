@@ -88,7 +88,7 @@ pub fn normalize_session_name(name: &str) -> Option<String> {
 pub fn resume_command(session_name: Option<&str>, session_id: Option<SessionId>) -> Option<String> {
     let resume_target = session_name
         .filter(|name| !name.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| session_id.map(|session_id| session_id.to_string()));
     resume_target.map(|target| {
         let needs_double_dash = target.starts_with('-');

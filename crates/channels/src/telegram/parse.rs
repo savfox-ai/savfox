@@ -168,7 +168,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
         }
     }
     username
-        .map(str::to_string)
+        .map(str::to_owned)
         .or_else(|| {
             inbound_message(payload)
                 .and_then(|msg| msg.get("sender_chat"))
@@ -176,7 +176,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .or_else(|| {
             inbound_message(payload)
@@ -185,7 +185,7 @@ pub fn parse_display_name(payload: &Value) -> Option<String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
+                .map(str::to_owned)
         })
 }
 

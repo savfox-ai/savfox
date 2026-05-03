@@ -104,10 +104,7 @@ async fn apply_command_action(
     match action {
         CommandAction::SetModel { model } => {
             let model_value = model.clone();
-            let provider_value = model_value
-                .split('/')
-                .next()
-                .map(std::string::ToString::to_string);
+            let provider_value = model_value.split('/').next().map(str::to_owned);
             let _ = session_store
                 .update(session_id, move |entry| {
                     entry.model = Some(model_value.clone());

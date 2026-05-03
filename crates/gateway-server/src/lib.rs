@@ -86,18 +86,18 @@ mod tools_invoke;
 pub mod utils;
 pub mod voice;
 pub mod web;
+mod webchat;
 mod webhooks;
 mod wizard_store;
-
-pub use security::{auth, rate_limit, redaction, security_audit, ssrf};
-pub(crate) use runtime::agent_routing;
-pub use runtime::{routing, session};
-pub use voice::{stt, talk_mode, voice_wake};
-pub(crate) use voice::{tts_deepgram, tts_edge, tts_service, voice_store};
-pub(crate) use web::{server, static_assets, webchat};
-pub use web::{ws, ws_rpc};
+pub mod ws;
+pub mod ws_rpc;
 
 pub use config::{GatewayCommand, GatewaySubcommand};
+pub(crate) use runtime::agent_routing;
+pub use runtime::{routing, session};
+pub use security::{auth, rate_limit, redaction, security_audit, ssrf};
+pub use voice::{stt, talk_mode, voice_wake};
+pub(crate) use voice::{tts_deepgram, tts_edge, tts_service, voice_store};
 
 use crate::auth::GatewayAuth;
 use crate::channel::{BridgeOutgoing, GatewayBridgeArgs, GatewayChannel};

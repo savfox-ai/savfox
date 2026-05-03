@@ -18,7 +18,7 @@ fn first_pointer_string(payload: &Value, pointers: &[&str]) -> Option<String> {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
     })
 }
 
@@ -32,7 +32,7 @@ pub fn parse_start_meta(payload: &Value) -> DiscordStartMeta {
             roles
                 .iter()
                 .filter_map(Value::as_str)
-                .map(str::to_string)
+                .map(str::to_owned)
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();

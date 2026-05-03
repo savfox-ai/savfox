@@ -696,7 +696,7 @@ fn extract_refresh_token_error_code(body: &str) -> Option<String> {
         }
     }
 
-    map.get("code").and_then(Value::as_str).map(str::to_string)
+    map.get("code").and_then(Value::as_str).map(str::to_owned)
 }
 
 #[derive(Serialize)]

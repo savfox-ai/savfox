@@ -53,7 +53,7 @@ pub(crate) fn map_api_error(err: ApiError) -> SavfoxError {
                         .as_ref()
                         .and_then(|map| map.get(MODEL_CAP_MODEL_HEADER))
                         .and_then(|value| value.to_str().ok())
-                        .map(str::to_string)
+                        .map(str::to_owned)
                     {
                         let reset_after_seconds = headers
                             .as_ref()
@@ -154,7 +154,7 @@ fn extract_request_id(headers: Option<&HeaderMap>) -> Option<String> {
             .find_map(|name| {
                 map.get(*name)
                     .and_then(|v| v.to_str().ok())
-                    .map(str::to_string)
+                    .map(str::to_owned)
             })
     })
 }

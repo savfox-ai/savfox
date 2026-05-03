@@ -434,10 +434,7 @@ fn parse_key_path(path: &str) -> Result<Vec<String>, String> {
     if path.trim().is_empty() {
         return Err("keyPath must not be empty".to_owned());
     }
-    Ok(path
-        .split('.')
-        .map(std::string::ToString::to_string)
-        .collect())
+    Ok(path.split('.').map(str::to_owned).collect())
 }
 
 #[derive(Debug)]

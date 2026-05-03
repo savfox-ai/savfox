@@ -223,7 +223,7 @@ fn emit_project_config_warnings(app_event_tx: &AppEventSender, config: &Config) 
             layer
                 .disabled_reason
                 .as_ref()
-                .map(ToString::to_string)
+                .cloned()
                 .unwrap_or_else(|| "config.toml is disabled.".to_owned()),
         ));
     }
@@ -2801,16 +2801,14 @@ impl App {
                 modifiers: crossterm::event::KeyModifiers::CONTROL,
                 kind: KeyEventKind::Press,
                 ..
-            } => {
+            } if self.overlay.is_none()
+                && self.chat_screen.can_launch_external_editor()
+                && self.chat_screen.external_editor_state() == ExternalEditorState::Closed =>
+            {
                 // Only launch the external editor if there is no overlay and the bottom pane is not
                 // in use. Note that it can be launched while a task is running to
                 // enable editing while the previous turn is ongoing.
-                if self.overlay.is_none()
-                    && self.chat_screen.can_launch_external_editor()
-                    && self.chat_screen.external_editor_state() == ExternalEditorState::Closed
-                {
-                    self.request_external_editor_launch(tui);
-                }
+                self.request_external_editor_launch(tui);
             }
             // Esc primes/advances backtracking only in normal (not working) mode
             // with the composer focused and empty. In any other state, forward

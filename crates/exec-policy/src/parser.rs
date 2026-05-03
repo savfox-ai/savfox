@@ -110,7 +110,7 @@ fn parse_pattern_token<'v>(value: Value<'v>) -> Result<PatternToken> {
                             value.get_type()
                         ))
                     })
-                    .map(str::to_string)
+                    .map(str::to_owned)
             })
             .collect::<Result<_>>()?;
 
@@ -173,7 +173,7 @@ fn parse_list_example(list: &ListRef) -> Result<Vec<String>> {
                         value.get_type()
                     ))
                 })
-                .map(str::to_string)
+                .map(str::to_owned)
         })
         .collect::<Result<_>>()?;
 

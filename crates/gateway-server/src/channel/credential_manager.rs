@@ -444,7 +444,7 @@ impl GatewayChannel {
             .or_else(|| non_empty_trimmed(config.user_id.as_deref()));
         let bot_user_id = config.bot_user_id();
         let configured_user_id = configured_user_id
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .or(bot_user_id.clone());
         if let (Some(invited), Some(configured)) = (
             non_empty_trimmed(invited_user_id),

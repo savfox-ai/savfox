@@ -67,7 +67,7 @@ fn extract_sender_id(sender_id: Option<&MessageId>) -> Option<String> {
         .or(sender_id.union_id.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
+        .map(str::to_owned)
 }
 
 struct SavfoxFeishuEventHandler {
@@ -85,7 +85,7 @@ impl FeishuEventHandler for SavfoxFeishuEventHandler {
     ) -> Pin<Box<dyn Future<Output = Result<Option<FeishuEventResp>, FeishuSdkError>> + Send + '_>>
     {
         Box::pin(async move {
-            let event_id = event.event_id().map(str::to_string);
+            let event_id = event.event_id().map(str::to_owned);
             debug!(event_id = ?event_id, event = ?event, "Received Feishu event via WebSocket");
             let payload = event.event.ok_or_else(|| {
                 FeishuSdkError::InvalidEventFormat("missing event payload".to_owned())

@@ -382,7 +382,7 @@ impl ModelsManager {
 
     /// Merge remote model metadata into picker-ready presets, preserving existing entries.
     fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {
-        remote_models.sort_by(|a, b| a.priority.cmp(&b.priority));
+        remote_models.sort_by_key(|model| model.priority);
 
         let remote_presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
         let existing_presets = self.local_models.clone();

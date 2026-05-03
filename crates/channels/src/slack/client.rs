@@ -100,7 +100,7 @@ pub async fn send_message_returning_id(
     let ts = resp_body
         .get("ts")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string);
+        .map(str::to_owned);
     Ok(ts)
 }
 

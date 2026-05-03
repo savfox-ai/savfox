@@ -313,7 +313,7 @@ impl RmcpClient {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(str::to_string)
+            .map(str::to_owned)
     }
 
     pub async fn list_resources(

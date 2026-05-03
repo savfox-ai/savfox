@@ -75,7 +75,7 @@ pub(crate) fn get_tooltip(plan: Option<PlanType>) -> Option<String> {
         return Some(announcement);
     }
 
-    pick_tooltip(&mut rng).map(str::to_string)
+    pick_tooltip(&mut rng).map(str::to_owned)
 }
 
 fn pick_tooltip<R: Rng + ?Sized>(rng: &mut R) -> Option<&'static str> {

@@ -67,10 +67,7 @@ pub fn normalize_links(raw: IdentityLinks) -> IdentityLinks {
         if cleaned.is_empty() {
             continue;
         }
-        normalized
-            .entry(canonical)
-            .or_default()
-            .extend(cleaned.into_iter());
+        normalized.entry(canonical).or_default().extend(cleaned);
     }
 
     for peers in normalized.values_mut() {

@@ -29,8 +29,7 @@ struct PersistedAmbientState {
 
 #[derive(Debug, Default)]
 struct AmbientRuntimeStore {
-    loaded_from: Option<PathBuf>,
-    sessions: HashMap<String, Vec<AmbientMessage>>,
+    sessions_by_path: HashMap<PathBuf, HashMap<String, Vec<AmbientMessage>>>,
 }
 
 fn ambient_store() -> &'static Mutex<AmbientRuntimeStore> {
@@ -38,23 +37,26 @@ fn ambient_store() -> &'static Mutex<AmbientRuntimeStore> {
     STORE.get_or_init(|| Mutex::new(AmbientRuntimeStore::default()))
 }
 
-async fn ensure_store_loaded(savfox_home: &Path) {
+async fn ensure_store_loaded(savfox_home: &Path) -> PathBuf {
     let path = ambient_state_path(savfox_home);
-    let mut store = ambient_store().lock().await;
-    if store.loaded_from.as_ref() == Some(&path) {
-        return;
+    {
+        let store = ambient_store().lock().await;
+        if store.sessions_by_path.contains_key(&path) {
+            return path;
+        }
     }
     let persisted: PersistedAmbientState = json_store::load_json(&path, "ambient state")
         .await
         .unwrap_or_default();
-    store.loaded_from = Some(path);
-    store.sessions = persisted.sessions;
+    let mut store = ambient_store().lock().await;
+    store
+        .sessions_by_path
+        .entry(path.clone())
+        .or_insert(persisted.sessions);
+    path
 }
 
-async fn persist_snapshot(path: Option<PathBuf>, sessions: HashMap<String, Vec<AmbientMessage>>) {
-    let Some(path) = path else {
-        return;
-    };
+async fn persist_snapshot(path: PathBuf, sessions: HashMap<String, Vec<AmbientMessage>>) {
     let data = PersistedAmbientState { sessions };
     if let Err(err) = json_store::save_json(&path, &data, "ambient state").await {
         warn!("failed to persist ambient state: {err}");
@@ -67,18 +69,26 @@ pub async fn push_ambient_message(savfox_home: &Path, session_id: &str, message:
         return;
     }
 
-    ensure_store_loaded(savfox_home).await;
+    let path = ensure_store_loaded(savfox_home).await;
     let mut store = ambient_store().lock().await;
     {
-        let entry = store.sessions.entry(session_id.to_owned()).or_default();
+        let entry = store
+            .sessions_by_path
+            .entry(path.clone())
+            .or_default()
+            .entry(session_id.to_owned())
+            .or_default();
         entry.push(message);
         if entry.len() > MAX_AMBIENT_MESSAGES {
             let overflow = entry.len() - MAX_AMBIENT_MESSAGES;
             entry.drain(0..overflow);
         }
     }
-    let path = store.loaded_from.clone();
-    let snapshot = store.sessions.clone();
+    let snapshot = store
+        .sessions_by_path
+        .get(&path)
+        .cloned()
+        .unwrap_or_default();
     drop(store);
     persist_snapshot(path, snapshot).await;
 }
@@ -88,11 +98,11 @@ pub async fn take_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<
     if session_id.is_empty() {
         return Vec::new();
     }
-    ensure_store_loaded(savfox_home).await;
+    let path = ensure_store_loaded(savfox_home).await;
     let mut store = ambient_store().lock().await;
-    let messages = store.sessions.remove(session_id).unwrap_or_default();
-    let path = store.loaded_from.clone();
-    let snapshot = store.sessions.clone();
+    let sessions = store.sessions_by_path.entry(path.clone()).or_default();
+    let messages = sessions.remove(session_id).unwrap_or_default();
+    let snapshot = sessions.clone();
     drop(store);
     persist_snapshot(path, snapshot).await;
     messages
@@ -103,15 +113,14 @@ pub async fn clear_ambient_messages(savfox_home: &Path, session_id: &str) -> usi
     if session_id.is_empty() {
         return 0;
     }
-    ensure_store_loaded(savfox_home).await;
+    let path = ensure_store_loaded(savfox_home).await;
     let mut store = ambient_store().lock().await;
-    let removed = store
-        .sessions
+    let sessions = store.sessions_by_path.entry(path.clone()).or_default();
+    let removed = sessions
         .remove(session_id)
         .map(|messages| messages.len())
         .unwrap_or(0);
-    let path = store.loaded_from.clone();
-    let snapshot = store.sessions.clone();
+    let snapshot = sessions.clone();
     drop(store);
     persist_snapshot(path, snapshot).await;
     removed
@@ -122,12 +131,13 @@ pub async fn peek_ambient_messages(savfox_home: &Path, session_id: &str) -> Vec<
     if session_id.is_empty() {
         return Vec::new();
     }
-    ensure_store_loaded(savfox_home).await;
+    let path = ensure_store_loaded(savfox_home).await;
     ambient_store()
         .lock()
         .await
-        .sessions
-        .get(session_id)
+        .sessions_by_path
+        .get(&path)
+        .and_then(|sessions| sessions.get(session_id))
         .cloned()
         .unwrap_or_default()
 }
@@ -189,9 +199,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        AmbientMessage, ambient_store, clear_ambient_messages, format_ambient_context,
-        peek_ambient_messages, prepend_ambient_context, push_ambient_message,
-        take_ambient_messages,
+        AmbientMessage, ambient_state_path, ambient_store, clear_ambient_messages,
+        format_ambient_context, peek_ambient_messages, prepend_ambient_context,
+        push_ambient_message, take_ambient_messages,
     };
 
     #[test]
@@ -233,6 +243,7 @@ mod tests {
     async fn ambient_messages_reload_from_disk() {
         let temp = tempdir().expect("tempdir");
         let session_id = "session-ambient-persist";
+        let path = ambient_state_path(temp.path());
         let message = AmbientMessage {
             timestamp_ms: 42,
             sender_id: Some("user-1".to_owned()),
@@ -246,8 +257,7 @@ mod tests {
 
         {
             let mut store = ambient_store().lock().await;
-            store.loaded_from = None;
-            store.sessions.clear();
+            store.sessions_by_path.remove(&path);
         }
 
         let peeked = peek_ambient_messages(temp.path(), session_id).await;
@@ -258,8 +268,7 @@ mod tests {
 
         {
             let mut store = ambient_store().lock().await;
-            store.loaded_from = None;
-            store.sessions.clear();
+            store.sessions_by_path.remove(&path);
         }
 
         let after_take = peek_ambient_messages(temp.path(), session_id).await;
@@ -270,6 +279,7 @@ mod tests {
     async fn clear_ambient_messages_removes_persisted_entries() {
         let temp = tempdir().expect("tempdir");
         let session_id = "session-ambient-clear";
+        let path = ambient_state_path(temp.path());
         push_ambient_message(
             temp.path(),
             session_id,
@@ -289,8 +299,7 @@ mod tests {
 
         {
             let mut store = ambient_store().lock().await;
-            store.loaded_from = None;
-            store.sessions.clear();
+            store.sessions_by_path.remove(&path);
         }
 
         assert!(

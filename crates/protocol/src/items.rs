@@ -141,7 +141,7 @@ impl UserMessageItem {
                     };
                     out.push(TextElement::new(
                         byte_range,
-                        elem.placeholder(text).map(str::to_string),
+                        elem.placeholder(text).map(str::to_owned),
                     ));
                 }
                 offset += text.len();

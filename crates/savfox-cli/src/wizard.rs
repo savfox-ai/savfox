@@ -324,7 +324,7 @@ fn provider_env_var(provider: &str) -> Option<String> {
             .values()
             .map(String::as_str)
             .filter(|name| env_var_looks_like_secret(name))
-            .map(str::to_string)
+            .map(str::to_owned)
             .collect();
         candidates.sort_unstable();
         candidates.dedup();

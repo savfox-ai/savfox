@@ -40,32 +40,32 @@ pub fn parse_start_meta(payload: &Value) -> LineStartMeta {
                 .get("userId")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
             group_id: source
                 .get("groupId")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
             room_id: source
                 .get("roomId")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
             reply_token: event
                 .get("replyToken")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
             message_id: message
                 .get("id")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
             source_type: source
                 .get("type")
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
-                .map(ToString::to_string),
+                .map(str::to_owned),
         };
     }
 

@@ -320,11 +320,15 @@ async fn run_websocket_response_stream(
             Message::Binary(_) => {
                 return Err(ApiError::Stream("unexpected binary websocket event".into()));
             }
-            Message::Ping(payload) => {
-                if ws_stream.send(Message::Pong(payload)).await.is_err() {
-                    return Err(ApiError::Stream("websocket ping failed".into()));
-                }
+            Message::Ping(payload)
+                if ws_stream
+                    .send(Message::Pong(payload.clone()))
+                    .await
+                    .is_err() =>
+            {
+                return Err(ApiError::Stream("websocket ping failed".into()));
             }
+            Message::Ping(_) => {}
             Message::Pong(_) => {}
             Message::Close(_) => {
                 return Err(ApiError::Stream(

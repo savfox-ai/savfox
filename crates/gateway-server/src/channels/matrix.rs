@@ -272,7 +272,7 @@ impl Channel for MatrixChannel {
         let next_batch = initial_payload
             .get("next_batch")
             .and_then(Value::as_str)
-            .map(ToString::to_string);
+            .map(str::to_owned);
 
         handle_matrix_invites(
             &MatrixSyncTask {
@@ -738,7 +738,7 @@ impl MatrixAppserviceChannel {
             .split_whitespace()
             .next()
             .unwrap_or("")
-            .trim_end_matches(|ch: char| matches!(ch, ':' | ',' | ';' | '>'));
+            .trim_end_matches([':', ',', ';', '>']);
         let localpart = matrix_localpart(token)
             .or_else(|| Some(token.trim_start_matches('@').trim()))
             .filter(|value| !value.is_empty())?;
@@ -1476,7 +1476,7 @@ async fn run_matrix_sync_task(task: MatrixSyncTask, mut since: Option<String>) {
                 if let Some(next_batch) = payload
                     .get("next_batch")
                     .and_then(Value::as_str)
-                    .map(ToString::to_string)
+                    .map(str::to_owned)
                 {
                     since = Some(next_batch);
                 }

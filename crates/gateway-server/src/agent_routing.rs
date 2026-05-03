@@ -61,7 +61,9 @@ impl AgentRouter {
             rules,
             default_agent,
         };
-        router.rules.sort_by(|a, b| b.priority.cmp(&a.priority)); // highest first
+        router
+            .rules
+            .sort_by_key(|rule| std::cmp::Reverse(rule.priority)); // highest first
         router
     }
 
@@ -219,7 +221,7 @@ impl AgentRouter {
             .flat_map(|s| s.split(','))
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .collect()
     }
 
@@ -230,14 +232,15 @@ impl AgentRouter {
             .flat_map(|s| s.split(','))
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
             .collect()
     }
 
     /// Add a rule
     pub fn add_rule(&mut self, rule: RouteRule) {
         self.rules.push(rule);
-        self.rules.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.rules
+            .sort_by_key(|rule| std::cmp::Reverse(rule.priority));
     }
 
     /// Remove rules matching an agent

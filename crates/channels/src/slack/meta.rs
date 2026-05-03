@@ -32,29 +32,29 @@ pub fn parse_start_meta(payload: &Value) -> SlackStartMeta {
         .get("user_id")
         .and_then(Value::as_str)
         .or_else(|| payload.pointer("/event/user").and_then(Value::as_str))
-        .map(str::to_string);
+        .map(str::to_owned);
     let team_id = payload
         .get("team_id")
         .and_then(Value::as_str)
         .or_else(|| payload.pointer("/team/id").and_then(Value::as_str))
-        .map(str::to_string);
+        .map(str::to_owned);
     let account_id = payload
         .get("api_app_id")
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_owned);
     let thread_id = payload
         .pointer("/event/thread_ts")
         .and_then(Value::as_str)
         .or_else(|| payload.get("thread_ts").and_then(Value::as_str))
-        .map(str::to_string);
+        .map(str::to_owned);
     let reply_target = payload
         .pointer("/event/ts")
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_owned);
     let parent_sender_id = payload
         .pointer("/event/parent_user_id")
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_owned);
 
     let mut slack_groups = Vec::new();
     for ptr in [
@@ -72,7 +72,7 @@ pub fn parse_start_meta(payload: &Value) -> SlackStartMeta {
         .pointer("/event/channel")
         .and_then(Value::as_str)
         .or_else(|| payload.get("channel_id").and_then(Value::as_str))
-        .map(str::to_string);
+        .map(str::to_owned);
     let chat_type = channel_id
         .as_deref()
         .map(|channel| {

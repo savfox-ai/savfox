@@ -371,7 +371,7 @@ async fn run_list(list_args: ListArgs) -> Result<()> {
             .context("failed to load configuration")?;
 
     let mut entries: Vec<_> = config.mcp_servers.iter().collect();
-    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+    entries.sort_by_key(|(name, _)| *name);
     let auth_statuses = compute_auth_statuses(
         config.mcp_servers.iter(),
         config.mcp_oauth_credentials_store_mode,
@@ -733,7 +733,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
             let headers_display = match http_headers {
                 Some(map) if !map.is_empty() => {
                     let mut pairs: Vec<_> = map.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(name, _)| *name);
                     pairs
                         .into_iter()
                         .map(|(k, _)| format!("{k}=*****"))
@@ -746,7 +746,7 @@ async fn run_get(get_args: GetArgs) -> Result<()> {
             let env_headers_display = match env_http_headers {
                 Some(map) if !map.is_empty() => {
                     let mut pairs: Vec<_> = map.iter().collect();
-                    pairs.sort_by(|(a, _), (b, _)| a.cmp(b));
+                    pairs.sort_by_key(|(name, _)| *name);
                     pairs
                         .into_iter()
                         .map(|(k, var)| format!("{k}={var}"))
@@ -778,7 +778,7 @@ fn parse_env_pair(raw: &str) -> Result<(String, String), String> {
         .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_owned())?;
     let value = parts
         .next()
-        .map(str::to_string)
+        .map(str::to_owned)
         .ok_or_else(|| "environment entries must be in KEY=VALUE form".to_owned())?;
 
     Ok((key.to_owned(), value))

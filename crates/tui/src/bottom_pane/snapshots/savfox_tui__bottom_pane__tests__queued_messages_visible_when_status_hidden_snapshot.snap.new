@@ -1,6 +1,6 @@
 ---
 source: crates/tui/src/bottom_pane/mod.rs
-assertion_line: 1197
+assertion_line: 1195
 expression: "render_snapshot(&pane, area)"
 ---
   ↳ Queued follow-up question                   

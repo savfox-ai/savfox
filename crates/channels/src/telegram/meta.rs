@@ -39,7 +39,7 @@ pub fn parse_start_meta(payload: &Value) -> TelegramStartMeta {
         .and_then(|msg| msg.get("chat"))
         .and_then(|chat| chat.get("type"))
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_owned);
     let thread_id = message
         .and_then(|msg| msg.get("message_thread_id"))
         .and_then(Value::as_i64)
@@ -53,7 +53,7 @@ pub fn parse_start_meta(payload: &Value) -> TelegramStartMeta {
         .and_then(|msg| msg.get("chat"))
         .and_then(|chat| chat.get("title"))
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_owned);
 
     TelegramStartMeta {
         peer_id,

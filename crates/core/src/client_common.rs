@@ -78,11 +78,10 @@ fn reserialize_shell_outputs(items: &mut [ResponseItem]) {
             call_id,
             name,
             input: _,
-        } => {
-            if name == "apply_patch" {
-                shell_call_ids.insert(call_id.clone());
-            }
+        } if name == "apply_patch" => {
+            shell_call_ids.insert(call_id.clone());
         }
+        ResponseItem::CustomToolCall { .. } => {}
         ResponseItem::CustomToolCallOutput { call_id, output } => {
             if shell_call_ids.remove(call_id)
                 && let Some(structured) = parse_structured_shell_output(output)

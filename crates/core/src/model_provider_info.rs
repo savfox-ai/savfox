@@ -150,7 +150,7 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty())
-            .map(str::to_string)
+            .map(str::to_owned)
         else {
             continue;
         };
@@ -499,7 +499,7 @@ pub fn provider_default_base_url(provider_id: &str) -> Option<String> {
         }
     }
 
-    mapped_default.map(str::to_string)
+    mapped_default.map(str::to_owned)
 }
 
 fn normalize_chatgpt_base_url(base_url: &str) -> String {

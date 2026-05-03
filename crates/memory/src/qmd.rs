@@ -61,7 +61,7 @@ impl QmdManager {
             }
         }
 
-        files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        files.sort_by_key(|file| std::cmp::Reverse(file.updated_at));
 
         Ok(files)
     }

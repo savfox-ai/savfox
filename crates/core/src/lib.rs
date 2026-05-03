@@ -25,10 +25,10 @@ pub mod api_bridge;
 mod apply_patch;
 pub mod auth;
 pub mod auth_profiles;
-pub mod commands;
 pub mod channel;
 mod client;
 mod client_common;
+pub mod commands;
 mod compact_remote;
 pub mod savfox;
 #[path = "session_state.rs"]
@@ -65,11 +65,10 @@ pub use mcp_connection_manager::{
 mod mcp_tool_call;
 mod mentions;
 mod message_history;
-pub use providers::fallback as model_fallback;
-pub(crate) use providers::identifiers as model_identifiers;
-pub(crate) use providers::info as model_provider_info;
-pub use providers::manager as models_manager;
-pub use providers::remote as remote_models;
+pub use providers::{
+    fallback as model_fallback, manager as models_manager, remote as remote_models,
+};
+pub(crate) use providers::{identifiers as model_identifiers, info as model_provider_info};
 pub mod path_utils;
 mod proposed_plan_parser;
 pub mod sandboxing;
@@ -117,6 +116,8 @@ pub mod a2a {
 }
 mod turn_metadata;
 pub mod updater;
+pub use prompting::{custom_prompts, instructions, personality_migration, project_doc};
+pub use reviewing::{review_format, review_prompts, turn_diff_tracker};
 pub use rollout::list::{
     Cursor, SessionItem, SessionSortKey, SessionsPage, parse_cursor, read_head_for_summary,
     read_session_meta_line,
@@ -128,8 +129,6 @@ pub use rollout::{
     find_session_path_by_id_str, find_session_path_by_name_str, rollout_date_parts,
 };
 pub use transport_manager::TransportManager;
-pub use prompting::{custom_prompts, instructions, personality_migration, project_doc};
-pub use reviewing::{review_format, review_prompts, turn_diff_tracker};
 mod function_tool;
 mod state;
 mod tasks;
@@ -138,13 +137,13 @@ mod user_shell_command;
 pub mod util;
 
 pub use apply_patch::SAVFOX_APPLY_PATCH_ARG1;
-pub use commands::{bash, parse_command, powershell, shell, shell_snapshot};
 pub use client::{
     ModelClient, ModelClientSession, WEB_SEARCH_ELIGIBLE_HEADER, X_SAVFOX_TURN_METADATA_HEADER,
 };
 pub use client_common::{Prompt, REVIEW_PROMPT, ResponseEvent, ResponseStream};
-pub(crate) use commands::safety as command_safety;
 pub use command_safety::{is_dangerous_command, is_safe_command};
+pub(crate) use commands::safety as command_safety;
+pub use commands::{bash, parse_command, powershell, shell, shell_snapshot};
 pub use compact::content_items_to_text;
 pub use event_mapping::parse_turn_item;
 pub use exec_policy::{ExecPolicyError, check_execpolicy_for_warnings, load_exec_policy};

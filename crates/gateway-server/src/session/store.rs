@@ -356,7 +356,7 @@ impl DmScope {
     }
 
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Main => "main",
             Self::PerPeer => "per_peer",
@@ -651,8 +651,8 @@ impl SessionStore {
                         updated_at: created_at,
                         created_at,
                         session_file: Some(uuid_str.to_owned()),
-                        model: meta_line.meta.model_slug().map(str::to_string),
-                        provider: meta_line.meta.model_provider_id().map(str::to_string),
+                        model: meta_line.meta.model_slug().map(str::to_owned),
+                        provider: meta_line.meta.model_provider_id().map(str::to_owned),
                         from: Some(format!("{:?}", meta_line.meta.source)),
                         // Add other fields as needed from SessionMeta
                         ..Default::default()
@@ -910,7 +910,7 @@ impl SessionStore {
     /// List recent sessions.
     pub async fn list_recent(&self, limit: usize) -> Vec<SessionEntry> {
         let mut sessions = self.list().await;
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        sessions.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
         sessions.truncate(limit);
         sessions
     }
@@ -948,7 +948,7 @@ impl SessionStore {
             // Cap at max_entries (keep most recently updated).
             if cache.entries.len() > self.config.max_entries {
                 let mut entries_vec: Vec<_> = cache.entries.drain().collect();
-                entries_vec.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+                entries_vec.sort_by_key(|entry| std::cmp::Reverse(entry.1.updated_at));
                 let retained = entries_vec
                     .iter()
                     .take(self.config.max_entries)

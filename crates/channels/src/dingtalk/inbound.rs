@@ -60,8 +60,8 @@ pub async fn start_dingtalk_stream(
     stream_client.register_callback_handler(TOPIC_BOT_MESSAGE_CALLBACK, move |frame| {
         let sink = Arc::clone(&sink);
         async move {
-            let event_id = frame.header(EVENT_HEADER_ID).map(str::to_string);
-            let message_id = frame.message_id().map(str::to_string);
+            let event_id = frame.header(EVENT_HEADER_ID).map(str::to_owned);
+            let message_id = frame.message_id().map(str::to_owned);
             let payload = serde_json::from_str::<serde_json::Value>(&frame.data)?;
             let parsed = parse_inbound_payload(&payload);
             if parsed.action != ChannelAction::Ignore {

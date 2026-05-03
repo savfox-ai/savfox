@@ -232,7 +232,7 @@ async fn process_inbound_message(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .filter(|v| !v.trim().is_empty())
-                    .map(ToString::to_string);
+                    .map(str::to_owned);
             }
             let sender_name = parse_display_name(&event.payload);
 

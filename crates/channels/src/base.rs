@@ -110,7 +110,7 @@ pub fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
     })
 }
 
@@ -130,7 +130,7 @@ pub async fn resolve_outbound_token<C: ChannelConfig>(
         .filter(|c| c.enabled)
         .filter_map(C::from_channel_config)
         .filter(C::has_outbound_auth)
-        .find_map(|cfg| cfg.outbound_token().map(ToString::to_string));
+        .find_map(|cfg| cfg.outbound_token().map(str::to_owned));
     Ok(token)
 }
 

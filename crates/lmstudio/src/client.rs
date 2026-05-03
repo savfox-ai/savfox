@@ -113,7 +113,7 @@ impl LMStudioClient {
                 })?
                 .iter()
                 .filter_map(|model| model["id"].as_str())
-                .map(std::string::ToString::to_string)
+                .map(str::to_owned)
                 .collect();
             Ok(models)
         } else {

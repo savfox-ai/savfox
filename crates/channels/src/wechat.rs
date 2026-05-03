@@ -11,7 +11,7 @@ fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(ToString::to_string)
+            .map(str::to_owned)
     })
 }
 
@@ -161,7 +161,7 @@ pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
             .get("sender")
             .and_then(|sender| sender.get("id"))
             .and_then(Value::as_str)
-            .map(ToString::to_string)
+            .map(str::to_owned)
     });
 
     WeChatStartMeta {
@@ -185,7 +185,7 @@ pub fn parse_start_meta(payload: &Value) -> WeChatStartMeta {
                 .get("sender")
                 .and_then(|sender| sender.get("name"))
                 .and_then(Value::as_str)
-                .map(ToString::to_string)
+                .map(str::to_owned)
         }),
         chat_type: Some(if room_id.is_some() {
             "group".to_owned()

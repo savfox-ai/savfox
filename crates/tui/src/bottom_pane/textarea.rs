@@ -734,7 +734,7 @@ impl TextArea {
     pub fn element_payloads(&self) -> Vec<String> {
         self.elements
             .iter()
-            .filter_map(|e| self.text.get(e.range.clone()).map(str::to_string))
+            .filter_map(|e| self.text.get(e.range.clone()).map(str::to_owned))
             .collect()
     }
 
@@ -742,7 +742,7 @@ impl TextArea {
         self.elements
             .iter()
             .map(|e| {
-                let placeholder = self.text.get(e.range.clone()).map(str::to_string);
+                let placeholder = self.text.get(e.range.clone()).map(str::to_owned);
                 UserTextElement::new(
                     ByteRange {
                         start: e.range.start,

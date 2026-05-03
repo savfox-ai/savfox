@@ -12,6 +12,7 @@ const POWERSHELL_PARSER_SCRIPT: &str = include_str!("powershell_parser.ps1");
 
 /// On Windows, we conservatively allow only clearly read-only PowerShell invocations
 /// that match a small safelist. Anything else (including direct CMD commands) is unsafe.
+#[must_use]
 pub fn is_safe_command_windows(command: &[String]) -> bool {
     if let Some(commands) = try_parse_powershell_command_sequence(command) {
         commands
