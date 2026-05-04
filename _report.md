@@ -1,347 +1,282 @@
-# Savfox 项目深度分析报告
-
-## 1. 分析范围与方法
-
-本次分析基于静态阅读完成，未执行 `cargo build`、`cargo test`、`clippy` 或运行网关/前端。
-
-本次重点阅读了以下文件与入口：
-- `Cargo.toml`
-- `Justfile`
-- `README.md`
-- `docs/en/SUMMARY.md`
-- `docs/en/concepts/architecture.md`
-- `scripts/build-web.ps1`
-- `crates/savfox-cli/Cargo.toml`
-- `crates/savfox-cli/src/main.rs`
-- `crates/core/Cargo.toml`
-- `crates/core/src/lib.rs`
-- `crates/tui/Cargo.toml`
-- `crates/tui/src/lib.rs`
-- `crates/gateway-server/Cargo.toml`
-- `crates/gateway-server/src/lib.rs`
-- `crates/app-server/Cargo.toml`
-- `crates/app-server/src/lib.rs`
-- `crates/protocol/Cargo.toml`
-- `crates/protocol/src/lib.rs`
-- `crates/app-server-protocol/Cargo.toml`
-- `crates/app-server-protocol/src/lib.rs`
-- `crates/gateway-dioxus/Cargo.toml`
-- `crates/gateway-dioxus/src/main.rs`
-- `crates/gateway-shared/Cargo.toml`
-- `crates/gateway-shared/src/lib.rs`
-- `crates/channels/Cargo.toml`
-- `crates/channels/src/lib.rs`
-- `crates/mcp-server/Cargo.toml`
-- `crates/mcp-server/src/lib.rs`
-- `crates/savfox/Cargo.toml`
-- `crates/savfox/src/lib.rs`
-- `crates/browser-automation/Cargo.toml`
-- `crates/browser-automation/src/lib.rs`
-
-## 2. 总体结论
-
-Savfox 目前已经不是单一 CLI 工具，也不是单一 SDK，而是一个多入口、多协议、多运行表面的 AI Agent 平台。它的核心竞争力在于：
-- 以 `savfox-core` 为中心复用核心能力。
-- 同时支持 CLI、TUI、MCP、app-server、gateway、web frontend 和多聊天渠道。
-- 在配置、协议、沙箱、会话、模型接入、工具调用方面已经具备平台级雏形。
-
-当前项目最明显的问题不是“功能不够”，而是“边界逐渐模糊”。随着能力增长，`core`、`gateway-server`、`savfox-cli` 正在承担越来越多职责，协议类型也在多个 crate 中分散演进。继续沿当前方向扩展，短期仍能工作，但中期会明显增加维护成本、文档漂移概率和回归风险。
-
-## 3. 当前架构拆解
-
-## 3.1 接入层
-
-当前至少有 6 个主要入口：
-- `savfox-cli`：统一命令入口，也是用户最直接的总分发器。
-- `savfox-tui`：交互式终端产品面。
-- `savfox-app-server`：IDE/编辑器集成的 stdio JSON-RPC 服务端。
-- `savfox-mcp-server`：作为 MCP server 暴露能力。
-- `savfox-gateway-server`：远程 HTTP/WebSocket 接入、会话、cron、channel bridge。
-- `savfox-gateway-dioxus`：网关的 Web 前端。
+# Savfox 项目代码审阅报告(第 N 轮)
 
-这说明项目已经具备“同一核心，多前端/多传输”的平台特征。
+**日期**: 2026-05-04
+**范围**: 整体仓库 (Cargo workspace, ~48 crates)
+**方法**: 静态阅读 + 模式扫描,未运行 `cargo build` / `cargo test`。
 
-## 3.2 核心能力层
+---
 
-`crates/core/src/lib.rs` 暴露了非常大的能力面，覆盖：
-- auth / auth_profiles
-- config / config_loader
-- agent / delegate / subagent / spawn
-- exec / shell / parse_command / sandboxing
-- mcp / connectors / tools
-- rollout / session 管理
-- skills / custom_prompts / project_doc / memory
-- models / provider / web_search / remote_models
-- analytics / otel / updater / transcript_policy
-
-这说明 `savfox-core` 已经是绝对的中台层，也是整个工作区的最高价值代码资产。
-
-## 3.3 协议层
-
-当前协议层至少分为 3 组：
-- `savfox-protocol`：跨工作区的基础协议与共享模型。
-- `savfox-app-server-protocol`：app-server/IDE 集成协议，带导出与 schema 生成能力。
-- `savfox-gateway-shared`：gateway backend 与 Dioxus frontend 共享的 serde 类型。
-
-这个拆分本身是合理的，但随着功能增长，类型所有权会变成治理重点。
-
-## 3.4 集成与基础设施层
-
-除核心之外，项目还维护了大量基础设施与集成模块：
-- `savfox-channels`：16 个左右聊天渠道适配器。
-- `savfox-browser-automation`：浏览器自动化能力。
-- `savfox-memory`：长期记忆相关能力。
-- `savfox-linux-sandbox` / `savfox-windows-sandbox`：平台沙箱。
-- `savfox-api-client` / `savfox-http-client` / `savfox-model`：模型与网络层。
-
-这类模块的数量说明项目能力面很广，也说明发布与测试矩阵天然复杂。
-
-## 3.5 构建与交付层
-
-根目录的 `Justfile` 和 `scripts/build-web.ps1` 体现出较成熟的开发体验设计：
-- `just gateway` / `gateway-release` 统一前后端构建与启动。
-- `build-web.ps1` 已做 fingerprint 缓存与静态资源同步，避免无谓重建。
-- `gateway-server/static` 与 Dioxus 输出做同步，说明网关是“服务端嵌入静态前端”的交付模式。
+## 1. 上下文与之前进展
 
-这个方向是务实的，但也让 frontend build 和 backend 交付链路形成了较强耦合。
+仓库根目录已存在多个旧版 `_report.md` / `_todos.md`,记录了过去若干轮治理:文档与元数据修正、crate 边界文档、协议盘点、共享 bootstrap 抽取、网关/核心的领域分组试点(voice / security / web / runtime,以及 commands / providers / prompting / reviewing)。
 
-## 4. 项目的主要优点
+本轮聚焦在**前几轮治理留下的"半成品"和新出现的实际问题**,而不是再产出更多文档。
 
-### 4.1 中台化方向是正确的
+---
 
-`core` 被 CLI、TUI、app-server、MCP 等多处复用，说明项目没有走“每个入口各写一套逻辑”的路线。这是当前最重要的架构优点。
+## 2. 总体判断
 
-### 4.2 Workspace 治理意识较强
+之前几轮做的"领域分组"是一个**目录上看起来分了组,但物理文件并没有真正搬动**的过渡形态。`#[path = "../X.rs"]` 指令把根目录的文件别名挂到子目录 `mod.rs` 下,虽然达到了"在外部看像分组"的效果,但是:
 
-从根 `Cargo.toml` 可以看出：
-- workspace dependency 管理集中。
-- Rust edition、rust-version、lint policy 统一。
-- `unsafe_code = deny`、`unreachable_pub = deny` 等规则明确。
-- 很多库禁止直接 stdout/stderr 输出，边界意识清晰。
+- 文件物理位置仍在 `crates/<x>/src/` 根目录,新成员依然会困惑"为什么 `voice` 域里看不到 `stt.rs`"。
+- `lib.rs` 累积了大量 `pub use ...` 兼容 re-export,实际公开 API 表面没收敛,反而看起来更乱。
+- 真正"治理边界"这一目标只完成了一半,后半步(物理迁移 + 修正调用点)被推迟到了"未来"。
 
-这对大型 Rust workspace 非常重要。
+此外,有一类**新出现的小型问题**积攒了一批,值得这一轮统一处理:workspace 版本不一致、根目录大量过时计划文件、lint 总开关掩盖问题、stale snapshot 暗示未确认的 UI 回归等。
 
-### 4.3 产品面覆盖广
+---
 
-项目已经覆盖：
-- 终端交互
-- 非交互执行
-- IDE 集成
-- MCP 集成
-- 远程 gateway
-- Web UI
-- 多聊天渠道
+## 3. 具体问题清单(按优先级)
 
-这使得 Savfox 具备平台级扩展潜力，不局限于单一使用方式。
+### 3.1 ⚠️ 高优先级 - workspace 元数据不一致
 
-### 4.4 Web 构建脚本做得比较扎实
+**位置**: [Cargo.toml:13-76](Cargo.toml)
 
-`scripts/build-web.ps1` 不是简单执行 `dx build`，而是处理：
-- 输入指纹
-- out_dir 检测
-- static 目录同步
-- copy 跳过策略
-- 强制重建与 release 构建
+`[workspace.package]` 的 `version` 已升至 `0.3.1`,但 `[workspace.dependencies]` 中所有 47 个内部 crate 的 path 依赖仍然钉死在 `version = "0.3.0"`。这是一个隐性的版本错位,可能在以下场景下出问题:
+- 通过 crates.io 发布时上下游版本不匹配。
+- `cargo install --path` 与 `cargo add` 行为不一致。
+- 任何脚本/工具读 `version` 字段做版本对齐时会出错。
 
-这体现出对前端构建成本和开发体验的关注。
+**修复成本**: 极低,改一处配置。
 
-### 4.5 文档框架已经具备规模
+---
 
-`docs/en/SUMMARY.md` 覆盖了 CLI、gateway、channels、providers、security、automation、nodes、tools 等主题，说明项目已经具备较完整的文档骨架。
+### 3.2 ⚠️ 高优先级 - gateway-server 用 `#![allow(dead_code, unreachable_pub)]` 整体掩盖 lint
 
-## 5. 核心问题与风险点
+**位置**: [crates/gateway-server/src/lib.rs:2](crates/gateway-server/src/lib.rs#L2)
 
-### 5.1 `savfox-core` 已接近“超大核心 crate”
+```rust
+#![allow(unreachable_pub, dead_code)]
+```
 
-`core/src/lib.rs` 的公开模块面非常大，当前的风险不在于它不强，而在于它过于强：
-- 配置、会话、模型、工具、执行、代理、MCP、web search、sandbox、更新、记忆都在同一核心域里。
-- 这会导致依赖方向更难收敛。
-- 新功能很容易继续直接塞进 `core`，让边界进一步变弱。
+workspace 全局 `unreachable_pub = "deny"`,但此 crate 在 lib.rs 顶部全量豁免。同时有 19 处 `#![allow(clippy::...)]`。这种"地毯式豁免"的问题:
 
-判断：`savfox-core` 目前是必要中心，但已经需要“继续做中台”转向“开始治理边界”。
+- 真正的 dead code 与"暂时未用"的 dead code 混在一起,失去了 lint 的诊断价值。
+- 一旦未来想重新打开,需要清理的范围远大于现在。
+- 与 `core/src/lib.rs` 的精简风格(只豁免必需的 clippy 项)不一致。
 
-### 5.2 `savfox-gateway-server` 职责过宽，正向单体网关演化
+**修复路径**: 至少将 `dead_code` 改为 `warn`,逐步清理;`unreachable_pub` 直接移除并修可见性。
 
-`gateway-server/src/lib.rs` 中挂载了大量模块：
-- auth
-- cron_service
-- memory_service
-- media_store / media_understanding
-- plugin
-- provider_health
-- security_audit
-- session
-- skills_api
-- stt / tts / voice_wake / talk_mode
-- webchat / ws / ws_rpc
-- channel / channels / discovery / pairing_store
+---
 
-这说明它不只是 HTTP server，而是同时承担：
-- 远程 API 网关
-- 会话编排器
-- 任务调度器
-- 多渠道桥接层
-- 语音/媒体入口
-- 运维管理面
+### 3.3 ⚠️ 中优先级 - 领域分组只搬了"目录壳",物理文件未迁移
 
-判断：这是当前最明显的复杂度热点。后续如果不做边界治理，网关会成为新的“第二核心”。
+**位置**:
+- [crates/gateway-server/src/voice/mod.rs](crates/gateway-server/src/voice/mod.rs) 引用 `../stt.rs`、`../tts_*.rs`、`../voice_store.rs` 等
+- [crates/gateway-server/src/security/mod.rs](crates/gateway-server/src/security/mod.rs) 引用 `../auth/`、`../rate_limit.rs`、`../redaction.rs` 等
+- [crates/gateway-server/src/runtime/mod.rs](crates/gateway-server/src/runtime/mod.rs) 引用 `../agent_routing.rs`、`../routing/`、`../session/`
+- [crates/core/src/commands/mod.rs](crates/core/src/commands/mod.rs) 引用 `../bash.rs`、`../parse_command.rs`、`../powershell.rs`、`../shell.rs`、`../shell_snapshot.rs`、`../command_safety/`
+- [crates/core/src/providers/mod.rs](crates/core/src/providers/mod.rs) 引用 `../model_*.rs`、`../models_manager/`、`../remote_models.rs`
+- [crates/core/src/prompting/mod.rs](crates/core/src/prompting/mod.rs) 引用 `../custom_prompts.rs`、`../instructions/`、`../personality_migration.rs`、`../project_doc.rs`
+- [crates/core/src/reviewing/mod.rs](crates/core/src/reviewing/mod.rs) 引用 `../review_format.rs`、`../review_prompts.rs`、`../turn_diff_tracker.rs`
 
-### 5.3 `savfox-cli` 的命令聚合已经很重
+模式如:
+```rust
+#[path = "../stt.rs"]
+pub mod stt;
+```
 
-`savfox-cli/src/main.rs` 当前汇聚了 30+ 子命令方向，包括：
-- exec / review / login / mcp / app-server / gateway
-- sandbox / doctor / wizard / sessions / agents / memory / skills / plugins
-- config / cron / daemon / docker / dns / dashboard / directory / security / status / uninstall / update
+这等于"我希望这个文件在 voice 域,但又不想真的把它搬过去"。带来的问题:
+- 新人查找代码时,在 `voice/` 目录下看不到任何 `.rs` 文件(只有 `mod.rs`)。
+- IDE 跳转、grep 路径都会指向 `src/` 根目录,与"已分组"的认知矛盾。
+- 兼容 re-export 在 lib.rs 中堆积(见下),无法真正把根模块树清干净。
 
-这带来两个问题：
-- CLI 是非常强的统一入口，但认知负担很高。
-- 命令组织会逐渐变成“继续堆子命令”而不是“定义产品边界”。
+**修复路径**: 物理移动文件到对应的子目录,删除 `#[path]` 指令,并清理因移动失效的 lib.rs 兼容 re-export(如果调用点已能直接走新路径)。
 
-### 5.4 协议分层是优点，但也开始有漂移风险
+---
 
-当前至少存在：
-- `savfox-protocol`
-- `savfox-app-server-protocol`
-- `savfox-gateway-shared`
+### 3.4 ⚠️ 中优先级 - lib.rs 中累积的兼容 re-export
 
-三套协议/类型共享层。
+**位置**: [crates/core/src/lib.rs:119-120, 144-146](crates/core/src/lib.rs)、[crates/gateway-server/src/lib.rs:96-100](crates/gateway-server/src/lib.rs)
 
-这在多表面系统里很常见，但如果没有明确的所有权规则，后续会出现：
-- 同一语义在多个 crate 重复定义。
-- 迁移时不知道类型该归谁。
-- web、IDE、CLI、gateway 之间的行为逐步分叉。
+```rust
+// core/src/lib.rs
+pub use prompting::{custom_prompts, instructions, personality_migration, project_doc};
+pub use reviewing::{review_format, review_prompts, turn_diff_tracker};
+pub use commands::{bash, parse_command, powershell, shell, shell_snapshot};
+pub(crate) use commands::safety as command_safety;
 
-### 5.5 文档与元数据已经出现真实漂移
+// gateway-server/src/lib.rs
+pub(crate) use runtime::agent_routing;
+pub use runtime::{routing, session};
+pub use security::{auth, rate_limit, redaction, security_audit, ssrf};
+pub use voice::{stt, talk_mode, voice_wake};
+pub(crate) use voice::{tts_deepgram, tts_edge, tts_service, voice_store};
+```
 
-这个问题不是抽象担忧，而是已经可以从当前代码中直接观察到：
-- 根 `Cargo.toml` 的 workspace description 仍是 `Experimental AI API client library for Rust.`，与当前“多入口 AI Agent 平台”的事实不匹配。
-- `docs/en/concepts/architecture.md` 仍在使用 `codex-api` 这一旧名称，而仓库说明已经明确不应继续传播旧名。
-- 同一文档中写的是 `Salvo (v0.89)`，而当前 workspace 依赖是 `salvo = 0.91`。
+这些 re-export 是上一轮"边界治理"为了不破坏调用点而留下的兼容层。但目前**没有任何**逐步迁移调用点的计划,意味着它们会被永久留在那里,既没有让外部调用点真的"按域引用",也没有让 lib.rs 表面更干净。
 
-判断：文档和元数据已经开始滞后于当前项目形态，这会直接影响外部理解、贡献者上手和后续改造判断。
+**修复路径**: 决定一个方向并执行——要么真正迁移调用点(去掉 re-export),要么明确"根命名空间是公共 API"并删除子域(避免存在两条引用路径)。
 
-### 5.6 依赖面广且包含多处 git 依赖，供应链治理要提前做
+---
 
-根 `Cargo.toml` 中存在多处直接 git 依赖或 branch 依赖，例如：
-- `eventsource-stream`
-- `reqwest-eventsource`
-- `opentelemetry*` 指向 git `main`
-- `nucleo`
-- `runfiles`
-- `dingtalk-sdk`
+### 3.5 🔍 中优先级 - 根目录大量过时 `_*.md` 计划文件
 
-这不是一定错误，但意味着：
-- 可复现构建复杂度更高。
-- 上游变动风险需要持续跟踪。
-- 升级、排障和离线构建成本都会更高。
+**位置**: 仓库根
 
-### 5.7 Web 交付链路可用，但耦合度偏高
+```
+_auto_reply.md     (2026-04-17)  17 KB
+_auto_tasks.md     (2026-04-17)  1.6 KB
+_report.md         (2026-05-03)  13 KB - 上一轮报告
+_tasks.md          (2026-04-02)  1.1 KB
+_todo.md           (2026-04-01)  1 KB
+_todos.md          (2026-05-03)  6.9 KB - 上一轮 todo 已全部 done
+_todos_cli.md      (2026-05-02)  1 KB
+```
 
-当前前端构建模式是：
-- Dioxus 构建输出。
-- 同步到 `gateway-dioxus` 的 out_dir。
-- 再同步到 `gateway-server/static`。
-- 由网关内嵌静态资源对外服务。
+这些文件是过去若干轮分析的产物。在 `_todos.md` 头部明确写着"本文件中的事项已按当前仓库范围全部落地",但文件仍在 `git` 跟踪外/内堆积。它们:
+- 占用根目录视觉空间,容易被新人误读为"待办"。
+- 与 GitHub Issue / PR 描述功能重复。
+- 没有归档机制(`docs/archive/`、`.history/` 等)。
 
-优点是部署简单；缺点是：
-- frontend/backend 发布节奏天然绑定。
-- 构建、缓存、同步、嵌入链路中的任何一步出问题，都会影响最终网关行为。
-- 在多人协作与 CI 中，构建产物责任边界需要更清楚。
+**修复路径**: 本轮新报告产生后,把上一轮的 `_report.md` / `_todos.md` 等过时文件归档或删除;并在 `.gitignore` 中明确 `_*.md` 的处理策略。
 
-### 5.8 渠道接入能力很强，但运维复杂度同样很高
+---
 
-`crates/channels/src/lib.rs` 暴露了大量渠道适配器，这说明项目已经具备很强的对外接入能力。但渠道越多，越需要：
-- 更统一的 adapter contract
-- 更清晰的配置校验
-- 更稳定的 smoke test
-- 更明确的“实验性/稳定性等级”标记
+### 3.6 🔍 中优先级 - stale snapshot 暗示真实 UI 回归
 
-否则渠道数量本身会反向拖累整体可维护性。
+**位置**: [crates/tui/src/chat_screen/snapshots/savfox_tui__chat_screen__tests__approval_modal_patch.snap.new](crates/tui/src/chat_screen/snapshots/savfox_tui__chat_screen__tests__approval_modal_patch.snap.new)
 
-## 6. 我对当前项目阶段的判断
+旧 snapshot:
+```
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for these files (a)
+  3. No, and tell Savfox what to do differently (esc)
+```
 
-Savfox 现在处于“从功能扩展期进入结构治理期”的阶段。
+新 `.snap.new`:
+```
+› 1. Yes, proceed (y) (y)
+  2. Yes, don't ask again for these files (a) (a)
+  3. No, tell Savfox what to do differently (n) (esc)
+```
 
-如果目标只是继续加能力，当前结构还能支撑一段时间；但如果目标是：
-- 更稳定地对外发布
-- 支撑更多客户端/渠道
-- 降低新人接入成本
-- 降低跨模块回归风险
+新版每一行的快捷键被渲染了两次(`(y) (y)`、`(a) (a)`、`(n) (esc)`),这**不是简单的文案变更**,而是疑似行项的快捷键合成逻辑出现了重复拼接的回归。
 
-那下一阶段的重点就不应该是继续横向加功能，而应该是：
-- 收敛边界
-- 固化协议所有权
-- 修正文档与命名漂移
-- 给 `core` 和 `gateway-server` 减压
+**修复路径**: 这一项**不应**直接 `cargo insta accept`。应当先定位 list_selection_view 渲染中的快捷键逻辑,确认是回归还是有意修改,再决定接受 snapshot 还是修代码。本轮报告将其登记,实际修复留为单独的 follow-up。
 
-## 7. 建议的改进方向
+---
 
-### 7.1 先修正“认知层”的错误信息
+### 3.7 🔍 低优先级 - `discovery.rs` 的 mDNS 仍是 stub
 
-第一优先级不是大重构，而是先把会误导开发者的描述修正：
-- workspace description
-- 架构文档中的旧命名
-- 版本描述错误
-- 中英文文档不一致项
+**位置**: [crates/gateway-server/src/discovery.rs:78, 145](crates/gateway-server/src/discovery.rs)
 
-这是低风险高收益项。
+```rust
+// TODO: Implement actual mDNS registration using mdns-sd crate.
+// TODO: Implement actual mDNS browsing using mdns-sd crate.
+```
 
-### 7.2 给 `core`、`gateway-server`、协议层建立正式边界
+文件作为公共模块存在,但核心功能未实现。这种"占位实现"如果暴露给上游,会让外部以为已经支持了发现能力,实际上不会工作。
 
-建议尽快补一份“crate ownership + dependency rules”文档，至少回答：
-- 什么能力必须进 `core`。
-- 什么能力只能留在 gateway。
-- `savfox-protocol`、`savfox-app-server-protocol`、`savfox-gateway-shared` 各自负责什么语义。
-- 哪些 crate 允许直接依赖哪些 crate。
+**修复路径**: 要么删除该模块(若短期内不打算实现),要么至少在公共类型上明确标 `#[doc(hidden)]` 或 `#[deprecated(note = "not yet implemented")]`,避免误用。本轮报告仅记录,不执行。
 
-### 7.3 抽取重复的启动/运行时样板
+---
 
-从 `app-server`、`mcp-server`、`gateway-server` 可以看出，有一类重复模式持续出现：
-- tracing 初始化
-- config 加载
-- stdin/stdout 或消息通道搭建
-- processor + writer/read loop
+### 3.8 🔍 低优先级 - workspace git 依赖跟踪 branch
 
-建议识别能共享的 bootstrap/runtime 组件，减少每个入口各自维护一套启动骨架。
+**位置**: [Cargo.toml:137, 194-199, 234, 334](Cargo.toml)
 
-### 7.4 对网关做按领域的拆分试点
+```toml
+eventsource-stream = { ..., branch = "next" }
+opentelemetry* = { ..., branch = "main" }
+reqwest-eventsource = { ..., branch = "next" }
+dingtalk-sdk = { ..., branch = "main" }
+```
 
-不建议一次性拆散整个 `gateway-server`，但建议先做 bounded-context 试点，例如把以下之一先抽清楚：
-- session + ws_rpc
-- media/stt/tts/voice
-- plugin/skills/memory
-- channel runtime
+之前的 `git-dependencies.md` 文档已经讨论过策略,但 `Cargo.toml` 本身仍然全部 `branch = "..."` 而不是 `rev = "..."`。`Cargo.lock` 会锁定具体 commit,但 `cargo update -p <pkg>` 会自动跳到最新 commit,长期看会造成"我没改任何东西但 lockfile 又变了"的局面。
 
-目标不是“拆 crate 数量”，而是“让网关内部责任边界更清楚”。
+**修复路径**: 把所有 git 依赖钉到具体 `rev`(本轮不做,留为后续治理项)。
 
-### 7.5 建立协议类型治理规则
+---
 
-建议对三层协议 crate 做一次类型盘点，输出：
-- 哪些类型是真正的跨端通用模型。
-- 哪些类型只属于 app-server。
-- 哪些类型只属于 gateway web。
-- 哪些命名或字段重复度高，应该收敛。
+### 3.9 🔍 低优先级 - 巨型文件需要进一步拆分
 
-### 7.6 把依赖治理和测试矩阵前置
+仍然存在的高 LOC 单文件(超过 2500 行):
 
-当前工作区很大，继续靠“全量跑一遍”会越来越重。建议明确：
-- domain-based test matrix
-- crate ownership
-- git dependency 升级策略
-- 稳定渠道与实验渠道的测试分层
+| 文件 | 行数 | 备注 |
+| --- | --- | --- |
+| [crates/tui/src/chat_screen.rs](crates/tui/src/chat_screen.rs) | 7368 | TUI 主屏,内部已有按 region 拆分的空间 |
+| [crates/tui/src/chat_screen/tests.rs](crates/tui/src/chat_screen/tests.rs) | 5544 | 单文件超大测试套 |
+| [crates/core/src/config/mod.rs](crates/core/src/config/mod.rs) | 4566 | 已是子模块的 mod.rs,但仍然过重 |
+| [crates/gateway-dioxus/src/pages/channels/mod.rs](crates/gateway-dioxus/src/pages/channels/mod.rs) | 4513 | 所有 channel UI 共一个文件 |
+| [crates/gateway-dioxus/src/pages/agents.rs](crates/gateway-dioxus/src/pages/agents.rs) | 4399 | 单页 4k+ 行 |
+| [crates/tui/src/bottom_pane/chat_composer/tests.rs](crates/tui/src/bottom_pane/chat_composer/tests.rs) | 3774 | 测试集中 |
+| [crates/tui/src/app/mod.rs](crates/tui/src/app/mod.rs) | 3514 | App 主循环 |
+| [crates/tui/src/history_cell/mod.rs](crates/tui/src/history_cell/mod.rs) | 3229 | 历史项渲染 |
+| [crates/gateway-server/src/ws_rpc/handlers/browser.rs](crates/gateway-server/src/ws_rpc/handlers/browser.rs) | 3112 | 单 handler 太大 |
+| [crates/protocol/src/protocol.rs](crates/protocol/src/protocol.rs) | 3071 | 协议枚举集中 |
+| [crates/app-server-protocol/src/protocol/v1.rs](crates/app-server-protocol/src/protocol/v1.rs) | 3039 | v1 协议集中 |
 
-## 8. 建议的执行顺序
+这些不是"必须现在拆",但任何一项拆分对未来开发都是复利收益。本轮不动结构性大文件,留为后续单独 PR 推进。
 
-建议按以下顺序推进：
-1. 修正文档、命名、元数据漂移。
-2. 产出架构边界与协议所有权清单。
-3. 识别 `core` / `gateway-server` / 各入口的共享启动骨架。
-4. 选一个网关领域做拆分试点。
-5. 选一个 `core` 领域做模块化试点。
-6. 补测试矩阵和依赖治理规则。
+---
 
-## 9. 最终判断
+### 3.10 🔍 低优先级 - core 与 gateway-server 的 unwrap/expect 数量
 
-Savfox 的基础方向是对的，真正的问题不是缺能力，而是成功积累之后的结构压力已经开始显性化。
+| 模块 | 数量(粗略 grep) |
+| --- | --- |
+| `crates/core/src/**` | ~420 |
+| `crates/gateway-server/src/**` | ~241 |
 
-如果现在开始做边界治理，这个仓库完全有机会继续演进成一个稳定的、多入口、多协议、可扩展的 AI Agent 平台；如果继续只加功能不治理结构，未来的主要成本会从“开发功能”逐步转成“理解系统、避免回归、同步文档和修正边界”。
+测试代码可以容忍 unwrap,但生产路径上的 unwrap 会让 panic 变成"不可恢复的服务异常"。这一项需要逐文件审计,不在本轮范围内。
+
+---
+
+## 4. 本轮要执行的改动(实际可落地)
+
+按"低风险、高确定性、对未来开发有正向价值"原则筛选,本轮只做以下:
+
+1. **修复 workspace 版本不一致** — 把 `[workspace.dependencies]` 中所有内部 crate 的 `version = "0.3.0"` 升到 `"0.3.1"`,与 `workspace.package.version` 对齐。
+2. **收敛 gateway-server lib.rs 的总 allow** — 把 `dead_code` 从 allow 改为 warn,移除 `unreachable_pub` 的全局豁免,如果有少量违例则尽量修复,实在不能修的局部 `#[allow]`。
+3. **物理迁移领域分组的文件** — 把 `voice/`、`security/`、`runtime/`、`commands/`、`providers/`、`prompting/`、`reviewing/` 各自 `#[path]` 引用的文件真的移到对应子目录,删掉 `#[path]` 指令。同时清理因为移动而失效的 lib.rs 兼容 re-export(如果存在)。
+4. **归档过时的根目录 `_*.md` 文件** — 把上一轮的 `_report.md`、`_todos.md` 等以及更早的 `_auto_reply.md` 等移入 `docs/_archive/`(或者直接删掉),只保留本轮的新 `_report.md` / `_tasks.md`。
+5. **不动 stale snapshot** — 在 `_tasks.md` 中明确登记"snap.new 有疑似回归,需要单独 follow-up",但本轮不动。
+6. **每一步后跑 `cargo check --workspace` 与 `cargo fmt --all`** 验证。
+
+---
+
+## 5. 不在本轮范围内的项
+
+明确推迟,不在本轮 `_tasks.md` 中:
+
+- 拆分巨型文件(`chat_screen.rs`、`config/mod.rs`、`pages/channels/mod.rs` 等)
+- 全量审计 `unwrap` / `expect`
+- 实现 mDNS discovery
+- 把 git 依赖从 `branch` 改成 `rev`
+- 修复 approval modal snapshot 中的快捷键重复回归(需要单独排查)
+
+---
+
+## 6. 结论
+
+仓库整体质量已经过几轮治理,主要的"结构边界"和"文档骨架"问题已经处理。本轮要解决的是**前几轮留下的小型债务**——版本号错位、半成品的领域分组、地毯式 lint 豁免、根目录的过时计划文件。这些项单独看都不"重要",但累积起来正在拉低仓库的整洁度和新人上手体验。
+
+修完这一轮,下一轮可以把注意力转回更大的结构性议题(巨型文件拆分、unwrap 审计、协议边界细化)。
+
+---
+
+## 7. 完成情况
+
+本轮 T1–T5 全部落地。详细的任务定义见 [_tasks.md](./_tasks.md)。
+
+### 已完成
+
+- **T1**: `Cargo.toml` 中 `[workspace.dependencies]` 内部 47 个 `savfox-*` / `*_test_support` crate 的 `version` 全部从 `"0.3.0"` 升到 `"0.3.1"`,与 `[workspace.package].version` 对齐。
+- **T2**: 把 5 个根目录历史计划文件 (`_auto_reply.md`、`_auto_tasks.md`、`_todo.md`、`_todos.md`、`_todos_cli.md`) 移入 `docs/_archive/`;清理了 `.gitignore` 中重复的 `_*.md` 行(从 2 条减到 1 条)。
+- **T3**: `crates/gateway-server/src/lib.rs` 把 `dead_code` 从 `allow` 改为 `warn`,`unreachable_pub` 保留 `allow` 但加了 TODO 注释,准备后续逐文件收敛。该改动暴露了 193 处 `dead_code` warning,但**未引入新错误**,可以作为后续清理的输入清单。
+- **T4**: 把 7 个领域目录(gateway 的 `voice`/`security`/`runtime`,core 的 `commands`/`providers`/`prompting`/`reviewing`)中所有用 `#[path = "../X.rs"]` 别名挂载的文件**真正物理移动**到对应子目录,删除了 `#[path]` 指令。同步修复了两处 `include_str!` 相对路径(`providers/manager/collaboration_mode_presets.rs` 和 `prompting/project_doc.rs`)。具体涉及 ~30 个文件移动 + 7 个 `mod.rs` 简化。`lib.rs` 中现有的兼容 re-export 全部保留,不影响外部调用方。
+- **T5**: `cargo fmt --all` 与 `cargo check --workspace --lib` 均已通过,无新增编译错误。
+
+### 已登记的 Follow-up(本轮不做)
+
+- F1 — `chat_screen` approval modal 的 `(y) (y)` / `(a) (a)` 重复渲染回归(疑似 `bottom_pane/list_selection_view.rs` 的快捷键合成逻辑出错)。本轮未接受 `.snap.new`。
+- F2 — 巨型文件拆分(`chat_screen.rs` 7368 行等)。
+- F3 — git 依赖从 `branch` 改为 `rev`(eventsource-stream / opentelemetry / reqwest-eventsource / dingtalk-sdk)。
+- F4 — `discovery.rs` mDNS stub 决策(实现 / 删除 / `#[deprecated]`)。
+- F5 — 生产路径 `unwrap`/`expect` 审计(core ~420、gateway-server ~241)。
+- F6 — gateway-server 193 处 `dead_code` warning 收敛(由 T3 暴露)。
+
+### 未跑的验证
+
+- 未跑 `cargo test --workspace`(本轮聚焦在结构改动,结构改动后跑全量测试成本高;由 CI 兜底)。
+- 未跑 `cargo clippy --workspace`。

@@ -26,54 +26,54 @@ keywords = ["openai", "async", "openapi", "ai"]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-savfox = { version = "0.3.0", path = "crates/savfox", default-features = true }
-savfox-app-server-protocol = { version = "0.3.0", path = "crates/app-server-protocol", default-features = true }
-savfox-app-server = { version = "0.3.0", path = "crates/app-server", default-features = true }
-savfox-arg0 = { version = "0.3.0", path = "crates/arg0", default-features = true }
-savfox-common = { version = "0.3.0", path = "crates/common", default-features = true }
-savfox-config = { version = "0.3.0", path = "crates/config", default-features = true }
-savfox-core = { version = "0.3.0", path = "crates/core", default-features = true }
-savfox-exec = { version = "0.3.0", path = "crates/exec", default-features = true }
-savfox-exec-policy = { version = "0.3.0", path = "crates/exec-policy", default-features = true }
-savfox-feedback = { version = "0.3.0", path = "crates/feedback", default-features = true }
-savfox-file-search = { version = "0.3.0", path = "crates/file-search", default-features = true }
-savfox-login-oauth = { version = "0.3.0", path = "crates/login-oauth", default-features = true }
-savfox-mcp-server = { version = "0.3.0", path = "crates/mcp-server", default-features = true }
-savfox-protocol = { version = "0.3.0", path = "crates/protocol", default-features = true }
-savfox-rmcp-client = { version = "0.3.0", path = "crates/rmcp-client", default-features = true }
-savfox-utils = { version = "0.3.0", path = "crates/utils", default-features = true }
-savfox-ansi-escape = { version = "0.3.0", path = "crates/ansi-escape", default-features = true }
-savfox-api-client = { version = "0.3.0", path = "crates/api-client", default-features = true }
-savfox-apply-patch = { version = "0.3.0", path = "crates/apply-patch", default-features = true }
-savfox-app-server-test-client = { version = "0.3.0", path = "crates/app-server-test-client", default-features = true }
-savfox-async-utils = { version = "0.3.0", path = "crates/async-utils", default-features = true }
-savfox-cli = { version = "0.3.0", path = "crates/savfox-cli", default-features = true }
-savfox-http-client = { version = "0.3.0", path = "crates/http-client", default-features = true }
-savfox-debug-client = { version = "0.3.0", path = "crates/debug-client", default-features = true }
-savfox-exec-server = { version = "0.3.0", path = "crates/exec-server", default-features = true }
-savfox-gateway-server = { version = "0.3.0", path = "crates/gateway-server", default-features = true }
-savfox-gateway-shared = { version = "0.3.0", path = "crates/gateway-shared", default-features = true }
-savfox-model = { version = "0.3.0", path = "crates/model", default-features = true }
-savfox-experimental-api-macros = { version = "0.3.0", path = "crates/experimental-api-macros", default-features = true }
-savfox-keyring-store = { version = "0.3.0", path = "crates/keyring-store", default-features = true }
-savfox-linux-sandbox = { version = "0.3.0", path = "crates/linux-sandbox", default-features = true }
-savfox-lmstudio = { version = "0.3.0", path = "crates/lmstudio", default-features = true }
-savfox-network-proxy = { version = "0.3.0", path = "crates/network-proxy", default-features = true }
-savfox-ollama = { version = "0.3.0", path = "crates/ollama", default-features = true }
-savfox-otel = { version = "0.3.0", path = "crates/otel", default-features = true }
-savfox-state = { version = "0.3.0", path = "crates/state", default-features = true }
-savfox-stdio-to-uds = { version = "0.3.0", path = "crates/stdio-to-uds", default-features = true }
-savfox-tui = { version = "0.3.0", path = "crates/tui", default-features = true }
-savfox-windows-sandbox = { version = "0.3.0", path = "crates/windows-sandbox", default-features = true }
-savfox-skill-registry = { version = "0.3.0", path = "crates/skill-registry", default-features = true }
-savfox-browser-automation = { version = "0.3.0", path = "crates/browser-automation", default-features = true }
-savfox-memory = { version = "0.3.0", path = "crates/memory", default-features = true }
-savfox-link-understanding = { version = "0.3.0", path = "crates/link-understanding", default-features = true }
-savfox-channels = { version = "0.3.0", path = "crates/channels", default-features = true }
-app_test_support = { version = "0.3.0", path = "crates/app-server/tests/common" }
-core_test_support = { version = "0.3.0", path = "crates/core/tests/common" }
-exec_server_test_support = { version = "0.3.0", path = "crates/exec-server/tests/common" }
-mcp_test_support = { version = "0.3.0", path = "crates/mcp-server/tests/common" }
+savfox = { version = "0.3.1", path = "crates/savfox", default-features = true }
+savfox-app-server-protocol = { version = "0.3.1", path = "crates/app-server-protocol", default-features = true }
+savfox-app-server = { version = "0.3.1", path = "crates/app-server", default-features = true }
+savfox-arg0 = { version = "0.3.1", path = "crates/arg0", default-features = true }
+savfox-common = { version = "0.3.1", path = "crates/common", default-features = true }
+savfox-config = { version = "0.3.1", path = "crates/config", default-features = true }
+savfox-core = { version = "0.3.1", path = "crates/core", default-features = true }
+savfox-exec = { version = "0.3.1", path = "crates/exec", default-features = true }
+savfox-exec-policy = { version = "0.3.1", path = "crates/exec-policy", default-features = true }
+savfox-feedback = { version = "0.3.1", path = "crates/feedback", default-features = true }
+savfox-file-search = { version = "0.3.1", path = "crates/file-search", default-features = true }
+savfox-login-oauth = { version = "0.3.1", path = "crates/login-oauth", default-features = true }
+savfox-mcp-server = { version = "0.3.1", path = "crates/mcp-server", default-features = true }
+savfox-protocol = { version = "0.3.1", path = "crates/protocol", default-features = true }
+savfox-rmcp-client = { version = "0.3.1", path = "crates/rmcp-client", default-features = true }
+savfox-utils = { version = "0.3.1", path = "crates/utils", default-features = true }
+savfox-ansi-escape = { version = "0.3.1", path = "crates/ansi-escape", default-features = true }
+savfox-api-client = { version = "0.3.1", path = "crates/api-client", default-features = true }
+savfox-apply-patch = { version = "0.3.1", path = "crates/apply-patch", default-features = true }
+savfox-app-server-test-client = { version = "0.3.1", path = "crates/app-server-test-client", default-features = true }
+savfox-async-utils = { version = "0.3.1", path = "crates/async-utils", default-features = true }
+savfox-cli = { version = "0.3.1", path = "crates/savfox-cli", default-features = true }
+savfox-http-client = { version = "0.3.1", path = "crates/http-client", default-features = true }
+savfox-debug-client = { version = "0.3.1", path = "crates/debug-client", default-features = true }
+savfox-exec-server = { version = "0.3.1", path = "crates/exec-server", default-features = true }
+savfox-gateway-server = { version = "0.3.1", path = "crates/gateway-server", default-features = true }
+savfox-gateway-shared = { version = "0.3.1", path = "crates/gateway-shared", default-features = true }
+savfox-model = { version = "0.3.1", path = "crates/model", default-features = true }
+savfox-experimental-api-macros = { version = "0.3.1", path = "crates/experimental-api-macros", default-features = true }
+savfox-keyring-store = { version = "0.3.1", path = "crates/keyring-store", default-features = true }
+savfox-linux-sandbox = { version = "0.3.1", path = "crates/linux-sandbox", default-features = true }
+savfox-lmstudio = { version = "0.3.1", path = "crates/lmstudio", default-features = true }
+savfox-network-proxy = { version = "0.3.1", path = "crates/network-proxy", default-features = true }
+savfox-ollama = { version = "0.3.1", path = "crates/ollama", default-features = true }
+savfox-otel = { version = "0.3.1", path = "crates/otel", default-features = true }
+savfox-state = { version = "0.3.1", path = "crates/state", default-features = true }
+savfox-stdio-to-uds = { version = "0.3.1", path = "crates/stdio-to-uds", default-features = true }
+savfox-tui = { version = "0.3.1", path = "crates/tui", default-features = true }
+savfox-windows-sandbox = { version = "0.3.1", path = "crates/windows-sandbox", default-features = true }
+savfox-skill-registry = { version = "0.3.1", path = "crates/skill-registry", default-features = true }
+savfox-browser-automation = { version = "0.3.1", path = "crates/browser-automation", default-features = true }
+savfox-memory = { version = "0.3.1", path = "crates/memory", default-features = true }
+savfox-link-understanding = { version = "0.3.1", path = "crates/link-understanding", default-features = true }
+savfox-channels = { version = "0.3.1", path = "crates/channels", default-features = true }
+app_test_support = { version = "0.3.1", path = "crates/app-server/tests/common" }
+core_test_support = { version = "0.3.1", path = "crates/core/tests/common" }
+exec_server_test_support = { version = "0.3.1", path = "crates/exec-server/tests/common" }
+mcp_test_support = { version = "0.3.1", path = "crates/mcp-server/tests/common" }
 
 aead = "0.5"
 aes-gcm = "0.10"

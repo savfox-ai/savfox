@@ -1,12 +1,14 @@
 use savfox_protocol::config_types::{CollaborationModeMask, ModeKind};
 use savfox_protocol::openai_models::ReasoningEffort;
 
-const COLLABORATION_MODE_PLAN: &str = include_str!("../../templates/collaboration_mode/plan.md");
-const COLLABORATION_MODE_CODE: &str = include_str!("../../templates/collaboration_mode/code.md");
+const COLLABORATION_MODE_PLAN: &str =
+    include_str!("../../../templates/collaboration_mode/plan.md");
+const COLLABORATION_MODE_CODE: &str =
+    include_str!("../../../templates/collaboration_mode/code.md");
 const COLLABORATION_MODE_PAIR_PROGRAMMING: &str =
-    include_str!("../../templates/collaboration_mode/pair_programming.md");
+    include_str!("../../../templates/collaboration_mode/pair_programming.md");
 const COLLABORATION_MODE_EXECUTE: &str =
-    include_str!("../../templates/collaboration_mode/execute.md");
+    include_str!("../../../templates/collaboration_mode/execute.md");
 
 pub(super) fn builtin_collaboration_mode_presets() -> Vec<CollaborationModeMask> {
     vec![

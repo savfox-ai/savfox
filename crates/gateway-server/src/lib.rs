@@ -1,5 +1,8 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
-#![allow(unreachable_pub, dead_code)]
+// TODO: 收敛 unreachable_pub —— workspace 全局是 deny,这里临时 allow
+// 是为了不阻塞当前迭代;后续应当逐文件修可见性。
+#![allow(unreachable_pub)]
+#![warn(dead_code)]
 #![allow(missing_debug_implementations)]
 #![allow(
     clippy::enum_variant_names,

@@ -23,7 +23,7 @@ use crate::features::Feature;
 use crate::skills::{SkillMetadata, render_skills_section};
 
 pub(crate) const HIERARCHICAL_AGENTS_MESSAGE: &str =
-    include_str!("../hierarchical_agents_message.md");
+    include_str!("../../hierarchical_agents_message.md");
 
 /// Default filename scanned for project-level docs.
 pub const DEFAULT_PROJECT_DOC_FILENAME: &str = "AGENTS.md";
