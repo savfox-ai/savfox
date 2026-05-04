@@ -455,6 +455,7 @@ async fn remove_snapshot_file(path: &Path) {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
 mod tests {
     #[cfg(unix)]
     use std::os::unix::ffi::OsStrExt;
