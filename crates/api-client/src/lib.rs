@@ -1,3 +1,27 @@
+//! Multi-provider streaming HTTP client for LLM APIs.
+//!
+//! `savfox-api-client` is the transport layer beneath the rest of the
+//! Savfox engine. It speaks three wire dialects:
+//!
+//! * **OpenAI Chat Completions** (`chat/completions` endpoint, SSE
+//!   stream of `data: ...` chunks).
+//! * **OpenAI Responses** (`responses` endpoint, the newer streaming
+//!   shape with reasoning + tool-use events).
+//! * **Anthropic Messages** (`v1/messages` endpoint, SSE event
+//!   namespace with `message_start`, `content_block_delta`, etc.).
+//!
+//! Each dialect lives in its own subtree under [`requests`] (request
+//! builder + body serde shape) and [`sse`] (event-stream parser). The
+//! dialects share an [`auth`] surface, an [`endpoint`] resolver, and an
+//! [`error`] type so callers can write provider-agnostic code.
+//!
+//! # Streaming
+//!
+//! All endpoints return their results through `futures::Stream` of typed
+//! events; the upstream `reqwest` connection is held open until the model
+//! signals end-of-stream. Callers must drain or drop the stream promptly
+//! so connection slots are not exhausted.
+
 #![allow(missing_debug_implementations)]
 #![allow(
     clippy::filter_map_next,

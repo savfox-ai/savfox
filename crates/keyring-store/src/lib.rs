@@ -1,3 +1,30 @@
+//! OS-keyring–backed credential storage for Savfox secrets.
+//!
+//! The crate exposes a small [`KeyringStore`] trait whose canonical
+//! implementation, [`DefaultKeyringStore`], delegates to the [`keyring`]
+//! crate. Each call ultimately reaches a synchronous platform API
+//! (DPAPI on Windows, Secret Service on Linux, the macOS Keychain),
+//! which the trait makes pluggable so higher layers can substitute a
+//! [`tests::MockKeyringStore`] in test code.
+//!
+//! # Security
+//!
+//! Secrets stored through this module live in the user's OS keyring under
+//! the service name supplied by the caller. The OS — not Savfox — owns
+//! access control: encryption at rest, ACL, and per-user isolation are
+//! delegated to the platform's standard credential vault.
+//!
+//! # Example
+//!
+//! ```
+//! use savfox_keyring_store::{KeyringStore, tests::MockKeyringStore};
+//!
+//! let store = MockKeyringStore::default();
+//! store.save("savfox-gateway", "token", "abc123").unwrap();
+//! let value = store.load("savfox-gateway", "token").unwrap();
+//! assert_eq!(value.as_deref(), Some("abc123"));
+//! ```
+
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
@@ -5,8 +32,14 @@ use std::fmt::Debug;
 use keyring::{Entry, Error as KeyringError};
 use tracing::trace;
 
+/// Errors that can be returned by the credential-store helpers.
+///
+/// Currently this is a single-variant wrapper around [`KeyringError`]; the
+/// enum exists so we can grow it (e.g. `Locked`, `Unavailable`) without
+/// breaking downstream `match` exhaustiveness expectations.
 #[derive(Debug)]
 pub enum CredentialStoreError {
+    /// An error reported by the underlying [`keyring`] crate.
     Other(KeyringError),
 }
 

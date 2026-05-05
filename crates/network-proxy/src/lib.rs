@@ -1,3 +1,30 @@
+//! HTTP / SOCKS5 proxy with allow / deny network-policy enforcement.
+//!
+//! This crate provides the proxy listener that Savfox interposes between
+//! agent-spawned subprocesses and the public network. Every outbound
+//! connection is classified through a [`NetworkPolicyDecider`] before it
+//! is permitted, and denied connections are returned to the client with a
+//! structured reason rather than a generic refusal.
+//!
+//! Two protocols are supported:
+//!
+//! * **HTTP CONNECT** — for `https://` / TLS tunnelling. Implemented in
+//!   the `http_proxy` module; the upstream-tunnel headers are validated
+//!   before being forwarded.
+//! * **SOCKS5** — for opaque TCP. Implemented in the `proxy` module.
+//!
+//! The policy layer (`policy`, `network_policy`, `responses`) decides
+//! per-host / per-port allow/deny outcomes. Configuration is loaded via
+//! [`config`] and may be reloaded at runtime through the `admin` module.
+//!
+//! # Threat model
+//!
+//! The proxy is a **defence-in-depth** layer, not the sole boundary —
+//! sandbox policies (Seatbelt, Landlock, Windows AppContainer) still
+//! restrict the spawning subprocess. The proxy ensures that outbound
+//! traffic which slips past those layers is at least classified and
+//! audit-logged.
+
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
