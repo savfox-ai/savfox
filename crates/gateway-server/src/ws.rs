@@ -94,7 +94,13 @@ pub(crate) async fn ws_handler(
     // frame) which keeps the token out of URLs entirely.
     let query_token = req.query::<String>("token");
 
+    // Cap inbound WebSocket frames so a single oversized payload cannot
+    // OOM the daemon (M15). The values are deliberately generous — a
+    // legitimate JSON-RPC frame is well under 1 MiB; large attachments are
+    // chunked over multiple messages.
     WebSocketUpgrade::new()
+        .max_message_size(MAX_WS_MESSAGE_SIZE)
+        .max_frame_size(MAX_WS_FRAME_SIZE)
         .upgrade(req, res, move |ws| {
             handle_ws_connection(
                 ws,
@@ -108,6 +114,12 @@ pub(crate) async fn ws_handler(
         })
         .await
 }
+
+/// Maximum size of a single inbound WebSocket message (1 MiB). A frame
+/// larger than this triggers a protocol-level close.
+const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
+/// Maximum size of a single inbound WebSocket frame (1 MiB).
+const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
 /// Main WebSocket connection loop.
 async fn handle_ws_connection(
