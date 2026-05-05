@@ -330,7 +330,12 @@ impl ModelProviderInfo {
         let retry = ApiRetryConfig {
             max_attempts: self.request_max_retries(),
             base_delay: Duration::from_millis(200),
-            retry_429: false,
+            // M24: a transient burst returning 429 used to kill the turn
+            // even though the next attempt would have succeeded. Allow
+            // automatic retry — the api-client honours `Retry-After` and
+            // backs off exponentially capped at the provider-level retry
+            // budget, so this cannot turn into a stampede.
+            retry_429: true,
             retry_5xx: true,
             retry_transport: true,
         };

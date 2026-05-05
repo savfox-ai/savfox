@@ -47,14 +47,33 @@ impl<'a> AnthropicRequestBuilder<'a> {
             "messages": messages,
         });
 
-        // System instructions go into a top-level "system" field, not into messages.
+        // System instructions go into a top-level "system" field. We attach a
+        // `cache_control: { type: "ephemeral" }` breakpoint so Anthropic
+        // caches the system block; on the next turn within the same
+        // conversation this entire prefix is billed at the cached input rate
+        // (~10% of the uncached price). The `system` field accepts either a
+        // string or an array of content blocks; we use the array form so we
+        // can attach cache_control.
         if !self.instructions.is_empty() {
-            payload["system"] = json!(self.instructions);
+            payload["system"] = json!([{
+                "type": "text",
+                "text": self.instructions,
+                "cache_control": {"type": "ephemeral"},
+            }]);
         }
 
-        // Only include tools if non-empty.
+        // Tools change less frequently than messages; cache the tool block
+        // so subsequent turns in the same session can reuse the cached
+        // prefix. We attach the breakpoint to the **last** tool entry; the
+        // cache covers everything up to and including that point.
         if !self.tools.is_empty() {
-            payload["tools"] = json!(self.tools);
+            let mut tools_with_cache: Vec<Value> = self.tools.to_vec();
+            if let Some(last) = tools_with_cache.last_mut()
+                && let Some(obj) = last.as_object_mut()
+            {
+                obj.insert("cache_control".to_owned(), json!({"type": "ephemeral"}));
+            }
+            payload["tools"] = json!(tools_with_cache);
         }
 
         Ok(AnthropicRequest {
@@ -337,5 +356,71 @@ mod tests {
         assert_eq!(messages[2]["content"][0]["tool_use_id"], "call-a");
         assert_eq!(messages[2]["content"][1]["type"], "tool_result");
         assert_eq!(messages[2]["content"][1]["tool_use_id"], "call-b");
+    }
+
+    #[test]
+    fn system_block_carries_cache_control() {
+        // Anthropic prompt-caching: the system field must be an array of
+        // content blocks with `cache_control: { type: "ephemeral" }` on the
+        // last block. Otherwise the system prefix isn't cached and every
+        // turn pays full input price.
+        let req = AnthropicRequestBuilder::new(
+            "claude-sonnet-4-20250514",
+            "you are a helpful assistant",
+            &[],
+            &[],
+            1024,
+        )
+        .build(&provider())
+        .expect("builds");
+
+        let system = req.body.get("system").expect("system field present");
+        let arr = system
+            .as_array()
+            .expect("system should be an array of blocks (not a string)");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["type"], "text");
+        assert_eq!(arr[0]["text"], "you are a helpful assistant");
+        assert_eq!(arr[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn tools_last_entry_carries_cache_control() {
+        let tools = vec![
+            json!({"name": "shell", "description": "run a shell command", "input_schema": {}}),
+            json!({"name": "read_file", "description": "read a file", "input_schema": {}}),
+        ];
+        let req = AnthropicRequestBuilder::new(
+            "claude-sonnet-4-20250514",
+            "instructions",
+            &[],
+            &tools,
+            1024,
+        )
+        .build(&provider())
+        .expect("builds");
+
+        let arr = req.body["tools"].as_array().expect("tools array");
+        assert_eq!(arr.len(), 2);
+        // First tool has no cache_control; the breakpoint sits on the last
+        // tool so the cache covers everything up to and including it.
+        assert!(arr[0].get("cache_control").is_none());
+        assert_eq!(arr[1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn no_system_block_when_instructions_empty() {
+        let req = AnthropicRequestBuilder::new("claude-sonnet-4", "", &[], &[], 1024)
+            .build(&provider())
+            .expect("builds");
+        assert!(req.body.get("system").is_none());
+    }
+
+    #[test]
+    fn no_tools_block_when_tools_empty() {
+        let req = AnthropicRequestBuilder::new("claude-sonnet-4", "hi", &[], &[], 1024)
+            .build(&provider())
+            .expect("builds");
+        assert!(req.body.get("tools").is_none());
     }
 }

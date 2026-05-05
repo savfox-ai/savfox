@@ -54,6 +54,12 @@ pub async fn process_anthropic_sse<S>(
     let mut response_id = String::new();
     let mut input_tokens: i64 = 0;
     let mut output_tokens: i64 = 0;
+    // Anthropic prompt-caching telemetry. `cache_read_input_tokens` are
+    // tokens served from a previously cached prefix; `cache_creation_input_tokens`
+    // are tokens written into the cache on this request. Both are reported
+    // back to the rest of the engine through `TokenUsage::cached_input_tokens`
+    // so dashboards / cost trackers reflect actual savings.
+    let mut cached_input_tokens: i64 = 0;
 
     // Current content block tracking
     let mut current_block_type: Option<String> = None;
@@ -80,6 +86,7 @@ pub async fn process_anthropic_sse<S>(
                     &response_id,
                     input_tokens,
                     output_tokens,
+                    cached_input_tokens,
                     &mut reasoning_item,
                     &mut assistant_item,
                 )
@@ -118,10 +125,26 @@ pub async fn process_anthropic_sse<S>(
                     if let Some(id) = message.get("id").and_then(|v| v.as_str()) {
                         response_id = id.to_owned();
                     }
-                    if let Some(usage) = message.get("usage")
-                        && let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64())
-                    {
-                        input_tokens = tokens;
+                    if let Some(usage) = message.get("usage") {
+                        if let Some(tokens) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
+                            input_tokens = tokens;
+                        }
+                        // Anthropic reports both cache_read and cache_creation
+                        // tokens here; both count as input that was processed.
+                        // We surface their sum as `cached_input_tokens` so it
+                        // is comparable to OpenAI's `cached_input_tokens` field.
+                        if let Some(read) = usage
+                            .get("cache_read_input_tokens")
+                            .and_then(|v| v.as_i64())
+                        {
+                            cached_input_tokens += read;
+                        }
+                        if let Some(written) = usage
+                            .get("cache_creation_input_tokens")
+                            .and_then(|v| v.as_i64())
+                        {
+                            cached_input_tokens += written;
+                        }
                     }
                 }
                 let _ = tx_event.send(Ok(ResponseEvent::Created)).await;
@@ -305,6 +328,7 @@ pub async fn process_anthropic_sse<S>(
                     &response_id,
                     input_tokens,
                     output_tokens,
+                    cached_input_tokens,
                     &mut reasoning_item,
                     &mut assistant_item,
                 )
@@ -335,6 +359,7 @@ async fn emit_completed(
     response_id: &str,
     input_tokens: i64,
     output_tokens: i64,
+    cached_input_tokens: i64,
     reasoning_item: &mut Option<ResponseItem>,
     assistant_item: &mut Option<ResponseItem>,
 ) {
@@ -355,7 +380,7 @@ async fn emit_completed(
             input_tokens,
             output_tokens,
             total_tokens: input_tokens + output_tokens,
-            cached_input_tokens: 0,
+            cached_input_tokens,
             reasoning_output_tokens: 0,
         })
     } else {
@@ -560,5 +585,45 @@ mod tests {
 
         let result = rx.recv().await.unwrap();
         assert_matches!(result, Err(ApiError::Stream(msg)) if msg.contains("Overloaded"));
+    }
+
+    #[tokio::test]
+    async fn surfaces_anthropic_cache_hit_metrics() {
+        // message_start with both `cache_creation_input_tokens` (newly written
+        // into the cache) and `cache_read_input_tokens` (served from cache).
+        // The completed event should sum both into `cached_input_tokens`.
+        let body = build_sse_body(&[
+            (
+                "message_start",
+                r#"{"type":"message_start","message":{"id":"msg_cache","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"cache_creation_input_tokens":1500,"cache_read_input_tokens":5000,"output_tokens":0}}}"#,
+            ),
+            (
+                "content_block_start",
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            (
+                "content_block_delta",
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}"#,
+            ),
+            (
+                "content_block_stop",
+                r#"{"type":"content_block_stop","index":0}"#,
+            ),
+            (
+                "message_delta",
+                r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":50}}"#,
+            ),
+            ("message_stop", r#"{"type":"message_stop"}"#),
+        ]);
+
+        let events = collect_events(&body).await;
+        let last = events.last().expect("must have at least one event");
+        assert_matches!(last, ResponseEvent::Completed { token_usage, .. } => {
+            let usage = token_usage.as_ref().expect("token_usage populated");
+            assert_eq!(usage.input_tokens, 100);
+            assert_eq!(usage.output_tokens, 50);
+            // 1500 created + 5000 read = 6500.
+            assert_eq!(usage.cached_input_tokens, 6500);
+        });
     }
 }
