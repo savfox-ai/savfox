@@ -126,7 +126,8 @@ pub async fn run_main(
     // `redaction::redact_text` are masked before they reach the terminal /
     // journald / log aggregator. The in-memory `LogCaptureLayer` runs its own
     // redaction pass independently.
-    let stderr_fmt = tracing_subscriber::fmt::layer().with_writer(security::redaction::RedactingStderr);
+    let stderr_fmt =
+        tracing_subscriber::fmt::layer().with_writer(security::redaction::RedactingStderr);
 
     let log_capture = log_store::LogCaptureLayer;
 
@@ -174,7 +175,14 @@ pub async fn run_main(
         .clone()
         .unwrap_or_else(GatewayAuth::generate_token);
     let token_fp = token_fingerprint(&token);
-    let token_tail: String = token.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let token_tail: String = token
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let persisted_token_path = if token_was_supplied {
         None
     } else {
