@@ -7,7 +7,7 @@
 //! - guarded fetch with redirect re-validation
 
 use std::collections::HashSet;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use reqwest::header::LOCATION;
@@ -198,6 +198,46 @@ pub fn build_guarded_client(cfg: &SsrfConfig) -> Result<reqwest::Client, SsrfErr
         .map_err(|e| SsrfError::Http(e.to_string()))
 }
 
+/// Build a `reqwest::Client` with the IP address resolved for `url`'s host
+/// **pinned** into the resolver, so the underlying TCP connection is forced
+/// to use the IP we already validated rather than re-resolving DNS at
+/// request time.
+///
+/// This is the defence against DNS rebinding (S10): an attacker controls
+/// `attacker.com` so that the validation lookup returns a public IP (passes
+/// the SSRF guard), and the subsequent connection lookup returns
+/// `127.0.0.1`. By feeding the validated `(host, IP)` pair directly into
+/// `Client::builder().resolve(...)` we close the window — reqwest skips
+/// system DNS for that host entirely.
+///
+/// Callers that previously did `build_guarded_client(cfg)` followed by
+/// `client.post(url).send()` should switch to
+/// `build_pinned_client(url, cfg)` so the validation and the connection
+/// agree on the destination IP.
+pub async fn build_pinned_client(
+    url: &str,
+    cfg: &SsrfConfig,
+) -> Result<reqwest::Client, SsrfError> {
+    let parsed = Url::parse(url).map_err(|e| SsrfError::InvalidUrl(e.to_string()))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => return Err(SsrfError::UnsupportedScheme(other.to_owned())),
+    }
+    let host = parsed.host_str().ok_or(SsrfError::MissingHost)?.to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or(SsrfError::MissingHost)?;
+    let ips = resolve_pinned_hostname(&host, port, cfg).await?;
+
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_millis(cfg.timeout_ms.max(1)));
+    for ip in &ips {
+        builder = builder.resolve(&host, SocketAddr::new(*ip, port));
+    }
+    builder.build().map_err(|e| SsrfError::Http(e.to_string()))
+}
+
 pub async fn resolve_pinned_hostname(
     host: &str,
     port: u16,
@@ -260,7 +300,6 @@ pub async fn validate_outbound_url(url: &str, cfg: &SsrfConfig) -> Result<(), Ss
 
 pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchResponse, SsrfError> {
     let timeout = Duration::from_millis(cfg.timeout_ms.max(1));
-    let client = build_guarded_client(cfg)?;
 
     let mut current = Url::parse(url).map_err(|e| SsrfError::InvalidUrl(e.to_string()))?;
     for _hop in 0..=cfg.max_redirects {
@@ -269,14 +308,17 @@ pub async fn guarded_fetch(url: &str, cfg: &SsrfConfig) -> Result<GuardedFetchRe
             other => return Err(SsrfError::UnsupportedScheme(other.to_owned())),
         }
 
-        let host = current.host_str().ok_or(SsrfError::MissingHost)?;
-        let port = current
-            .port_or_known_default()
-            .ok_or(SsrfError::MissingHost)?;
-        if let Err(err) = resolve_pinned_hostname(host, port, cfg).await {
-            warn!(url = %current, error = %err, "ssrf blocked redirect hop");
-            return Err(err);
-        }
+        // Build a fresh client per hop with the resolved IP pinned into the
+        // resolver — closes the DNS rebinding window between validation and
+        // the actual connection. `build_pinned_client` re-validates the host
+        // so we don't need a separate `resolve_pinned_hostname` call here.
+        let client = match build_pinned_client(current.as_str(), cfg).await {
+            Ok(c) => c,
+            Err(err) => {
+                warn!(url = %current, error = %err, "ssrf blocked redirect hop");
+                return Err(err);
+            }
+        };
 
         let response = tokio::time::timeout(timeout, client.get(current.clone()).send())
             .await
@@ -401,5 +443,40 @@ mod tests {
             SsrfError::BlockedIp(_) | SsrfError::BlockedHost(_) => {}
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn build_pinned_client_blocks_private_destination() {
+        // The DNS-rebinding defence runs at client-build time: even before
+        // the first request, asking for a private destination must fail.
+        let cfg = SsrfConfig::default();
+        let err = build_pinned_client("http://127.0.0.1/test", &cfg)
+            .await
+            .expect_err("localhost must be rejected at build time");
+        match err {
+            SsrfError::BlockedIp(_) | SsrfError::BlockedHost(_) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_pinned_client_rejects_non_http_schemes() {
+        let cfg = SsrfConfig::default();
+        let err = build_pinned_client("file:///etc/passwd", &cfg)
+            .await
+            .expect_err("file:// must be rejected");
+        assert!(matches!(err, SsrfError::UnsupportedScheme(_)));
+    }
+
+    #[tokio::test]
+    async fn build_pinned_client_rejects_blocklisted_host() {
+        let cfg = SsrfConfig {
+            blocklist: vec!["evil.example".to_owned()],
+            ..SsrfConfig::default()
+        };
+        let err = build_pinned_client("https://evil.example/", &cfg)
+            .await
+            .expect_err("blocklisted host must fail");
+        assert!(matches!(err, SsrfError::BlockedHost(_)));
     }
 }

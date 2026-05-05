@@ -593,12 +593,13 @@ impl GatewayChannel {
         text: &str,
     ) -> anyhow::Result<()> {
         let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
-        crate::ssrf::validate_outbound_url(webhook_url, &ssrf_cfg)
+        let body = serde_json::json!({ "text": text });
+        // `build_pinned_client` re-validates the URL and pins the resolved IP
+        // into the client's resolver, closing the DNS-rebinding window
+        // between validation and connection.
+        let client = crate::ssrf::build_pinned_client(webhook_url, &ssrf_cfg)
             .await
             .map_err(|err| anyhow::anyhow!("blocked googlechat webhook url: {err}"))?;
-        let body = serde_json::json!({ "text": text });
-        let client = crate::ssrf::build_guarded_client(&ssrf_cfg)
-            .map_err(|err| anyhow::anyhow!("failed to create webhook client: {err}"))?;
 
         let response = client
             .post(webhook_url)
@@ -647,15 +648,13 @@ impl GatewayChannel {
         text: &str,
     ) -> anyhow::Result<()> {
         let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
-        crate::ssrf::validate_outbound_url(webhook_url, &ssrf_cfg)
-            .await
-            .map_err(|err| anyhow::anyhow!("blocked teams webhook url: {err}"))?;
         let body = serde_json::json!({
             "type": "message",
             "text": text,
         });
-        let client = crate::ssrf::build_guarded_client(&ssrf_cfg)
-            .map_err(|err| anyhow::anyhow!("failed to create webhook client: {err}"))?;
+        let client = crate::ssrf::build_pinned_client(webhook_url, &ssrf_cfg)
+            .await
+            .map_err(|err| anyhow::anyhow!("blocked teams webhook url: {err}"))?;
 
         let response = client
             .post(webhook_url)
