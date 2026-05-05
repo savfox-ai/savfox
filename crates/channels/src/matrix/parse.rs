@@ -1,23 +1,28 @@
 use savfox_core::channel::ChannelAction;
 use serde_json::Value;
+use tracing::debug;
 
-#[allow(clippy::print_stdout)]
 fn debug_matrix_inbound_message(room_id: &str, sender: &str, text: &str) {
-    println!("[matrix][inbound] room={room_id} sender={sender} text={text}");
+    debug!(target: "savfox::channels::matrix", room_id, sender, text, "inbound message");
 }
 
-#[allow(clippy::print_stdout)]
 fn debug_matrix_invite_detected(room_id: &str, invited_user_id: Option<&str>) {
-    println!(
-        "[matrix][invite] detected room={} invited_user={}",
+    debug!(
+        target: "savfox::channels::matrix",
         room_id,
-        invited_user_id.unwrap_or("")
+        invited_user = invited_user_id.unwrap_or(""),
+        "invite detected"
     );
 }
 
-#[allow(clippy::print_stdout)]
 fn debug_matrix_message_ignored(room_id: &str, sender: &str, reason: &str) {
-    println!("[matrix][inbound] ignored room={room_id} sender={sender} reason={reason}");
+    debug!(
+        target: "savfox::channels::matrix",
+        room_id,
+        sender,
+        reason,
+        "inbound ignored"
+    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

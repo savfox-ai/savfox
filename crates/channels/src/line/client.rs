@@ -75,13 +75,50 @@ pub async fn push_message(
     Ok(())
 }
 
-/// Verify a LINE webhook signature using HMAC-SHA256 + base64.
+/// Verify a LINE webhook signature using HMAC-SHA256 + base64 in constant time.
 #[must_use]
 pub fn verify_signature(channel_secret: &str, body: &[u8], signature: &str) -> bool {
+    use subtle::ConstantTimeEq;
     let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(channel_secret.as_bytes()) else {
         return false;
     };
     mac.update(body);
     let computed = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-    computed == signature.trim()
+    bool::from(computed.as_bytes().ct_eq(signature.trim().as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compute(secret: &str, body: &[u8]) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+    }
+
+    #[test]
+    fn verify_accepts_correct_signature() {
+        let sig = compute("secret", b"event-body");
+        assert!(verify_signature("secret", b"event-body", &sig));
+    }
+
+    #[test]
+    fn verify_strips_whitespace() {
+        let sig = compute("secret", b"event-body");
+        let padded = format!("  {sig}  ");
+        assert!(verify_signature("secret", b"event-body", &padded));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_secret() {
+        let sig = compute("secret-a", b"event-body");
+        assert!(!verify_signature("secret-b", b"event-body", &sig));
+    }
+
+    #[test]
+    fn verify_rejects_tampered_body() {
+        let sig = compute("secret", b"event-body");
+        assert!(!verify_signature("secret", b"event-bod!", &sig));
+    }
 }

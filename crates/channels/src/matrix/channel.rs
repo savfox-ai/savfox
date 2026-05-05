@@ -27,11 +27,11 @@ impl MatrixChannel {
 #[async_trait]
 impl Channel for MatrixChannel {
     async fn start(&mut self) -> anyhow::Result<()> {
-        println!(
-            "Matrix channel starting with homeserver URL: {}",
-            self.homeserver_url
+        info!(
+            target: "savfox::channels::matrix",
+            homeserver = %self.homeserver_url,
+            "channel starting"
         );
-        info!(homeserver = %self.homeserver_url, "Matrix channel starting");
         Ok(())
     }
 

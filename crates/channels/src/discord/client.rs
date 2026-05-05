@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::config::resolve_discord_outbound_token;
 
@@ -32,10 +32,12 @@ pub async fn send_message_returning_id(
     content: &str,
     reply_to: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
-    println!(
-        "[discord:client] send_message channel={channel_id}, content_len={}, reply_to={:?}",
-        content.len(),
-        reply_to
+    debug!(
+        target: "savfox::channels::discord",
+        channel_id,
+        content_len = content.len(),
+        ?reply_to,
+        "send_message"
     );
     let url = format!("{BASE_URL}/channels/{channel_id}/messages");
     let mut body = serde_json::json!({ "content": content });
@@ -60,8 +62,12 @@ pub async fn send_message_returning_id(
         let status = response.status();
         let body = response.bytes().await.unwrap_or_default();
         let body_str = String::from_utf8_lossy(&body);
-        println!("[discord:client] send_message FAILED: HTTP {status}: {body_str}");
-        warn!("Discord API error: HTTP {status}: {body_str}");
+        warn!(
+            target: "savfox::channels::discord",
+            %status,
+            body = %body_str,
+            "send_message failed"
+        );
         return Ok(None);
     }
 
@@ -70,7 +76,7 @@ pub async fn send_message_returning_id(
         .get("id")
         .and_then(|v| v.as_str())
         .map(str::to_owned);
-    println!("[discord:client] send_message OK, msg_id={msg_id:?}");
+    debug!(target: "savfox::channels::discord", ?msg_id, "send_message ok");
     Ok(msg_id)
 }
 
@@ -82,9 +88,12 @@ pub async fn edit_message(
     message_id: &str,
     content: &str,
 ) -> anyhow::Result<()> {
-    println!(
-        "[discord:client] edit_message channel={channel_id}, msg={message_id}, content_len={}",
-        content.len()
+    debug!(
+        target: "savfox::channels::discord",
+        channel_id,
+        message_id,
+        content_len = content.len(),
+        "edit_message"
     );
     let url = format!("{BASE_URL}/channels/{channel_id}/messages/{message_id}");
     let body = serde_json::json!({ "content": content });
@@ -98,16 +107,14 @@ pub async fn edit_message(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.bytes().await.unwrap_or_default();
-        println!(
-            "[discord:client] edit_message FAILED: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
         warn!(
-            "Discord edit error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
+            target: "savfox::channels::discord",
+            %status,
+            body = %String::from_utf8_lossy(&body),
+            "edit_message failed"
         );
     } else {
-        println!("[discord:client] edit_message OK");
+        debug!(target: "savfox::channels::discord", "edit_message ok");
     }
     Ok(())
 }
@@ -119,7 +126,12 @@ pub async fn delete_message(
     channel_id: &str,
     message_id: &str,
 ) -> anyhow::Result<()> {
-    println!("[discord:client] delete_message channel={channel_id}, msg={message_id}");
+    debug!(
+        target: "savfox::channels::discord",
+        channel_id,
+        message_id,
+        "delete_message"
+    );
     let url = format!("{BASE_URL}/channels/{channel_id}/messages/{message_id}");
     let response = client
         .delete(&url)
@@ -129,16 +141,14 @@ pub async fn delete_message(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.bytes().await.unwrap_or_default();
-        println!(
-            "[discord:client] delete_message FAILED: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
         warn!(
-            "Discord delete error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
+            target: "savfox::channels::discord",
+            %status,
+            body = %String::from_utf8_lossy(&body),
+            "delete_message failed"
         );
     } else {
-        println!("[discord:client] delete_message OK");
+        debug!(target: "savfox::channels::discord", "delete_message ok");
     }
     Ok(())
 }
@@ -152,9 +162,12 @@ pub async fn send_embed(
     description: &str,
     color: u32,
 ) -> anyhow::Result<()> {
-    println!(
-        "[discord:client] send_embed channel={channel_id}, title={title}, desc_len={}",
-        description.len()
+    debug!(
+        target: "savfox::channels::discord",
+        channel_id,
+        title,
+        desc_len = description.len(),
+        "send_embed"
     );
     let url = format!("{BASE_URL}/channels/{channel_id}/messages");
     let body = serde_json::json!({
@@ -165,13 +178,24 @@ pub async fn send_embed(
         }]
     });
 
-    let _response = client
+    let response = client
         .post(&url)
         .header("Authorization", format!("Bot {bot_token}"))
         .header("Content-Type", "application/json")
         .body(body.to_string())
         .send()
         .await?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.bytes().await.unwrap_or_default();
+        warn!(
+            target: "savfox::channels::discord",
+            %status,
+            body = %String::from_utf8_lossy(&body),
+            "send_embed failed"
+        );
+    }
 
     Ok(())
 }
@@ -188,11 +212,13 @@ pub fn verify_signature(
     body: &[u8],
     signature_hex: &str,
 ) -> bool {
-    println!(
-        "[discord:client] verify_signature: pubkey_len={}, sig_len={}, body_len={}, ts={timestamp}",
-        public_key_hex.len(),
-        signature_hex.len(),
-        body.len()
+    debug!(
+        target: "savfox::channels::discord",
+        pubkey_len = public_key_hex.len(),
+        sig_len = signature_hex.len(),
+        body_len = body.len(),
+        timestamp,
+        "verify_signature"
     );
     let pub_key_bytes = match hex::decode(public_key_hex) {
         Ok(bytes) => bytes,
@@ -228,7 +254,10 @@ pub fn verify_signature(
 pub async fn resolve_bot_token(savfox_home: &PathBuf) -> Option<String> {
     // Try saved channel config first.
     if let Ok(Some(token)) = resolve_discord_outbound_token(savfox_home).await {
-        println!("[discord:client] resolve_bot_token: found token from channel config");
+        debug!(
+            target: "savfox::channels::discord",
+            "resolve_bot_token: found token from channel config"
+        );
         return Some(token);
     }
 
@@ -236,9 +265,10 @@ pub async fn resolve_bot_token(savfox_home: &PathBuf) -> Option<String> {
     let env_token = std::env::var("DISCORD_BOT_TOKEN")
         .ok()
         .filter(|v| !v.trim().is_empty());
-    println!(
-        "[discord:client] resolve_bot_token: env fallback={}",
-        env_token.is_some()
+    debug!(
+        target: "savfox::channels::discord",
+        env_fallback = env_token.is_some(),
+        "resolve_bot_token: env fallback"
     );
     env_token
 }

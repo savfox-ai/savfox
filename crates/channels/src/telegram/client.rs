@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use serde_json::Value;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::config::resolve_telegram_outbound_token;
 
@@ -37,10 +37,19 @@ pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
 // Webhook verification
 // ---------------------------------------------------------------------------
 
-/// Verify Telegram webhook secret token equality.
+/// Verify Telegram webhook secret token equality in constant time.
+///
+/// Telegram delivers the configured secret in the `X-Telegram-Bot-Api-Secret-Token`
+/// header on every webhook update. Comparing it with `==` would leak length /
+/// matching-prefix information; this helper uses [`subtle::ConstantTimeEq`].
 #[must_use]
 pub fn verify_webhook_secret(expected_secret: &str, received_secret: &str) -> bool {
-    expected_secret == received_secret
+    use subtle::ConstantTimeEq;
+    bool::from(
+        expected_secret
+            .as_bytes()
+            .ct_eq(received_secret.as_bytes()),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -75,12 +84,13 @@ pub async fn send_message(
     parse_mode: Option<&str>,
     reply_to_message_id: Option<&str>,
 ) -> anyhow::Result<Option<i64>> {
-    let text_preview = truncate_log_preview(text, 180);
-    println!(
-        "[telegram] Sending message: chat_id={chat_id}, text_len={}, parse_mode={:?}, reply_to={:?}, text_preview={text_preview}",
-        text.len(),
-        parse_mode,
-        reply_to_message_id,
+    debug!(
+        target: "savfox::channels::telegram",
+        chat_id,
+        text_len = text.len(),
+        ?parse_mode,
+        ?reply_to_message_id,
+        "send_message"
     );
 
     let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
@@ -116,15 +126,23 @@ pub async fn send_message(
     let response_preview = truncate_log_preview(body_str.as_ref(), 220);
 
     if !status.is_success() {
-        println!("[telegram] Send FAILED: HTTP {status}: {response_preview}");
-        warn!("Telegram API error: HTTP {status}: {body_str}");
+        warn!(
+            target: "savfox::channels::telegram",
+            %status,
+            response = %response_preview,
+            "send_message failed"
+        );
         return Err(anyhow::anyhow!(
             "telegram API returned HTTP {status}: {body_str}"
         ));
     }
 
-    println!(
-        "[telegram] Message sent successfully to chat_id={chat_id}: HTTP {status}, response={response_preview}"
+    debug!(
+        target: "savfox::channels::telegram",
+        chat_id,
+        %status,
+        response = %response_preview,
+        "send_message ok"
     );
 
     let message_id = serde_json::from_slice::<Value>(&body)
@@ -182,9 +200,12 @@ pub async fn edit_message(
         if resp_str.contains("message is not modified") {
             return Ok(());
         }
-        println!(
-            "[telegram] Edit FAILED: message_id={message_id}, HTTP {status}: {}",
-            truncate_log_preview(&resp_str, 200)
+        warn!(
+            target: "savfox::channels::telegram",
+            message_id,
+            %status,
+            response = %truncate_log_preview(&resp_str, 200),
+            "edit_message failed"
         );
         return Err(anyhow::anyhow!(
             "telegram editMessageText returned HTTP {status}: {resp_str}"

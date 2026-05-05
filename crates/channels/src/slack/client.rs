@@ -185,8 +185,9 @@ pub fn verify_signature(
     let result = mac.finalize();
     let computed = format!("v0={}", hex::encode(result.into_bytes()));
 
-    // Constant-time comparison
-    computed == expected_sig
+    // Constant-time comparison to avoid leaking signature bytes via timing.
+    use subtle::ConstantTimeEq;
+    bool::from(computed.as_bytes().ct_eq(expected_sig.as_bytes()))
 }
 
 /// Check whether a Slack timestamp is within the allowed replay window.
