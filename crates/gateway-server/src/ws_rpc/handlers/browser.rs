@@ -16,6 +16,7 @@ use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcRe
 use super::super::utils::{now_ms, opt_bool, opt_str, opt_u64, require_str};
 use super::config::primary_config_toml_path;
 use crate::channel::GatewayChannel;
+use crate::security::path_safety::safe_join;
 use crate::session::SessionStore;
 use crate::{voice_store, wizard_store};
 
@@ -748,7 +749,9 @@ pub(crate) async fn handle_memory_get(params: &Value, channel: &Arc<GatewayChann
                 continue;
             }
         }
-        let path = dir.join(format!("{slug}.md"));
+        let Some(path) = safe_join(dir, slug, ".md") else {
+            return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+        };
         if path.exists() {
             let content = tokio::fs::read_to_string(&path)
                 .await
@@ -803,7 +806,9 @@ pub(crate) async fn handle_memory_create(
         .map(|(_, d)| d)
         .ok_or_else(|| (INVALID_REQUEST, format!("layer '{layer}' not available")))?;
 
-    let path = dir.join(format!("{slug}.md"));
+    let Some(path) = safe_join(&dir, &slug, ".md") else {
+        return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+    };
     if path.exists() {
         return Err((
             INVALID_REQUEST,
@@ -864,7 +869,9 @@ pub(crate) async fn handle_memory_update(
                 continue;
             }
         }
-        let path = dir.join(format!("{slug}.md"));
+        let Some(path) = safe_join(dir, slug, ".md") else {
+            return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+        };
         if path.exists() {
             found_path = Some(path);
             break;
@@ -918,7 +925,9 @@ pub(crate) async fn handle_memory_delete(
                 continue;
             }
         }
-        let path = dir.join(format!("{slug}.md"));
+        let Some(path) = safe_join(dir, slug, ".md") else {
+            return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+        };
         if path.exists() {
             tokio::fs::remove_file(&path)
                 .await
@@ -1008,7 +1017,9 @@ pub(crate) async fn handle_memory_promote(
                 format!("from_layer '{from_str}' not available"),
             )
         })?;
-    let source_path = source_dir.join(format!("{slug}.md"));
+    let Some(source_path) = safe_join(&source_dir, slug, ".md") else {
+        return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+    };
     if !source_path.exists() {
         return Err((
             INVALID_REQUEST,
@@ -1036,7 +1047,9 @@ pub(crate) async fn handle_memory_promote(
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("mkdir error: {e}")))?;
 
-    let target_path = target_dir.join(format!("{slug}.md"));
+    let Some(target_path) = safe_join(&target_dir, slug, ".md") else {
+        return Err((INVALID_PARAMS, format!("invalid slug '{slug}'")));
+    };
     tokio::fs::write(&target_path, &content)
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("write error: {e}")))?;
