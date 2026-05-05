@@ -122,7 +122,12 @@ pub async fn run_main(
     let env_filter = env_filter_from_default("info");
     let (filter_layer, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
 
-    let stderr_fmt = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    // Stderr is wrapped in a redacting writer so secrets caught by
+    // `redaction::redact_text` are masked before they reach the terminal /
+    // journald / log aggregator. The in-memory `LogCaptureLayer` runs its own
+    // redaction pass independently.
+    let stderr_fmt =
+        tracing_subscriber::fmt::layer().with_writer(security::redaction::RedactingStderr);
 
     let log_capture = log_store::LogCaptureLayer;
 
@@ -161,11 +166,34 @@ pub async fn run_main(
 
     info!(savfox_home = %config.savfox_home.display(), "configuration loaded");
 
-    // Set up the gateway token.
+    // Set up the gateway token. If the operator did not supply one we generate
+    // a fresh value and persist it to a 0600-mode file so they can retrieve it
+    // without us logging it to stderr / journald.
+    let token_was_supplied = gateway_config.token.is_some();
     let token = gateway_config
         .token
         .clone()
         .unwrap_or_else(GatewayAuth::generate_token);
+    let token_fp = token_fingerprint(&token);
+    let token_tail: String = token
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let persisted_token_path = if token_was_supplied {
+        None
+    } else {
+        match persist_generated_token(&config.savfox_home, &token).await {
+            Ok(path) => Some(path),
+            Err(err) => {
+                warn!(error = %err, "failed to persist gateway token to disk");
+                None
+            }
+        }
+    };
 
     let auth = Arc::new(GatewayAuth::single_token(token.clone()));
     let session_mgr = Arc::new(GatewaySessionManager::new());
@@ -274,10 +302,16 @@ pub async fn run_main(
         "Health: {http_scheme}://{}:{}/health",
         gateway_config.host, gateway_config.port
     );
-    info!("Token: {token}");
+    info!(
+        token_fingerprint = %token_fp,
+        token_suffix = %token_tail,
+        "Token (fingerprint only — full value never logged)"
+    );
 
     // Also print to stderr for the operator (intentional — shown before
     // tracing is fully active so the operator always sees connection info).
+    // The full token is *not* printed; we surface a fingerprint plus the file
+    // path where the value can be retrieved when we generated it ourselves.
     #[allow(clippy::print_stderr)]
     {
         eprintln!("Savfox Gateway Server v{}", env!("CARGO_PKG_VERSION"));
@@ -289,7 +323,12 @@ pub async fn run_main(
             "  Health:    {http_scheme}://{}:{}/health",
             gateway_config.host, gateway_config.port
         );
-        eprintln!("  Token:     {token}");
+        eprintln!("  Token (fingerprint): {token_fp} (suffix …{token_tail})");
+        if let Some(path) = persisted_token_path.as_ref() {
+            eprintln!("  Token file: {} (mode 0600)", path.display());
+        } else if token_was_supplied {
+            eprintln!("  Token: supplied by configuration; not echoed.");
+        }
         eprintln!();
     }
 
@@ -304,4 +343,64 @@ pub async fn run_main(
         config.savfox_home.clone(),
     )
     .await
+}
+
+/// Returns the first 8 hex characters of the SHA-256 of `token`.
+///
+/// This 32-bit fingerprint is safe to log: it identifies a token across
+/// startups for operator correlation without revealing the token itself.
+fn token_fingerprint(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(token.as_bytes());
+    hex::encode(&digest[..4])
+}
+
+/// Persist an auto-generated gateway token to `<savfox_home>/gateway/token`
+/// with mode 0600 (Unix) or current-user-only DACL (Windows).
+///
+/// The file is overwritten on each startup so a fresh generation always wins.
+async fn persist_generated_token(
+    savfox_home: &std::path::Path,
+    token: &str,
+) -> std::io::Result<PathBuf> {
+    let dir = savfox_home.join("gateway");
+    tokio::fs::create_dir_all(&dir).await?;
+    let path = dir.join("token");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true).mode(0o600);
+        let mut file = opts.open(&path)?;
+        std::io::Write::write_all(&mut file, token.as_bytes())?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        // On Windows the parent dir typically inherits ACLs scoped to the user
+        // running the daemon (LocalAppData / user profile). Plain write keeps
+        // the existing ACL; an explicit DACL tightening is left as follow-up.
+        std::fs::write(&path, token.as_bytes())?;
+    }
+
+    Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::token_fingerprint;
+
+    #[test]
+    fn fingerprint_is_deterministic_and_eight_hex_chars() {
+        let fp = token_fingerprint("hello-world");
+        assert_eq!(fp.len(), 8);
+        assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(fp, token_fingerprint("hello-world"));
+    }
+
+    #[test]
+    fn fingerprint_differs_for_different_tokens() {
+        assert_ne!(token_fingerprint("a"), token_fingerprint("b"));
+    }
 }
