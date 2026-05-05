@@ -398,25 +398,18 @@ async fn execute_webhook(
     debug!(id = %id, event = %event, url = %url, "event bus: executing webhook handler");
 
     let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
-    if let Err(err) = crate::ssrf::validate_outbound_url(url, &ssrf_cfg).await {
-        warn!(
-            id = %id,
-            event = %event,
-            url = %url,
-            error = %err,
-            "event bus: blocked outbound webhook by ssrf policy"
-        );
-        return;
-    }
-
-    let client = match crate::ssrf::build_guarded_client(&ssrf_cfg) {
+    // `build_pinned_client` re-validates the URL and pins the resolved IP
+    // into the client's resolver, defending against DNS rebinding between
+    // the validation step and the actual TCP connect.
+    let client = match crate::ssrf::build_pinned_client(url, &ssrf_cfg).await {
         Ok(client) => client,
         Err(err) => {
-            error!(
+            warn!(
                 id = %id,
                 event = %event,
+                url = %url,
                 error = %err,
-                "event bus: failed to create guarded http client"
+                "event bus: blocked outbound webhook by ssrf policy"
             );
             return;
         }
