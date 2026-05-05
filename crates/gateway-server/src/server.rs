@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::auth::GatewayAuth;
+use crate::auth::{GatewayAuth, TokenInfo, TokenScope};
 use crate::channel::{GatewayChannel, RuntimeBridgeSecrets};
 use crate::chat_session::{
     abort_all_active_threads, abort_first_active_candidate, persist_chat_session_metadata,
@@ -113,6 +113,125 @@ async fn authenticate_plugin_route(req: &Request, depot: &mut Depot, res: &mut R
     true
 }
 
+/// Validate the bearer token and return the matching `TokenInfo`, or `None`
+/// after writing a 401 to `res`.
+///
+/// Unlike `authenticate_plugin_route` this returns the token info so callers
+/// can perform additional scope checks (e.g. `Admin` on `/api/restart`).
+async fn authenticate_with_info(
+    req: &Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Option<TokenInfo> {
+    let auth = depot.obtain::<Arc<GatewayAuth>>().ok()?.clone();
+
+    let token = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+
+    let Some(token) = token else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(
+            json!({"error": "missing Authorization header"}).to_string(),
+        ));
+        return None;
+    };
+
+    match auth.validate(token).await {
+        Some(info) => Some(info),
+        None => {
+            res.status_code(StatusCode::UNAUTHORIZED);
+            res.render(Text::Json(json!({"error": "invalid token"}).to_string()));
+            None
+        }
+    }
+}
+
+/// Returns `true` when the request path is **not** subject to the global
+/// bearer-auth hoop. Externally signed callbacks (chat-platform webhooks,
+/// OAuth redirects, the verification GET that WhatsApp expects) carry their
+/// own per-protocol verification; the WS upgrade path uses a sec-websocket
+/// subprotocol header for auth; SPA / static assets are public.
+fn is_public_anonymous_path(path: &str) -> bool {
+    if path == "/health" || path == "/" || path.is_empty() {
+        return true;
+    }
+    if path.starts_with("/webhooks/") {
+        return true;
+    }
+    if path.starts_with("/_discord/callback") {
+        return true; // Discord OAuth2 redirect — not a Bearer caller.
+    }
+    if path.starts_with("/_matrix/") {
+        return true; // Matrix appservice — Matrix-server signed.
+    }
+    if path == "/ws" {
+        return true; // WS upgrade carries auth in sec-websocket-protocol.
+    }
+    false
+}
+
+/// Returns `true` when the request path is one of the well-known authenticated
+/// API surfaces. Anything matching this set gets the bearer-auth hoop applied.
+fn is_protected_api_path(path: &str) -> bool {
+    path.starts_with("/api/")
+        || path.starts_with("/tools/")
+        || path.starts_with("/hooks/")
+        || path.starts_with("/plugins/")
+}
+
+/// Global Salvo hoop: enforce Bearer-auth on every protected endpoint.
+///
+/// The hoop short-circuits the request with `401 Unauthorized` when the
+/// `Authorization: Bearer <token>` header is missing or invalid. Endpoints
+/// that intentionally accept anonymous callers (health check, chat-platform
+/// webhooks, OAuth callbacks, WS upgrade, SPA / static assets) are listed
+/// in [`is_public_anonymous_path`] and bypass the hoop.
+///
+/// Per-method scope enforcement (Admin / Approvals / Pairing) is layered on
+/// inside individual handlers — see [`require_admin_scope`] for the pattern.
+#[handler]
+async fn bearer_auth_hoop(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+    ctrl: &mut FlowCtrl,
+) {
+    let path = req.uri().path();
+    if is_public_anonymous_path(path) || !is_protected_api_path(path) {
+        return;
+    }
+    if authenticate_with_info(req, depot, res).await.is_none() {
+        ctrl.skip_rest();
+    }
+}
+
+/// Inside an authenticated handler, additionally require the `Admin` scope.
+///
+/// Writes a `403 Forbidden` and returns `false` if the bearer does not carry
+/// `OperatorAdmin`. Returns `true` to let the handler continue.
+async fn require_admin_scope(
+    req: &Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> bool {
+    let Some(info) = authenticate_with_info(req, depot, res).await else {
+        return false;
+    };
+    if !info.has_scope(TokenScope::OperatorAdmin) {
+        res.status_code(StatusCode::FORBIDDEN);
+        res.render(Text::Json(
+            json!({"error": "admin scope required"}).to_string(),
+        ));
+        return false;
+    }
+    true
+}
+
 async fn upsert_agent_run(record: AgentRunRecord) {
     let mut lock = agent_run_store().lock().await;
     if lock.len() > 2048 {
@@ -153,7 +272,13 @@ pub(crate) fn build_router(
         .hoop(affix_state::inject(session_store))
         .hoop(affix_state::inject(cron_service))
         .hoop(affix_state::inject(skills_state))
-        .hoop(affix_state::inject(metrics));
+        .hoop(affix_state::inject(metrics))
+        // Global Bearer-auth hoop. The hoop itself decides per-path whether
+        // to require the Authorization header (see `is_protected_api_path`)
+        // or pass through (see `is_public_anonymous_path`). This protects
+        // every /api/*, /tools/*, /hooks/*, /plugins/* endpoint without
+        // requiring each handler to repeat the boilerplate.
+        .hoop(bearer_auth_hoop);
 
     let mut router = state_router
         // Health check
@@ -832,7 +957,62 @@ fn expand_env_string(input: &str) -> Result<String, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{expand_env_string, substitute_env_vars};
+    use super::{expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars};
+
+    #[test]
+    fn anonymous_paths_skip_auth_hoop() {
+        for path in [
+            "/health",
+            "/",
+            "",
+            "/webhooks/discord",
+            "/webhooks/telegram",
+            "/_discord/callback",
+            "/_matrix/appservice/transactions/abc",
+            "/ws",
+        ] {
+            assert!(
+                is_public_anonymous_path(path),
+                "path should be anonymous: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn protected_paths_require_auth() {
+        for path in [
+            "/api/agent",
+            "/api/restart",
+            "/api/exec/approval/resolve",
+            "/api/devices/pair",
+            "/api/sessions/abc/history",
+            "/tools/invoke",
+            "/hooks/wake",
+            "/plugins/some-id",
+        ] {
+            assert!(
+                is_protected_api_path(path),
+                "path should be protected: {path}"
+            );
+            assert!(
+                !is_public_anonymous_path(path),
+                "path must not be anonymous: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_paths_are_neither_public_nor_protected() {
+        // SPA fallback / static asset paths are not in either list — they
+        // pass through the hoop because is_protected_api_path() returns false.
+        for path in ["/index.html", "/static/app.js", "/dashboard"] {
+            assert!(!is_protected_api_path(path), "unexpected protected: {path}");
+            assert!(
+                !is_public_anonymous_path(path),
+                "unexpected anonymous: {path}"
+            );
+        }
+    }
 
     #[test]
     fn expand_env_string_default_fallback_when_unset() {
@@ -1065,8 +1245,15 @@ async fn config_apply_handler(req: &mut Request, depot: &mut Depot, res: &mut Re
 }
 
 /// `POST /api/restart`  - Request a gateway restart.
+///
+/// **Authentication:** Bearer token required (enforced by the global hoop)
+/// **plus** the `OperatorAdmin` scope (additional check below). A regular
+/// `OperatorWrite` token cannot kill the daemon.
 #[handler]
-async fn restart_handler(req: &mut Request, res: &mut Response) {
+async fn restart_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    if !require_admin_scope(req, depot, res).await {
+        return;
+    }
     let body = req
         .parse_json::<serde_json::Value>()
         .await
