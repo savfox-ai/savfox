@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use std::io::{self, Write};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 use serde_json::Value;
+use tracing_subscriber::fmt::MakeWriter;
 
 const DEFAULT_SECRET_ENV_VARS: &[&str] = &[
     "OPENAI_API_KEY",
@@ -266,6 +268,80 @@ pub fn redact_json_in_place(value: &mut Value) {
     }
 }
 
+/// Writer that runs every line of output through [`redact_text`] before
+/// forwarding it to the wrapped [`std::io::Write`] sink.
+///
+/// Buffers a partial line internally so a `write_str` that straddles a newline
+/// does not accidentally split a secret across two redaction calls.
+pub struct RedactingWriter<W: Write> {
+    inner: W,
+    pending: Vec<u8>,
+}
+
+impl<W: Write> RedactingWriter<W> {
+    pub fn new(inner: W) -> Self {
+        Self {
+            inner,
+            pending: Vec::with_capacity(256),
+        }
+    }
+
+    fn flush_complete_lines(&mut self) -> io::Result<()> {
+        // Find the last newline; everything up to and including it is flushed.
+        if let Some(idx) = self.pending.iter().rposition(|b| *b == b'\n') {
+            // Take through the newline.
+            let mut tail = self.pending.split_off(idx + 1);
+            // `pending` now holds the complete-line region including the trailing
+            // '\n'. `tail` holds the leftover partial line.
+            std::mem::swap(&mut self.pending, &mut tail);
+            // tail is the text we want to emit. Decode lossily for redaction
+            // (logs are conventionally UTF-8).
+            let text = String::from_utf8_lossy(&tail).into_owned();
+            let redacted = redact_text(&text);
+            self.inner.write_all(redacted.as_bytes())?;
+        }
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for RedactingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.pending.extend_from_slice(buf);
+        self.flush_complete_lines()?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if !self.pending.is_empty() {
+            let text = String::from_utf8_lossy(&self.pending).into_owned();
+            let redacted = redact_text(&text);
+            self.inner.write_all(redacted.as_bytes())?;
+            self.pending.clear();
+        }
+        self.inner.flush()
+    }
+}
+
+impl<W: Write> Drop for RedactingWriter<W> {
+    fn drop(&mut self) {
+        let _ = self.flush();
+    }
+}
+
+/// `MakeWriter` implementation that builds a fresh [`RedactingWriter`] over
+/// stderr per log event. Plug into `tracing_subscriber::fmt::layer()` via
+/// `.with_writer(RedactingStderr)`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RedactingStderr;
+
+impl<'a> MakeWriter<'a> for RedactingStderr {
+    type Writer = RedactingWriter<io::Stderr>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        RedactingWriter::new(io::stderr())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -300,5 +376,50 @@ mod tests {
         assert_eq!(value["api_key"], "xai-...1234");
         assert_eq!(value["nested"]["password"], "***...word");
         assert_eq!(value["nested"]["safe"], "hello");
+    }
+
+    #[test]
+    fn safe_text_round_trips_unchanged() {
+        let inputs = [
+            "hello world",
+            "the quick brown fox jumps over the lazy dog",
+            "user logged in: alice, request_id=42",
+            "{\"foo\":1,\"bar\":\"baz\"}",
+        ];
+        for text in inputs {
+            assert_eq!(redact_text(text), text, "input was: {text}");
+        }
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert_eq!(redact_text(""), "");
+    }
+
+    #[test]
+    fn redacting_writer_emits_only_complete_lines_and_redacts() {
+        // The buffered writer should hold partial lines until '\n' arrives.
+        let buf: Vec<u8> = Vec::new();
+        let mut w = RedactingWriter::new(buf);
+        w.write_all(b"hello sk-abcdefghijklmnopqrstuvwxyz1234")
+            .unwrap();
+        // No newline yet — nothing should be in the inner buffer.
+        assert!(w.inner.is_empty());
+        w.write_all(b" continued\n").unwrap();
+        // Now the line is complete and should be redacted.
+        let written = String::from_utf8(w.inner.clone()).unwrap();
+        assert!(written.ends_with(" continued\n"));
+        assert!(written.contains("sk-...1234"));
+        assert!(!written.contains("sk-abcdefghijkl"));
+    }
+
+    #[test]
+    fn redacting_writer_flush_emits_partial_line() {
+        let buf: Vec<u8> = Vec::new();
+        let mut w = RedactingWriter::new(buf);
+        w.write_all(b"trailing fragment").unwrap();
+        assert!(w.inner.is_empty());
+        w.flush().unwrap();
+        assert_eq!(w.inner, b"trailing fragment");
     }
 }
