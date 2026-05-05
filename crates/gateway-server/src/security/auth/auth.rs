@@ -438,3 +438,253 @@ mod hex {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token_info(scopes: Vec<TokenScope>) -> TokenInfo {
+        TokenInfo {
+            label: "test".to_owned(),
+            scopes,
+        }
+    }
+
+    // ── TokenScope::implies ────────────────────────────────────────────
+
+    #[test]
+    fn operator_implies_every_subscope() {
+        let op = TokenScope::Operator;
+        for s in [
+            TokenScope::Operator,
+            TokenScope::OperatorRead,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+            TokenScope::OperatorApprovals,
+            TokenScope::OperatorPairing,
+            TokenScope::Viewer,
+            TokenScope::Chat,
+        ] {
+            assert!(op.implies(s), "Operator should imply {s:?}");
+        }
+    }
+
+    #[test]
+    fn viewer_implies_read_and_self_only() {
+        let v = TokenScope::Viewer;
+        assert!(v.implies(TokenScope::Viewer));
+        assert!(v.implies(TokenScope::OperatorRead));
+        assert!(!v.implies(TokenScope::OperatorWrite));
+        assert!(!v.implies(TokenScope::OperatorAdmin));
+        assert!(!v.implies(TokenScope::Chat));
+    }
+
+    #[test]
+    fn chat_implies_only_self() {
+        let c = TokenScope::Chat;
+        assert!(c.implies(TokenScope::Chat));
+        assert!(!c.implies(TokenScope::OperatorRead));
+        assert!(!c.implies(TokenScope::OperatorWrite));
+    }
+
+    #[test]
+    fn fine_grained_scopes_only_imply_themselves() {
+        for s in [
+            TokenScope::OperatorRead,
+            TokenScope::OperatorWrite,
+            TokenScope::OperatorAdmin,
+            TokenScope::OperatorApprovals,
+            TokenScope::OperatorPairing,
+        ] {
+            assert!(s.implies(s));
+            // No fine-grained scope should imply Operator (the parent role).
+            assert!(
+                !s.implies(TokenScope::Operator),
+                "{s:?} should not imply Operator"
+            );
+        }
+    }
+
+    // ── TokenInfo::has_scope / has_scope() free fn ────────────────────
+
+    #[test]
+    fn has_scope_succeeds_when_token_carries_role() {
+        let info = token_info(vec![TokenScope::Operator]);
+        assert!(has_scope(&info, &Scope::Read));
+        assert!(has_scope(&info, &Scope::Write));
+        assert!(has_scope(&info, &Scope::Admin));
+        assert!(has_scope(&info, &Scope::Approvals));
+        assert!(has_scope(&info, &Scope::Pairing));
+        assert!(has_scope(&info, &Scope::Chat));
+    }
+
+    #[test]
+    fn viewer_token_cannot_satisfy_write() {
+        let info = token_info(vec![TokenScope::Viewer]);
+        assert!(has_scope(&info, &Scope::Read));
+        assert!(!has_scope(&info, &Scope::Write));
+        assert!(!has_scope(&info, &Scope::Admin));
+        assert!(!has_scope(&info, &Scope::Approvals));
+    }
+
+    #[test]
+    fn fine_grained_token_only_satisfies_own_scope() {
+        let info = token_info(vec![TokenScope::OperatorWrite]);
+        assert!(has_scope(&info, &Scope::Write));
+        assert!(!has_scope(&info, &Scope::Read));
+        assert!(!has_scope(&info, &Scope::Admin));
+    }
+
+    // ── required_scope mapping ────────────────────────────────────────
+
+    #[test]
+    fn config_methods_require_admin() {
+        assert_eq!(required_scope("config.set"), Scope::Admin);
+        assert_eq!(required_scope("config.patch"), Scope::Admin);
+        assert_eq!(required_scope("gateway.restart"), Scope::Admin);
+    }
+
+    #[test]
+    fn approval_methods_require_approvals_scope() {
+        assert_eq!(required_scope("exec.approval.resolve"), Scope::Approvals);
+        assert_eq!(required_scope("exec.approval.list"), Scope::Approvals);
+    }
+
+    #[test]
+    fn pairing_methods_require_pairing_scope() {
+        assert_eq!(required_scope("node.pair.start"), Scope::Pairing);
+        assert_eq!(required_scope("device.create"), Scope::Pairing);
+        assert_eq!(required_scope("device.list"), Scope::Pairing);
+    }
+
+    #[test]
+    fn chat_send_requires_chat_scope() {
+        assert_eq!(required_scope("chat.send"), Scope::Chat);
+        assert_eq!(required_scope("send"), Scope::Chat);
+    }
+
+    #[test]
+    fn channels_methods_require_write() {
+        assert_eq!(required_scope("channels.list"), Scope::Write);
+        assert_eq!(required_scope("channels.create"), Scope::Write);
+    }
+
+    #[test]
+    fn read_suffix_resolves_to_read_for_crud_domains() {
+        for method in [
+            "sessions.list",
+            "sessions.get",
+            "models.status",
+            "agents.search",
+            "memory.preview",
+        ] {
+            assert_eq!(
+                required_scope(method),
+                Scope::Read,
+                "{method} should be Read"
+            );
+        }
+    }
+
+    #[test]
+    fn write_suffix_resolves_to_write_for_crud_domains() {
+        for method in [
+            "sessions.create",
+            "sessions.update",
+            "sessions.delete",
+            "memory.set",
+            "agents.compact",
+            "agents.reset",
+        ] {
+            assert_eq!(
+                required_scope(method),
+                Scope::Write,
+                "{method} should be Write"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_invocation_requires_write() {
+        assert_eq!(required_scope("agent"), Scope::Write);
+        assert_eq!(required_scope("agent.terminal.launch"), Scope::Write);
+    }
+
+    #[test]
+    fn unknown_method_falls_back_to_read() {
+        // Default for unmapped methods. This is an intentionally permissive
+        // default; tightening it (S6) is tracked as a follow-up.
+        assert_eq!(required_scope("connect"), Scope::Read);
+        assert_eq!(required_scope("status"), Scope::Read);
+        assert_eq!(required_scope("totally.made.up"), Scope::Read);
+    }
+
+    // ── GatewayAuth::validate (single-token happy + sad path) ─────────
+
+    #[tokio::test]
+    async fn validate_returns_info_for_known_token_and_none_otherwise() {
+        let auth = GatewayAuth::single_token("the-token".to_owned());
+        let info = auth.validate("the-token").await.expect("known token");
+        assert!(info.has_scope(TokenScope::Operator));
+        assert!(auth.validate("wrong-token").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn add_then_remove_token_round_trip() {
+        let auth = GatewayAuth::new(HashMap::new());
+        let info = TokenInfo {
+            label: "viewer".to_owned(),
+            scopes: vec![TokenScope::Viewer],
+        };
+        auth.add_token("vt".to_owned(), info.clone()).await;
+        assert_eq!(
+            auth.validate("vt").await.expect("known token").scopes,
+            info.scopes
+        );
+        assert!(auth.remove_token("vt").await);
+        assert!(auth.validate("vt").await.is_none());
+        // Removing again returns false.
+        assert!(!auth.remove_token("vt").await);
+    }
+
+    // ── HMAC challenge-response ───────────────────────────────────────
+
+    fn hmac_signature(token: &str, nonce: &str) -> String {
+        let mut mac = HmacSha256::new_from_slice(token.as_bytes()).unwrap();
+        mac.update(nonce.as_bytes());
+        super::hex::encode(mac.finalize().into_bytes())
+    }
+
+    #[tokio::test]
+    async fn challenge_response_accepts_correct_signature() {
+        let auth = GatewayAuth::single_token("hmac-token".to_owned());
+        let nonce = "abc123";
+        let sig = hmac_signature("hmac-token", nonce);
+        let info = auth.validate_challenge_response(&sig, nonce).await;
+        assert!(info.is_some(), "matching HMAC must yield TokenInfo");
+    }
+
+    #[tokio::test]
+    async fn challenge_response_rejects_wrong_nonce() {
+        let auth = GatewayAuth::single_token("hmac-token".to_owned());
+        let sig = hmac_signature("hmac-token", "real-nonce");
+        // Verifier passes a different nonce — must fail.
+        assert!(
+            auth.validate_challenge_response(&sig, "tampered-nonce")
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn challenge_response_rejects_unknown_token_signature() {
+        let auth = GatewayAuth::single_token("real-token".to_owned());
+        // Compute HMAC under a token the server does not know.
+        let sig = hmac_signature("attacker-token", "abc");
+        assert!(
+            auth.validate_challenge_response(&sig, "abc")
+                .await
+                .is_none()
+        );
+    }
+}

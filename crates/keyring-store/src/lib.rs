@@ -259,3 +259,80 @@ pub mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use super::tests::MockKeyringStore;
+    use super::{CredentialStoreError, KeyringStore};
+    use keyring::Error as KeyringError;
+
+    const SERVICE: &str = "savfox-test";
+
+    #[test]
+    fn save_then_load_round_trip() {
+        let store = MockKeyringStore::default();
+        store.save(SERVICE, "alice", "secret-1").unwrap();
+        assert_eq!(
+            store.load(SERVICE, "alice").unwrap().as_deref(),
+            Some("secret-1")
+        );
+    }
+
+    #[test]
+    fn load_returns_none_for_missing_account() {
+        let store = MockKeyringStore::default();
+        assert!(store.load(SERVICE, "ghost").unwrap().is_none());
+    }
+
+    #[test]
+    fn save_overwrites_existing_value() {
+        let store = MockKeyringStore::default();
+        store.save(SERVICE, "alice", "v1").unwrap();
+        store.save(SERVICE, "alice", "v2").unwrap();
+        assert_eq!(store.load(SERVICE, "alice").unwrap().as_deref(), Some("v2"));
+    }
+
+    #[test]
+    fn delete_removes_existing_entry_and_reports_true() {
+        let store = MockKeyringStore::default();
+        store.save(SERVICE, "alice", "secret").unwrap();
+        assert!(store.delete(SERVICE, "alice").unwrap());
+        assert!(store.load(SERVICE, "alice").unwrap().is_none());
+        assert!(!store.contains("alice"));
+    }
+
+    #[test]
+    fn delete_missing_entry_returns_false() {
+        let store = MockKeyringStore::default();
+        assert!(!store.delete(SERVICE, "nope").unwrap());
+    }
+
+    #[test]
+    fn save_propagates_backend_error() {
+        let store = MockKeyringStore::default();
+        store.set_error("alice", KeyringError::Invalid("svc".into(), "acct".into()));
+        let err = store
+            .save(SERVICE, "alice", "value")
+            .expect_err("backend error should bubble up");
+        assert!(matches!(err, CredentialStoreError::Other(_)));
+        // Display surface preserved.
+        assert!(!err.message().is_empty());
+    }
+
+    #[test]
+    fn into_error_returns_inner_keyring_error() {
+        let backend = KeyringError::Invalid("svc".into(), "acct".into());
+        let wrapped = CredentialStoreError::new(backend);
+        // Display surface should be non-empty before unwrapping.
+        let inner = wrapped.into_error();
+        assert!(matches!(inner, KeyringError::Invalid(_, _)));
+    }
+
+    #[test]
+    fn message_round_trips_inner_display() {
+        let backend = KeyringError::NoEntry;
+        let inner_str = backend.to_string();
+        let wrapped = CredentialStoreError::new(backend);
+        assert_eq!(wrapped.message(), inner_str);
+    }
+}
