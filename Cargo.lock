@@ -8651,6 +8651,7 @@ dependencies = [
  "serde_json",
  "serenity",
  "sha2 0.11.0",
+ "subtle",
  "teloxide",
  "tokio",
  "tracing",

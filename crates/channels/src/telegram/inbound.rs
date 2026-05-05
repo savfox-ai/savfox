@@ -11,7 +11,7 @@ use teloxide::types::AllowedUpdate;
 use teloxide::update_listeners::{AsUpdateStream, Polling};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::config::TelegramChannelConfig;
 
@@ -86,9 +86,12 @@ pub async fn start_telegram_polling(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("Telegram polling mode requires bot_token"))?;
-    println!(
-        "[telegram] Polling start requested: channel_id={}, polling={}, webhook_url={:?}, bot_token=configured",
-        channel_id, config.polling, config.webhook_url
+    info!(
+        target: "savfox::channels::telegram",
+        channel_id,
+        polling = config.polling,
+        ?config.webhook_url,
+        "polling start requested"
     );
 
     let bot = Bot::new(bot_token.to_owned());
@@ -96,8 +99,10 @@ pub async fn start_telegram_polling(
         .send()
         .await
         .map_err(|err| anyhow::anyhow!("failed to disable Telegram webhook for polling: {err}"))?;
-    println!(
-        "[telegram] Polling mode enabled for channel '{channel_id}'; existing webhook cleared"
+    info!(
+        target: "savfox::channels::telegram",
+        channel_id,
+        "polling mode enabled; existing webhook cleared"
     );
 
     let generation = next_polling_generation();
@@ -112,17 +117,24 @@ pub async fn start_telegram_polling(
             AllowedUpdate::EditedMessage,
         ])
         .build();
-    println!(
-        "[telegram] Polling listener built for channel '{channel_id}', spawning polling task..."
+    debug!(
+        target: "savfox::channels::telegram",
+        channel_id,
+        "polling listener built; spawning polling task"
     );
     let handle = tokio::spawn(async move {
-        println!("[telegram] Polling task started for channel '{task_channel_id}'");
-        info!(channel_id = %task_channel_id, "Telegram polling channel starting");
+        info!(
+            target: "savfox::channels::telegram",
+            channel_id = %task_channel_id,
+            "polling channel starting"
+        );
 
         let stream = listener.as_stream();
         tokio::pin!(stream);
-        println!(
-            "[telegram] Polling stream created for channel '{task_channel_id}', waiting for updates..."
+        debug!(
+            target: "savfox::channels::telegram",
+            channel_id = %task_channel_id,
+            "polling stream created; waiting for updates"
         );
         while let Some(update_result) = stream.next().await {
             match update_result {
@@ -134,43 +146,43 @@ pub async fn start_telegram_polling(
                             .map(|value| value.to_string())
                             .unwrap_or_else(|| "-".to_owned());
                         let (kind, chat_id, text_len) = describe_update(&payload);
-                        println!(
-                            "[telegram] Polling update received: channel_id={}, update_id={}, kind={}, chat_id={}, text_len={}, payload_preview={}",
-                            task_channel_id,
+                        debug!(
+                            target: "savfox::channels::telegram",
+                            channel_id = %task_channel_id,
                             update_id,
                             kind,
                             chat_id,
                             text_len,
-                            telegram_log_preview(&payload.to_string(), 220)
+                            payload_preview = %telegram_log_preview(&payload.to_string(), 220),
+                            "polling update received"
                         );
                         sink.handle_update(payload).await;
                     }
                     Err(err) => {
-                        println!(
-                            "[telegram] Polling update serialization failed: channel_id={task_channel_id}, error={err}"
-                        );
                         warn!(
+                            target: "savfox::channels::telegram",
                             channel_id = %task_channel_id,
                             error = %err,
-                            "Telegram polling update serialization failed"
+                            "polling update serialization failed"
                         );
                     }
                 },
                 Err(err) => {
-                    println!(
-                        "[telegram] Polling listener error: channel_id={task_channel_id}, error={err}"
-                    );
                     warn!(
+                        target: "savfox::channels::telegram",
                         channel_id = %task_channel_id,
                         error = %err,
-                        "Telegram polling listener error"
+                        "polling listener error"
                     );
                 }
             }
         }
 
-        println!("[telegram] Polling stream ended for channel '{task_channel_id}'");
-        info!(channel_id = %task_channel_id, "Telegram polling channel stopped");
+        info!(
+            target: "savfox::channels::telegram",
+            channel_id = %task_channel_id,
+            "polling channel stopped"
+        );
         let mut handles = polling_handles().lock().await;
         if handles
             .get(&tracked_channel_id)
@@ -185,7 +197,11 @@ pub async fn start_telegram_polling(
         channel_id.to_owned(),
         PollingTaskEntry { generation, handle },
     ) {
-        println!("[telegram] Replacing existing polling task for channel '{channel_id}'");
+        info!(
+            target: "savfox::channels::telegram",
+            channel_id,
+            "replacing existing polling task"
+        );
         previous.handle.abort();
     }
     Ok(())
@@ -194,12 +210,18 @@ pub async fn start_telegram_polling(
 pub async fn stop_telegram_polling(channel_id: &str) -> bool {
     let mut handles = polling_handles().lock().await;
     if let Some(entry) = handles.remove(channel_id) {
-        println!("[telegram] Stopping polling task for channel '{channel_id}'");
+        info!(
+            target: "savfox::channels::telegram",
+            channel_id,
+            "stopping polling task"
+        );
         entry.handle.abort();
         true
     } else {
-        println!(
-            "[telegram] Stop polling requested but no task was running for channel '{channel_id}'"
+        debug!(
+            target: "savfox::channels::telegram",
+            channel_id,
+            "stop polling requested but no task was running"
         );
         false
     }

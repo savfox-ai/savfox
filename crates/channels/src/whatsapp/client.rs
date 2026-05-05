@@ -39,7 +39,7 @@ pub async fn send_message(
     Ok(())
 }
 
-/// Verify a WhatsApp webhook signature using HMAC-SHA256.
+/// Verify a WhatsApp webhook signature using HMAC-SHA256 in constant time.
 ///
 /// The `signature` value typically has a `sha256=` prefix which is stripped
 /// automatically before comparison.
@@ -47,6 +47,7 @@ pub async fn send_message(
 pub fn verify_webhook_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
     use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
+    use subtle::ConstantTimeEq;
 
     let expected = signature.strip_prefix("sha256=").unwrap_or(signature);
 
@@ -57,5 +58,48 @@ pub fn verify_webhook_signature(app_secret: &str, body: &[u8], signature: &str) 
     mac.update(body);
     let computed = hex::encode(mac.finalize().into_bytes());
 
-    computed == expected
+    bool::from(computed.as_bytes().ct_eq(expected.as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn compute(secret: &str, body: &[u8]) -> String {
+        use hmac::{Hmac, KeyInit, Mac};
+        use sha2::Sha256;
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    #[test]
+    fn verify_accepts_raw_hex_and_prefixed() {
+        let sig = compute("k", b"payload");
+        assert!(verify_webhook_signature("k", b"payload", &sig));
+        let prefixed = format!("sha256={sig}");
+        assert!(verify_webhook_signature("k", b"payload", &prefixed));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_secret() {
+        let sig = compute("k1", b"payload");
+        assert!(!verify_webhook_signature("k2", b"payload", &sig));
+    }
+
+    #[test]
+    fn verify_rejects_modified_body() {
+        let sig = compute("k", b"payload");
+        assert!(!verify_webhook_signature("k", b"payloaD", &sig));
+    }
+
+    #[test]
+    fn verify_rejects_truncated_signature() {
+        let sig = compute("k", b"payload");
+        assert!(!verify_webhook_signature(
+            "k",
+            b"payload",
+            &sig[..sig.len() - 2]
+        ));
+    }
 }
