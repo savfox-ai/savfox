@@ -289,7 +289,13 @@ mod tests {
         assert_eq!(req.body["model"], "claude-sonnet-4-20250514");
         assert_eq!(req.body["max_tokens"], 8192);
         assert_eq!(req.body["stream"], true);
-        assert_eq!(req.body["system"], "Be helpful");
+        // System prompt is now an array of content blocks so we can attach
+        // a `cache_control` breakpoint to enable Anthropic prompt caching.
+        let system = req.body["system"].as_array().expect("system is array");
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["type"], "text");
+        assert_eq!(system[0]["text"], "Be helpful");
+        assert_eq!(system[0]["cache_control"]["type"], "ephemeral");
 
         let messages = req.body["messages"].as_array().expect("messages");
         assert_eq!(messages.len(), 1);
