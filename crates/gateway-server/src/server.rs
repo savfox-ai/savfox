@@ -214,11 +214,7 @@ async fn bearer_auth_hoop(
 ///
 /// Writes a `403 Forbidden` and returns `false` if the bearer does not carry
 /// `OperatorAdmin`. Returns `true` to let the handler continue.
-async fn require_admin_scope(
-    req: &Request,
-    depot: &mut Depot,
-    res: &mut Response,
-) -> bool {
+async fn require_admin_scope(req: &Request, depot: &mut Depot, res: &mut Response) -> bool {
     let Some(info) = authenticate_with_info(req, depot, res).await else {
         return false;
     };
@@ -957,7 +953,9 @@ fn expand_env_string(input: &str) -> Result<String, String> {
 mod tests {
     use serde_json::json;
 
-    use super::{expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars};
+    use super::{
+        expand_env_string, is_protected_api_path, is_public_anonymous_path, substitute_env_vars,
+    };
 
     #[test]
     fn anonymous_paths_skip_auth_hoop() {

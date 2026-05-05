@@ -9,6 +9,7 @@ use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcRe
 use super::channel::{channel_is_configured, load_saved_channel_configs};
 use super::channel_management::load_nostr_profile;
 use crate::channel::GatewayChannel;
+use crate::security::path_safety::safe_join;
 
 // ── Agent (single-agent operations) ─────────────────────────────────────────
 
@@ -69,7 +70,9 @@ pub(crate) async fn handle_agent_capabilities(
 
     // Collect tools from agent config (if it exists).
     let agents_dir = channel.config().savfox_home.join("agents");
-    let agent_config_path = agents_dir.join(format!("{agent_id}.json"));
+    let Some(agent_config_path) = safe_join(&agents_dir, agent_id, ".json") else {
+        return Err((INVALID_PARAMS, "invalid agent identifier".to_owned()));
+    };
     let agent_config: Option<Value> = if agent_config_path.exists() {
         tokio::fs::read_to_string(&agent_config_path)
             .await
@@ -499,12 +502,16 @@ pub(crate) async fn apply_agent_permission_policy_to_config(
 ) {
     use savfox_protocol::protocol::ToolAccessPolicy;
 
-    // Resolve the agent config file.
+    // Resolve the agent config file. `resolve_agent_file_stem` already
+    // produces a sanitized stem; for the fallback path we re-validate via
+    // `safe_join` so a malformed `agent_ref` cannot escape `dir`.
     let dir = agents_dir(channel);
-    let path = if let Some(stem) = resolve_agent_file_stem(channel, agent_ref).await {
-        dir.join(format!("{stem}.json"))
-    } else {
-        dir.join(format!("{agent_ref}.json"))
+    let resolved_path = match resolve_agent_file_stem(channel, agent_ref).await {
+        Some(stem) => safe_join(&dir, &stem, ".json"),
+        None => safe_join(&dir, agent_ref, ".json"),
+    };
+    let Some(path) = resolved_path else {
+        return;
     };
 
     let agent_config = match read_agent_config(&path).await {
@@ -680,9 +687,10 @@ async fn resolve_agent_file_stem(channel: &GatewayChannel, agent_ref: &str) -> O
     }
 
     if let Some(safe_ref) = sanitize_agent_file_stem(trimmed) {
-        let direct = dir.join(format!("{safe_ref}.json"));
-        if direct.exists() {
-            return Some(safe_ref);
+        if let Some(direct) = safe_join(&dir, &safe_ref, ".json") {
+            if direct.exists() {
+                return Some(safe_ref);
+            }
         }
     }
 
@@ -845,7 +853,9 @@ pub(crate) async fn handle_agents_get(params: &Value, channel: &Arc<GatewayChann
     if file_stem.eq_ignore_ascii_case("default") {
         return Ok(load_default_agent_config(channel).await);
     }
-    let path = agents_dir(channel).join(format!("{file_stem}.json"));
+    let Some(path) = safe_join(&agents_dir(channel), &file_stem, ".json") else {
+        return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
+    };
     let Some(mut config) = read_agent_config(&path).await else {
         return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
     };
@@ -970,7 +980,9 @@ pub(crate) async fn handle_agents_create(
 
     let dir = agents_dir(channel);
     let _ = tokio::fs::create_dir_all(&dir).await;
-    let path = dir.join(format!("{id}.json"));
+    let Some(path) = safe_join(&dir, &id, ".json") else {
+        return Err((INVALID_PARAMS, format!("invalid agent id: {id}")));
+    };
     if path.exists() {
         return Err((INVALID_REQUEST, format!("agent already exists: {id}")));
     }
@@ -1017,7 +1029,12 @@ pub(crate) async fn handle_agents_update(
                 format!("invalid agent reference: {agent_ref}"),
             )
         })?;
-    let path = dir.join(format!("{resolved_id}.json"));
+    let Some(path) = safe_join(&dir, &resolved_id, ".json") else {
+        return Err((
+            INVALID_REQUEST,
+            format!("invalid agent reference: {agent_ref}"),
+        ));
+    };
     if let Some(name) = params
         .get("name")
         .and_then(|value| value.as_str())
@@ -1168,12 +1185,20 @@ pub(crate) async fn handle_agents_delete(
     }
 
     let dir = agents_dir(channel);
-    let path = dir.join(format!("{resolved_id}.json"));
+    let Some(path) = safe_join(&dir, &resolved_id, ".json") else {
+        return Err((
+            INVALID_REQUEST,
+            format!("invalid agent reference: {agent_ref}"),
+        ));
+    };
     let _ = tokio::fs::remove_file(&path).await;
 
-    // Also remove the agent's files directory.
-    let files_dir = dir.join(&resolved_id);
-    let _ = tokio::fs::remove_dir_all(&files_dir).await;
+    // Also remove the agent's files directory. `resolved_id` is already
+    // sanitized but we re-validate via safe_join with no suffix so a
+    // malformed value cannot escape `dir`.
+    if let Some(files_dir) = safe_join(&dir, &resolved_id, "") {
+        let _ = tokio::fs::remove_dir_all(&files_dir).await;
+    }
     if let Some(ref_dir) = sanitize_agent_file_stem(agent_ref)
         && ref_dir != resolved_id
     {
@@ -1212,7 +1237,12 @@ pub(crate) async fn handle_agents_reset(
             )
         })?;
 
-    let path = dir.join(format!("{resolved_id}.json"));
+    let Some(path) = safe_join(&dir, &resolved_id, ".json") else {
+        return Err((
+            INVALID_REQUEST,
+            format!("invalid agent reference: {agent_ref}"),
+        ));
+    };
 
     let mut config = if resolved_id.eq_ignore_ascii_case("default") {
         // Reset to hardcoded default stub.
@@ -1392,7 +1422,9 @@ pub(crate) async fn handle_agents_skills_get(
         if file_stem.eq_ignore_ascii_case("default") {
             load_default_agent_config(channel).await
         } else {
-            let path = agents_dir(channel).join(format!("{file_stem}.json"));
+            let Some(path) = safe_join(&agents_dir(channel), &file_stem, ".json") else {
+                return Err((INVALID_REQUEST, format!("agent not found: {agent_ref}")));
+            };
             read_agent_config(&path)
                 .await
                 .ok_or_else(|| (INVALID_REQUEST, format!("agent not found: {agent_ref}")))?
@@ -1438,7 +1470,12 @@ pub(crate) async fn handle_agents_skills_set(
                 format!("invalid agent reference: {agent_ref}"),
             )
         })?;
-    let path = dir.join(format!("{resolved_id}.json"));
+    let Some(path) = safe_join(&dir, &resolved_id, ".json") else {
+        return Err((
+            INVALID_REQUEST,
+            format!("invalid agent reference: {agent_ref}"),
+        ));
+    };
 
     let mut config = if resolved_id.eq_ignore_ascii_case("default") {
         load_default_agent_config(channel).await
@@ -1498,7 +1535,9 @@ pub(crate) async fn handle_agent_avatar_set(params: &Value, channel: &GatewayCha
             .map_err(|e| (INTERNAL_ERROR, format!("mkdir error: {e}")))?;
     }
 
-    let config_path = dir.join(format!("{agent_id}.json"));
+    let Some(config_path) = safe_join(&dir, agent_id, ".json") else {
+        return Err((INVALID_PARAMS, format!("invalid agent id: {agent_id}")));
+    };
     let mut config: Value = if config_path.exists() {
         crate::json_store::load_json_value(&config_path).await
     } else {
@@ -1529,7 +1568,9 @@ pub(crate) async fn handle_agent_avatar_get(params: &Value, channel: &GatewayCha
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let config_path = agents_dir(channel).join(format!("{agent_id}.json"));
+    let Some(config_path) = safe_join(&agents_dir(channel), agent_id, ".json") else {
+        return Err((INVALID_PARAMS, format!("invalid agent id: {agent_id}")));
+    };
     let avatar = if config_path.exists() {
         let config = crate::json_store::load_json_value(&config_path).await;
         config

@@ -5,6 +5,7 @@
 //! re-exports for existing call sites.
 
 pub mod auth;
+pub mod path_safety;
 pub mod rate_limit;
 pub mod redaction;
 pub mod security_audit;

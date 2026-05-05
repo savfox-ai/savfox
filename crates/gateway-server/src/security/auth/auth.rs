@@ -308,6 +308,20 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Approvals;
     }
 
+    // ── Hooks (privileged: writes register shell handlers) ───────────
+    // Creating, updating, enabling, or disabling a hook lets the caller
+    // register a `Shell { command }` handler that the gateway will run on
+    // the next matching event. Treat the write surface as Admin-only so
+    // an OperatorWrite token cannot turn itself into RCE.
+    if method == "hooks.create"
+        || method == "hooks.update"
+        || method == "hooks.delete"
+        || method == "hooks.enable"
+        || method == "hooks.disable"
+    {
+        return Scope::Admin;
+    }
+
     // ── Security ─────────────────────────────────────────────────────
     if method == "security.audit" || method == "security.analyze" {
         return Scope::Read;
@@ -548,6 +562,24 @@ mod tests {
     fn approval_methods_require_approvals_scope() {
         assert_eq!(required_scope("exec.approval.resolve"), Scope::Approvals);
         assert_eq!(required_scope("exec.approval.list"), Scope::Approvals);
+    }
+
+    #[test]
+    fn hooks_writes_require_admin() {
+        // S9: hooks register shell handlers. Write would let an Operator
+        // turn itself into RCE; Admin is required.
+        for method in [
+            "hooks.create",
+            "hooks.update",
+            "hooks.delete",
+            "hooks.enable",
+            "hooks.disable",
+        ] {
+            assert_eq!(required_scope(method), Scope::Admin, "{method}");
+        }
+        // Read paths still resolve to Read.
+        assert_eq!(required_scope("hooks.list"), Scope::Read);
+        assert_eq!(required_scope("hooks.get"), Scope::Read);
     }
 
     #[test]
