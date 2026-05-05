@@ -45,11 +45,7 @@ pub fn truncate_log_preview(text: &str, max_chars: usize) -> String {
 #[must_use]
 pub fn verify_webhook_secret(expected_secret: &str, received_secret: &str) -> bool {
     use subtle::ConstantTimeEq;
-    bool::from(
-        expected_secret
-            .as_bytes()
-            .ct_eq(received_secret.as_bytes()),
-    )
+    bool::from(expected_secret.as_bytes().ct_eq(received_secret.as_bytes()))
 }
 
 // ---------------------------------------------------------------------------
