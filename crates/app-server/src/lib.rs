@@ -1,3 +1,20 @@
+//! Long-lived JSON-RPC server that hosts Savfox conversations.
+//!
+//! `savfox-app-server` runs as a background daemon (or as a child process
+//! launched by an embedder) and speaks the wire protocol defined in
+//! [`savfox_app_server_protocol`]. Requests, notifications, and responses
+//! flow over stdio (the default transport) or any byte-stream the
+//! embedder wires up.
+//!
+//! Each conversation owns its own [`savfox_core`] runtime — model client,
+//! command-execution sandbox, rollout recorder. The app-server multiplexes
+//! several of those runtimes concurrently and is the integration point
+//! that TUI, IDE plugins, the gateway, and external SDKs all share.
+//!
+//! Use [`run_main`] from a `main.rs` to start the server with the default
+//! configuration; embedders that need to inject their own router can build
+//! the lower-level pieces directly.
+
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 #![allow(unreachable_pub)]
 #![allow(

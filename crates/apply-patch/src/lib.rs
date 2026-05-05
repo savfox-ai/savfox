@@ -1,3 +1,18 @@
+//! Apply unified-style patches that the agent emits via the
+//! `apply_patch` tool.
+//!
+//! The agent communicates file edits through a domain-specific patch
+//! format (a strict subset of unified diff with explicit `*** Add File`,
+//! `*** Update File`, and `*** Delete File` markers). This crate parses
+//! that format ([`parser`]), locates each hunk in the working tree using
+//! a forgiving sequence-search ([`seek_sequence`]), and applies the
+//! resulting edits transactionally — either every hunk lands or none do,
+//! so a partial failure leaves the working tree untouched.
+//!
+//! [`standalone_executable`] exposes the same machinery as a small CLI
+//! used by sandboxed agent processes that cannot link against the rest
+//! of Savfox.
+
 #![allow(unreachable_pub)]
 #![allow(missing_debug_implementations)]
 #![cfg_attr(test, allow(clippy::manual_let_else, clippy::unwrap_used))]

@@ -1,3 +1,27 @@
+//! Terminal UI for Savfox built on `ratatui` + `crossterm`.
+//!
+//! This crate hosts the interactive chat surface that operators see when
+//! they run `savfox tui`. It connects to a [`savfox_app_server`] backend
+//! over JSON-RPC, renders the conversation transcript, and provides the
+//! input composer, slash-command palette, approval modals, sandbox
+//! selector, and history browser.
+//!
+//! The crate is split into roughly three layers:
+//!
+//! * **`app`** — top-level event loop, mode switching, and frame
+//!   scheduling.
+//! * **`chat_screen`, `bottom_pane`, `history_cell`** — rendering of the
+//!   transcript, composer, and per-event cells.
+//! * **Subsystems** — `key_bindings`, `clipboard`, `markdown`, `mouse`,
+//!   `tui_voice`, etc.
+//!
+//! # Library vs binary
+//!
+//! `lib.rs` deliberately denies `print_stdout` / `print_stderr`: anything
+//! that lands on the host terminal during alt-screen mode corrupts the
+//! frame. The standalone `savfox-tui` binary prints a brief banner before
+//! switching modes and opts out via a local `#[allow]`.
+
 // Forbid accidental stdout/stderr writes in the *library* portion of the TUI.
 // The standalone `savfox-tui` binary prints a short help message before the
 // alternate‑screen mode starts; that file opts‑out locally via `allow`.
