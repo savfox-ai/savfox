@@ -295,6 +295,15 @@ pub struct ModelInfo {
     pub supports_parallel_tool_calls: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<i64>,
+    /// Maximum tokens this model is willing to emit on a single response.
+    /// When omitted callers should fall back to a conservative derivation
+    /// from `context_window` (see [`ModelInfo::resolved_max_output_tokens`]).
+    /// Setting this explicitly lets a model with a small context window but
+    /// large output budget (e.g. Claude Sonnet 4 — 200K in / 64K out)
+    /// expose its full output capacity rather than being clipped to
+    /// `context_window / 4`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<i64>,
     /// Token threshold for automatic compaction. When omitted, core derives it
     /// from `context_window` (90%).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,6 +341,7 @@ impl Default for ModelInfo {
             truncation_policy: default_truncation_policy(),
             supports_parallel_tool_calls: default_supports_parallel_tool_calls(),
             context_window: None,
+            max_output_tokens: None,
             auto_compact_token_limit: None,
             effective_context_window_percent: default_effective_context_window_percent(),
             experimental_supported_tools: default_experimental_supported_tools(),
@@ -355,6 +365,29 @@ impl ModelInfo {
             self.context_window
                 .map(|context_window| (context_window * 9) / 10)
         })
+    }
+
+    /// Resolve the per-request `max_output_tokens` for this model.
+    ///
+    /// Preference order:
+    /// 1. The explicit `max_output_tokens` field if set in the model registry.
+    /// 2. Fall back to `min(context_window / 2, MAX_REASONABLE_OUTPUT)`.
+    /// 3. If even `context_window` is missing, return a conservative 8192.
+    ///
+    /// This replaces the previous hard-coded `(context_window / 4).max(4096)`
+    /// heuristic in `client.rs`, which silently clipped Sonnet 4's 64K output
+    /// budget to ~50K (S15 in the security/quality review).
+    #[must_use]
+    pub fn resolved_max_output_tokens(&self) -> i64 {
+        const MAX_REASONABLE_OUTPUT: i64 = 64_000;
+        const FALLBACK: i64 = 8_192;
+        if let Some(explicit) = self.max_output_tokens.filter(|v| *v > 0) {
+            return explicit;
+        }
+        match self.context_window {
+            Some(cw) if cw > 0 => (cw / 2).min(MAX_REASONABLE_OUTPUT).max(FALLBACK),
+            _ => FALLBACK,
+        }
     }
 
     pub fn supports_personality(&self) -> bool {
@@ -604,6 +637,7 @@ mod tests {
             truncation_policy: TruncationPolicyConfig::bytes(10_000),
             supports_parallel_tool_calls: false,
             context_window: None,
+            max_output_tokens: None,
             auto_compact_token_limit: None,
             effective_context_window_percent: 95,
             experimental_supported_tools: vec![],
