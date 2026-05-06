@@ -8,9 +8,8 @@
 //!
 //! Two protocols are supported:
 //!
-//! * **HTTP CONNECT** — for `https://` / TLS tunnelling. Implemented in
-//!   the `http_proxy` module; the upstream-tunnel headers are validated
-//!   before being forwarded.
+//! * **HTTP CONNECT** — for `https://` / TLS tunnelling. Implemented in the `http_proxy` module;
+//!   the upstream-tunnel headers are validated before being forwarded.
 //! * **SOCKS5** — for opaque TCP. Implemented in the `proxy` module.
 //!
 //! The policy layer (`policy`, `network_policy`, `responses`) decides

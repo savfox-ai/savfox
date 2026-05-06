@@ -7,9 +7,8 @@
 //!   authorization endpoint, and completes the PKCE exchange when the
 //!   browser is redirected back to `http://127.0.0.1:<port>/callback`.
 //!   The verifier is generated per-flow and never written to disk.
-//! * **Device code grant** — [`request_device_code`] +
-//!   [`complete_device_code_login`] for headless / TUI environments where
-//!   the user enters a code on a separate browser device.
+//! * **Device code grant** — [`request_device_code`] + [`complete_device_code_login`] for headless
+//!   / TUI environments where the user enters a code on a separate browser device.
 //!
 //! Token persistence (refresh token, ID token claims) is delegated to
 //! `savfox-core::auth`, whose helpers are re-exported below for backward

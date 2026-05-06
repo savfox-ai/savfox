@@ -3,7 +3,71 @@
 //! Each function takes an explicit `&reqwest::Client` and credentials so it can
 //! be called from any context without coupling to a particular channel instance.
 
+use base64::Engine;
+use hmac::{Hmac, KeyInit, Mac};
+use serde_json::json;
+use sha2::Sha256;
 use tracing::warn;
+
+use crate::http::warn_on_error;
+
+/// Send a text message to a DingTalk webhook target (URL or `access_token`).
+///
+/// `channel` is either a full webhook URL (`https://oapi.dingtalk.com/...`) or
+/// a logical identifier; when not a URL, `access_token` is required to derive
+/// the canonical webhook URL. When `webhook_secret` is set, the request URL
+/// is signed using DingTalk's HMAC-SHA256 scheme.
+pub async fn send_dingtalk_text_message(
+    http_client: &reqwest::Client,
+    channel: &str,
+    webhook_secret: Option<&str>,
+    access_token: Option<&str>,
+    message: &str,
+) -> anyhow::Result<()> {
+    let channel = channel.trim();
+    let Some(target) = resolve_webhook_target(channel, access_token) else {
+        anyhow::bail!("dingtalk webhook target is not configured");
+    };
+    let signed_url = sign_webhook_url(&target, webhook_secret)?;
+    let body = json!({
+        "msgtype": "text",
+        "text": { "content": message },
+    });
+    let response = http_client
+        .post(&signed_url)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await?;
+    warn_on_error(response, "Dingtalk send error").await;
+    Ok(())
+}
+
+fn resolve_webhook_target(channel: &str, access_token: Option<&str>) -> Option<String> {
+    if channel.starts_with("https://") || channel.starts_with("http://") {
+        return Some(channel.to_owned());
+    }
+    let token = access_token.map(str::trim).filter(|v| !v.is_empty())?;
+    Some(format!(
+        "https://oapi.dingtalk.com/robot/send?access_token={token}"
+    ))
+}
+
+fn sign_webhook_url(url: &str, webhook_secret: Option<&str>) -> anyhow::Result<String> {
+    let Some(secret) = webhook_secret.map(str::trim).filter(|v| !v.is_empty()) else {
+        return Ok(url.to_owned());
+    };
+    let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+    let sign_content = format!("{timestamp}\n{secret}");
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
+    mac.update(sign_content.as_bytes());
+    let sign = base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+    let sign_encoded: String = url::form_urlencoded::byte_serialize(sign.as_bytes()).collect();
+    let separator = if url.contains('?') { '&' } else { '?' };
+    Ok(format!(
+        "{url}{separator}timestamp={timestamp}&sign={sign_encoded}"
+    ))
+}
 
 /// Fetch an access token using client credentials (appKey/appSecret).
 pub async fn fetch_access_token(

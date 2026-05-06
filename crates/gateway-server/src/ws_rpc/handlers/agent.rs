@@ -55,6 +55,43 @@ pub(crate) async fn handle_agent_wait(params: &Value, channel: &Arc<GatewayChann
     }
 }
 
+/// Open the agent's configured CLI tool in a system terminal window so the
+/// user can interact with it directly. Returns details about the spawned
+/// terminal — see `agent_terminal_launcher` for platform behavior.
+pub(crate) async fn handle_agent_terminal_launch(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let agent = params
+        .get("agent")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .trim()
+        .to_owned();
+    if agent.is_empty() {
+        return Err((INVALID_REQUEST, "missing 'agent' parameter".to_owned()));
+    }
+
+    match crate::agent_terminal_launcher::launch_interactive(channel.config(), &agent).await {
+        Ok(result) => Ok(json!({
+            "launched": true,
+            "agent": {
+                "id": result.agent_id,
+                "name": result.agent_name,
+            },
+            "terminal": result.terminal,
+            "command": result.program,
+            "args": result.args,
+            "cwd": result.cwd.to_string_lossy(),
+            "pid": result.pid,
+        })),
+        Err(err) => Err((
+            INTERNAL_ERROR,
+            format!("agent.terminal.launch error: {err}"),
+        )),
+    }
+}
+
 // ── Agent capabilities & delegation ─────────────────────────────────────────
 
 /// Returns the capabilities of a specific agent, including its tools,

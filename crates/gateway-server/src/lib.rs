@@ -38,6 +38,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 mod agent_terminal_delegate;
+mod agent_terminal_launcher;
 mod approval_policy_store;
 pub mod audit;
 pub mod auto_reply;

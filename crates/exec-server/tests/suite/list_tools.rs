@@ -1,7 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-use std::borrow::Cow;
 use std::fs;
-use std::sync::Arc;
 
 use anyhow::Result;
 use exec_server_test_support::create_transport;
@@ -28,13 +25,10 @@ async fn list_tools() -> Result<()> {
     let service = ().serve(transport).await?;
     let tools = service.list_tools(Default::default()).await?.tools;
     assert_eq!(
-        vec![Tool {
-            name: Cow::Borrowed("shell"),
-            title: None,
-            description: Some(Cow::Borrowed(
-                "Runs a shell command and returns its output. You MUST provide the workdir as an absolute path."
-            )),
-            input_schema: Arc::new(object(json!({
+        vec![Tool::new(
+            "shell",
+            "Runs a shell command and returns its output. You MUST provide the workdir as an absolute path.",
+            object(json!({
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
                     "command": {
@@ -64,12 +58,8 @@ async fn list_tools() -> Result<()> {
                 ],
                 "title": "ExecParams",
                 "type": "object",
-            }))),
-            output_schema: None,
-            annotations: None,
-            icons: None,
-            meta: None
-        }],
+            })),
+        )],
         tools
     );
 

@@ -8,12 +8,10 @@
 //!
 //! The crate is split into roughly three layers:
 //!
-//! * **`app`** — top-level event loop, mode switching, and frame
-//!   scheduling.
-//! * **`chat_screen`, `bottom_pane`, `history_cell`** — rendering of the
-//!   transcript, composer, and per-event cells.
-//! * **Subsystems** — `key_bindings`, `clipboard`, `markdown`, `mouse`,
-//!   `tui_voice`, etc.
+//! * **`app`** — top-level event loop, mode switching, and frame scheduling.
+//! * **`chat_screen`, `bottom_pane`, `history_cell`** — rendering of the transcript, composer, and
+//!   per-event cells.
+//! * **Subsystems** — `key_bindings`, `clipboard`, `markdown`, `mouse`, `tui_voice`, etc.
 //!
 //! # Library vs binary
 //!

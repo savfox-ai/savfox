@@ -1062,10 +1062,7 @@ mod tests {
 
         let mut killed = false;
         for _ in 0..20 {
-            // Use kill(pid, 0) to check if the process is alive.
-            if unsafe { libc::kill(pid, 0) } == -1
-                && let Some(libc::ESRCH) = std::io::Error::last_os_error().raw_os_error()
-            {
+            if !process_is_still_running(pid).await? {
                 killed = true;
                 break;
             }
@@ -1074,6 +1071,32 @@ mod tests {
 
         assert!(killed, "grandchild process with pid {pid} is still alive");
         Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn process_is_still_running(pid: i32) -> io::Result<bool> {
+        let stat_path = format!("/proc/{pid}/stat");
+        let stat = match tokio::fs::read_to_string(stat_path).await {
+            Ok(stat) => stat,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(err) => return Err(err),
+        };
+
+        let Some((_comm, fields)) = stat.rsplit_once(") ") else {
+            return Ok(true);
+        };
+        let state = fields.split_whitespace().next();
+        Ok(!matches!(state, Some("Z" | "X" | "x")))
+    }
+
+    #[cfg(all(unix, not(target_os = "linux")))]
+    async fn process_is_still_running(pid: i32) -> io::Result<bool> {
+        let status = tokio::process::Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .status()
+            .await?;
+        Ok(status.success())
     }
 
     #[tokio::test]

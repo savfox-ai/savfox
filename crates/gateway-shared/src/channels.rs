@@ -101,7 +101,7 @@ pub struct SignalStatus {
     pub last_error: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct IMessageStatus {
     pub configured: Option<bool>,
     pub running: Option<bool>,

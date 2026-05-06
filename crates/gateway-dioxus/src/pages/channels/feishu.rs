@@ -1,164 +1,37 @@
-use dioxus::prelude::*;
-
 use crate::api::types::FeishuStatus;
-use crate::api::ws::WsRpc;
-use crate::components::skeleton::*;
+use crate::channel_status_page;
+use crate::pages::channels::common::ChannelStatusView;
 
-#[component]
-pub fn FeishuChannel() -> Element {
-    let ws = use_context::<Signal<WsRpc>>();
-    let mut status = use_signal(|| None::<FeishuStatus>);
-    let mut loading = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
-    let mut action_loading = use_signal(|| false);
-
-    let load_status = move || {
-        let ws = ws.clone();
-        async move {
-            loading.set(true);
-            error.set(None);
-
-            let result = ws
-                .read()
-                .call::<FeishuStatus>(
-                    "channels.status",
-                    Some(serde_json::json!({"channel": "feishu"})),
-                )
-                .await;
-
-            match result {
-                Ok(s) => status.set(Some(s)),
-                Err(e) => error.set(Some(e)),
-            }
-            loading.set(false);
-        }
-    };
-
-    use_effect(move || {
-        spawn(async move {
-            load_status().await;
-        });
-    });
-
-    rsx! {
-        div { class: "channel-page",
-            div { class: "channel-header",
-                span { class: "channel-icon", dangerous_inner_html: crate::utils::icons::ICON_FEISHU }
-                h2 { "Feishu / Lark" }
-            }
-
-            if *loading.read() {
-                SkeletonCard {}
-            }
-
-            if let Some(err) = error.read().as_ref() {
-                div { class: "error-message", "{err}" }
-            }
-
-            if let Some(s) = status.read().as_ref() {
-                div { class: "channel-content",
-                    div { class: "status-card",
-                        h3 { "Status" }
-                        div { class: "status-grid",
-                            div { class: "status-item",
-                                span { class: "status-label", "Configured" }
-                                span { class: "status-value",
-                                    if s.configured.unwrap_or(false) { "Yes" } else { "No" }
-                                }
-                            }
-                            div { class: "status-item",
-                                span { class: "status-label", "Running" }
-                                span { class: if s.running.unwrap_or(false) { "status-value status-running" } else { "status-value status-stopped" },
-                                    if s.running.unwrap_or(false) { "Running" } else { "Stopped" }
-                                }
-                            }
-                            div { class: "status-item",
-                                span { class: "status-label", "Connected" }
-                                span { class: if s.connected.unwrap_or(false) { "status-value status-connected" } else { "status-value status-disconnected" },
-                                    if s.connected.unwrap_or(false) { "Connected" } else { "Disconnected" }
-                                }
-                            }
-                            if let Some(app_id) = &s.app_id {
-                                div { class: "status-item",
-                                    span { class: "status-label", "App ID" }
-                                    span { class: "status-value", "{app_id}" }
-                                }
-                            }
-                            if let Some(name) = &s.bot_name {
-                                div { class: "status-item",
-                                    span { class: "status-label", "Bot Name" }
-                                    span { class: "status-value", "{name}" }
-                                }
-                            }
-                            if let Some(err) = &s.last_error {
-                                div { class: "status-item error",
-                                    span { class: "status-label", "Last Error" }
-                                    span { class: "status-value error", "{err}" }
-                                }
-                            }
-                        }
-                    }
-
-                    div { class: "action-buttons",
-                        button {
-                            class: "btn btn-primary",
-                            onclick: move |_| {
-                                spawn(async move {
-                                    load_status().await;
-                                });
-                            },
-                            span { dangerous_inner_html: crate::utils::icons::ICON_REFRESH_CW }
-                            "Refresh"
-                        }
-
-                        if s.running.unwrap_or(false) {
-                            button {
-                                class: "btn btn-danger",
-                                onclick: move |_| {
-                                    let ws = ws.clone();
-                                    spawn(async move {
-                                        action_loading.set(true);
-                                        error.set(None);
-                                        match ws.read()
-                                            .call::<serde_json::Value>("channels.logout", Some(serde_json::json!({"channel": "feishu"})))
-                                            .await
-                                        {
-                                            Ok(_) => {}
-                                            Err(e) => error.set(Some(e)),
-                                        }
-                                        action_loading.set(false);
-                                        load_status().await;
-                                    });
-                                },
-                                disabled: *action_loading.read(),
-                                if *action_loading.read() { "Disconnecting..." } else { "Disconnect" }
-                            }
-                        } else {
-                            button {
-                                class: "btn btn-success",
-                                onclick: move |_| {
-                                    let ws = ws.clone();
-                                    spawn(async move {
-                                        action_loading.set(true);
-                                        error.set(None);
-                                        match ws.read()
-                                            .call::<serde_json::Value>("channels.login", Some(serde_json::json!({"channel": "feishu"})))
-                                            .await
-                                        {
-                                            Ok(_) => {}
-                                            Err(e) => error.set(Some(e)),
-                                        }
-                                        action_loading.set(false);
-                                        load_status().await;
-                                    });
-                                },
-                                disabled: *action_loading.read(),
-                                if *action_loading.read() { "Starting..." } else { "Start Channel" }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+impl ChannelStatusView for FeishuStatus {
+    fn configured(&self) -> Option<bool> {
+        self.configured
     }
+    fn running(&self) -> Option<bool> {
+        self.running
+    }
+    fn connected(&self) -> Option<bool> {
+        self.connected
+    }
+    fn last_error(&self) -> Option<String> {
+        self.last_error.clone()
+    }
+    fn display_name(&self) -> Option<String> {
+        self.bot_name.clone()
+    }
+    fn extra_stats(&self) -> Vec<(String, String)> {
+        let mut v = Vec::new();
+        if let Some(app_id) = &self.app_id {
+            v.push(("App ID".into(), app_id.clone()));
+        }
+        v
+    }
+}
+
+channel_status_page! {
+    component: FeishuChannel,
+    status: FeishuStatus,
+    channel_id: "feishu",
+    title: "Feishu / Lark",
+    icon: crate::utils::icons::ICON_FEISHU,
+    subtitle: "Bot status and channel configuration.",
 }

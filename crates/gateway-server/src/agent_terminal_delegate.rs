@@ -34,6 +34,10 @@ pub(crate) struct AgentTerminalDelegateConfig {
     pub(crate) timeout_secs: Option<u64>,
     #[serde(default = "default_include_system_prompt")]
     pub(crate) include_system_prompt: bool,
+    #[serde(default)]
+    pub(crate) interactive_command: Option<String>,
+    #[serde(default)]
+    pub(crate) interactive_args: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +102,7 @@ fn agents_dir(config: &Config) -> PathBuf {
     config.savfox_home.join("agents")
 }
 
-async fn resolve_agent_config(
+pub(crate) async fn resolve_agent_config(
     config: &Config,
     agent_ref: &str,
 ) -> Option<(String, serde_json::Value)> {
@@ -651,6 +655,8 @@ mod tests {
                 env: Default::default(),
                 timeout_secs: None,
                 include_system_prompt: true,
+                interactive_command: None,
+                interactive_args: None,
             },
             agent_id: "cli".to_owned(),
             agent_name: "CLI".to_owned(),

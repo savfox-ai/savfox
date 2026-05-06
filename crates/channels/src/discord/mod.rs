@@ -1,11 +1,9 @@
-mod channel;
 pub mod client;
 pub mod config;
 mod inbound;
 mod meta;
 mod parse;
 
-pub use channel::DiscordChannel;
 pub use client::{
     delete_message, edit_message, resolve_bot_token, send_embed, send_message,
     send_message_returning_id, verify_signature,

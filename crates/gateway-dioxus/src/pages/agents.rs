@@ -487,6 +487,41 @@ fn detail_terminal_delegate_fields(
     )
 }
 
+fn detail_terminal_interactive_fields(
+    detail: Option<&AgentTerminalDelegateConfig>,
+) -> (String, String) {
+    let Some(config) = detail else {
+        return (String::new(), String::new());
+    };
+    (
+        config.interactive_command.clone().unwrap_or_default(),
+        terminal_args_value(config.interactive_args.as_ref()),
+    )
+}
+
+fn json_terminal_interactive_fields(value: Option<&Value>) -> (String, String) {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return (String::new(), String::new());
+    };
+    let command = config
+        .get("interactive_command")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let args = config
+        .get("interactive_args")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    (command, args)
+}
+
 fn normalize_terminal_args(raw: &str) -> Vec<String> {
     raw.lines()
         .map(str::trim)
@@ -523,6 +558,8 @@ fn terminal_delegate_payload(
     env_raw: &str,
     timeout_raw: &str,
     include_system_prompt: bool,
+    interactive_command_raw: &str,
+    interactive_args_raw: &str,
 ) -> Option<Value> {
     let command = command_raw.trim();
     let args = normalize_terminal_args(args_raw);
@@ -535,6 +572,8 @@ fn terminal_delegate_payload(
         .ok()
         .filter(|value| *value >= 5)
         .unwrap_or(300);
+    let interactive_command = interactive_command_raw.trim();
+    let interactive_args = normalize_terminal_args(interactive_args_raw);
 
     if !enabled
         && command.is_empty()
@@ -544,6 +583,8 @@ fn terminal_delegate_payload(
         && env.is_empty()
         && timeout_secs == 300
         && include_system_prompt
+        && interactive_command.is_empty()
+        && interactive_args.is_empty()
     {
         return None;
     }
@@ -567,6 +608,12 @@ fn terminal_delegate_payload(
     }
     if !env.is_empty() {
         payload["env"] = json!(env);
+    }
+    if !interactive_command.is_empty() {
+        payload["interactive_command"] = json!(interactive_command);
+    }
+    if !interactive_args.is_empty() {
+        payload["interactive_args"] = json!(interactive_args);
     }
 
     Some(payload)
@@ -962,6 +1009,10 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 terminal_timeout,
                                                 terminal_include_system_prompt,
                                             ) = json_terminal_delegate_fields(parsed.get("terminal_delegate"));
+                                            let (
+                                                terminal_interactive_command,
+                                                terminal_interactive_args,
+                                            ) = json_terminal_interactive_fields(parsed.get("terminal_delegate"));
 
                                             let id_slug: String = name.chars()
                                                 .map(|c| if c.is_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
@@ -1012,6 +1063,8 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                     &terminal_env,
                                                     &terminal_timeout,
                                                     terminal_include_system_prompt,
+                                                    &terminal_interactive_command,
+                                                    &terminal_interactive_args,
                                                 ) {
                                                     payload["terminal_delegate"] = terminal_delegate;
                                                 }
@@ -1863,6 +1916,8 @@ fn AgentCreateForm(
                                     &terminal_env,
                                     &terminal_timeout,
                                     terminal_include_system_prompt,
+                                    "",
+                                    "",
                                 ) {
                                     payload["terminal_delegate"] = terminal_delegate;
                                 }
@@ -2130,6 +2185,9 @@ fn AgentOverviewTab(
     let mut form_terminal_env = use_signal(String::new);
     let mut form_terminal_timeout = use_signal(|| "300".to_string());
     let mut form_terminal_include_system_prompt = use_signal(|| true);
+    let mut form_terminal_interactive_command = use_signal(String::new);
+    let mut form_terminal_interactive_args = use_signal(String::new);
+    let mut launching_terminal = use_signal(|| false);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
@@ -2220,6 +2278,10 @@ fn AgentOverviewTab(
             form_terminal_env.set(terminal_env);
             form_terminal_timeout.set(terminal_timeout);
             form_terminal_include_system_prompt.set(terminal_include_system_prompt);
+            let (interactive_command, interactive_args) =
+                detail_terminal_interactive_fields(detail.terminal_delegate.as_ref());
+            form_terminal_interactive_command.set(interactive_command);
+            form_terminal_interactive_args.set(interactive_args);
             detail_seeded.set(true);
         }
     }
@@ -2389,6 +2451,12 @@ fn AgentOverviewTab(
                 .as_ref()
                 .and_then(|detail| detail.terminal_delegate.as_ref()),
         );
+        let (orig_terminal_interactive_command, orig_terminal_interactive_args) =
+            detail_terminal_interactive_fields(
+                detail_snapshot
+                    .as_ref()
+                    .and_then(|detail| detail.terminal_delegate.as_ref()),
+            );
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -2416,6 +2484,8 @@ fn AgentOverviewTab(
             || form_terminal_env() != orig_terminal_env
             || form_terminal_timeout() != orig_terminal_timeout
             || form_terminal_include_system_prompt() != orig_terminal_include_system_prompt
+            || form_terminal_interactive_command() != orig_terminal_interactive_command
+            || form_terminal_interactive_args() != orig_terminal_interactive_args
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
@@ -2713,6 +2783,8 @@ fn AgentOverviewTab(
                             form_terminal_command.set("claude".to_string());
                             form_terminal_args.set("-p\n{{prompt}}".to_string());
                             form_terminal_stdin.set(String::new());
+                            form_terminal_interactive_command.set("claude".to_string());
+                            form_terminal_interactive_args.set(String::new());
                         },
                         "Claude"
                     }
@@ -2723,6 +2795,8 @@ fn AgentOverviewTab(
                             form_terminal_command.set("codex".to_string());
                             form_terminal_args.set("exec\n{{prompt}}".to_string());
                             form_terminal_stdin.set(String::new());
+                            form_terminal_interactive_command.set("codex".to_string());
+                            form_terminal_interactive_args.set(String::new());
                         },
                         "Codex"
                     }
@@ -2804,6 +2878,88 @@ fn AgentOverviewTab(
                         description: Some("Prepend this agent's instructions to {{prompt}} before invoking the CLI.".to_string()),
                         checked: form_terminal_include_system_prompt(),
                         on_toggle: move |value| form_terminal_include_system_prompt.set(value),
+                    }
+                }
+
+                // ── Interactive launcher ──────────────────────────────────
+                div {
+                    style: "margin-top:18px;padding-top:16px;border-top:1px solid var(--border);",
+                    h5 {
+                        style: "margin:0 0 6px 0;font-size:13px;font-weight:600;color:var(--text-primary);",
+                        "Interactive Launch"
+                    }
+                    p {
+                        style: "margin:0 0 12px 0;font-size:12px;color:var(--text-muted);line-height:1.5;",
+                        "Open the configured CLI in a system terminal window so you can interact with it directly. Login flows, TUIs, and multi-turn input all run in the OS terminal — Savfox just spawns it. Useful for tools like ",
+                        code { "codex" }
+                        ", ",
+                        code { "claude" }
+                        ", or any CLI that needs your keyboard."
+                    }
+                    div { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;",
+                        button {
+                            class: "{TOOL_BTN}",
+                            disabled: launching_terminal(),
+                            onclick: {
+                                let ws = ws.clone();
+                                let agent_id = agent_id.clone();
+                                move |_| {
+                                    let ws = ws.clone();
+                                    let agent_id = agent_id.clone();
+                                    launching_terminal.set(true);
+                                    spawn(async move {
+                                        let res = ws
+                                            .call::<serde_json::Value>(
+                                                "agent.terminal.launch",
+                                                Some(json!({ "agent": agent_id })),
+                                            )
+                                            .await;
+                                        launching_terminal.set(false);
+                                        match res {
+                                            Ok(value) => {
+                                                let terminal = value
+                                                    .get("terminal")
+                                                    .and_then(|v| v.as_str())
+                                                    .unwrap_or("terminal");
+                                                toaster.success(format!(
+                                                    "Launched in {terminal}"
+                                                ));
+                                            }
+                                            Err(err) => {
+                                                toaster.error(format!("Launch failed: {err}"));
+                                            }
+                                        }
+                                    });
+                                }
+                            },
+                            if launching_terminal() { "Launching…" } else { "🖥 Launch Terminal" }
+                        }
+                        span {
+                            style: "font-size:11px;color:var(--text-muted);",
+                            "Save the agent first to apply config changes."
+                        }
+                    }
+                    div { style: "display:grid;grid-template-columns:1fr;gap:12px;",
+                        div {
+                            label { class: "{LABEL}", "Interactive Command (override)" }
+                            input {
+                                value: "{form_terminal_interactive_command}",
+                                oninput: move |e| form_terminal_interactive_command.set(e.value()),
+                                placeholder: "Leave blank to reuse Command",
+                                class: "{INPUT}",
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Interactive Args" }
+                            textarea {
+                                value: "{form_terminal_interactive_args}",
+                                oninput: move |e| form_terminal_interactive_args.set(e.value()),
+                                placeholder: "One argument per line. Leave blank for a bare TUI launch (e.g. `codex`).",
+                                rows: 3,
+                                class: "{INPUT}",
+                                style: "resize:vertical;font-family:var(--font-mono);font-size:13px;line-height:1.5;",
+                            }
+                        }
                     }
                 }
             }
@@ -3131,6 +3287,10 @@ fn AgentOverviewTab(
                             let terminal_timeout_val = form_terminal_timeout();
                             let terminal_include_system_prompt_val =
                                 form_terminal_include_system_prompt();
+                            let terminal_interactive_command_val =
+                                form_terminal_interactive_command();
+                            let terminal_interactive_args_val =
+                                form_terminal_interactive_args();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
@@ -3210,6 +3370,8 @@ fn AgentOverviewTab(
                                         &terminal_env_val,
                                         &terminal_timeout_val,
                                         terminal_include_system_prompt_val,
+                                        &terminal_interactive_command_val,
+                                        &terminal_interactive_args_val,
                                     ) {
                                     terminal_delegate
                                 } else {

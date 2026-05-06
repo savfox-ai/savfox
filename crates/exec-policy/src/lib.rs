@@ -9,8 +9,7 @@
 //! Three outcomes are possible per command (see [`decision::Decision`]):
 //!
 //! * `Allow` — run unattended.
-//! * `Forbid` — refuse and surface the matching rule's reason to the
-//!   model so it can adjust.
+//! * `Forbid` — refuse and surface the matching rule's reason to the model so it can adjust.
 //! * `Ask` — require the operator's interactive approval.
 //!
 //! Rule sets are layered: project-level rules under `.savfox/rules/`,

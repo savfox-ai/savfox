@@ -1,3 +1,4 @@
+pub mod common;
 pub mod dingtalk;
 pub mod discord;
 pub mod feishu;

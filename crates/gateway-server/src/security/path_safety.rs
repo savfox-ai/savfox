@@ -27,8 +27,7 @@ const MAX_SEGMENT_LEN: usize = 200;
 /// * `.` or `..` (current / parent directory references).
 /// * Contains an OS path separator (`/` on Unix, `\` and `:` on Windows).
 /// * Contains a NUL byte or any other control character.
-/// * Contains characters Windows refuses in filenames (`<`, `>`, `*`, `?`,
-///   `"`, `|`).
+/// * Contains characters Windows refuses in filenames (`<`, `>`, `*`, `?`, `"`, `|`).
 /// * Begins or ends with `.` or whitespace (Windows trailing-dot quirk).
 /// * Longer than [`MAX_SEGMENT_LEN`] characters.
 ///

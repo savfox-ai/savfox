@@ -2,6 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -487,9 +488,9 @@ time.sleep(60)
     );
 
     if let Ok(pid_str) = fs::read_to_string(&pid_path)
-        && let Ok(pid) = pid_str.trim().parse::<libc::pid_t>()
+        && pid_str.trim().parse::<u32>().is_ok()
     {
-        unsafe { libc::kill(pid, libc::SIGKILL) };
+        let _ = Command::new("kill").arg("-9").arg(pid_str.trim()).status();
     }
 
     Ok(())

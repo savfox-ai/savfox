@@ -1561,7 +1561,7 @@ async fn structured_approve_reply_resolves_pending_exec_approval() -> Result<()>
 
     assert!(
         test.savfox
-            .maybe_submit_textual_approval(&format!("approve:{}", approval.id))
+            .maybe_submit_textual_approval(&format!("approve:{}", approval.turn_id))
             .await?
     );
     wait_for_completion(&test).await;

@@ -97,6 +97,7 @@ pub(crate) async fn dispatch_rpc(
         "agent.identity" | "agent.identity.get" => handle_agent_identity().await,
         "agent.wait" => handle_agent_wait(&params, channel).await,
         "agent.capabilities" => handle_agent_capabilities(&params, channel).await,
+        "agent.terminal.launch" => handle_agent_terminal_launch(&params, channel).await,
         "agent.delegation.list" => handle_agent_delegation_list().await,
         "agent.delegation.chain" => handle_agent_delegation_chain(&params).await,
         "agent.delegation.record" => handle_agent_delegation_record(&params).await,

@@ -26,6 +26,14 @@ pub struct AgentTerminalDelegateConfig {
     pub env: Option<BTreeMap<String, String>>,
     pub timeout_secs: Option<u64>,
     pub include_system_prompt: Option<bool>,
+    /// Override `command` when the agent is launched as an interactive
+    /// terminal session (vs. the one-shot delegate flow). When unset, the
+    /// launcher falls back to `command`.
+    pub interactive_command: Option<String>,
+    /// Override `args` for interactive launches. When unset, the launcher
+    /// invokes the program with no arguments (suitable for TUI tools like
+    /// `codex` that drop into an interactive shell by default).
+    pub interactive_args: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

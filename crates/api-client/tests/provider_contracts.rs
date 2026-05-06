@@ -322,7 +322,9 @@ mod request_format {
         assert_eq!(body["model"], "claude-sonnet-4-20250514");
         assert_eq!(body["max_tokens"], 8192);
         assert_eq!(body["stream"], true);
-        assert_eq!(body["system"], "You are a helpful assistant.");
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["text"], "You are a helpful assistant.");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
 
         // Messages array (no system role -- it goes in top-level "system")
         let messages = body["messages"].as_array().expect("messages array");
@@ -1150,7 +1152,12 @@ mod round_trip {
         assert_eq!(deserialized["model"], "claude-sonnet-4-20250514");
         assert_eq!(deserialized["max_tokens"], 4096);
         assert_eq!(deserialized["stream"], true);
-        assert_eq!(deserialized["system"], "Be friendly.");
+        assert_eq!(deserialized["system"][0]["type"], "text");
+        assert_eq!(deserialized["system"][0]["text"], "Be friendly.");
+        assert_eq!(
+            deserialized["system"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
 
         let messages = deserialized["messages"].as_array().unwrap();
         assert_eq!(messages.len(), 3);

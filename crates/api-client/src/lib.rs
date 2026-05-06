@@ -3,12 +3,11 @@
 //! `savfox-api-client` is the transport layer beneath the rest of the
 //! Savfox engine. It speaks three wire dialects:
 //!
-//! * **OpenAI Chat Completions** (`chat/completions` endpoint, SSE
-//!   stream of `data: ...` chunks).
-//! * **OpenAI Responses** (`responses` endpoint, the newer streaming
-//!   shape with reasoning + tool-use events).
-//! * **Anthropic Messages** (`v1/messages` endpoint, SSE event
-//!   namespace with `message_start`, `content_block_delta`, etc.).
+//! * **OpenAI Chat Completions** (`chat/completions` endpoint, SSE stream of `data: ...` chunks).
+//! * **OpenAI Responses** (`responses` endpoint, the newer streaming shape with reasoning +
+//!   tool-use events).
+//! * **Anthropic Messages** (`v1/messages` endpoint, SSE event namespace with `message_start`,
+//!   `content_block_delta`, etc.).
 //!
 //! Each dialect lives in its own subtree under [`requests`] (request
 //! builder + body serde shape) and [`sse`] (event-stream parser). The

@@ -1,10 +1,9 @@
-mod channel;
 pub mod client;
 mod config;
 mod inbound;
 mod parse;
 
-pub use channel::{DingtalkChannel, send_dingtalk_text_message};
+pub use client::send_dingtalk_text_message;
 pub use config::{
     DingtalkChannelConfig, DingtalkInboundMode, DingtalkOutboundConfig,
     load_dingtalk_channel_config, resolve_dingtalk_outbound_config,

@@ -17,7 +17,8 @@
 //! # Example
 //!
 //! ```
-//! use savfox_keyring_store::{KeyringStore, tests::MockKeyringStore};
+//! use savfox_keyring_store::KeyringStore;
+//! use savfox_keyring_store::tests::MockKeyringStore;
 //!
 //! let store = MockKeyringStore::default();
 //! store.save("savfox-gateway", "token", "abc123").unwrap();
@@ -262,9 +263,10 @@ pub mod tests {
 
 #[cfg(test)]
 mod unit_tests {
+    use keyring::Error as KeyringError;
+
     use super::tests::MockKeyringStore;
     use super::{CredentialStoreError, KeyringStore};
-    use keyring::Error as KeyringError;
 
     const SERVICE: &str = "savfox-test";
 

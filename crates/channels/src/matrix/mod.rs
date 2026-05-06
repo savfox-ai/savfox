@@ -1,9 +1,7 @@
-mod channel;
 mod config;
 mod parse;
 mod startup;
 
-pub use channel::MatrixChannel;
 pub use config::{
     MatrixChannelConfig, MatrixMode, load_matrix_channel_configs, resolve_matrix_outbound_config,
 };

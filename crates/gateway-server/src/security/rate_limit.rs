@@ -188,8 +188,9 @@ pub struct EvictReport {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::net::Ipv4Addr;
+
+    use super::*;
 
     fn fast_config() -> RateLimitConfig {
         RateLimitConfig {

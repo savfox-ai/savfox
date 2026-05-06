@@ -1,10 +1,8 @@
-mod channel;
 pub mod client;
 pub mod config;
 mod meta;
 mod parse;
 
-pub use channel::SlackChannel;
 pub use client::{
     delete_message, edit_message, is_timestamp_fresh, resolve_bot_token, send_message,
     send_message_returning_id, verify_signature,

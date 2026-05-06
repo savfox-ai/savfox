@@ -1,11 +1,9 @@
-mod channel;
 pub mod client;
 pub mod config;
 mod inbound;
 mod meta;
 mod parse;
 
-pub use channel::TelegramChannel;
 pub use client::{
     delete_message, edit_message, escape_html, resolve_bot_token, send_message,
     truncate_log_preview, verify_webhook_secret,

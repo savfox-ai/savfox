@@ -7,13 +7,11 @@
 //!
 //! Every adapter splits responsibilities the same way:
 //!
-//! * `client.rs` — stateless API client functions (send / edit / delete +
-//!   webhook signature verification). No per-channel state; takes a shared
-//!   `&reqwest::Client` and a token.
+//! * `client.rs` — stateless API client functions (send / edit / delete + webhook signature
+//!   verification). No per-channel state; takes a shared `&reqwest::Client` and a token.
 //! * `parse.rs` — converts an inbound webhook / polling payload into a
 //!   [`savfox_core::channel::ChannelAction`] for the rest of the system.
-//! * `config.rs` — typed wrapper around the platform's saved
-//!   `ChannelConfig` JSON.
+//! * `config.rs` — typed wrapper around the platform's saved `ChannelConfig` JSON.
 //! * `mod.rs` — re-exports + the `Channel` trait impl glue.
 //!
 //! Common helpers live in [`base`] (config-store accessors, token resolution
