@@ -100,14 +100,38 @@ impl RateLimiter {
         }
     }
 
-    /// Check if a new connection from the given IP is allowed.
+    /// Check if a new connection from the given IP is allowed without
+    /// reserving a slot. Prefer [`Self::try_add_connection`] for atomic
+    /// check-and-add at the WS upgrade site.
     pub async fn check_connection(&self, ip: IpAddr) -> bool {
         let inner = self.inner.lock().await;
         let count = inner.ip_connections.get(&ip).copied().unwrap_or(0);
         count < self.config.max_connections_per_ip
     }
 
-    /// Register a new connection from an IP.
+    /// Atomically check-and-reserve a connection slot for `ip`.
+    ///
+    /// Returns `true` if the slot was reserved and the caller should
+    /// proceed (and later call [`Self::remove_connection`] on shutdown).
+    /// Returns `false` if the per-IP cap has been reached — the caller
+    /// must reject the upgrade.
+    ///
+    /// Closes M19 in the security review: previously, two concurrent
+    /// callers could both call `check_connection`, both observe
+    /// `count < max`, and both call `add_connection` — exceeding the cap.
+    pub async fn try_add_connection(&self, ip: IpAddr) -> bool {
+        let mut inner = self.inner.lock().await;
+        let entry = inner.ip_connections.entry(ip).or_insert(0);
+        if *entry >= self.config.max_connections_per_ip {
+            return false;
+        }
+        *entry += 1;
+        true
+    }
+
+    /// Register a new connection from an IP. Prefer
+    /// [`Self::try_add_connection`] which combines the check and the
+    /// reservation under a single lock acquisition.
     pub async fn add_connection(&self, ip: IpAddr) {
         let mut inner = self.inner.lock().await;
         *inner.ip_connections.entry(ip).or_insert(0) += 1;
@@ -124,6 +148,28 @@ impl RateLimiter {
         }
     }
 
+    /// Drop request-bucket entries that haven't been touched in
+    /// `2 * window`. Without this the per-IP and per-token HashMaps grow
+    /// unbounded under attack scenarios that rotate addresses or tokens.
+    /// Should be called periodically from a maintenance task.
+    pub async fn evict_stale_buckets(&self) -> EvictReport {
+        let mut inner = self.inner.lock().await;
+        let stale_after = self.config.window.saturating_mul(2);
+        let now = Instant::now();
+        let before_ip = inner.ip_buckets.len();
+        let before_token = inner.token_buckets.len();
+        inner
+            .ip_buckets
+            .retain(|_, bucket| now.duration_since(bucket.last_refill) < stale_after);
+        inner
+            .token_buckets
+            .retain(|_, bucket| now.duration_since(bucket.last_refill) < stale_after);
+        EvictReport {
+            ip_buckets_pruned: before_ip - inner.ip_buckets.len(),
+            token_buckets_pruned: before_token - inner.token_buckets.len(),
+        }
+    }
+
     fn refill(bucket: &mut Bucket, config: &RateLimitConfig) {
         let elapsed = bucket.last_refill.elapsed();
         if elapsed >= config.window {
@@ -131,6 +177,13 @@ impl RateLimiter {
             bucket.last_refill = Instant::now();
         }
     }
+}
+
+/// Counts of bucket entries removed by [`RateLimiter::evict_stale_buckets`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EvictReport {
+    pub ip_buckets_pruned: usize,
+    pub token_buckets_pruned: usize,
 }
 
 #[cfg(test)]
@@ -238,11 +291,11 @@ mod tests {
         assert!(limiter.check_connection(addr).await);
     }
 
-    /// Documents the known race the security review (M19) called out:
-    /// `check_connection` and `add_connection` are *not* a single atomic
-    /// step today. Two concurrent callers can both observe `count < max`
-    /// and both add — exceeding the cap by one. This test pins the current
-    /// (intentional) behavior so a future fix is recognized as a *change*.
+    /// `check_connection` followed by `add_connection` is intentionally
+    /// non-atomic: two concurrent callers can both observe `count < max`
+    /// and both add, exceeding the cap by one. Real call sites must use
+    /// [`RateLimiter::try_add_connection`] (added by this PR) which
+    /// performs both steps under a single lock.
     #[tokio::test]
     async fn check_then_add_is_not_atomic_today() {
         let limiter = RateLimiter::new(RateLimitConfig {
@@ -256,7 +309,73 @@ mod tests {
         limiter.add_connection(addr).await;
         limiter.add_connection(addr).await;
         // Cap has been exceeded — count is 2 even though the limit is 1.
-        // A correct atomic implementation would reject the second add.
         assert!(!limiter.check_connection(addr).await);
+    }
+
+    #[tokio::test]
+    async fn try_add_connection_is_atomic() {
+        let limiter = RateLimiter::new(RateLimitConfig {
+            max_connections_per_ip: 1,
+            ..fast_config()
+        });
+        let addr = ip(9);
+        assert!(limiter.try_add_connection(addr).await, "first must succeed");
+        assert!(
+            !limiter.try_add_connection(addr).await,
+            "second must be rejected at the cap"
+        );
+        // After release a slot opens back up.
+        limiter.remove_connection(addr).await;
+        assert!(limiter.try_add_connection(addr).await);
+    }
+
+    #[tokio::test]
+    async fn try_add_connection_under_concurrent_callers_respects_cap() {
+        // Stress: 100 concurrent try_add calls, cap = 5. Exactly 5 should
+        // succeed; the rest must fail.
+        let limiter = std::sync::Arc::new(RateLimiter::new(RateLimitConfig {
+            max_connections_per_ip: 5,
+            ..fast_config()
+        }));
+        let addr = ip(10);
+        let mut handles = Vec::new();
+        for _ in 0..100 {
+            let lim = limiter.clone();
+            handles.push(tokio::spawn(
+                async move { lim.try_add_connection(addr).await },
+            ));
+        }
+        let mut accepted = 0usize;
+        for h in handles {
+            if h.await.unwrap() {
+                accepted += 1;
+            }
+        }
+        assert_eq!(accepted, 5, "exactly 5 should be accepted under the cap");
+    }
+
+    #[tokio::test]
+    async fn evict_stale_buckets_drops_old_ip_and_token_entries() {
+        let cfg = RateLimitConfig {
+            window: Duration::from_millis(50),
+            ..fast_config()
+        };
+        let stale_after = cfg.window * 2;
+        let limiter = RateLimiter::new(cfg);
+        // Touch some buckets, then sleep past 2*window so they go stale.
+        let _ = limiter.check_ip(ip(11)).await;
+        let _ = limiter.check_token("old-token").await;
+        tokio::time::sleep(stale_after + Duration::from_millis(20)).await;
+        // Add a fresh bucket so we can confirm only stale ones are pruned.
+        let _ = limiter.check_ip(ip(12)).await;
+
+        let report = limiter.evict_stale_buckets().await;
+        assert_eq!(report.ip_buckets_pruned, 1);
+        assert_eq!(report.token_buckets_pruned, 1);
+        // The fresh ip(12) bucket is still there: another check must
+        // consume from the existing bucket, not create a new one.
+        let inner = limiter.inner.lock().await;
+        assert!(inner.ip_buckets.contains_key(&ip(12)));
+        assert!(!inner.ip_buckets.contains_key(&ip(11)));
     }
 }
