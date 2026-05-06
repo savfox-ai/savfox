@@ -94,6 +94,23 @@ pub(crate) async fn ws_handler(
     // frame) which keeps the token out of URLs entirely.
     let query_token = req.query::<String>("token");
 
+    // Per-IP concurrent connection cap (S12). Atomic try_add_connection
+    // closes the M19 race that two-step `check_connection` + `add_connection`
+    // exposed; if a slot can't be reserved we reject the upgrade with 429
+    // before consuming any further server resources.
+    let limiter = crate::server::global_rate_limiter();
+    let client_ip = req.remote_addr().ip();
+    if !limiter.try_add_connection(client_ip).await {
+        res.status_code(StatusCode::TOO_MANY_REQUESTS);
+        res.render(salvo::prelude::Text::Json(
+            serde_json::json!({
+                "error": "concurrent connection limit exceeded for this IP"
+            })
+            .to_string(),
+        ));
+        return Err(StatusError::too_many_requests());
+    }
+
     // Cap inbound WebSocket frames so a single oversized payload cannot
     // OOM the daemon (M15). The values are deliberately generous — a
     // legitimate JSON-RPC frame is well under 1 MiB; large attachments are
@@ -110,6 +127,7 @@ pub(crate) async fn ws_handler(
                 session_store,
                 cron_service,
                 query_token,
+                client_ip,
             )
         })
         .await
@@ -121,6 +139,24 @@ const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
 /// Maximum size of a single inbound WebSocket frame (1 MiB).
 const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
+/// RAII guard that releases the per-IP connection slot reserved by
+/// `try_add_connection` when the WS connection ends — regardless of how
+/// the handler exits.
+struct ConnectionSlotGuard {
+    client_ip: std::net::IpAddr,
+}
+
+impl Drop for ConnectionSlotGuard {
+    fn drop(&mut self) {
+        let ip = self.client_ip;
+        tokio::spawn(async move {
+            crate::server::global_rate_limiter()
+                .remove_connection(ip)
+                .await;
+        });
+    }
+}
+
 /// Main WebSocket connection loop.
 async fn handle_ws_connection(
     mut ws: WebSocket,
@@ -130,7 +166,11 @@ async fn handle_ws_connection(
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     query_token: Option<String>,
+    client_ip: std::net::IpAddr,
 ) {
+    // Release the per-IP connection slot reserved in `ws_handler` when this
+    // connection ends, even on early return / panic.
+    let _slot = ConnectionSlotGuard { client_ip };
     // --- Authentication phase ---
     // The client must authenticate either:
     // 1. Via query parameter `?token=...` (already extracted)

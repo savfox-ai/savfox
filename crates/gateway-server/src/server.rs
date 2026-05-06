@@ -205,9 +205,38 @@ async fn bearer_auth_hoop(
     if is_public_anonymous_path(path) || !is_protected_api_path(path) {
         return;
     }
+    // Per-IP request rate limit (S12). Runs *before* auth so an attacker
+    // hammering an unauthenticated endpoint with bad tokens still gets
+    // throttled rather than amplifying our token-validation work. Only
+    // applies to the protected API surface — the public anonymous paths
+    // (webhooks, OAuth callbacks, SPA assets) are not rate-limited here.
+    let limiter = global_rate_limiter();
+    let ip = req.remote_addr().ip();
+    if !limiter.check_ip(ip).await {
+        res.status_code(StatusCode::TOO_MANY_REQUESTS);
+        res.render(Text::Json(
+            json!({"error": "request rate limit exceeded"}).to_string(),
+        ));
+        ctrl.skip_rest();
+        return;
+    }
     if authenticate_with_info(req, depot, res).await.is_none() {
         ctrl.skip_rest();
     }
+}
+
+/// Process-wide [`RateLimiter`] used by [`bearer_auth_hoop`] for per-IP
+/// request rate limiting and by `ws.rs` for the per-IP concurrent
+/// connection cap. Initialised from `RateLimitConfig::default()` (100
+/// req/min, 10 concurrent WS connections per IP) on first access.
+pub(crate) fn global_rate_limiter() -> &'static crate::security::rate_limit::RateLimiter {
+    static LIMITER: std::sync::OnceLock<crate::security::rate_limit::RateLimiter> =
+        std::sync::OnceLock::new();
+    LIMITER.get_or_init(|| {
+        crate::security::rate_limit::RateLimiter::new(
+            crate::security::rate_limit::RateLimitConfig::default(),
+        )
+    })
 }
 
 /// Inside an authenticated handler, additionally require the `Admin` scope.
@@ -418,6 +447,13 @@ pub(crate) fn build_router(
 }
 
 /// Start the Salvo server.
+/// Maximum size of an HTTP request body the gateway will read directly
+/// (8 MiB). Larger bodies are rejected before being copied into memory
+/// (M15 follow-up). Note: this only protects byte-oriented body reads.
+/// Multipart / streaming uploads write to a temporary file and are not
+/// bounded here — those must be enforced per-handler.
+const MAX_HTTP_BODY_SIZE: usize = 8 << 20;
+
 pub(crate) async fn start_server(
     config: &GatewayConfig,
     auth: Arc<GatewayAuth>,
@@ -428,6 +464,9 @@ pub(crate) async fn start_server(
     savfox_home: PathBuf,
 ) -> std::io::Result<()> {
     channels::runtime::set_response_footer_config(config.response_footer.clone());
+
+    // Install the global HTTP body size cap before any handler runs.
+    salvo::http::request::set_global_secure_max_size(MAX_HTTP_BODY_SIZE);
 
     let router = build_router(
         auth,
