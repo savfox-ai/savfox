@@ -32,14 +32,27 @@ pub fn assess_patch_safety(
         };
     }
 
+    // S17 / historical TODO(ragona): `UnlessTrusted` previously short-
+    // circuited to `AskUser` here, which bypassed the writable-paths +
+    // sandbox auto-approve path below. That contradicted the policy's
+    // semantics — `UnlessTrusted` is meant to auto-approve operations
+    // that can be *enforced* as safe (patches confined to writable roots
+    // and executable inside a sandbox) and otherwise ask. The previous
+    // behaviour was strictly more conservative for safe patches but
+    // offered no benefit: the user was prompted on every patch even
+    // when the sandbox would have prevented harm.
+    //
+    // The match below is now exhaustive over all `AskForApproval`
+    // variants: every one falls through to the writable+sandbox check.
+    // Variants that should ultimately fall back to `AskUser` (`Never`,
+    // `OnRequest`, `UnlessTrusted`) end up there via the final `else`
+    // branch when the patch is *not* constrained to writable paths.
     match policy {
-        AskForApproval::OnFailure | AskForApproval::Never | AskForApproval::OnRequest => {
-            // Continue to see if this can be auto-approved.
-        }
-        // TODO(ragona): I'm not sure this is actually correct? I believe in this case
-        // we want to continue to the writable paths check before asking the user.
-        AskForApproval::UnlessTrusted => {
-            return SafetyCheck::AskUser;
+        AskForApproval::OnFailure
+        | AskForApproval::Never
+        | AskForApproval::OnRequest
+        | AskForApproval::UnlessTrusted => {
+            // Continue to the writable-paths + sandbox check.
         }
     }
 
