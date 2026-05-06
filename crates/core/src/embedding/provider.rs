@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::default_client::build_reqwest_client;
+
 /// Errors that can occur during embedding operations.
 #[derive(Error, Debug)]
 pub enum EmbeddingError {
@@ -71,7 +73,12 @@ impl OpenAiEmbedding {
         base_url: Option<String>,
     ) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Build the embedding HTTP client through the shared
+            // factory so we inherit the connect-timeout, originator
+            // header, sandbox-aware proxy disable, and any custom CA
+            // bundle. Bare `reqwest::Client::new()` would silently
+            // skip all of those (S16).
+            client: build_reqwest_client(),
             base_url: base_url.unwrap_or_else(|| "https://api.openai.com".to_owned()),
             api_key: api_key.into(),
             model: model.into(),
@@ -155,7 +162,12 @@ impl OllamaEmbedding {
     /// * `base_url` -- Optional base URL override; defaults to `http://127.0.0.1:11434`.
     pub fn new(model: impl Into<String>, dimensions: usize, base_url: Option<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Build the embedding HTTP client through the shared
+            // factory so we inherit the connect-timeout, originator
+            // header, sandbox-aware proxy disable, and any custom CA
+            // bundle. Bare `reqwest::Client::new()` would silently
+            // skip all of those (S16).
+            client: build_reqwest_client(),
             base_url: base_url.unwrap_or_else(|| "http://127.0.0.1:11434".to_owned()),
             model: model.into(),
             dimensions,

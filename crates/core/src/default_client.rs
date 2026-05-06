@@ -209,7 +209,14 @@ pub fn try_build_reqwest_client() -> Result<reqwest::Client, BuildCustomCaTransp
     let mut builder = reqwest::Client::builder()
         // Set UA via dedicated helper to avoid header validation pitfalls
         .user_agent(ua)
-        .default_headers(headers);
+        .default_headers(headers)
+        // Bound TCP connect time so a hung TLS handshake against a
+        // misbehaving provider can't stall the turn forever (S16). The
+        // overall request timeout is intentionally NOT set here because
+        // streaming model responses can legitimately take several minutes;
+        // each streaming caller already enforces its own per-event idle
+        // timeout via `stream_idle_timeout`.
+        .connect_timeout(std::time::Duration::from_secs(15));
     if is_sandboxed() {
         builder = builder.no_proxy();
     }

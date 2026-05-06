@@ -827,13 +827,12 @@ impl ModelClientSession {
         let tools_json = create_tools_json_for_anthropic_api(&prompt.tools)?;
         let api_prompt = build_api_prompt(prompt, instructions, tools_json);
 
-        // Anthropic requires max_tokens on every request.
-        let max_tokens = self
-            .state
-            .model_info
-            .context_window
-            .map(|cw| (cw / 4).max(4096))
-            .unwrap_or(8192);
+        // Anthropic requires `max_tokens` on every request. Use the model
+        // registry's explicit value when set; otherwise fall back to a
+        // conservative derivation from `context_window`. The previous
+        // `(cw / 4).max(4096)` heuristic silently clipped Claude Sonnet 4's
+        // 64K output budget to ~50K (S15).
+        let max_tokens = self.state.model_info.resolved_max_output_tokens();
 
         let mut auth_recovery = auth_manager
             .as_ref()
