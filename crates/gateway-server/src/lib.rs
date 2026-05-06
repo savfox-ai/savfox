@@ -246,6 +246,18 @@ pub async fn run_main(
                 if pruned > 0 {
                     info!(pruned, "session store maintenance: pruned stale entries");
                 }
+                // Drop rate-limit bucket entries that haven't been touched
+                // in 2*window — keeps the per-IP / per-token HashMaps from
+                // growing under attack scenarios that rotate addresses or
+                // tokens (M14, exposed by #38).
+                let evict = server::global_rate_limiter().evict_stale_buckets().await;
+                if evict.ip_buckets_pruned > 0 || evict.token_buckets_pruned > 0 {
+                    info!(
+                        ip_pruned = evict.ip_buckets_pruned,
+                        token_pruned = evict.token_buckets_pruned,
+                        "rate limiter: pruned stale buckets"
+                    );
+                }
             }
         });
     }
