@@ -32,8 +32,15 @@ pub(crate) struct NextCloudChannelConfig {
 
 impl NextCloudChannel {
     pub(crate) fn new(config: NextCloudChannelConfig) -> Self {
+        // Use the SSRF-aware client builder so the channel inherits the
+        // standard timeout and no-auto-redirect policy. The full URL pin
+        // is per-call (build_pinned_client) — left for follow-up since
+        // this channel keeps a single client across many polls.
+        let cfg = crate::ssrf::SsrfConfig::from_env();
+        let http =
+            crate::ssrf::build_guarded_client(&cfg).unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            http: reqwest::Client::new(),
+            http,
             config,
             last_known_message_id: std::sync::atomic::AtomicU64::new(0),
         }

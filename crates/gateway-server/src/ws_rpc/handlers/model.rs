@@ -500,9 +500,13 @@ async fn model_test_fetch_remote_models(
         "{}/models?client_version={client_version}",
         request.base_url.trim_end_matches('/')
     );
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
+    // The base_url is operator-supplied via RPC, so the model-test endpoint
+    // is one of the highest-risk SSRF surfaces. Use the SSRF-pinned client
+    // builder which validates the host against the SSRF policy and pins
+    // the resolved IP into the resolver (defends against DNS rebinding).
+    let cfg = crate::ssrf::SsrfConfig::from_env();
+    let client = crate::ssrf::build_pinned_client(&url, &cfg)
+        .await
         .map_err(|err| {
             (
                 INTERNAL_ERROR,
