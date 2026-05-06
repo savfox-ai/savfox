@@ -44,14 +44,46 @@ fn store_path(home: &PathBuf) -> PathBuf {
     home.join("gateway").join("node-pairings.json")
 }
 
+/// Length of the verification code presented to the operator. 8 chars
+/// of Crockford-style base32 = 40 bits of randomness, which is plenty
+/// for short-lived codes (we still rely on rate limiting upstream of
+/// the verifier to make brute-force impractical).
+const VERIFICATION_CODE_LEN: usize = 8;
+
+/// Crockford-style base32 alphabet (`0–9 A–H J K M N P–T V–Z`,
+/// no `I L O U`). These characters are unambiguous when typed by a
+/// human under low light.
+const CROCKFORD_BASE32_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// Generate a fresh verification code from cryptographic randomness.
+///
+/// Replaces the previous implementation that used the first 6 chars of
+/// a UUIDv7 — UUIDv7 begins with a millisecond timestamp, so an
+/// attacker who knows roughly when a pairing was initiated can guess
+/// the prefix with near-zero entropy (S4 in the security review).
 fn make_verification_code() -> String {
-    uuid::Uuid::now_v7()
-        .simple()
-        .to_string()
-        .chars()
-        .take(6)
-        .collect::<String>()
-        .to_uppercase()
+    let mut out = String::with_capacity(VERIFICATION_CODE_LEN);
+    for _ in 0..VERIFICATION_CODE_LEN {
+        // Free-function form avoids needing the `RngExt` trait in scope;
+        // we just need uniform [0, 32) which `random_range` from
+        // `rand::random_range` handles directly.
+        let idx: usize = rand::random_range(0..CROCKFORD_BASE32_ALPHABET.len());
+        out.push(char::from(CROCKFORD_BASE32_ALPHABET[idx]));
+    }
+    out
+}
+
+/// Constant-time, case-insensitive comparison of two verification codes.
+///
+/// Both inputs are normalised (trim + uppercase) before comparison so the
+/// operator can type the code with any case / surrounding whitespace; the
+/// comparison itself uses [`subtle::ConstantTimeEq`] to prevent leaking
+/// byte-by-byte match information through response-time differences.
+fn constant_time_code_eq(a: &str, b: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    let a = a.trim().to_ascii_uppercase();
+    let b = b.trim().to_ascii_uppercase();
+    bool::from(a.as_bytes().ct_eq(b.as_bytes()))
 }
 
 async fn load_records_for_home(home: &PathBuf) -> Result<Vec<PairingRecord>, String> {
@@ -134,11 +166,21 @@ pub(crate) async fn reject_request(request_id: &str) -> Result<PairingRecord, St
 pub(crate) async fn verify_code(code: &str) -> Result<Option<PairingRecord>, String> {
     let home = savfox_home();
     let records = load_records_for_home(&home).await?;
-    let found = records.into_iter().find(|r| {
-        r.verification_code.eq_ignore_ascii_case(code)
-            && matches!(r.status, PairingStatus::Pending | PairingStatus::Approved)
-    });
-    Ok(found)
+    // Walk every record so the work is independent of which (if any)
+    // matched — together with `constant_time_code_eq` this prevents the
+    // verifier from leaking the position of the first matching prefix.
+    let mut matched: Option<PairingRecord> = None;
+    for record in records {
+        if matches!(
+            record.status,
+            PairingStatus::Pending | PairingStatus::Approved
+        ) && constant_time_code_eq(&record.verification_code, code)
+            && matched.is_none()
+        {
+            matched = Some(record);
+        }
+    }
+    Ok(matched)
 }
 
 pub(crate) async fn list_devices() -> Result<Vec<PairingRecord>, String> {
@@ -254,5 +296,37 @@ mod tests {
         assert_eq!(listed.len(), 1);
 
         let _ = tokio::fs::remove_dir_all(home).await;
+    }
+
+    #[test]
+    fn verification_code_has_expected_shape() {
+        let code = make_verification_code();
+        assert_eq!(code.len(), VERIFICATION_CODE_LEN);
+        for ch in code.chars() {
+            assert!(
+                CROCKFORD_BASE32_ALPHABET.contains(&(ch as u8)),
+                "char {ch:?} not in alphabet"
+            );
+            // Forbid the easily-confused glyphs the alphabet excludes.
+            assert!(!matches!(ch, 'I' | 'L' | 'O' | 'U'));
+        }
+    }
+
+    #[test]
+    fn verification_codes_are_distinct() {
+        // 40 bits of randomness → collisions in 100 samples are negligible.
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..100 {
+            assert!(seen.insert(make_verification_code()));
+        }
+    }
+
+    #[test]
+    fn constant_time_eq_accepts_case_and_whitespace_variants() {
+        assert!(constant_time_code_eq("ABC123", "abc123"));
+        assert!(constant_time_code_eq("  ABC123  ", "ABC123"));
+        assert!(!constant_time_code_eq("ABC123", "ABC124"));
+        assert!(!constant_time_code_eq("ABC123", "ABC1234"));
+        assert!(!constant_time_code_eq("ABC123", ""));
     }
 }

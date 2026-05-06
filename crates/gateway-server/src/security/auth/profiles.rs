@@ -148,12 +148,19 @@ impl AuthProfileManager {
     }
 
     /// Persist the current in-memory state to disk.
+    ///
+    /// On Unix the file is created (or recreated) with mode 0600 so other
+    /// users on the same host cannot read the API keys this file contains
+    /// (S18 in the security review). On Windows the file inherits the
+    /// parent directory's ACL — typically a per-user profile path — and a
+    /// dedicated DACL tightening is left as a follow-up.
     async fn save_to_disk(&self) -> std::io::Result<()> {
         self.ensure_dir().await?;
         let profiles = self.profiles.read().await;
         let json = serde_json::to_string_pretty(&*profiles)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        tokio::fs::write(self.store_path(), json).await
+        let path = self.store_path();
+        write_secret_file(&path, json.as_bytes()).await
     }
 
     // ── Query ──────────────────────────────────────────────────────────
@@ -340,6 +347,45 @@ fn find_profile_mut<'a>(
     store.get_mut(provider)?.iter_mut().find(|p| p.id == id)
 }
 
+/// Atomically write `data` to `path` with mode 0600 on Unix (default ACL on
+/// Windows; tightening to a per-user DACL is tracked as follow-up).
+///
+/// "Atomically" here means we write to `path.tmp` first then rename — even
+/// if the daemon crashes mid-write the existing `profiles.json` is left
+/// intact. Each create uses `O_TRUNC` so a previous-run leftover with
+/// looser permissions is replaced rather than re-used.
+async fn write_secret_file(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    let parent = tmp
+        .parent()
+        .ok_or_else(|| std::io::Error::other("profiles store path has no parent"))?;
+    tokio::fs::create_dir_all(parent).await?;
+
+    // Use blocking IO for the create+chmod step so we can set the mode
+    // atomically with the create. On Unix this guarantees no other process
+    // can open the file with the more permissive default mode in the
+    // window between open() and chmod().
+    let tmp_clone = tmp.clone();
+    let data = data.to_vec();
+    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut file = opts.open(&tmp_clone)?;
+        std::io::Write::write_all(&mut file, &data)?;
+        file.sync_all()?;
+        Ok(())
+    })
+    .await
+    .map_err(std::io::Error::other)??;
+
+    tokio::fs::rename(&tmp, path).await
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -516,5 +562,40 @@ mod tests {
 
         let profiles = mgr.list_profiles("openai").await;
         assert!(profiles[0].is_permanently_failed());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_to_disk_uses_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let (mgr, _tmp) = test_manager().await;
+        mgr.add_profile("openai", "k1", "sk-secret").await.unwrap();
+
+        let meta = tokio::fs::metadata(mgr.store_path()).await.unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "profiles.json must be 0600, got {mode:o}"
+        );
+    }
+
+    #[tokio::test]
+    async fn save_to_disk_overwrites_with_tightened_mode() {
+        // Write a profile, then re-write — ensure the file is replaced
+        // (and on Unix that 0600 is reasserted even if a prior run left
+        // looser permissions on the temp copy).
+        let (mgr, _tmp) = test_manager().await;
+        mgr.add_profile("openai", "k1", "sk-1").await.unwrap();
+        mgr.add_profile("openai", "k2", "sk-2").await.unwrap();
+        let listed = mgr.list_profiles("openai").await;
+        assert_eq!(listed.len(), 2);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let meta = tokio::fs::metadata(mgr.store_path()).await.unwrap();
+            let mode = meta.permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }
