@@ -58,26 +58,34 @@ pub(crate) async fn dispatch_rpc(
         Err(err) => return rpc_error(Value::Null, PARSE_ERROR, format!("parse error: {err}")),
     };
 
-    let id = request.id.clone();
-    let params = request
-        .params
-        .clone()
-        .unwrap_or(Value::Object(serde_json::Map::new()));
+    // Move out of `request` rather than cloning. M17 in the security
+    // review pointed out that the previous `request.id.clone()` plus
+    // `request.params.clone()` walked the entire JSON Value tree twice
+    // per RPC call.
+    let JsonRpcRequest {
+        jsonrpc: _,
+        id,
+        method,
+        params,
+    } = request;
+    // `params` is taken by value; allocate the empty-object placeholder
+    // only when missing.
+    let params = params.unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
     // ── Scope check ──────────────────────────────────────────────────
-    let scope = required_scope(&request.method);
+    let scope = required_scope(&method);
     if !has_scope(token_info, &scope) {
         return rpc_error(
             id,
             PERMISSION_DENIED,
             format!(
                 "permission denied: method \"{}\" requires scope \"{}\"",
-                request.method, scope,
+                method, scope,
             ),
         );
     }
 
-    let result = match request.method.as_str() {
+    let result = match method.as_str() {
         // ── Core ────────────────────────────────────────────────────────
         "connect" => handle_connect(&params).await,
         "health" => handle_health().await,
@@ -460,10 +468,7 @@ pub(crate) async fn dispatch_rpc(
         "security.rotate" => handle_security_rotate(&params, channel).await,
         "security.analyze" => handle_security_analyze(&params).await,
 
-        _ => Err((
-            METHOD_NOT_FOUND,
-            format!("method not found: {}", request.method),
-        )),
+        _ => Err((METHOD_NOT_FOUND, format!("method not found: {}", method))),
     };
 
     match result {

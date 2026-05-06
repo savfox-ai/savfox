@@ -121,6 +121,57 @@ const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
 /// Maximum size of a single inbound WebSocket frame (1 MiB).
 const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
+/// Quick string-prefix sniff to decide whether `text` is a JSON-RPC 2.0
+/// frame (in which case it carries a top-level `"jsonrpc"` field) or a
+/// `GatewayMessage` (top-level `"type"`). Returning true does **not**
+/// guarantee the message is well-formed; `dispatch_rpc` runs the actual
+/// typed parse and surfaces parse errors as JSON-RPC error responses.
+///
+/// We look only at the first ~64 bytes after the opening `{`. That window
+/// always contains the discriminator field name in our wire format and
+/// avoids a second full parse of the body just to peek at the field name
+/// (M18 in the security/quality review).
+fn looks_like_jsonrpc(text: &str) -> bool {
+    let head = text.trim_start();
+    let head = head.strip_prefix('{').unwrap_or(head);
+    let probe_len = head.len().min(64);
+    head[..probe_len].contains("\"jsonrpc\"")
+}
+
+#[cfg(test)]
+mod discriminator_tests {
+    use super::looks_like_jsonrpc;
+
+    #[test]
+    fn detects_jsonrpc_at_start() {
+        assert!(looks_like_jsonrpc(
+            r#"{"jsonrpc":"2.0","id":1,"method":"status"}"#
+        ));
+    }
+
+    #[test]
+    fn detects_jsonrpc_after_whitespace() {
+        assert!(looks_like_jsonrpc(
+            r#"   { "jsonrpc": "2.0", "id": 1, "method": "status" }"#
+        ));
+    }
+
+    #[test]
+    fn rejects_gateway_message() {
+        assert!(!looks_like_jsonrpc(r#"{"type":"connect","token":"x"}"#));
+    }
+
+    #[test]
+    fn rejects_message_with_jsonrpc_only_in_payload() {
+        // The discriminator `"jsonrpc"` appearing far inside the body
+        // (e.g. inside a quoted user message) must not be treated as a
+        // JSON-RPC frame.
+        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
+        // The first 64 bytes do not contain "jsonrpc".
+        assert!(!looks_like_jsonrpc(&payload));
+    }
+}
+
 /// Main WebSocket connection loop.
 async fn handle_ws_connection(
     mut ws: WebSocket,
@@ -281,27 +332,34 @@ async fn handle_ws_connection(
                     Err(_) => continue, // Skip non-text frames.
                 };
 
-                // Try JSON-RPC 2.0 dispatch first (Phase 5).
-                // JSON-RPC messages have a "jsonrpc" field; GatewayMessages have "type".
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text)
-                    && parsed.get("jsonrpc").is_some() {
-                        let session_id_str = session_id.to_string();
-                        let reply = crate::ws_rpc::dispatch_rpc(
-                            text,
-                            &session_id_str,
-                            &auth,
-                            &session_mgr,
-                            &channel,
-                            &session_store,
-                            &cron_service,
-                            &rpc_token_info,
-                        ).await;
-                        // Send the raw JSON-RPC response directly.
-                        if ws.send(Message::text(reply)).await.is_err() {
-                            break;
-                        }
-                        continue;
+                // Branch on the discriminator without reparsing: JSON-RPC
+                // messages start with `{"jsonrpc"` and GatewayMessages
+                // with `{"type"`. The substring scan is O(n) over the
+                // first ~32 bytes, much cheaper than the previous
+                // approach of fully parsing into `serde_json::Value` just
+                // to peek at the field name (M18 in the security/quality
+                // review). The downstream `dispatch_rpc` /
+                // `from_str::<GatewayMessage>` then does the only typed
+                // parse needed.
+                if looks_like_jsonrpc(text) {
+                    let session_id_str = session_id.to_string();
+                    let reply = crate::ws_rpc::dispatch_rpc(
+                        text,
+                        &session_id_str,
+                        &auth,
+                        &session_mgr,
+                        &channel,
+                        &session_store,
+                        &cron_service,
+                        &rpc_token_info,
+                    )
+                    .await;
+                    // Send the raw JSON-RPC response directly.
+                    if ws.send(Message::text(reply)).await.is_err() {
+                        break;
                     }
+                    continue;
+                }
 
                 let gateway_msg = match serde_json::from_str::<GatewayMessage>(text) {
                     Ok(m) => m,
