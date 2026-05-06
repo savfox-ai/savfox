@@ -243,4 +243,122 @@ mod tests {
         );
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
+
+    // ── T2 follow-up: extended decider matrix coverage ───────────────
+
+    #[tokio::test]
+    async fn allowed_domain_skips_decider() {
+        // Hosts in the allow list flow through with Allow without
+        // consulting the decider — fast path for known-good destinations.
+        let state = network_proxy_state_for_policy(NetworkPolicy {
+            allowed_domains: vec!["example.com".to_owned()],
+            ..NetworkPolicy::default()
+        });
+        let calls = Arc::new(AtomicUsize::new(0));
+        let decider: Arc<dyn NetworkPolicyDecider> = Arc::new({
+            let calls = calls.clone();
+            move |_req| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { NetworkDecision::Allow }
+            }
+        });
+
+        let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::HttpsConnect,
+            host: "example.com".to_owned(),
+            port: 443,
+            client_addr: None,
+            method: None,
+            command: None,
+            exec_policy_hint: None,
+        });
+
+        let decision = evaluate_host_policy(&state, Some(&decider), &request)
+            .await
+            .unwrap();
+        assert_eq!(decision, NetworkDecision::Allow);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "decider must NOT be called when host is on allow list"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_decider_means_deny_for_not_allowed_hosts() {
+        // When no decider is registered, hosts that are not on the allow
+        // list must default-deny rather than fall through.
+        let state = network_proxy_state_for_policy(NetworkPolicy {
+            allowed_domains: vec!["example.com".to_owned()],
+            ..NetworkPolicy::default()
+        });
+
+        let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::Http,
+            host: "unknown.test".to_owned(),
+            port: 80,
+            client_addr: None,
+            method: Some("GET".to_owned()),
+            command: None,
+            exec_policy_hint: None,
+        });
+
+        let decision = evaluate_host_policy(&state, None, &request).await.unwrap();
+        assert!(matches!(decision, NetworkDecision::Deny { .. }));
+    }
+
+    #[tokio::test]
+    async fn decider_decision_propagates_for_socks5() {
+        // The same allow/deny path applies to SOCKS5 protocols, not just
+        // HTTP. Verify the protocol field is forwarded into the request
+        // the decider sees so deciders can branch on it.
+        let state = network_proxy_state_for_policy(NetworkPolicy::default());
+        let observed_protocol = Arc::new(std::sync::Mutex::new(None));
+        let observed = observed_protocol.clone();
+        let decider: Arc<dyn NetworkPolicyDecider> = Arc::new(move |req: NetworkPolicyRequest| {
+            let observed = observed.clone();
+            async move {
+                *observed.lock().unwrap() = Some(req.protocol);
+                NetworkDecision::deny("policy says no")
+            }
+        });
+
+        let request = NetworkPolicyRequest::new(NetworkPolicyRequestArgs {
+            protocol: NetworkProtocol::Socks5Tcp,
+            host: "tcp.example.com".to_owned(),
+            port: 22,
+            client_addr: None,
+            method: None,
+            command: None,
+            exec_policy_hint: None,
+        });
+
+        let decision = evaluate_host_policy(&state, Some(&decider), &request)
+            .await
+            .unwrap();
+        assert_eq!(
+            decision,
+            NetworkDecision::Deny {
+                reason: "policy says no".to_owned()
+            }
+        );
+        assert_eq!(
+            *observed_protocol.lock().unwrap(),
+            Some(NetworkProtocol::Socks5Tcp)
+        );
+    }
+
+    #[test]
+    fn deny_with_empty_reason_uses_default_reason() {
+        // Edge case: callers that pass an empty reason should not produce
+        // an unhelpful "Deny { reason: \"\" }" response. The constructor
+        // rewrites empty to REASON_POLICY_DENIED.
+        let d = NetworkDecision::deny("");
+        match d {
+            NetworkDecision::Deny { reason } => {
+                assert_eq!(reason, crate::reasons::REASON_POLICY_DENIED);
+            }
+            _ => panic!("expected Deny"),
+        }
+    }
 }
