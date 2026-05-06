@@ -555,6 +555,8 @@ impl GatewayCommand {
             tls_key: self.tls_key,
             channels: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
+            rate_limit: RateLimitTomlConfig::default(),
+            trust_x_forwarded_for: false,
         }
     }
 }

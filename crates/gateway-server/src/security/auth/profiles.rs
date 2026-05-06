@@ -573,10 +573,7 @@ mod tests {
 
         let meta = tokio::fs::metadata(mgr.store_path()).await.unwrap();
         let mode = meta.permissions().mode() & 0o777;
-        assert_eq!(
-            mode, 0o600,
-            "profiles.json must be 0600, got {mode:o}"
-        );
+        assert_eq!(mode, 0o600, "profiles.json must be 0600, got {mode:o}");
     }
 
     #[tokio::test]

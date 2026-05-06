@@ -803,8 +803,8 @@ impl ModelClientSession {
                 &self.state.config.model_provider_id,
             )?;
             // M12: reuse the cached transport (cheap clone — `reqwest::Client`
-        // is `Arc`-shared internally) instead of rebuilding per request.
-        let transport = self.state.http_transport.clone();
+            // is `Arc`-shared internally) instead of rebuilding per request.
+            let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiChatClient::new(transport, api_provider, api_auth)
                 .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
@@ -874,8 +874,8 @@ impl ModelClientSession {
                 &self.state.config.model_provider_id,
             )?;
             // M12: reuse the cached transport (cheap clone — `reqwest::Client`
-        // is `Arc`-shared internally) instead of rebuilding per request.
-        let transport = self.state.http_transport.clone();
+            // is `Arc`-shared internally) instead of rebuilding per request.
+            let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiAnthropicClient::new(transport, api_provider, api_auth)
                 .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
@@ -933,8 +933,8 @@ impl ModelClientSession {
                 &self.state.config.model_provider_id,
             )?;
             // M12: reuse the cached transport (cheap clone — `reqwest::Client`
-        // is `Arc`-shared internally) instead of rebuilding per request.
-        let transport = self.state.http_transport.clone();
+            // is `Arc`-shared internally) instead of rebuilding per request.
+            let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let compression = self.responses_request_compression(auth.as_ref());
             let has_bearer_token = api_auth.has_bearer_token();
@@ -1393,11 +1393,11 @@ impl WebsocketTelemetry for ApiTelemetry {
 
 #[cfg(test)]
 mod tests {
+    use http::StatusCode as HttpStatusCode;
     use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
 
     use super::{normalize_reasoning_effort, responses_endpoint_unsupported};
     use crate::error::{SavfoxError, UnexpectedResponseError};
-    use http::StatusCode as HttpStatusCode;
 
     fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
         ReasoningEffortPreset {

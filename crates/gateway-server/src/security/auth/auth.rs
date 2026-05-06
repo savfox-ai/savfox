@@ -427,11 +427,7 @@ pub fn required_scope(method: &str) -> Scope {
     // strict deny rule below.
     if matches!(
         method,
-        "connect"
-            | "health"
-            | "status"
-            | "last-heartbeat"
-            | "system-presence"
+        "connect" | "health" | "status" | "last-heartbeat" | "system-presence"
     ) {
         return Scope::Read;
     }
@@ -714,7 +710,13 @@ mod tests {
         // S6: every connect-/status-style method that today is permitted
         // for any caller must appear in the explicit allowlist so adding
         // a brand-new RPC method cannot accidentally inherit Read access.
-        for method in ["connect", "health", "status", "last-heartbeat", "system-presence"] {
+        for method in [
+            "connect",
+            "health",
+            "status",
+            "last-heartbeat",
+            "system-presence",
+        ] {
             assert_eq!(required_scope(method), Scope::Read, "{method}");
         }
     }

@@ -57,7 +57,6 @@ pub fn UnimplementedChannel(title: String, icon_html: String) -> Element {
 /// Generate a `#[component] pub fn <Name>Channel() -> Element` for a status type.
 ///
 /// The status type must implement [`ChannelStatusView`].
-#[macro_export]
 #[rustfmt::skip]
 macro_rules! channel_status_page {
     (
@@ -79,6 +78,13 @@ macro_rules! channel_status_page {
         }
     };
 }
+
+// Re-export the macro at this module path so consumers can write
+// `use crate::pages::channels::common::channel_status_page;`. We avoid
+// `#[macro_export]` here because referring to a macro-expanded
+// `#[macro_export]` macro via an absolute `crate::` path is now a hard
+// error in rustc 1.95+ (rust-lang/rust#52234).
+pub(crate) use channel_status_page;
 
 /// Shared rendering core. Per-channel components delegate here.
 #[allow(clippy::too_many_arguments)]

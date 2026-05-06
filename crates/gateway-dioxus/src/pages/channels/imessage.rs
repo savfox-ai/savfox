@@ -1,6 +1,5 @@
 use crate::api::types::IMessageStatus;
-use crate::channel_status_page;
-use crate::pages::channels::common::ChannelStatusView;
+use crate::pages::channels::common::{ChannelStatusView, channel_status_page};
 
 impl ChannelStatusView for IMessageStatus {
     fn configured(&self) -> Option<bool> {

@@ -43,15 +43,13 @@ pub struct AgentIdleReplyConfig {
 ///
 /// Two execution modes are supported:
 ///
-/// * **One-shot delegate** — the gateway spawns `command` with `args`,
-///   pipes the prompt to stdin, captures stdout/stderr, and returns the
-///   captured output as the agent's reply. Use `enabled = true` plus the
-///   `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.
-/// * **Interactive launch** — `agent.terminal.launch` opens a system
-///   terminal window running the CLI directly so the operator can
-///   interact (login, multi-turn conversations, TUI). Override
-///   `interactive_command` / `interactive_args` for tools that need a
-///   different invocation in interactive mode.
+/// * **One-shot delegate** — the gateway spawns `command` with `args`, pipes the prompt to stdin,
+///   captures stdout/stderr, and returns the captured output as the agent's reply. Use `enabled =
+///   true` plus the `command` / `args` / `stdin` / `cwd` / `env` / `timeout_secs` fields.
+/// * **Interactive launch** — `agent.terminal.launch` opens a system terminal window running the
+///   CLI directly so the operator can interact (login, multi-turn conversations, TUI). Override
+///   `interactive_command` / `interactive_args` for tools that need a different invocation in
+///   interactive mode.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,

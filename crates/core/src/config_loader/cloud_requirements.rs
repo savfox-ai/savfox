@@ -21,13 +21,11 @@ use crate::config_loader::ConfigRequirementsToml;
 /// intermediate is to:
 ///
 /// 1. Keep [`Self::get`] returning `Option` for back-compat.
-/// 2. Document the fail-open behaviour loudly on the public type so
-///    downstream callers know to treat `None` as "couldn't load" and
-///    decide for themselves whether that should fail closed.
-/// 3. Track a follow-up to add a `try_get -> Result<...>` once one
-///    caller actually needs fail-closed semantics, at which point we
-///    can plumb the error through the new path without breaking every
-///    existing builder.
+/// 2. Document the fail-open behaviour loudly on the public type so downstream callers know to
+///    treat `None` as "couldn't load" and decide for themselves whether that should fail closed.
+/// 3. Track a follow-up to add a `try_get -> Result<...>` once one caller actually needs
+///    fail-closed semantics, at which point we can plumb the error through the new path without
+///    breaking every existing builder.
 ///
 /// **Operators that need strict fail-closed behaviour today should
 /// pre-load the requirements at startup and refuse to launch when the
