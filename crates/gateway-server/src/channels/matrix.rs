@@ -618,7 +618,15 @@ impl MatrixAppserviceChannel {
         body: Option<&Value>,
     ) -> anyhow::Result<(reqwest::StatusCode, Value)> {
         let url = self.matrix_client_api_url(path_segments, Some(acting_user_id))?;
-        let mut request = reqwest::Client::new()
+        // Build a fresh SSRF-pinned client per request: re-validates the
+        // URL against the SSRF policy and pins the resolved IP into the
+        // resolver, defending against DNS rebinding between validation
+        // and the actual TCP connect (S11 follow-up to #33).
+        let ssrf_cfg = crate::ssrf::SsrfConfig::from_env();
+        let client = crate::ssrf::build_pinned_client(url.as_str(), &ssrf_cfg)
+            .await
+            .with_context(|| format!("matrix appservice url rejected by ssrf policy: {url}"))?;
+        let mut request = client
             .request(method.clone(), url.clone())
             .bearer_auth(&self.inner.appservice_token);
         if let Some(body) = body {

@@ -31,8 +31,14 @@ pub(crate) struct TlonChannelConfig {
 
 impl TlonChannel {
     pub(crate) fn new(config: TlonChannelConfig) -> Self {
+        // SSRF-aware HTTP client: inherits timeout + no-auto-redirect.
+        // Per-call URL pinning (`build_pinned_client`) is a follow-up
+        // since the channel keeps a single client across many polls.
+        let cfg = crate::ssrf::SsrfConfig::from_env();
+        let http =
+            crate::ssrf::build_guarded_client(&cfg).unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            http: reqwest::Client::new(),
+            http,
             config,
             auth_cookie: tokio::sync::RwLock::new(None),
         }
