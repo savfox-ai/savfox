@@ -75,8 +75,17 @@ impl PartialEq for SavfoxAuth {
     }
 }
 
-// TODO(pakrym): use token exp field to check for expiration instead
+/// Fallback "stale" threshold (in days) used only when we cannot read the
+/// JWT's `exp` claim. The primary signal is the access token's own `exp`
+/// field (see `access_token_seconds_until_expiry`) — this constant is the
+/// safety net for malformed / non-JWT tokens.
 const TOKEN_REFRESH_INTERVAL: i64 = 8;
+
+/// How many seconds before the JWT `exp` time we proactively refresh.
+/// Picked to cover typical end-to-end latency for the refresh round trip
+/// plus clock skew between us and the auth server. Smaller values risk
+/// using a token that expires mid-request.
+const TOKEN_REFRESH_LEAD_SECONDS: i64 = 300;
 
 const REFRESH_TOKEN_EXPIRED_MESSAGE: &str = "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.";
 const REFRESH_TOKEN_REUSED_MESSAGE: &str = "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.";
@@ -722,6 +731,91 @@ fn refresh_token_endpoint() -> String {
         .unwrap_or_else(|_| REFRESH_TOKEN_URL.to_owned())
 }
 
+/// Decode the JWT `exp` claim from `access_token` and return the number of
+/// seconds until it expires. Returns `None` if the token is not a JWT, the
+/// payload is not base64url-decodable, the JSON cannot be parsed, or there
+/// is no `exp` field.
+///
+/// **No signature verification.** We only ever use this to decide whether
+/// our own already-trusted token is about to expire — not to validate a
+/// token we received from an untrusted party.
+fn access_token_seconds_until_expiry(access_token: &str) -> Option<i64> {
+    use base64::Engine as _;
+    let mut parts = access_token.split('.');
+    let _header = parts.next()?;
+    let payload = parts.next()?;
+    // A JWT must have a third (signature) segment present, even if we
+    // don't validate it. Reject opaque tokens that happen to contain
+    // a single dot.
+    parts.next()?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.as_bytes())
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    let exp = claims.get("exp")?.as_i64()?;
+    let now = Utc::now().timestamp();
+    Some(exp.saturating_sub(now))
+}
+
+#[cfg(test)]
+mod jwt_exp_tests {
+    use super::access_token_seconds_until_expiry;
+    use base64::Engine as _;
+    use chrono::Utc;
+
+    fn jwt_with_exp(exp: i64) -> String {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({"alg":"none","typ":"JWT"}).to_string());
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({"exp": exp}).to_string());
+        format!("{header}.{payload}.")
+    }
+
+    #[test]
+    fn parses_future_exp() {
+        let in_one_hour = Utc::now().timestamp() + 3600;
+        let token = jwt_with_exp(in_one_hour);
+        let seconds = access_token_seconds_until_expiry(&token).expect("exp parsed");
+        assert!(
+            (3590..=3610).contains(&seconds),
+            "expected ~3600 seconds, got {seconds}"
+        );
+    }
+
+    #[test]
+    fn parses_past_exp_as_negative() {
+        let an_hour_ago = Utc::now().timestamp() - 3600;
+        let seconds =
+            access_token_seconds_until_expiry(&jwt_with_exp(an_hour_ago)).expect("exp parsed");
+        assert!(seconds < 0, "past exp should be negative, got {seconds}");
+    }
+
+    #[test]
+    fn opaque_token_returns_none() {
+        // No dots at all.
+        assert!(access_token_seconds_until_expiry("opaque-token").is_none());
+        // Single dot — also not a JWT shape.
+        assert!(access_token_seconds_until_expiry("a.b").is_none());
+    }
+
+    #[test]
+    fn jwt_without_exp_returns_none() {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({"alg":"none","typ":"JWT"}).to_string());
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({"sub":"user"}).to_string());
+        let token = format!("{header}.{payload}.");
+        assert!(access_token_seconds_until_expiry(&token).is_none());
+    }
+
+    #[test]
+    fn jwt_with_undecodable_payload_returns_none() {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"alg\":\"none\"}");
+        let token = format!("{header}.@@@invalid_base64@@@.");
+        assert!(access_token_seconds_until_expiry(&token).is_none());
+    }
+}
+
 impl AuthDotJson {
     fn from_external_tokens(external: &ExternalAuthTokens, id_token: IdTokenInfo) -> Self {
         let account_id = id_token.chatgpt_account_id.clone();
@@ -1197,7 +1291,23 @@ impl AuthManager {
             Some(last_refresh) => last_refresh,
             None => return Ok(false),
         };
-        if last_refresh >= Utc::now() - chrono::Duration::days(TOKEN_REFRESH_INTERVAL) {
+
+        // Primary signal: the JWT `exp` claim on the access token. If the
+        // token is a JWT and we can read its `exp`, refresh when we are
+        // within `TOKEN_REFRESH_LEAD_SECONDS` of expiry. The previous
+        // 8-day heuristic happily used a long-since-expired token if a
+        // session predated the cutoff (S17).
+        if let Some(seconds_left) = access_token_seconds_until_expiry(&tokens.access_token)
+            && seconds_left > TOKEN_REFRESH_LEAD_SECONDS
+        {
+            return Ok(false);
+        }
+        // Fallback for malformed / non-JWT tokens: keep the legacy 8-day
+        // staleness bound so we don't refresh on every call when the
+        // primary signal is unavailable.
+        if access_token_seconds_until_expiry(&tokens.access_token).is_none()
+            && last_refresh >= Utc::now() - chrono::Duration::days(TOKEN_REFRESH_INTERVAL)
+        {
             return Ok(false);
         }
         self.refresh_tokens(chatgpt_auth, tokens.refresh_token)
