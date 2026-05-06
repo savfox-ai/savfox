@@ -42,6 +42,10 @@ macro_rules! model_info {
             truncation_policy: TruncationPolicyConfig::bytes(10_000),
             supports_parallel_tool_calls: false,
             context_window: Some(CONTEXT_WINDOW_272K),
+            // Use the registry's resolved fallback (context_window/2 capped
+            // at 64K) — see `ModelInfo::resolved_max_output_tokens`. Concrete
+            // models can override by setting this field via the macro.
+            max_output_tokens: None,
             auto_compact_token_limit: None,
             effective_context_window_percent: 95,
             experimental_supported_tools: Vec::new(),
