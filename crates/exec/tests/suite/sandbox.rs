@@ -233,6 +233,10 @@ async fn sandbox_distinguishes_command_and_policy_cwds() {
     assert!(allowed_exists, "allowed path should exist");
 }
 
+#[allow(
+    unsafe_code,
+    reason = "test exercises libc syscall surface inside the sandbox"
+)]
 fn unix_sock_body() {
     unsafe {
         let mut fds = [0i32; 2];
@@ -320,7 +324,7 @@ async fn allow_unix_socketpair_recvfrom() {
 const IN_SANDBOX_ENV_VAR: &str = "IN_SANDBOX";
 
 #[expect(clippy::expect_used)]
-pub async fn run_code_under_sandbox<F, Fut>(
+async fn run_code_under_sandbox<F, Fut>(
     test_selector: &str,
     policy: &SandboxPolicy,
     child_body: F,

@@ -8,12 +8,15 @@ use savfox_protocol::models::ContentItem;
 /// boundaries.
 pub(crate) const ENVIRONMENT_CONTEXT_OPEN_TAG: &str = "<environment_context>";
 pub(crate) const TURN_ABORTED_OPEN_TAG: &str = "<turn_aborted>";
+pub(crate) const USER_INSTRUCTIONS_OPEN_TAG: &str = "<user_instructions>";
 
 /// Returns true if `text` starts with a session prefix marker (case-insensitive).
 pub(crate) fn is_session_prefix(text: &str) -> bool {
     let trimmed = text.trim_start();
     let lowered = trimmed.to_ascii_lowercase();
-    lowered.starts_with(ENVIRONMENT_CONTEXT_OPEN_TAG) || lowered.starts_with(TURN_ABORTED_OPEN_TAG)
+    lowered.starts_with(ENVIRONMENT_CONTEXT_OPEN_TAG)
+        || lowered.starts_with(TURN_ABORTED_OPEN_TAG)
+        || lowered.starts_with(USER_INSTRUCTIONS_OPEN_TAG)
 }
 
 /// Returns true if `text` starts with a session prefix marker (case-insensitive).

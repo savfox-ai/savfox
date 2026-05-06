@@ -145,16 +145,17 @@ fn is_safe_to_call_with_exec(command: &[String]) -> bool {
                 return false;
             }
 
-            let Some((subcommand_idx, subcommand)) =
-                find_git_subcommand(command, &["status", "log", "diff", "show", "branch"])
-            else {
+            let Some((subcommand_idx, subcommand)) = find_git_subcommand(
+                command,
+                &["status", "log", "diff", "show", "branch", "rev-parse"],
+            ) else {
                 return false;
             };
 
             let subcommand_args = &command[subcommand_idx + 1..];
 
             match subcommand {
-                "status" | "log" | "diff" | "show" => {
+                "status" | "log" | "diff" | "show" | "rev-parse" => {
                     git_subcommand_args_are_read_only(subcommand_args)
                 }
                 "branch" => {

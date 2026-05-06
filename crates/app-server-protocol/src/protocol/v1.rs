@@ -274,11 +274,11 @@ impl ConfigLayerSource {
     #[must_use]
     pub fn precedence(&self) -> i16 {
         match self {
-            Self::Mdm { .. } => 0,
-            Self::System { .. } => 10,
-            Self::User { .. } => 20,
-            Self::Project { .. } => 25,
-            Self::SessionFlags => 30,
+            Self::User { .. } => 0,
+            Self::Project { .. } => 10,
+            Self::SessionFlags => 20,
+            Self::System { .. } => 30,
+            Self::Mdm { .. } => 40,
         }
     }
 }

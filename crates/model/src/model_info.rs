@@ -81,6 +81,43 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             truncation_policy: TruncationPolicyConfig::tokens(10_000),
             context_window: Some(CONTEXT_WINDOW_272K),
         )
+    } else if slug.starts_with("exp-5.1") {
+        // exp-5.1 defaults to the unified exec shell tool variant and ships
+        // apply_patch enabled.
+        model_info!(
+            slug,
+            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            shell_type: ConfigShellToolType::UnifiedExec,
+            supports_parallel_tool_calls: true,
+            supports_reasoning_summaries: true,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+        )
+    } else if slug.starts_with("gpt-5.1") {
+        // GPT-5.1 series ship the shell_command tool variant and include the
+        // apply_patch tool by default.
+        model_info!(
+            slug,
+            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            shell_type: ConfigShellToolType::ShellCommand,
+            supports_parallel_tool_calls: true,
+            supports_reasoning_summaries: true,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+        )
+    } else if slug.starts_with("test-") {
+        // Internal test models expose experimental tools so test cases can
+        // exercise tool-routing without depending on remote metadata.
+        model_info!(
+            slug,
+            supports_parallel_tool_calls: true,
+            supports_reasoning_summaries: true,
+            truncation_policy: TruncationPolicyConfig::bytes(10_000),
+            experimental_supported_tools: vec![
+                "test_sync_tool".to_owned(),
+                "read_file".to_owned(),
+                "grep_files".to_owned(),
+                "list_dir".to_owned(),
+            ],
+        )
     } else {
         // General fallback for any model
         model_info!(
