@@ -92,12 +92,7 @@ pub(crate) async fn persist_resolved_approval(
             return Ok(ResolveOutcome::LegacyMissingNonce);
         }
         Some(entry) => {
-            if !bool::from(
-                entry
-                    .nonce
-                    .as_bytes()
-                    .ct_eq(resolution.nonce.as_bytes()),
-            ) {
+            if !bool::from(entry.nonce.as_bytes().ct_eq(resolution.nonce.as_bytes())) {
                 return Ok(ResolveOutcome::NonceMismatch);
             }
             true
@@ -123,7 +118,6 @@ pub(crate) async fn list_pending_approvals(
     let store = load_store(&path).await;
     Ok(store.pending)
 }
-
 
 /// An exec approval request from an agent that needs human authorization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,7 +503,9 @@ pub(crate) async fn approval_resolve_handler(
                 resolution.id, err
             );
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Json(json!({"error": "persist failed", "id": resolution.id})));
+            res.render(Json(
+                json!({"error": "persist failed", "id": resolution.id}),
+            ));
             return;
         }
     };
@@ -741,8 +737,9 @@ mod tests {
     #[tokio::test]
     async fn unknown_id_returns_not_pending() {
         let root = temp_root("unknown");
-        let outcome =
-            persist_resolved_approval(&root, &sample_resolution("nope", "xx")).await.unwrap();
+        let outcome = persist_resolved_approval(&root, &sample_resolution("nope", "xx"))
+            .await
+            .unwrap();
         assert!(matches!(outcome, ResolveOutcome::NotPending));
         let _ = tokio::fs::remove_dir_all(&root).await;
     }

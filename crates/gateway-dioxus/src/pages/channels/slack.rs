@@ -1,6 +1,5 @@
 use crate::api::types::SlackStatus;
-use crate::channel_status_page;
-use crate::pages::channels::common::ChannelStatusView;
+use crate::pages::channels::common::{ChannelStatusView, channel_status_page};
 
 impl ChannelStatusView for SlackStatus {
     fn configured(&self) -> Option<bool> {

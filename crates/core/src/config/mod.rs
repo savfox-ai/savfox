@@ -1555,7 +1555,17 @@ impl Config {
             .filter(|id| model_providers.contains_key(id));
 
         let model_provider_id = validated_provider
-            .or_else(|| model_providers.keys().next().cloned())
+            .or_else(|| {
+                // Prefer the built-in "openai" provider as the default so that
+                // selection is deterministic regardless of HashMap iteration
+                // order. Fall back to whatever provider exists if "openai" has
+                // been removed.
+                if model_providers.contains_key("openai") {
+                    Some("openai".to_owned())
+                } else {
+                    model_providers.keys().next().cloned()
+                }
+            })
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,

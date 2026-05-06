@@ -283,14 +283,13 @@ pub(crate) fn global_rate_limiter(
 /// (e.g. background maintenance tasks). The limiter MUST have been
 /// initialised via [`init_global_rate_limiter`] before this is called;
 /// if not, returns a default-config limiter for safety.
-pub(crate) fn global_rate_limiter_uninitialised_default(
-) -> &'static crate::security::rate_limit::RateLimiter {
-    rate_limiter_cell()
-        .get_or_init(|| {
-            crate::security::rate_limit::RateLimiter::new(
-                crate::security::rate_limit::RateLimitConfig::default(),
-            )
-        })
+pub(crate) fn global_rate_limiter_uninitialised_default()
+-> &'static crate::security::rate_limit::RateLimiter {
+    rate_limiter_cell().get_or_init(|| {
+        crate::security::rate_limit::RateLimiter::new(
+            crate::security::rate_limit::RateLimitConfig::default(),
+        )
+    })
 }
 
 /// Extract the effective client IP, honouring the operator's

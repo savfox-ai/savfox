@@ -12,9 +12,9 @@ use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcRe
 use super::super::utils::{opt_bool, opt_str, require_str};
 use crate::channel::GatewayChannel;
 use crate::exec_approval::{
-    ApprovalForwardingConfig, ExecApprovalRequest, ExecApprovalResolution,
-    forward_approval_to_chat, list_pending_approvals, notify_approval_resolved,
-    persist_pending_approval, persist_resolved_approval,
+    ApprovalForwardingConfig, ExecApprovalRequest, ExecApprovalResolution, ResolveOutcome,
+    forward_approval_to_chat, generate_approval_nonce, list_pending_approvals,
+    notify_approval_resolved, persist_pending_approval, persist_resolved_approval,
 };
 use crate::session::GatewaySessionManager;
 use crate::{approval_policy_store, skills_store, tts_service};
@@ -354,6 +354,10 @@ pub(crate) async fn handle_exec_approval_request(
         .unwrap_or_default()
         .as_millis() as u64;
 
+    // S3: server always generates the single-use nonce. The caller cannot
+    // pre-supply one — even a malicious agent that guesses the request id
+    // cannot inject the matching nonce because we overwrite this field
+    // here before persisting.
     let request = ExecApprovalRequest {
         id: uuid::Uuid::now_v7().to_string(),
         command: command.to_owned(),
@@ -386,6 +390,7 @@ pub(crate) async fn handle_exec_approval_request(
             .get("expires_at_ms")
             .and_then(|v| v.as_u64())
             .unwrap_or(now_ms + 300_000), // Default 5 min expiry
+        nonce: generate_approval_nonce(),
     };
 
     if let Err(err) = persist_pending_approval(&channel.config().savfox_home, &request).await {
@@ -403,6 +408,7 @@ pub(crate) async fn handle_exec_approval_request(
         "request_id": request.id,
         "command": command,
         "status": "pending",
+        "nonce": request.nonce,
     }))
 }
 
@@ -413,6 +419,7 @@ pub(crate) async fn handle_exec_approval_resolve(
 ) -> RpcResult {
     let request_id = require_str(params, "request_id")?;
     let approved = opt_bool(params, "approved", false);
+    let nonce = require_str(params, "nonce")?;
 
     let resolution = ExecApprovalResolution {
         id: request_id.to_owned(),
@@ -425,9 +432,13 @@ pub(crate) async fn handle_exec_approval_resolve(
             .get("reason")
             .and_then(|v| v.as_str())
             .map(|s| s.to_owned()),
+        nonce: nonce.to_owned(),
     };
 
-    let resolved_pending = persist_resolved_approval(&channel.config().savfox_home, &resolution)
+    // S3: nonce verification + persistence happen atomically inside
+    // `persist_resolved_approval`. Reject malformed/legacy/replayed
+    // resolutions with `INVALID_REQUEST` and never mutate the store.
+    let outcome = persist_resolved_approval(&channel.config().savfox_home, &resolution)
         .await
         .map_err(|err| {
             (
@@ -435,6 +446,22 @@ pub(crate) async fn handle_exec_approval_resolve(
                 format!("failed to persist approval resolution: {err}"),
             )
         })?;
+    let resolved_pending = match outcome {
+        ResolveOutcome::Resolved => true,
+        ResolveOutcome::NotPending => false,
+        ResolveOutcome::NonceMismatch => {
+            return Err((
+                INVALID_REQUEST,
+                "approval nonce missing or invalid".to_owned(),
+            ));
+        }
+        ResolveOutcome::LegacyMissingNonce => {
+            return Err((
+                INVALID_REQUEST,
+                "approval has no server-issued nonce; re-issue the request".to_owned(),
+            ));
+        }
+    };
 
     // Notify channels about the resolution.
     let config = load_approval_forwarding_config();

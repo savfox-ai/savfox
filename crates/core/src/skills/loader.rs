@@ -841,11 +841,11 @@ mod tests {
 
         let layers = vec![
             ConfigLayerEntry::new(
-                ConfigLayerSource::System { file: system_file },
+                ConfigLayerSource::User { file: user_file },
                 TomlValue::Table(toml::map::Map::new()),
             ),
             ConfigLayerEntry::new(
-                ConfigLayerSource::User { file: user_file },
+                ConfigLayerSource::System { file: system_file },
                 TomlValue::Table(toml::map::Map::new()),
             ),
         ];
@@ -863,6 +863,7 @@ mod tests {
         assert_eq!(
             got,
             vec![
+                (SkillScope::Admin, system_folder.join("skills")),
                 (SkillScope::User, user_folder.join("skills")),
                 (
                     SkillScope::User,
@@ -872,7 +873,6 @@ mod tests {
                     SkillScope::System,
                     user_folder.join("skills").join(".system")
                 ),
-                (SkillScope::Admin, system_folder.join("skills")),
             ]
         );
 

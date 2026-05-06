@@ -285,10 +285,7 @@ mod tests {
         let s = "a".repeat(SESSION_LABEL_MAX_CHARS + 5);
         let label = normalize_session_label(&s).unwrap();
         // Truncated body + literal "..." appended.
-        assert_eq!(
-            label,
-            format!("{}...", "a".repeat(SESSION_LABEL_MAX_CHARS))
-        );
+        assert_eq!(label, format!("{}...", "a".repeat(SESSION_LABEL_MAX_CHARS)));
     }
 
     #[test]

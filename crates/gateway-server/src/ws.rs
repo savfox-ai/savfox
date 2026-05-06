@@ -208,8 +208,12 @@ struct ConnectionSlotGuard {
 impl Drop for ConnectionSlotGuard {
     fn drop(&mut self) {
         if let Some(ip) = self.client_ip {
+            // No depot is available in the Drop path, so fall back to the
+            // process-wide limiter that `init_global_rate_limiter` set up
+            // at startup. If the limiter was never initialised (tests),
+            // this returns a default-config instance.
             tokio::spawn(async move {
-                crate::server::global_rate_limiter()
+                crate::server::global_rate_limiter_uninitialised_default()
                     .remove_connection(ip)
                     .await;
             });

@@ -759,9 +759,10 @@ fn access_token_seconds_until_expiry(access_token: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod jwt_exp_tests {
-    use super::access_token_seconds_until_expiry;
     use base64::Engine as _;
     use chrono::Utc;
+
+    use super::access_token_seconds_until_expiry;
 
     fn jwt_with_exp(exp: i64) -> String {
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD

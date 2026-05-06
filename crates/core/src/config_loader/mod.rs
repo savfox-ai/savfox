@@ -170,8 +170,6 @@ pub async fn load_config_layers_state(
         .await?;
     }
 
-    let _ = &overrides;
-
     let mut layers = Vec::<ConfigLayerEntry>::new();
 
     let cli_overrides_layer = if cli_overrides.is_empty() {
@@ -180,34 +178,10 @@ pub async fn load_config_layers_state(
         Some(build_cli_overrides_layer(cli_overrides))
     };
 
-    // Include an entry for the "system" config folder, loading its config.toml,
-    // if it exists.
-    let system_config_toml_file = if cfg!(unix) {
-        Some(AbsolutePathBuf::from_absolute_path(
-            SYSTEM_CONFIG_TOML_FILE_UNIX,
-        )?)
-    } else {
-        // TODO(gt): Determine the path to load on Windows.
-        None
-    };
-    if let Some(system_config_toml_file) = system_config_toml_file {
-        let system_config_file = resolve_preferred_config_file(&system_config_toml_file).await?;
-        let system_layer =
-            load_config_toml_for_required_layer(&system_config_file, |config_toml| {
-                ConfigLayerEntry::new(
-                    ConfigLayerSource::System {
-                        file: system_config_file.clone(),
-                    },
-                    config_toml,
-                )
-            })
-            .await?;
-        layers.push(system_layer);
-    }
-
     // Add a layer for $SAVFOX_HOME/config.toml if it exists. Note if the file
     // exists, but is malformed, then this error should be propagated to the
-    // user.
+    // user. The user layer is the lowest-precedence layer (any of the
+    // managed/system/CLI layers below override it).
     let user_toml_file = AbsolutePathBuf::resolve_path_against_base(CONFIG_TOML_FILE, savfox_home)?;
     let user_file = resolve_preferred_config_file(&user_toml_file).await?;
     let user_layer = load_config_toml_for_required_layer(&user_file, |config_toml| {
@@ -286,6 +260,68 @@ pub async fn load_config_layers_state(
             ConfigLayerSource::SessionFlags,
             cli_overrides_layer,
         ));
+    }
+
+    // Include an entry for the "system" config folder, loading its config.toml,
+    // if it exists. This sits above session flags because admin/system-managed
+    // settings must not be overridden by ad-hoc CLI flags.
+    let system_config_toml_file = if cfg!(unix) {
+        Some(AbsolutePathBuf::from_absolute_path(
+            SYSTEM_CONFIG_TOML_FILE_UNIX,
+        )?)
+    } else {
+        // TODO(gt): Determine the path to load on Windows.
+        None
+    };
+    if let Some(system_config_toml_file) = system_config_toml_file {
+        let system_config_file = resolve_preferred_config_file(&system_config_toml_file).await?;
+        let system_layer =
+            load_config_toml_for_required_layer(&system_config_file, |config_toml| {
+                ConfigLayerEntry::new(
+                    ConfigLayerSource::System {
+                        file: system_config_file.clone(),
+                    },
+                    config_toml,
+                )
+            })
+            .await?;
+        layers.push(system_layer);
+    }
+
+    // Add the managed_config layer (typically $SAVFOX_HOME/managed_config.toml)
+    // if a path is provided. This is treated as a system-managed override.
+    if let Some(managed_path) = overrides.managed_config_path.as_ref() {
+        let managed_abs = AbsolutePathBuf::from_absolute_path(managed_path.clone())?;
+        let managed_layer = load_config_toml_for_optional_layer(&managed_abs, |config_toml| {
+            ConfigLayerEntry::new(
+                ConfigLayerSource::System {
+                    file: managed_abs.clone(),
+                },
+                config_toml,
+            )
+        })
+        .await?;
+        if let Some(layer) = managed_layer {
+            layers.push(layer);
+        }
+    }
+
+    // Load macOS managed preferences (delivered via MDM profile) at the
+    // highest precedence so they override every other config source.
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(mdm_config) =
+            macos::load_managed_admin_config_layer(overrides.managed_preferences_base64.as_deref())
+                .await?
+        {
+            layers.push(ConfigLayerEntry::new(
+                ConfigLayerSource::Mdm {
+                    domain: "ai.savfox".to_string(),
+                    key: "config_toml_base64".to_string(),
+                },
+                mdm_config,
+            ));
+        }
     }
 
     Ok(ConfigLayerStack::new(
@@ -413,6 +449,37 @@ async fn load_config_toml_for_required_layer(
     }?;
 
     Ok(create_entry(config_value))
+}
+
+/// Like [load_config_toml_for_required_layer], but returns `Ok(None)` when the
+/// file does not exist (instead of producing an empty layer). Parse errors are
+/// still propagated.
+async fn load_config_toml_for_optional_layer(
+    config_file: impl AsRef<Path>,
+    create_entry: impl FnOnce(TomlValue) -> ConfigLayerEntry,
+) -> io::Result<Option<ConfigLayerEntry>> {
+    let config_file = config_file.as_ref();
+    match tokio::fs::read_to_string(config_file).await {
+        Ok(contents) => {
+            let config = parse_config_file_content(config_file, &contents)?;
+            let config_parent = config_file.parent().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Config file {} has no parent directory",
+                        config_file.display()
+                    ),
+                )
+            })?;
+            let resolved = resolve_relative_paths_in_config_toml(config, config_parent)?;
+            Ok(Some(create_entry(resolved)))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io::Error::new(
+            e.kind(),
+            format!("Failed to read config file {}: {e}", config_file.display()),
+        )),
+    }
 }
 
 /// If available, apply requirements from `/etc/savfox/requirements.toml` to
