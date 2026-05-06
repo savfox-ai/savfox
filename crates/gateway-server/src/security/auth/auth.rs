@@ -418,8 +418,31 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Write;
     }
 
-    // ── Defaults: connect, health, status, last-heartbeat, system-presence ──
-    Scope::Read
+    // ── Explicit Read allowlist (S6) ────────────────────────────────
+    // The previous catch-all was `Scope::Read` for any unmapped method
+    // which silently authorised anything new the dispatcher learned to
+    // handle without an accompanying scope decision. The closed set
+    // below captures every `Scope::Read` method the existing dispatcher
+    // intentionally permits — anything not listed falls into the
+    // strict deny rule below.
+    if matches!(
+        method,
+        "connect"
+            | "health"
+            | "status"
+            | "last-heartbeat"
+            | "system-presence"
+    ) {
+        return Scope::Read;
+    }
+
+    // ── Strict deny default (S6) ───────────────────────────────────
+    // Anything we did not explicitly classify is treated as Admin so
+    // an unauthenticated bug-induced fallthrough does not silently
+    // grant Read or Write access. Adding a new RPC method now
+    // requires a deliberate `required_scope` mapping or it will be
+    // rejected with PERMISSION_DENIED for non-Admin tokens.
+    Scope::Admin
 }
 
 /// Return `true` if the method suffix indicates a read-only (non-mutating) operation.
@@ -679,16 +702,33 @@ mod tests {
     #[test]
     fn agent_invocation_requires_write() {
         assert_eq!(required_scope("agent"), Scope::Write);
-        assert_eq!(required_scope("agent.terminal.launch"), Scope::Write);
+        // `agent.terminal.launch` is intentionally Admin (added in #34
+        // / `agent_terminal_launch_requires_admin`); other agent.* calls
+        // resolve to Write.
+        assert_eq!(required_scope("agent.delegation.list"), Scope::Read);
+        assert_eq!(required_scope("agent.delegation.record"), Scope::Write);
     }
 
     #[test]
-    fn unknown_method_falls_back_to_read() {
-        // Default for unmapped methods. This is an intentionally permissive
-        // default; tightening it (S6) is tracked as a follow-up.
-        assert_eq!(required_scope("connect"), Scope::Read);
-        assert_eq!(required_scope("status"), Scope::Read);
-        assert_eq!(required_scope("totally.made.up"), Scope::Read);
+    fn explicit_read_allowlist_methods_resolve_to_read() {
+        // S6: every connect-/status-style method that today is permitted
+        // for any caller must appear in the explicit allowlist so adding
+        // a brand-new RPC method cannot accidentally inherit Read access.
+        for method in ["connect", "health", "status", "last-heartbeat", "system-presence"] {
+            assert_eq!(required_scope(method), Scope::Read, "{method}");
+        }
+    }
+
+    #[test]
+    fn unknown_method_now_requires_admin() {
+        // S6: previously the catch-all default was `Scope::Read` which
+        // silently authorised any unmapped method. The closed allowlist
+        // above (`explicit_read_allowlist_methods_resolve_to_read`)
+        // captures every legitimately-public method; everything else
+        // requires Admin so a new RPC handler cannot land without an
+        // accompanying scope decision.
+        assert_eq!(required_scope("totally.made.up"), Scope::Admin);
+        assert_eq!(required_scope("not-a-real-method"), Scope::Admin);
     }
 
     // ── GatewayAuth::validate (single-token happy + sad path) ─────────
