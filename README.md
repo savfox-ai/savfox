@@ -120,4 +120,7 @@ just help          # list all recipes
 
 ## License
 
-Apache License 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+Dual-licensed under your choice of:
+
+- [MIT License](LICENSE-MIT)
+- [Apache License 2.0](LICENSE-APACHE)
