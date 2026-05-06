@@ -38,6 +38,61 @@ pub struct GatewayConfig {
     /// Response footer rendering configuration.
     #[serde(default)]
     pub response_footer: ResponseFooterConfig,
+
+    /// Rate-limit configuration applied at the bearer-auth hoop and the
+    /// WebSocket upgrade handler. Operators can override the defaults
+    /// (100 req/min/IP, 10 concurrent WS connections per IP) per
+    /// deployment via the gateway config file.
+    #[serde(default)]
+    pub rate_limit: RateLimitTomlConfig,
+
+    /// Trust the `X-Forwarded-For` header when a request arrives via a
+    /// reverse proxy. **Defaults to `false`** — turning this on while
+    /// the gateway is directly reachable from the public internet
+    /// allows clients to spoof their source IP and bypass the per-IP
+    /// rate limit.
+    #[serde(default)]
+    pub trust_x_forwarded_for: bool,
+}
+
+/// Operator-tunable rate-limit knobs. Mirrors
+/// [`crate::security::rate_limit::RateLimitConfig`] but uses serde-friendly
+/// scalar fields instead of `Duration`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitTomlConfig {
+    /// Maximum requests per `window_secs` per remote IP for the
+    /// bearer-auth hoop. Default 100.
+    #[serde(default = "default_rate_limit_max_requests")]
+    pub max_requests: u32,
+    /// Window duration in seconds. Default 60.
+    #[serde(default = "default_rate_limit_window_secs")]
+    pub window_secs: u64,
+    /// Maximum concurrent WebSocket connections per remote IP.
+    /// Default 10.
+    #[serde(default = "default_rate_limit_max_connections_per_ip")]
+    pub max_connections_per_ip: u32,
+}
+
+impl Default for RateLimitTomlConfig {
+    fn default() -> Self {
+        Self {
+            max_requests: default_rate_limit_max_requests(),
+            window_secs: default_rate_limit_window_secs(),
+            max_connections_per_ip: default_rate_limit_max_connections_per_ip(),
+        }
+    }
+}
+
+fn default_rate_limit_max_requests() -> u32 {
+    100
+}
+
+fn default_rate_limit_window_secs() -> u64 {
+    60
+}
+
+fn default_rate_limit_max_connections_per_ip() -> u32 {
+    10
 }
 
 impl Default for GatewayConfig {
@@ -50,6 +105,8 @@ impl Default for GatewayConfig {
             tls_key: None,
             channels: ChannelsConfig::default(),
             response_footer: ResponseFooterConfig::default(),
+            rate_limit: RateLimitTomlConfig::default(),
+            trust_x_forwarded_for: false,
         }
     }
 }

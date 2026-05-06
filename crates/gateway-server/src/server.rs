@@ -210,12 +210,11 @@ async fn bearer_auth_hoop(
     // throttled rather than amplifying our token-validation work. Only
     // applies to the protected API surface — the public anonymous paths
     // (webhooks, OAuth callbacks, SPA assets) are not rate-limited here.
-    let limiter = global_rate_limiter();
-    // Salvo's `SocketAddr` is its own enum (Unix variant included). Convert
-    // to `std::net::SocketAddr` and extract the IP. For Unix-socket clients
-    // (`into_std()` returns `None`) we conservatively skip the rate-limit
-    // check — those connections come from the same host the daemon runs on.
-    let Some(ip) = req.remote_addr().clone().into_std().map(|s| s.ip()) else {
+    let limiter = global_rate_limiter(depot);
+    let Some(ip) = client_ip(req, depot) else {
+        // Unix-socket clients (or anything we can't classify) skip the
+        // rate-limit check — those connections come from the same host
+        // the daemon runs on.
         return;
     };
     if !limiter.check_ip(ip).await {
@@ -231,18 +230,92 @@ async fn bearer_auth_hoop(
     }
 }
 
-/// Process-wide [`RateLimiter`] used by [`bearer_auth_hoop`] for per-IP
-/// request rate limiting and by `ws.rs` for the per-IP concurrent
-/// connection cap. Initialised from `RateLimitConfig::default()` (100
-/// req/min, 10 concurrent WS connections per IP) on first access.
-pub(crate) fn global_rate_limiter() -> &'static crate::security::rate_limit::RateLimiter {
+/// Process-wide singleton holding the configured [`RateLimiter`].
+///
+/// Call sites that have a [`Depot`] (the bearer hoop, the WS upgrade)
+/// access it via [`global_rate_limiter`] which transparently
+/// initialises it from the operator's [`GatewayConfig`] on first use.
+/// Background tasks that don't have a depot — the maintenance loop in
+/// `run_main` — should call [`init_global_rate_limiter`] at startup so
+/// they later see the same configured instance via
+/// [`global_rate_limiter_uninitialised_default`].
+fn rate_limiter_cell() -> &'static std::sync::OnceLock<crate::security::rate_limit::RateLimiter> {
     static LIMITER: std::sync::OnceLock<crate::security::rate_limit::RateLimiter> =
         std::sync::OnceLock::new();
-    LIMITER.get_or_init(|| {
-        crate::security::rate_limit::RateLimiter::new(
-            crate::security::rate_limit::RateLimitConfig::default(),
-        )
+    &LIMITER
+}
+
+/// Initialise the global rate limiter from the operator's
+/// [`GatewayConfig`]. Idempotent — only the first call sets the value.
+/// `lib.rs::run_main` calls this at startup so the maintenance task
+/// can see the configured instance even before the first request.
+pub(crate) fn init_global_rate_limiter(config: &GatewayConfig) {
+    let cfg = crate::security::rate_limit::RateLimitConfig {
+        max_requests: config.rate_limit.max_requests,
+        window: std::time::Duration::from_secs(config.rate_limit.window_secs.max(1)),
+        max_connections_per_ip: config.rate_limit.max_connections_per_ip,
+    };
+    let _ = rate_limiter_cell().set(crate::security::rate_limit::RateLimiter::new(cfg));
+}
+
+/// Get the process-wide [`RateLimiter`]. If [`init_global_rate_limiter`]
+/// has not yet been called the limiter is lazily initialised from the
+/// `GatewayConfig` carried by the depot, falling back to
+/// [`RateLimitConfig::default()`] if the depot is empty (tests).
+pub(crate) fn global_rate_limiter(
+    depot: &Depot,
+) -> &'static crate::security::rate_limit::RateLimiter {
+    rate_limiter_cell().get_or_init(|| {
+        let cfg = depot
+            .obtain::<Arc<GatewayConfig>>()
+            .ok()
+            .map(|g| crate::security::rate_limit::RateLimitConfig {
+                max_requests: g.rate_limit.max_requests,
+                window: std::time::Duration::from_secs(g.rate_limit.window_secs.max(1)),
+                max_connections_per_ip: g.rate_limit.max_connections_per_ip,
+            })
+            .unwrap_or_default();
+        crate::security::rate_limit::RateLimiter::new(cfg)
     })
+}
+
+/// Get the process-wide [`RateLimiter`] from a context that has no depot
+/// (e.g. background maintenance tasks). The limiter MUST have been
+/// initialised via [`init_global_rate_limiter`] before this is called;
+/// if not, returns a default-config limiter for safety.
+pub(crate) fn global_rate_limiter_uninitialised_default(
+) -> &'static crate::security::rate_limit::RateLimiter {
+    rate_limiter_cell()
+        .get_or_init(|| {
+            crate::security::rate_limit::RateLimiter::new(
+                crate::security::rate_limit::RateLimitConfig::default(),
+            )
+        })
+}
+
+/// Extract the effective client IP, honouring the operator's
+/// `trust_x_forwarded_for` setting in [`GatewayConfig`].
+///
+/// When the gateway sits behind a reverse proxy that injects
+/// `X-Forwarded-For`, every connection's `remote_addr` is the proxy.
+/// Operators that explicitly opt in to trusting that header get the
+/// **left-most** address (the original client) returned here. By
+/// default we ignore the header so a directly-reachable gateway cannot
+/// be spoofed by a client setting `X-Forwarded-For: 8.8.8.8`.
+pub(crate) fn client_ip(req: &Request, depot: &Depot) -> Option<std::net::IpAddr> {
+    let trust_xff = depot
+        .obtain::<Arc<GatewayConfig>>()
+        .ok()
+        .is_some_and(|g| g.trust_x_forwarded_for);
+    if trust_xff
+        && let Some(xff) = req.headers().get("x-forwarded-for")
+        && let Ok(s) = xff.to_str()
+        && let Some(first) = s.split(',').next()
+        && let Ok(ip) = first.trim().parse::<std::net::IpAddr>()
+    {
+        return Some(ip);
+    }
+    req.remote_addr().clone().into_std().map(|s| s.ip())
 }
 
 /// Inside an authenticated handler, additionally require the `Admin` scope.

@@ -99,12 +99,11 @@ pub(crate) async fn ws_handler(
     // exposed; if a slot can't be reserved we reject the upgrade with 429
     // before consuming any further server resources.
     //
-    // Salvo's `SocketAddr` is its own enum (Unix variant included). Convert
-    // to `std::net::SocketAddr` and extract the IP. For Unix-socket clients
-    // we conservatively skip the cap — those connections come from the same
-    // host the daemon runs on.
-    let limiter = crate::server::global_rate_limiter();
-    let client_ip_opt = req.remote_addr().clone().into_std().map(|s| s.ip());
+    // `client_ip` honours the operator's `trust_x_forwarded_for` config:
+    // behind a reverse proxy the per-IP cap is otherwise effectively
+    // global (every connection appears to come from the proxy IP).
+    let limiter = crate::server::global_rate_limiter(depot);
+    let client_ip_opt = crate::server::client_ip(req, depot);
     if let Some(ip) = client_ip_opt
         && !limiter.try_add_connection(ip).await
     {
