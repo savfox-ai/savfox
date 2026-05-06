@@ -322,6 +322,26 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Admin;
     }
 
+    // ── Account / OAuth login (privileged) ──────────────────────────
+    // S6: account/login/start saves API keys / spawns OAuth servers, and
+    // account/login/cancel tears those servers down. Both touch
+    // credential state and must require Admin. account/read is a pure
+    // read of the saved state so it stays at Read.
+    if method == "account/login/start" || method == "account/login/cancel" {
+        return Scope::Admin;
+    }
+    if method == "account/read" {
+        return Scope::Read;
+    }
+
+    // ── Agent terminal launch (privileged) ──────────────────────────
+    // S6: agent.terminal.launch shells out to a system terminal. Even
+    // though it lives in the agent.* namespace (which would otherwise
+    // resolve to Write), the operation is Admin-equivalent.
+    if method == "agent.terminal.launch" {
+        return Scope::Admin;
+    }
+
     // ── Security ─────────────────────────────────────────────────────
     if method == "security.audit" || method == "security.analyze" {
         return Scope::Read;
@@ -580,6 +600,26 @@ mod tests {
         // Read paths still resolve to Read.
         assert_eq!(required_scope("hooks.list"), Scope::Read);
         assert_eq!(required_scope("hooks.get"), Scope::Read);
+    }
+
+    #[test]
+    fn account_login_writes_require_admin() {
+        // S6: account/login/start saves credentials and spawns OAuth servers;
+        // account/login/cancel tears them down. Both touch credential state
+        // and must be Admin. The pure-read account/read stays at Read.
+        assert_eq!(required_scope("account/login/start"), Scope::Admin);
+        assert_eq!(required_scope("account/login/cancel"), Scope::Admin);
+        assert_eq!(required_scope("account/read"), Scope::Read);
+    }
+
+    #[test]
+    fn agent_terminal_launch_requires_admin() {
+        // S6: spawning a system terminal is Admin-equivalent regardless
+        // of the surrounding agent.* namespace.
+        assert_eq!(required_scope("agent.terminal.launch"), Scope::Admin);
+        // Other agent.* methods stay at Write.
+        assert_eq!(required_scope("agent.list"), Scope::Read);
+        assert_eq!(required_scope("agent"), Scope::Write);
     }
 
     #[test]
