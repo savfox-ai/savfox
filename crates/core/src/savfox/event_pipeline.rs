@@ -2,18 +2,44 @@
 
 use super::*;
 
+/// Returns `true` for incremental "delta" events that arrive thousands of
+/// times per turn from a streaming model response. These are intentionally
+/// **not** persisted into the rollout: the final aggregated `ItemCompleted`
+/// (or `Message` etc.) carries the full content, and writing every token
+/// fragment to the rollout would dominate IO + allocation cost without
+/// adding any replay value.
+///
+/// Closes M11 in the security/quality review.
+fn is_streaming_delta_event(msg: &EventMsg) -> bool {
+    matches!(
+        msg,
+        EventMsg::AgentMessageDelta(_)
+            | EventMsg::AgentMessageContentDelta(_)
+            | EventMsg::AgentReasoningDelta(_)
+            | EventMsg::AgentReasoningRawContentDelta(_)
+            | EventMsg::ReasoningContentDelta(_)
+            | EventMsg::ReasoningRawContentDelta(_)
+            | EventMsg::PlanDelta(_)
+            | EventMsg::ExecCommandOutputDelta(_)
+    )
+}
+
 impl Session {
     /// Persist the event to rollout and send it to clients.
     pub(crate) async fn send_event(&self, turn_context: &TurnContext, msg: EventMsg) {
-        let legacy_source = msg.clone();
+        // M11: derive the legacy fan-out from a borrow rather than cloning
+        // `msg` upfront. `as_legacy_events` already takes `&self`, so we
+        // can compute the legacy list before moving `msg` into the Event.
+        let show_raw_agent_reasoning = self.show_raw_agent_reasoning();
+        let legacy_events = msg.as_legacy_events(show_raw_agent_reasoning);
+
         let event = Event {
             id: turn_context.sub_id.clone(),
             msg,
         };
         self.send_event_raw(event).await;
 
-        let show_raw_agent_reasoning = self.show_raw_agent_reasoning();
-        for legacy in legacy_source.as_legacy_events(show_raw_agent_reasoning) {
+        for legacy in legacy_events {
             let legacy_event = Event {
                 id: turn_context.sub_id.clone(),
                 msg: legacy,
@@ -27,9 +53,14 @@ impl Session {
         if let Some(status) = agent_status_from_event(&event.msg) {
             self.agent_status.send_replace(status);
         }
-        // Persist the event into rollout (recorder filters as needed)
-        let rollout_items = vec![RolloutItem::EventMsg(event.msg.clone())];
-        self.persist_rollout_items(&rollout_items).await;
+        // M11: skip rollout persistence for per-token streaming deltas.
+        // The final aggregated message / item already lands in rollout via
+        // the ItemCompleted path, so persisting every fragment is pure IO
+        // and allocation overhead with no replay benefit.
+        if !is_streaming_delta_event(&event.msg) {
+            let rollout_items = [RolloutItem::EventMsg(event.msg.clone())];
+            self.persist_rollout_items(&rollout_items).await;
+        }
         if let Err(e) = self.tx_event.send(event).await {
             debug!("dropping event because channel is closed: {e}");
         }
@@ -45,9 +76,16 @@ impl Session {
         if let Some(status) = agent_status_from_event(&event.msg) {
             self.agent_status.send_replace(status);
         }
-        self.persist_rollout_items(&[RolloutItem::EventMsg(event.msg.clone())])
-            .await;
-        self.flush_rollout().await;
+        // The flushed variant exists for events whose persistence ordering
+        // matters (e.g. session-rollback markers), so callers should never
+        // invoke it for streaming deltas. We guard anyway to keep the M11
+        // invariant in one place and avoid surprise IO if a delta caller
+        // is added in the future.
+        if !is_streaming_delta_event(&event.msg) {
+            self.persist_rollout_items(&[RolloutItem::EventMsg(event.msg.clone())])
+                .await;
+            self.flush_rollout().await;
+        }
         if let Err(e) = self.tx_event.send(event).await {
             debug!("dropping event because channel is closed: {e}");
         }

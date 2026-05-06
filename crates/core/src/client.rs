@@ -71,6 +71,16 @@ struct ModelClientState {
     summary: ReasoningSummaryConfig,
     session_source: SessionSource,
     transport_manager: TransportManager,
+    /// Shared HTTP transport reused across every API call this client
+    /// makes (compaction, chat-completions stream, anthropic stream,
+    /// responses stream, and 401-recovery retries). Closes M12 in the
+    /// security/quality review: the previous code rebuilt
+    /// `ReqwestTransport::new(build_reqwest_client())` on every request
+    /// and again on every retry, paying the env-read + header-build +
+    /// custom-CA-parse cost each time. `ReqwestTransport` is cheap to
+    /// clone (its inner `reqwest::Client` is `Arc`-shared) so handing
+    /// out clones from `Arc<ModelClientState>` is effectively free.
+    http_transport: ReqwestTransport,
     turn_metadata_cache: Arc<RwLock<TurnMetadataCache>>,
 }
 
@@ -119,6 +129,12 @@ impl ModelClient {
         session_source: SessionSource,
         transport_manager: TransportManager,
     ) -> Self {
+        // Build the HTTP transport once and share it across every API call
+        // this client makes (M12). The `reqwest::Client` inside is `Arc`-
+        // shared and cheap to clone, so individual call sites receive a
+        // shared connection-pooled handle without rebuilding the env-read
+        // / header-build / custom-CA-parse pipeline on every request.
+        let http_transport = ReqwestTransport::new(build_reqwest_client());
         Self {
             state: Arc::new(ModelClientState {
                 config,
@@ -131,6 +147,7 @@ impl ModelClient {
                 summary,
                 session_source,
                 transport_manager,
+                http_transport,
                 turn_metadata_cache: Arc::new(RwLock::new(TurnMetadataCache::default())),
             }),
         }
@@ -271,7 +288,9 @@ impl ModelClient {
             &self.state.provider,
             &self.state.config.model_provider_id,
         )?;
-        let transport = ReqwestTransport::new(build_reqwest_client());
+        // M12: reuse the cached transport (cheap clone — `reqwest::Client`
+        // is `Arc`-shared internally) instead of rebuilding per request.
+        let transport = self.state.http_transport.clone();
         let request_telemetry = self.build_request_telemetry();
         let client = ApiCompactClient::new(transport, api_provider, api_auth)
             .with_telemetry(Some(request_telemetry));
@@ -783,7 +802,9 @@ impl ModelClientSession {
                 provider,
                 &self.state.config.model_provider_id,
             )?;
-            let transport = ReqwestTransport::new(build_reqwest_client());
+            // M12: reuse the cached transport (cheap clone — `reqwest::Client`
+        // is `Arc`-shared internally) instead of rebuilding per request.
+        let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiChatClient::new(transport, api_provider, api_auth)
                 .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
@@ -852,7 +873,9 @@ impl ModelClientSession {
                 &self.state.provider,
                 &self.state.config.model_provider_id,
             )?;
-            let transport = ReqwestTransport::new(build_reqwest_client());
+            // M12: reuse the cached transport (cheap clone — `reqwest::Client`
+        // is `Arc`-shared internally) instead of rebuilding per request.
+        let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let client = ApiAnthropicClient::new(transport, api_provider, api_auth)
                 .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
@@ -909,7 +932,9 @@ impl ModelClientSession {
                 provider,
                 &self.state.config.model_provider_id,
             )?;
-            let transport = ReqwestTransport::new(build_reqwest_client());
+            // M12: reuse the cached transport (cheap clone — `reqwest::Client`
+        // is `Arc`-shared internally) instead of rebuilding per request.
+        let transport = self.state.http_transport.clone();
             let (request_telemetry, sse_telemetry) = self.build_streaming_telemetry();
             let compression = self.responses_request_compression(auth.as_ref());
             let has_bearer_token = api_auth.has_bearer_token();
