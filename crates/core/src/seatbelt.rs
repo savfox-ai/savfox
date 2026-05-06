@@ -109,7 +109,16 @@ pub(crate) fn create_seatbelt_command_args(
         ""
     };
 
-    // TODO(mbolin): apply_patch calls must also honor the SandboxPolicy.
+    // Note (S17 audit, formerly TODO(mbolin)): `apply_patch` invocations
+    // already honor `SandboxPolicy` because they route through
+    // `crate::apply_patch::apply_patch` →
+    // `InternalApplyPatchInvocation::DelegateToExec` with
+    // `bypass_sandbox: false`, which then runs under the platform sandbox
+    // selected by `get_platform_sandbox` (Seatbelt on macOS, Landlock on
+    // Linux, AppContainer on Windows). The writable-folder rules built
+    // above therefore apply equally to `apply_patch` and to bare shell
+    // commands. The original TODO predated that consolidation; this
+    // comment is the audit trail.
     let network_policy = if sandbox_policy.has_full_network_access() {
         MACOS_SEATBELT_NETWORK_POLICY
     } else {
