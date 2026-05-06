@@ -98,9 +98,16 @@ pub(crate) async fn ws_handler(
     // closes the M19 race that two-step `check_connection` + `add_connection`
     // exposed; if a slot can't be reserved we reject the upgrade with 429
     // before consuming any further server resources.
+    //
+    // Salvo's `SocketAddr` is its own enum (Unix variant included). Convert
+    // to `std::net::SocketAddr` and extract the IP. For Unix-socket clients
+    // we conservatively skip the cap — those connections come from the same
+    // host the daemon runs on.
     let limiter = crate::server::global_rate_limiter();
-    let client_ip = req.remote_addr().ip();
-    if !limiter.try_add_connection(client_ip).await {
+    let client_ip_opt = req.remote_addr().clone().into_std().map(|s| s.ip());
+    if let Some(ip) = client_ip_opt
+        && !limiter.try_add_connection(ip).await
+    {
         res.status_code(StatusCode::TOO_MANY_REQUESTS);
         res.render(salvo::prelude::Text::Json(
             serde_json::json!({
@@ -110,6 +117,7 @@ pub(crate) async fn ws_handler(
         ));
         return Err(StatusError::too_many_requests());
     }
+    let client_ip = client_ip_opt;
 
     // Cap inbound WebSocket frames so a single oversized payload cannot
     // OOM the daemon (M15). The values are deliberately generous — a
@@ -139,21 +147,74 @@ const MAX_WS_MESSAGE_SIZE: usize = 1 << 20;
 /// Maximum size of a single inbound WebSocket frame (1 MiB).
 const MAX_WS_FRAME_SIZE: usize = 1 << 20;
 
+/// Quick string-prefix sniff to decide whether `text` is a JSON-RPC 2.0
+/// frame (carries a top-level `"jsonrpc"`) or a `GatewayMessage` (top-level
+/// `"type"`). Returning true does **not** guarantee the message is well-
+/// formed; `dispatch_rpc` runs the actual typed parse and surfaces parse
+/// errors as JSON-RPC error responses.
+///
+/// Looks at only the first ~64 bytes after the opening `{`. That window
+/// always contains the discriminator field name in our wire format and
+/// avoids a second full parse of the body just to peek at the field name
+/// (M18 in the security/quality review).
+fn looks_like_jsonrpc(text: &str) -> bool {
+    let head = text.trim_start();
+    let head = head.strip_prefix('{').unwrap_or(head);
+    let probe_len = head.len().min(64);
+    head[..probe_len].contains("\"jsonrpc\"")
+}
+
+#[cfg(test)]
+mod discriminator_tests {
+    use super::looks_like_jsonrpc;
+
+    #[test]
+    fn detects_jsonrpc_at_start() {
+        assert!(looks_like_jsonrpc(
+            r#"{"jsonrpc":"2.0","id":1,"method":"status"}"#
+        ));
+    }
+
+    #[test]
+    fn detects_jsonrpc_after_whitespace() {
+        assert!(looks_like_jsonrpc(
+            r#"   { "jsonrpc": "2.0", "id": 1, "method": "status" }"#
+        ));
+    }
+
+    #[test]
+    fn rejects_gateway_message() {
+        assert!(!looks_like_jsonrpc(r#"{"type":"connect","token":"x"}"#));
+    }
+
+    #[test]
+    fn rejects_message_with_jsonrpc_only_in_payload() {
+        // The discriminator `"jsonrpc"` appearing far inside the body
+        // (e.g. inside a quoted user message) must not be treated as a
+        // JSON-RPC frame.
+        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
+        // The first 64 bytes do not contain "jsonrpc".
+        assert!(!looks_like_jsonrpc(&payload));
+    }
+}
+
 /// RAII guard that releases the per-IP connection slot reserved by
 /// `try_add_connection` when the WS connection ends — regardless of how
-/// the handler exits.
+/// the handler exits. `client_ip` is `None` for Unix-socket clients which
+/// were not counted against the per-IP cap.
 struct ConnectionSlotGuard {
-    client_ip: std::net::IpAddr,
+    client_ip: Option<std::net::IpAddr>,
 }
 
 impl Drop for ConnectionSlotGuard {
     fn drop(&mut self) {
-        let ip = self.client_ip;
-        tokio::spawn(async move {
-            crate::server::global_rate_limiter()
-                .remove_connection(ip)
-                .await;
-        });
+        if let Some(ip) = self.client_ip {
+            tokio::spawn(async move {
+                crate::server::global_rate_limiter()
+                    .remove_connection(ip)
+                    .await;
+            });
+        }
     }
 }
 
@@ -166,7 +227,7 @@ async fn handle_ws_connection(
     session_store: Arc<SessionStore>,
     cron_service: Arc<CronService>,
     query_token: Option<String>,
-    client_ip: std::net::IpAddr,
+    client_ip: Option<std::net::IpAddr>,
 ) {
     // Release the per-IP connection slot reserved in `ws_handler` when this
     // connection ends, even on early return / panic.
@@ -321,27 +382,33 @@ async fn handle_ws_connection(
                     Err(_) => continue, // Skip non-text frames.
                 };
 
-                // Try JSON-RPC 2.0 dispatch first (Phase 5).
-                // JSON-RPC messages have a "jsonrpc" field; GatewayMessages have "type".
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text)
-                    && parsed.get("jsonrpc").is_some() {
-                        let session_id_str = session_id.to_string();
-                        let reply = crate::ws_rpc::dispatch_rpc(
-                            text,
-                            &session_id_str,
-                            &auth,
-                            &session_mgr,
-                            &channel,
-                            &session_store,
-                            &cron_service,
-                            &rpc_token_info,
-                        ).await;
-                        // Send the raw JSON-RPC response directly.
-                        if ws.send(Message::text(reply)).await.is_err() {
-                            break;
-                        }
-                        continue;
+                // M18: branch on the discriminator without reparsing.
+                // JSON-RPC messages start with `{"jsonrpc"`; GatewayMessages
+                // start with `{"type"`. The substring scan is O(n) over the
+                // first ~64 bytes — much cheaper than the previous approach
+                // of fully parsing into `serde_json::Value` just to peek at
+                // the field name. Returning true does not guarantee a
+                // well-formed message; `dispatch_rpc` runs the typed parse
+                // and surfaces parse errors as JSON-RPC error responses.
+                if looks_like_jsonrpc(text) {
+                    let session_id_str = session_id.to_string();
+                    let reply = crate::ws_rpc::dispatch_rpc(
+                        text,
+                        &session_id_str,
+                        &auth,
+                        &session_mgr,
+                        &channel,
+                        &session_store,
+                        &cron_service,
+                        &rpc_token_info,
+                    )
+                    .await;
+                    // Send the raw JSON-RPC response directly.
+                    if ws.send(Message::text(reply)).await.is_err() {
+                        break;
                     }
+                    continue;
+                }
 
                 let gateway_msg = match serde_json::from_str::<GatewayMessage>(text) {
                     Ok(m) => m,

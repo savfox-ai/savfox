@@ -211,7 +211,13 @@ async fn bearer_auth_hoop(
     // applies to the protected API surface — the public anonymous paths
     // (webhooks, OAuth callbacks, SPA assets) are not rate-limited here.
     let limiter = global_rate_limiter();
-    let ip = req.remote_addr().ip();
+    // Salvo's `SocketAddr` is its own enum (Unix variant included). Convert
+    // to `std::net::SocketAddr` and extract the IP. For Unix-socket clients
+    // (`into_std()` returns `None`) we conservatively skip the rate-limit
+    // check — those connections come from the same host the daemon runs on.
+    let Some(ip) = req.remote_addr().clone().into_std().map(|s| s.ip()) else {
+        return;
+    };
     if !limiter.check_ip(ip).await {
         res.status_code(StatusCode::TOO_MANY_REQUESTS);
         res.render(Text::Json(
