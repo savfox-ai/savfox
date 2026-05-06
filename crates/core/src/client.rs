@@ -1395,7 +1395,9 @@ impl WebsocketTelemetry for ApiTelemetry {
 mod tests {
     use savfox_protocol::openai_models::{ReasoningEffort, ReasoningEffortPreset};
 
-    use super::normalize_reasoning_effort;
+    use super::{normalize_reasoning_effort, responses_endpoint_unsupported};
+    use crate::error::{SavfoxError, UnexpectedResponseError};
+    use http::StatusCode as HttpStatusCode;
 
     fn preset(effort: ReasoningEffort) -> ReasoningEffortPreset {
         ReasoningEffortPreset {
@@ -1423,5 +1425,112 @@ mod tests {
         let supported = vec![preset(ReasoningEffort::Low), preset(ReasoningEffort::High)];
         let normalized = normalize_reasoning_effort(Some(ReasoningEffort::XHigh), &supported);
         assert_eq!(normalized, Some(ReasoningEffort::High));
+    }
+
+    // ── T8: tests for `responses_endpoint_unsupported` ──────────────
+    //
+    // The function decides whether a model-server error implies the
+    // `/responses` endpoint isn't implemented (so we should fall back
+    // to chat completions). Mismatches here previously caused legitimate
+    // 400-with-tool-validation errors to silently swap to chat mode and
+    // lose tool support — the security review (M20) flagged the body
+    // keyword check as too permissive.
+
+    fn unexpected(status: HttpStatusCode, body: &str) -> SavfoxError {
+        SavfoxError::UnexpectedStatus(UnexpectedResponseError {
+            status,
+            body: body.to_owned(),
+            url: None,
+            request_id: None,
+        })
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_for_404() {
+        assert!(responses_endpoint_unsupported(&unexpected(
+            HttpStatusCode::NOT_FOUND,
+            "{}"
+        )));
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_for_405() {
+        assert!(responses_endpoint_unsupported(&unexpected(
+            HttpStatusCode::METHOD_NOT_ALLOWED,
+            ""
+        )));
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_for_501() {
+        assert!(responses_endpoint_unsupported(&unexpected(
+            HttpStatusCode::NOT_IMPLEMENTED,
+            ""
+        )));
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_for_400_with_known_keyword() {
+        // 400 + body containing one of the documented keywords → fallback.
+        for body in [
+            "endpoint not found",
+            "model unsupported",
+            "unknown path /responses",
+            "unrecognized request URL",
+            "ENDPOINT NOT FOUND",
+        ] {
+            assert!(
+                responses_endpoint_unsupported(&unexpected(HttpStatusCode::BAD_REQUEST, body)),
+                "expected fallback for body: {body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_skips_unrelated_400s() {
+        // 400 errors that are *real* model errors must not flip us into
+        // the chat-completions fallback.
+        for body in [
+            "tool schema validation failed",
+            "invalid input: missing field 'model'",
+            "rate limit reached, please try again",
+            "{}",
+        ] {
+            assert!(
+                !responses_endpoint_unsupported(&unexpected(HttpStatusCode::BAD_REQUEST, body)),
+                "should NOT fallback for body: {body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_skips_5xx_and_other_4xx() {
+        // 200/2xx, 401, 403, 429, 500 all stay on the responses path;
+        // only the explicit "endpoint isn't implemented" signals trigger
+        // the fallback.
+        for status in [
+            HttpStatusCode::UNAUTHORIZED,
+            HttpStatusCode::FORBIDDEN,
+            HttpStatusCode::TOO_MANY_REQUESTS,
+            HttpStatusCode::INTERNAL_SERVER_ERROR,
+            HttpStatusCode::BAD_GATEWAY,
+            HttpStatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            assert!(
+                !responses_endpoint_unsupported(&unexpected(status, "")),
+                "should NOT fallback for status {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn responses_endpoint_unsupported_returns_false_for_non_unexpected_status_errors() {
+        // Other SavfoxError variants must never trigger the fallback —
+        // only `UnexpectedStatus` carries the body / status pair we
+        // need to inspect.
+        assert!(!responses_endpoint_unsupported(&SavfoxError::TurnAborted));
+        assert!(!responses_endpoint_unsupported(
+            &SavfoxError::ContextWindowExceeded
+        ));
     }
 }
