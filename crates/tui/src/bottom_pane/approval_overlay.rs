@@ -469,8 +469,14 @@ fn exec_options(
     proposed_execpolicy_amendment: Option<ExecPolicyAmendment>,
     features: &Features,
 ) -> Vec<ApprovalOption> {
+    // Note: do NOT include the shortcut hint `(y)` etc. inside `label`.
+    // The list-rendering layer in `selection_popup_common::build_full_line`
+    // automatically appends ` ({display_shortcut})` to every row, and the
+    // `display_shortcut` here falls back to the first additional shortcut.
+    // Hard-coding the suffix in the label produces `Yes, proceed (y) (y)`
+    // (M13 in the security/quality review).
     vec![ApprovalOption {
-        label: "Yes, proceed (y)".to_owned(),
+        label: "Yes, proceed".to_owned(),
         decision: ApprovalDecision::Review(ReviewDecision::Approved),
         display_shortcut: None,
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
@@ -486,7 +492,7 @@ fn exec_options(
                 }
 
                 Some(ApprovalOption {
-                    label: format!("Yes, and don't ask again for `{rendered_prefix}` (p)"),
+                    label: format!("Yes, and don't ask again for `{rendered_prefix}`"),
                     decision: ApprovalDecision::Review(
                         ReviewDecision::ApprovedExecpolicyAmendment {
                             proposed_execpolicy_amendment: prefix,
@@ -498,7 +504,7 @@ fn exec_options(
             }),
     )
     .chain([ApprovalOption {
-        label: "No, tell Savfox what to do differently (n)".to_owned(),
+        label: "No, tell Savfox what to do differently".to_owned(),
         decision: ApprovalDecision::Review(ReviewDecision::Abort),
         display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
         additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -507,21 +513,22 @@ fn exec_options(
 }
 
 fn patch_options() -> Vec<ApprovalOption> {
+    // See `exec_options` for why labels do not embed the shortcut hint.
     vec![
         ApprovalOption {
-            label: "Yes, proceed (y)".to_owned(),
+            label: "Yes, proceed".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::Approved),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "Yes, don't ask again for these files (a)".to_owned(),
+            label: "Yes, don't ask again for these files".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::ApprovedForSession),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('a'))],
         },
         ApprovalOption {
-            label: "No, tell Savfox what to do differently (n)".to_owned(),
+            label: "No, tell Savfox what to do differently".to_owned(),
             decision: ApprovalDecision::Review(ReviewDecision::Abort),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
@@ -530,21 +537,22 @@ fn patch_options() -> Vec<ApprovalOption> {
 }
 
 fn elicitation_options() -> Vec<ApprovalOption> {
+    // See `exec_options` for why labels do not embed the shortcut hint.
     vec![
         ApprovalOption {
-            label: "Yes, provide the requested info (y)".to_owned(),
+            label: "Yes, provide the requested info".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Accept),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('y'))],
         },
         ApprovalOption {
-            label: "No, but continue without it (n)".to_owned(),
+            label: "No, but continue without it".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Decline),
             display_shortcut: None,
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('n'))],
         },
         ApprovalOption {
-            label: "Cancel this request (c)".to_owned(),
+            label: "Cancel this request".to_owned(),
             decision: ApprovalDecision::McpElicitation(ElicitationAction::Cancel),
             display_shortcut: Some(key_hint::plain(KeyCode::Esc)),
             additional_shortcuts: vec![key_hint::plain(KeyCode::Char('c'))],
