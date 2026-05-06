@@ -357,14 +357,16 @@ fn assert_layers_user_then_optional_system(
     layers: &[savfox_app_server_protocol::ConfigLayer],
     user_file: AbsolutePathBuf,
 ) -> Result<()> {
+    // `config/read` returns layers in HighestPrecedenceFirst order, so on
+    // Unix the system layer (if present) comes before the user layer.
     if cfg!(unix) {
         let system_file = AbsolutePathBuf::from_absolute_path(SYSTEM_CONFIG_TOML_FILE_UNIX)?;
         assert_eq!(layers.len(), 2);
-        assert_eq!(layers[0].name, ConfigLayerSource::User { file: user_file });
         assert_eq!(
-            layers[1].name,
+            layers[0].name,
             ConfigLayerSource::System { file: system_file }
         );
+        assert_eq!(layers[1].name, ConfigLayerSource::User { file: user_file });
     } else {
         assert_eq!(layers.len(), 1);
         assert_eq!(layers[0].name, ConfigLayerSource::User { file: user_file });
