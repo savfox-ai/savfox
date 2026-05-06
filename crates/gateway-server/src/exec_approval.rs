@@ -55,24 +55,64 @@ pub(crate) async fn persist_pending_approval(
     save_store(&path, &store).await
 }
 
+/// Result of an attempt to resolve an approval. The nonce check and the
+/// pending-list mutation happen inside one lock so the same nonce cannot
+/// race against itself for two concurrent resolutions (TOCTOU).
+pub(crate) enum ResolveOutcome {
+    /// The matching approval was on the pending list with a valid nonce
+    /// and has now been moved to `resolved`. Returns `true`.
+    Resolved,
+    /// The approval id was already resolved or was never on the pending
+    /// list. The resolution is still appended to `resolved` (legacy
+    /// behaviour) for audit, but the boolean caller signals "was
+    /// pending: false".
+    NotPending,
+    /// The presented nonce did not match — refused without mutating.
+    NonceMismatch,
+    /// The pending entry exists but has no server-issued nonce (legacy
+    /// requests persisted before S3). Refused without mutating.
+    LegacyMissingNonce,
+}
+
 pub(crate) async fn persist_resolved_approval(
     savfox_home: &Path,
     resolution: &ExecApprovalResolution,
-) -> Result<bool, String> {
+) -> Result<ResolveOutcome, String> {
+    use subtle::ConstantTimeEq;
     let _guard = approval_store_lock().lock().await;
     let path = approval_store_path(savfox_home);
     let mut store = load_store(&path).await;
-    let mut found = false;
-    store.pending.retain(|entry| {
-        let keep = entry.id != resolution.id;
-        if !keep {
-            found = true;
+
+    // Verify the nonce before mutating anything. Both the pending entry
+    // and the presented nonce are required; everything else is rejected
+    // before a write hits the disk.
+    let pending_entry = store.pending.iter().find(|r| r.id == resolution.id);
+    let was_pending = match pending_entry {
+        Some(entry) if entry.nonce.is_empty() => {
+            return Ok(ResolveOutcome::LegacyMissingNonce);
         }
-        keep
-    });
+        Some(entry) => {
+            if !bool::from(
+                entry
+                    .nonce
+                    .as_bytes()
+                    .ct_eq(resolution.nonce.as_bytes()),
+            ) {
+                return Ok(ResolveOutcome::NonceMismatch);
+            }
+            true
+        }
+        None => false,
+    };
+
+    store.pending.retain(|entry| entry.id != resolution.id);
     store.resolved.push(resolution.clone());
     save_store(&path, &store).await?;
-    Ok(found)
+    Ok(if was_pending {
+        ResolveOutcome::Resolved
+    } else {
+        ResolveOutcome::NotPending
+    })
 }
 
 pub(crate) async fn list_pending_approvals(
@@ -83,6 +123,7 @@ pub(crate) async fn list_pending_approvals(
     let store = load_store(&path).await;
     Ok(store.pending)
 }
+
 
 /// An exec approval request from an agent that needs human authorization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +156,16 @@ pub(crate) struct ExecApprovalRequest {
     /// When the request expires (epoch ms).
     #[serde(default)]
     pub expires_at_ms: u64,
+    /// Server-generated single-use nonce that resolves of this approval
+    /// MUST echo (S3 in the security review). The listing endpoint
+    /// returns the nonce alongside the request so a legitimate operator
+    /// who has Read access can resolve it; an attacker that has only
+    /// the resolve scope (or knows the request id from a leak but never
+    /// listed) cannot guess the nonce. The nonce is also single-use:
+    /// once a resolution consumes it the same nonce cannot resolve a
+    /// different request — defends against replay.
+    #[serde(default)]
+    pub nonce: String,
 }
 
 /// The resolution of an exec approval request.
@@ -130,6 +181,18 @@ pub(crate) struct ExecApprovalResolution {
     /// Optional reason for the decision.
     #[serde(default)]
     pub reason: Option<String>,
+    /// Single-use nonce echoed from the [`ExecApprovalRequest::nonce`]
+    /// the server generated. Resolutions without a matching nonce are
+    /// rejected with `400 Bad Request` (S3).
+    #[serde(default)]
+    pub nonce: String,
+}
+
+/// Generate a fresh single-use nonce for an approval request. 32 bytes
+/// of cryptographic randomness, hex-encoded → 64 chars.
+pub(crate) fn generate_approval_nonce() -> String {
+    let bytes: [u8; 32] = rand::random();
+    hex::encode(bytes)
 }
 
 /// Configuration for where to forward exec approvals.
@@ -375,6 +438,10 @@ pub(crate) async fn approval_request_handler(
     if request.expires_at_ms == 0 {
         request.expires_at_ms = now_ms + 300_000;
     }
+    // S3: always overwrite caller-supplied nonce with a server-generated
+    // one. Even if a malicious agent guesses an id, it cannot inject the
+    // matching nonce because that field is regenerated here.
+    request.nonce = generate_approval_nonce();
 
     if let Err(err) = persist_pending_approval(&channel.config().savfox_home, &request).await {
         warn!("failed to persist approval request {}: {}", request.id, err);
@@ -430,17 +497,50 @@ pub(crate) async fn approval_resolve_handler(
             return;
         }
     };
-    let resolved_pending =
-        match persist_resolved_approval(&channel.config().savfox_home, &resolution).await {
-            Ok(found) => found,
-            Err(err) => {
-                warn!(
-                    "failed to persist approval resolution {}: {}",
-                    resolution.id, err
-                );
-                false
-            }
-        };
+    // S3: nonce verification + persistence happen atomically inside
+    // `persist_resolved_approval`. Without a valid nonce, no write hits
+    // disk and the resolution is rejected with 400.
+    let outcome = match persist_resolved_approval(&channel.config().savfox_home, &resolution).await
+    {
+        Ok(o) => o,
+        Err(err) => {
+            warn!(
+                "failed to persist approval resolution {}: {}",
+                resolution.id, err
+            );
+            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+            res.render(Json(json!({"error": "persist failed", "id": resolution.id})));
+            return;
+        }
+    };
+    let resolved_pending = match outcome {
+        ResolveOutcome::Resolved => true,
+        ResolveOutcome::NotPending => false,
+        ResolveOutcome::NonceMismatch => {
+            warn!(
+                approval_id = %resolution.id,
+                "rejecting approval resolution: nonce mismatch"
+            );
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Json(json!({
+                "error": "approval nonce missing or invalid",
+                "id": resolution.id,
+            })));
+            return;
+        }
+        ResolveOutcome::LegacyMissingNonce => {
+            warn!(
+                approval_id = %resolution.id,
+                "rejecting approval resolution: legacy approval has no server-issued nonce"
+            );
+            res.status_code(StatusCode::BAD_REQUEST);
+            res.render(Json(json!({
+                "error": "approval has no server-issued nonce; re-issue the request",
+                "id": resolution.id,
+            })));
+            return;
+        }
+    };
 
     let config = load_forwarding_config();
 
@@ -517,12 +617,16 @@ fn load_forwarding_config() -> ApprovalForwardingConfig {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn approval_store_roundtrip() {
-        let root =
-            std::env::temp_dir().join(format!("savfox-gateway-approvals-{}", uuid::Uuid::now_v7()));
-        let req = ExecApprovalRequest {
-            id: "req-1".to_owned(),
+    fn temp_root(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "savfox-gateway-approvals-{label}-{}",
+            uuid::Uuid::now_v7()
+        ))
+    }
+
+    fn sample_request(id: &str, nonce: &str) -> ExecApprovalRequest {
+        ExecApprovalRequest {
+            id: id.to_owned(),
             command: "echo hello".to_owned(),
             cwd: Some("/tmp".to_owned()),
             host: None,
@@ -532,7 +636,25 @@ mod tests {
             session_id: Some("0194f7b3-1d7b-7c40-ae3d-95b6ef93e140".to_owned()),
             created_at_ms: 1,
             expires_at_ms: 2,
-        };
+            nonce: nonce.to_owned(),
+        }
+    }
+
+    fn sample_resolution(id: &str, nonce: &str) -> ExecApprovalResolution {
+        ExecApprovalResolution {
+            id: id.to_owned(),
+            approved: true,
+            resolved_by: Some("tester".to_owned()),
+            reason: None,
+            nonce: nonce.to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn approval_store_roundtrip_with_matching_nonce() {
+        let root = temp_root("happy");
+        let nonce = generate_approval_nonce();
+        let req = sample_request("req-1", &nonce);
 
         persist_pending_approval(&root, &req)
             .await
@@ -541,17 +663,13 @@ mod tests {
         let pending = list_pending_approvals(&root).await.expect("list pending");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].id, "req-1");
+        assert_eq!(pending[0].nonce, nonce, "nonce surfaces through listing");
 
-        let resolved = ExecApprovalResolution {
-            id: "req-1".to_owned(),
-            approved: true,
-            resolved_by: Some("tester".to_owned()),
-            reason: None,
-        };
-        let was_pending = persist_resolved_approval(&root, &resolved)
+        let resolved = sample_resolution("req-1", &nonce);
+        let outcome = persist_resolved_approval(&root, &resolved)
             .await
             .expect("persist resolved");
-        assert!(was_pending);
+        assert!(matches!(outcome, ResolveOutcome::Resolved));
 
         let pending_after = list_pending_approvals(&root)
             .await
@@ -559,5 +677,82 @@ mod tests {
         assert!(pending_after.is_empty());
 
         let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
+    async fn resolution_with_wrong_nonce_is_rejected() {
+        let root = temp_root("nonce-mismatch");
+        let req = sample_request("req-2", &generate_approval_nonce());
+        persist_pending_approval(&root, &req).await.unwrap();
+
+        let bad = sample_resolution("req-2", &generate_approval_nonce());
+        let outcome = persist_resolved_approval(&root, &bad).await.unwrap();
+        assert!(matches!(outcome, ResolveOutcome::NonceMismatch));
+
+        // Pending list is untouched — the rejected resolution did not
+        // remove the entry.
+        let pending = list_pending_approvals(&root).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].id, "req-2");
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
+    async fn legacy_approval_with_empty_nonce_cannot_be_resolved() {
+        let root = temp_root("legacy");
+        // A request persisted before this PR landed has an empty nonce
+        // (default for the new field). Resolution must refuse rather
+        // than silently accept any input.
+        let req = sample_request("req-3", "");
+        persist_pending_approval(&root, &req).await.unwrap();
+
+        let res = sample_resolution("req-3", "anything");
+        let outcome = persist_resolved_approval(&root, &res).await.unwrap();
+        assert!(matches!(outcome, ResolveOutcome::LegacyMissingNonce));
+        assert_eq!(list_pending_approvals(&root).await.unwrap().len(), 1);
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
+    async fn nonce_is_single_use_and_cannot_be_replayed() {
+        let root = temp_root("replay");
+        let nonce = generate_approval_nonce();
+        let req = sample_request("req-4", &nonce);
+        persist_pending_approval(&root, &req).await.unwrap();
+
+        // First resolution succeeds.
+        let outcome = persist_resolved_approval(&root, &sample_resolution("req-4", &nonce))
+            .await
+            .unwrap();
+        assert!(matches!(outcome, ResolveOutcome::Resolved));
+
+        // A second resolution with the *same* nonce must fail because
+        // the entry is no longer in pending.
+        let outcome = persist_resolved_approval(&root, &sample_resolution("req-4", &nonce))
+            .await
+            .unwrap();
+        assert!(matches!(outcome, ResolveOutcome::NotPending));
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[tokio::test]
+    async fn unknown_id_returns_not_pending() {
+        let root = temp_root("unknown");
+        let outcome =
+            persist_resolved_approval(&root, &sample_resolution("nope", "xx")).await.unwrap();
+        assert!(matches!(outcome, ResolveOutcome::NotPending));
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    #[test]
+    fn generate_approval_nonce_is_64_hex_chars_and_distinct() {
+        let a = generate_approval_nonce();
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        let b = generate_approval_nonce();
+        assert_ne!(a, b);
     }
 }
