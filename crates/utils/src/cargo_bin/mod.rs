@@ -43,8 +43,14 @@ pub fn cargo_bin(name: &str) -> Result<PathBuf, CargoBinError> {
             return resolve_bin_from_env(key, value);
         }
     }
-    match assert_cmd::Command::cargo_bin(name) {
-        Ok(cmd) => {
+
+    if let Some(path) = find_binary_next_to_current_test(name)? {
+        return Ok(path);
+    }
+
+    let fallback_result = std::panic::catch_unwind(|| assert_cmd::Command::cargo_bin(name));
+    match fallback_result {
+        Ok(Ok(cmd)) => {
             let mut path = PathBuf::from(cmd.get_program());
             if !path.is_absolute() {
                 path = std::env::current_dir()
@@ -60,11 +66,45 @@ pub fn cargo_bin(name: &str) -> Result<PathBuf, CargoBinError> {
                 })
             }
         }
-        Err(err) => Err(CargoBinError::NotFound {
+        Ok(Err(err)) => Err(CargoBinError::NotFound {
             name: name.to_owned(),
             env_keys,
             fallback: format!("assert_cmd fallback failed: {err}"),
         }),
+        Err(_) => Err(CargoBinError::NotFound {
+            name: name.to_owned(),
+            env_keys,
+            fallback: "assert_cmd fallback panicked".to_owned(),
+        }),
+    }
+}
+
+fn find_binary_next_to_current_test(name: &str) -> Result<Option<PathBuf>, CargoBinError> {
+    let current_exe =
+        std::env::current_exe().map_err(|source| CargoBinError::CurrentExe { source })?;
+    let Some(profile_dir) = cargo_profile_dir_for_current_exe(&current_exe) else {
+        return Ok(None);
+    };
+
+    let exe_name = executable_file_name(name);
+    let path = profile_dir.join(exe_name);
+    Ok(path.exists().then_some(path))
+}
+
+fn cargo_profile_dir_for_current_exe(current_exe: &Path) -> Option<PathBuf> {
+    let parent = current_exe.parent()?;
+    if parent.file_name().and_then(|name| name.to_str()) == Some("deps") {
+        parent.parent().map(Path::to_path_buf)
+    } else {
+        Some(parent.to_path_buf())
+    }
+}
+
+fn executable_file_name(name: &str) -> String {
+    if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
     }
 }
 

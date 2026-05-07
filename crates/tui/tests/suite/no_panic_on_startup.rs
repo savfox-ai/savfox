@@ -64,7 +64,7 @@ async fn run_savfox_cli(
         savfox_home.as_ref().display().to_string(),
     );
 
-    let args = vec!["-c".to_owned(), "analytics.enabled=false".to_owned()];
+    let args: Vec<String> = Vec::new();
     let spawned = savfox_utils::pty::spawn_pty_process(
         savfox_cli.to_string_lossy().as_ref(),
         &args,

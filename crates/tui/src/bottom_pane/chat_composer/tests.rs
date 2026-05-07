@@ -1271,13 +1271,19 @@
         composer.flush_paste_burst_if_due()
     }
 
-    // Test helper: simulate human typing with a brief delay and flush the paste-burst buffer
+    // Test helper: simulate human typing by advancing virtual time past the paste-burst window.
     fn type_chars_humanlike(composer: &mut ChatComposer, chars: &[char]) {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut now = Instant::now();
+        let step = ChatComposer::recommended_paste_flush_delay();
         for &ch in chars {
-            let _ = composer.handle_key_event(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
-            std::thread::sleep(ChatComposer::recommended_paste_flush_delay());
-            let _ = composer.flush_paste_burst_if_due();
+            let _ = composer.handle_input_basic_with_time(
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+                now,
+            );
+            now += step;
+            let _ = composer.handle_paste_burst_flush(now);
+            composer.sync_popups();
         }
     }
 

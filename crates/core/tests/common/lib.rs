@@ -84,13 +84,26 @@ pub async fn load_default_config_for_test(savfox_home: &TempDir) -> Config {
 
 #[cfg(target_os = "linux")]
 fn default_test_overrides() -> ConfigOverrides {
+    let savfox_linux_sandbox_exe = savfox_utils::cargo_bin::cargo_bin("savfox-linux-sandbox")
+        .ok()
+        .or_else(|| find_executable_on_path("savfox-linux-sandbox"));
+
     ConfigOverrides {
-        savfox_linux_sandbox_exe: Some(
-            savfox_utils::cargo_bin::cargo_bin("savfox-linux-sandbox")
-                .expect("should find binary for savfox-linux-sandbox"),
-        ),
+        savfox_linux_sandbox_exe,
         ..ConfigOverrides::default()
     }
+}
+
+#[cfg(target_os = "linux")]
+fn find_executable_on_path(name: &str) -> Option<PathBuf> {
+    let paths = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&paths) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[cfg(not(target_os = "linux"))]

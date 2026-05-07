@@ -33,6 +33,7 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
+              - '.config/nextest.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
             core:
@@ -93,6 +94,7 @@ jobs:
   # ─── Tests ─────────────────────────────────────────────────────────
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     needs: [changes]
     if: needs.changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
     strategy:
@@ -109,13 +111,14 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Run tests (nextest)
-        run: cargo nextest run --workspace --no-fail-fast
+        run: cargo nextest run --workspace --profile ci
       - name: Run doctests
         run: cargo test --workspace --doc
 
   # ─── Targeted domain tests ────────────────────────────────────────
   test-targeted:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     needs: [changes]
     if: needs.changes.outputs.rust == 'true' || github.ref == 'refs/heads/main'
     steps:
@@ -125,18 +128,32 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - name: Build spawned test binaries
+        if: needs.changes.outputs.core == 'true' || needs.changes.outputs.tui == 'true' || github.ref == 'refs/heads/main'
+        run: |
+          cargo build --bin savfox
+          {
+            echo "CARGO_BIN_EXE_savfox=$PWD/target/debug/savfox"
+          } >> "$GITHUB_ENV"
+          if [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            cargo build --bin savfox-exec --bin savfox-linux-sandbox
+            {
+              echo "CARGO_BIN_EXE_savfox_exec=$PWD/target/debug/savfox-exec"
+              echo "CARGO_BIN_EXE_savfox_linux_sandbox=$PWD/target/debug/savfox-linux-sandbox"
+            } >> "$GITHUB_ENV"
+          fi
       - name: Core matrix
         if: needs.changes.outputs.core == 'true' || github.ref == 'refs/heads/main'
-        run: cargo nextest run -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+        run: cargo nextest run --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
       - name: Protocol matrix
         if: needs.changes.outputs.protocol == 'true' || github.ref == 'refs/heads/main'
-        run: cargo nextest run -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+        run: cargo nextest run --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
         if: needs.changes.outputs.tui == 'true' || github.ref == 'refs/heads/main'
-        run: cargo nextest run -p savfox-tui
+        run: cargo nextest run --profile ci -p savfox-tui
       - name: Gateway and channel matrix
         if: needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.ref == 'refs/heads/main'
-        run: cargo nextest run -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+        run: cargo nextest run --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
