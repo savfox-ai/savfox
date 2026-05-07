@@ -105,9 +105,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
-      - run: cargo test --workspace
-        env:
-          RUST_LOG: debug
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Run tests (nextest)
+        run: cargo nextest run --workspace --no-fail-fast
+      - name: Run doctests
+        run: cargo test --workspace --doc
 
   # ─── Targeted domain tests ────────────────────────────────────────
   test-targeted:
@@ -118,18 +122,21 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Core matrix
         if: needs.changes.outputs.core == 'true' || github.ref == 'refs/heads/main'
-        run: cargo test -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+        run: cargo nextest run -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
       - name: Protocol matrix
         if: needs.changes.outputs.protocol == 'true' || github.ref == 'refs/heads/main'
-        run: cargo test -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
+        run: cargo nextest run -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
         if: needs.changes.outputs.tui == 'true' || github.ref == 'refs/heads/main'
-        run: cargo test -p savfox-tui
+        run: cargo nextest run -p savfox-tui
       - name: Gateway and channel matrix
         if: needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.ref == 'refs/heads/main'
-        run: cargo test -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
+        run: cargo nextest run -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
