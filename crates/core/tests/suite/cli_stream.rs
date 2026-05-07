@@ -21,6 +21,10 @@ fn cli_responses_fixture() -> std::path::PathBuf {
     find_resource!("tests/cli_responses_fixture.sse").expect("failed to resolve fixture path")
 }
 
+fn write_config(home: &TempDir, contents: &str) {
+    std::fs::write(home.path().join("config.toml"), contents).expect("write test config");
+}
+
 /// Tests streaming chat completions through the CLI using a mock server.
 /// This test:
 /// 1. Sets up a mock server that simulates OpenAI's chat completions API
@@ -50,18 +54,26 @@ async fn chat_mode_stream_cli() {
         .await;
 
     let home = TempDir::new().unwrap();
-    let provider_override = format!(
-        "model_providers.mock={{ name = \"mock\", base_url = \"{}/v1\", env_key = \"PATH\", wire_api = \"chat\" }}",
-        server.uri()
+    write_config(
+        &home,
+        &format!(
+            r#"
+model_provider = "mock"
+
+[model_providers.mock]
+name = "mock"
+base_url = "{}/v1"
+env_key = "PATH"
+wire_api = "chat"
+"#,
+            server.uri()
+        ),
     );
+
     let bin = savfox_utils::cargo_bin::cargo_bin("savfox").unwrap();
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
-        .arg("-c")
-        .arg(&provider_override)
-        .arg("-c")
-        .arg("model_provider=\"mock\"")
         .arg("-C")
         .arg(&repo_root)
         .arg("hello?");
@@ -106,7 +118,7 @@ async fn chat_mode_stream_cli() {
     );
 }
 
-/// Verify that passing `-c model_instructions_file=...` to the CLI
+/// Verify that passing `model_instructions_file` via config to the CLI
 /// overrides the built-in base instructions by inspecting the request body
 /// received by a mock OpenAI Responses endpoint.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -130,25 +142,29 @@ async fn exec_cli_applies_model_instructions_file() {
     std::fs::write(&custom_path, marker).unwrap();
     let custom_path_str = custom_path.to_string_lossy().replace('\\', "/");
 
-    // Build a provider override that points at the mock server and instructs
-    // Savfox to use the Responses API with the dummy env var.
-    let provider_override = format!(
-        "model_providers.mock={{ name = \"mock\", base_url = \"{}/v1\", env_key = \"PATH\", wire_api = \"responses\" }}",
-        server.uri()
+    let home = TempDir::new().unwrap();
+    write_config(
+        &home,
+        &format!(
+            r#"
+model_provider = "mock"
+model_instructions_file = "{custom_path_str}"
+
+[model_providers.mock]
+name = "mock"
+base_url = "{}/v1"
+env_key = "PATH"
+wire_api = "responses"
+"#,
+            server.uri()
+        ),
     );
 
-    let home = TempDir::new().unwrap();
     let repo_root = repo_root();
     let bin = savfox_utils::cargo_bin::cargo_bin("savfox").unwrap();
     let mut cmd = AssertCommand::new(bin);
     cmd.arg("exec")
         .arg("--skip-git-repo-check")
-        .arg("-c")
-        .arg(&provider_override)
-        .arg("-c")
-        .arg("model_provider=\"mock\"")
-        .arg("-c")
-        .arg(format!("model_instructions_file=\"{custom_path_str}\""))
         .arg("-C")
         .arg(&repo_root)
         .arg("hello?\n");
