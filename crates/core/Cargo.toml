@@ -168,5 +168,10 @@ walkdir = { workspace = true }
 wiremock = { workspace = true }
 zstd = { workspace = true }
 
+# Linux-only: tests look up the savfox-linux-sandbox bin via CARGO_BIN_EXE_*,
+# which Cargo only exports for direct dev-deps with a binary target.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+savfox-linux-sandbox = { workspace = true }
+
 [package.metadata.cargo-shear]
 ignored = ["openssl-sys"]
