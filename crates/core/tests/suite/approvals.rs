@@ -1467,7 +1467,12 @@ async fn symbolic_approve_reply_resolves_pending_exec_approval() -> Result<()> {
         content: "textual-approval",
     };
     let (event, expected_command) = action
-        .prepare(&test, &server, call_id, SandboxPermissions::UseDefault)
+        .prepare(
+            &test,
+            &server,
+            call_id,
+            SandboxPermissions::RequireEscalated,
+        )
         .await?;
 
     let _ = mount_sse_once(
@@ -1531,7 +1536,12 @@ async fn structured_approve_reply_resolves_pending_exec_approval() -> Result<()>
         content: "structured-approval",
     };
     let (event, expected_command) = action
-        .prepare(&test, &server, call_id, SandboxPermissions::UseDefault)
+        .prepare(
+            &test,
+            &server,
+            call_id,
+            SandboxPermissions::RequireEscalated,
+        )
         .await?;
 
     let _ = mount_sse_once(
