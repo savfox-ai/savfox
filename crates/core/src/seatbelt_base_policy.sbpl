@@ -1,4 +1,4 @@
-﻿(version 1)
+(version 1)
 
 ; inspired by Chrome's sandbox policy:
 ; https://source.chromium.org/chromium/chromium/src/+/main:sandbox/policy/mac/common.sb;l=273-319;drc=7b3962fe2e5fc9e2ee58000dc8fbf3429d84d3bd

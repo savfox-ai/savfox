@@ -2195,12 +2195,17 @@ interface:
             .into_iter()
             .map(|root| root.scope)
             .collect();
+        // `skill_roots_from_layer_stack_inner` walks layers in
+        // HighestPrecedenceFirst order, so on Unix the system layer
+        // (Admin scope) is emitted before the user layer's roots.
+        // Admin is still "lowest priority" for skill dedupe via
+        // `scope_rank` in `load_skills_from_roots`.
         let mut expected = vec![SkillScope::User, SkillScope::System];
         if home_dir().is_some() {
             expected.insert(1, SkillScope::User);
         }
         if cfg!(unix) {
-            expected.push(SkillScope::Admin);
+            expected.insert(0, SkillScope::Admin);
         }
         assert_eq!(scopes, expected);
     }
