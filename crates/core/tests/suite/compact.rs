@@ -87,6 +87,7 @@ fn json_fragment(text: &str) -> String {
 
 fn non_openai_model_provider(server: &MockServer) -> ModelProviderInfo {
     let mut provider = built_in_model_providers()["openai"].clone();
+    provider.id = "openai-compatible-test".into();
     provider.name = "OpenAI (test)".into();
     provider.base_url = Some(format!("{}/v1", server.uri()));
     provider
