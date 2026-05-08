@@ -30,8 +30,6 @@ pub enum Stage {
     Stable,
     /// Deprecated feature that should not be used anymore.
     Deprecated,
-    /// The feature flag is useless but kept for backward compatibility reason.
-    Removed,
 }
 
 impl Stage {
@@ -226,13 +224,6 @@ impl Features {
             summary,
             details,
         });
-    }
-
-    pub fn record_legacy_usage(&mut self, alias: &str, feature: Feature) {
-        if alias == feature.key() {
-            return;
-        }
-        self.record_legacy_usage_force(alias, feature);
     }
 
     pub fn legacy_feature_usages(&self) -> impl Iterator<Item = &LegacyFeatureUsage> + '_ {

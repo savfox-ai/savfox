@@ -16,6 +16,8 @@ pub mod cache;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cargo_bin;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod fs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod git;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod home_dir;

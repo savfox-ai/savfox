@@ -528,24 +528,9 @@ impl SessionStore {
         entries: &HashMap<String, SessionEntry>,
     ) -> std::io::Result<()> {
         let path = &self.config.metadata_path;
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
         let data = serde_json::to_vec_pretty(entries)
             .map_err(|err| std::io::Error::other(format!("serialize session metadata: {err}")))?;
-        // Use a unique temp file (PID + random suffix) to avoid collisions
-        // between concurrent writers, then atomically rename into place.
-        // `rename` on the same filesystem is atomic and replaces the target,
-        // so we skip the separate `remove` step.
-        let pid = std::process::id();
-        let rand_suffix: u32 = rand::random();
-        let temp_name = format!(".session-store-{pid}-{rand_suffix:08x}.tmp");
-        let temp_path = path.with_file_name(temp_name);
-        tokio::fs::write(&temp_path, data).await?;
-        tokio::fs::rename(&temp_path, path).await
+        savfox_utils::fs::write_atomically_async(path, data, Some(0o600)).await
     }
 
     async fn persist_cache(&self) {

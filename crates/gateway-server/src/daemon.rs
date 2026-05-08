@@ -104,18 +104,6 @@ pub(crate) fn default_pid_file(savfox_home: &Path) -> PathBuf {
     savfox_home.join("gateway.pid")
 }
 
-/// Write the current process PID to `path`.
-#[allow(dead_code)]
-pub(crate) fn write_pid_file(path: &Path) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let pid = std::process::id();
-    fs::write(path, pid.to_string())?;
-    info!(pid, path = %path.display(), "wrote PID file");
-    Ok(())
-}
-
 /// Read a PID from the file at `path`. Returns `None` if the file doesn't
 /// exist, is empty, or contains an invalid value.
 pub(crate) fn read_pid_file(path: &Path) -> Option<u32> {

@@ -62,10 +62,7 @@ impl OllamaClient {
             || matches!(provider.wire_api, WireApi::Chat)
                 && is_openai_compatible_base_url(base_url);
         let host_root = base_url_to_host_root(base_url);
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let client = savfox_core::default_client::build_reqwest_client();
         let client = Self {
             client,
             host_root,
@@ -246,12 +243,8 @@ impl OllamaClient {
     /// Low-level constructor given a raw host root, e.g. "http://localhost:11434".
     #[cfg(test)]
     fn from_host_root(host_root: impl Into<String>) -> Self {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client,
+            client: savfox_core::default_client::build_reqwest_client(),
             host_root: host_root.into(),
             uses_openai_compat: false,
         }
@@ -267,13 +260,7 @@ mod tests {
     // Happy-path tests using a mock HTTP server; skip if sandbox network is disabled.
     #[tokio::test]
     async fn test_fetch_models_happy_path() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_fetch_models_happy_path",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -298,13 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_version() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_fetch_version",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -334,13 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_probe_server_happy_path_openai_compat_and_native() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} set; skipping test_probe_server_happy_path_openai_compat_and_native",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
 
@@ -371,13 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_from_oss_provider_ok_when_server_running() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} set; skipping test_try_from_oss_provider_ok_when_server_running",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
 
@@ -395,13 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_try_from_oss_provider_err_when_server_missing() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} set; skipping test_try_from_oss_provider_err_when_server_missing",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         let err = OllamaClient::try_from_provider_with_base_url(&format!("{}/v1", server.uri()))

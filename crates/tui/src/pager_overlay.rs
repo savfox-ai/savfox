@@ -207,10 +207,6 @@ impl SearchState {
 }
 
 const KEY_SLASH: KeyBinding = key_hint::plain(KeyCode::Char('/'));
-#[allow(dead_code)]
-const KEY_N_LOWER: KeyBinding = key_hint::plain(KeyCode::Char('n'));
-#[allow(dead_code)]
-const KEY_N_UPPER: KeyBinding = key_hint::shift(KeyCode::Char('N'));
 
 /// Generic widget for rendering a pager view.
 struct PagerView {

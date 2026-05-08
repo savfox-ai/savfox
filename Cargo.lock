@@ -9126,6 +9126,7 @@ dependencies = [
 name = "savfox-lmstudio"
 version = "0.3.1"
 dependencies = [
+ "core_test_support",
  "reqwest 0.13.2",
  "savfox-core",
  "serde_json",
@@ -9254,6 +9255,7 @@ dependencies = [
  "assert_matches",
  "async-stream",
  "bytes",
+ "core_test_support",
  "futures",
  "pretty_assertions",
  "reqwest 0.13.2",

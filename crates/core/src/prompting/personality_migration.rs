@@ -8,9 +8,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::config::ConfigToml;
 use crate::config::edit::ConfigEditsBuilder;
-use crate::rollout::list::{
-    SessionListConfig, SessionListLayout, SessionSortKey, get_sessions_in_root,
-};
+use crate::rollout::list::{SessionListConfig, SessionSortKey, get_sessions_in_root};
 use crate::rollout::{ARCHIVED_SESSIONS_SUBDIR, SESSIONS_SUBDIR};
 use crate::state_db;
 
@@ -90,7 +88,6 @@ async fn has_recorded_sessions(savfox_home: &Path, default_provider: &str) -> io
             allowed_sources,
             model_providers: None,
             default_provider,
-            layout: SessionListLayout::Flat,
         },
     )
     .await?;
@@ -107,7 +104,6 @@ async fn has_recorded_sessions(savfox_home: &Path, default_provider: &str) -> io
             allowed_sources,
             model_providers: None,
             default_provider,
-            layout: SessionListLayout::Flat,
         },
     )
     .await?;

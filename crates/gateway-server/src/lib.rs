@@ -1,6 +1,8 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 // TODO(F6): 收敛 unreachable_pub 与 dead_code —— workspace 全局是 deny,
-// 这里临时 allow 是为了不阻塞迭代;后续应逐文件修可见性 / 删除真正死代码。
+// 这里临时 allow 是为了不阻塞迭代。dead_code 暴露了 ~50 处未接入的子系统
+// (BroadcastManager / TemplateEngine / AutoReplyRule 等),需独立 PR 评估
+// 是删除还是接入。后续应逐文件修可见性。
 #![allow(unreachable_pub, dead_code)]
 #![allow(missing_debug_implementations)]
 #![allow(

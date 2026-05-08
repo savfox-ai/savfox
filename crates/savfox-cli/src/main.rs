@@ -588,7 +588,6 @@ fn stage_str(stage: savfox_core::features::Stage) -> &'static str {
         Stage::Experimental { .. } => "experimental",
         Stage::Stable => "stable",
         Stage::Deprecated => "deprecated",
-        Stage::Removed => "removed",
     }
 }
 

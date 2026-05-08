@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use dioxus::prelude::*;
+use savfox_utils::string::slugify_account_id;
 use serde_json::{Value, json};
 
 use crate::api::types::{ModelsResponse, ReasoningEffortPreset};
@@ -433,27 +434,6 @@ struct ModelEntry {
     provider: Option<String>,
     default_reasoning_level: Option<String>,
     supported_reasoning_levels: Option<Vec<ReasoningEffortPreset>>,
-}
-
-/// Generate account id from provider_id and display name (mirrors
-/// `savfox_core::config::provider_store::slugify_account_id`).
-fn slugify_account_id(provider_id: &str, name: &str) -> String {
-    let provider_id = provider_id.trim();
-    let normalized: String = name
-        .trim()
-        .to_ascii_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let collapsed: String = normalized
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    if collapsed.is_empty() {
-        return provider_id.to_string();
-    }
-    format!("{provider_id}-{collapsed}")
 }
 
 fn model_provider_id(provider: Option<&str>, model_id: &str) -> String {
