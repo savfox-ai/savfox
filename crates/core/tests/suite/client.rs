@@ -1481,7 +1481,9 @@ async fn usage_limit_error_emits_rate_limit_event() -> anyhow::Result<()> {
         .mount(&server)
         .await;
 
-    let mut builder = test_savfox();
+    let mut builder = test_savfox().with_config(|config| {
+        config.model_provider.request_max_retries = Some(0);
+    });
     let savfox_fixture = builder.build(&server).await?;
     let savfox = savfox_fixture.savfox.clone();
 
