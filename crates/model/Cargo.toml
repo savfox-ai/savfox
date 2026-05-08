@@ -13,3 +13,4 @@ workspace = true
 
 [dependencies]
 savfox-protocol = { workspace = true }
+savfox-utils = { workspace = true }

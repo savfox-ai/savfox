@@ -27,6 +27,7 @@ pub mod image;
 pub mod json_to_toml;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pty;
+pub mod provider_id;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod readiness;
 pub mod string;
