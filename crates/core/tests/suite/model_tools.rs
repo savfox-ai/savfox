@@ -59,7 +59,7 @@ async fn model_selects_expected_tools() {
     assert_eq!(
         savfox_tools,
         vec![
-            "local_shell".to_owned(),
+            "shell".to_owned(),
             "list_mcp_resources".to_owned(),
             "list_mcp_resource_templates".to_owned(),
             "read_mcp_resource".to_owned(),
@@ -68,24 +68,23 @@ async fn model_selects_expected_tools() {
             "web_search".to_owned(),
             "view_image".to_owned()
         ],
-        "savfox-mini-latest should expose the local shell tool",
+        "savfox-mini-latest should expose the default shell tool",
     );
 
     let gpt5_savfox_tools = collect_tool_identifiers_for_model("gpt-5-savfox").await;
     assert_eq!(
         gpt5_savfox_tools,
         vec![
-            "shell_command".to_owned(),
+            "shell".to_owned(),
             "list_mcp_resources".to_owned(),
             "list_mcp_resource_templates".to_owned(),
             "read_mcp_resource".to_owned(),
             "update_plan".to_owned(),
             "request_user_input".to_owned(),
-            "apply_patch".to_owned(),
             "web_search".to_owned(),
             "view_image".to_owned()
         ],
-        "gpt-5-savfox should expose the apply_patch tool",
+        "gpt-5-savfox should expose the default shell tool",
     );
 
     let gpt51_savfox_tools = collect_tool_identifiers_for_model("gpt-5.1-savfox").await;
