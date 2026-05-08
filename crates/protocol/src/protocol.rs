@@ -1923,6 +1923,7 @@ pub struct SessionMetaLine {
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
 pub enum RolloutItem {
     SessionMeta(SessionMetaLine),
+    #[serde(alias = "message")]
     ResponseItem(ResponseItem),
     Compacted(CompactedItem),
     TurnContext(TurnContextItem),
@@ -2996,6 +2997,37 @@ mod tests {
             }
             other => panic!("unexpected fallback events: {other:#?}"),
         }
+    }
+
+    #[test]
+    fn rollout_line_deserializes_legacy_message_alias_as_response_item() -> Result<()> {
+        let line: RolloutLine = serde_json::from_value(json!({
+            "timestamp": "2024-01-01T00:00:00.000Z",
+            "type": "message",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "legacy assistant"
+                }]
+            }
+        }))?;
+
+        match line.item {
+            RolloutItem::ResponseItem(ResponseItem::Message { role, content, .. }) => {
+                assert_eq!(role, "assistant");
+                assert_eq!(
+                    content,
+                    vec![ContentItem::OutputText {
+                        text: "legacy assistant".to_owned(),
+                    }]
+                );
+            }
+            other => panic!("unexpected rollout item: {other:#?}"),
+        }
+
+        Ok(())
     }
 
     #[test]
