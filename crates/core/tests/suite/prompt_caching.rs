@@ -11,7 +11,6 @@ use savfox_core::protocol::{
 };
 use savfox_core::protocol_config_types::ReasoningSummary;
 use savfox_core::shell::{Shell, default_user_shell};
-use savfox_model::BASE_INSTRUCTIONS;
 use savfox_protocol::config_types::{CollaborationMode, ModeKind, Settings, WebSearchMode};
 use savfox_protocol::openai_models::ReasoningEffort;
 use savfox_protocol::user_input::UserInput;
@@ -165,7 +164,12 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
     let req1 = mount_sse_once(&server, sse_completed("resp-1")).await;
     let req2 = mount_sse_once(&server, sse_completed("resp-2")).await;
 
-    let TestSavfox { savfox, .. } = test_savfox()
+    let TestSavfox {
+        savfox,
+        config,
+        session_manager,
+        ..
+    } = test_savfox()
         .with_config(|config| {
             config.user_instructions = Some("be consistent and helpful".to_owned());
             config.features.disable(Feature::ApplyPatchFreeform);
@@ -174,6 +178,17 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
         })
         .build(&server)
         .await?;
+    let base_instructions = session_manager
+        .get_models_manager()
+        .get_model_info(
+            config
+                .model
+                .as_deref()
+                .expect("test config should have a model"),
+            &config,
+        )
+        .await
+        .base_instructions;
 
     savfox
         .submit(Op::UserInput {
@@ -198,7 +213,8 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
 
     wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
-    let expected_instructions = [BASE_INSTRUCTIONS, APPLY_PATCH_TOOL_INSTRUCTIONS].join("\n");
+    let expected_instructions =
+        [base_instructions, APPLY_PATCH_TOOL_INSTRUCTIONS.to_owned()].join("\n");
 
     let body0 = req1.single_request().body_json();
     let instructions0 = body0["instructions"]
