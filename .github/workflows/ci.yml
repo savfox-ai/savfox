@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      workspace: ${{ steps.filter.outputs.workspace }}
       core: ${{ steps.filter.outputs.core }}
       protocol: ${{ steps.filter.outputs.protocol }}
       tui: ${{ steps.filter.outputs.tui }}
@@ -36,6 +37,10 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
+              - '.config/nextest.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            workspace:
               - '.config/nextest.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -99,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [changes]
-    if: needs.changes.outputs.rust == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: needs.changes.outputs.workspace == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -150,13 +155,13 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Build spawned test binaries
-        if: needs.changes.outputs.core == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
           cargo build --bin savfox
           {
             echo "CARGO_BIN_EXE_savfox=$PWD/target/debug/savfox"
           } >> "$GITHUB_ENV"
-          if [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "${{ needs.changes.outputs.workspace }}" = "true" ] || [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
             cargo build --bin savfox-exec --bin savfox-linux-sandbox
             {
               echo "CARGO_BIN_EXE_savfox_exec=$PWD/target/debug/savfox-exec"
@@ -164,22 +169,23 @@ jobs:
             } >> "$GITHUB_ENV"
           fi
       - name: Core matrix
-        if: needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
       - name: Protocol matrix
-        if: needs.changes.outputs.protocol == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.protocol == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server
       - name: TUI matrix
-        if: needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-tui
       - name: Gateway and channel matrix
-        if: needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.gateway == 'true' || needs.changes.outputs.channels == 'true' || needs.changes.outputs.web == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-gateway-server -p savfox-gateway-shared -p savfox-channels
 
   # ─── Code coverage ─────────────────────────────────────────────────
   coverage:
     runs-on: ubuntu-latest
     needs: [test]
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -253,6 +259,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [fmt, clippy, test, coverage, audit, licenses]
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
