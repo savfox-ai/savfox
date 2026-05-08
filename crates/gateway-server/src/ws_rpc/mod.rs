@@ -94,7 +94,7 @@ pub(crate) async fn dispatch_rpc(
 
         // ── Agent (single-agent operations) ─────────────────────────────
         "agent" => handle_agent(&params, channel).await,
-        "agent.identity" | "agent.identity.get" => handle_agent_identity().await,
+        "agent.identity" => handle_agent_identity().await,
         "agent.wait" => handle_agent_wait(&params, channel).await,
         "agent.capabilities" => handle_agent_capabilities(&params, channel).await,
         "agent.terminal.launch" => handle_agent_terminal_launch(&params, channel).await,
