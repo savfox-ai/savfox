@@ -20,8 +20,11 @@
 #![allow(clippy::if_same_then_else, clippy::manual_let_else)]
 
 pub mod base;
+#[cfg(feature = "dingtalk")]
 pub mod dingtalk;
+#[cfg(feature = "discord")]
 pub mod discord;
+#[cfg(feature = "feishu")]
 pub mod feishu;
 pub mod googlechat;
 pub mod http;
@@ -32,6 +35,7 @@ pub mod mattermost;
 pub mod msteams;
 pub mod qq;
 pub mod slack;
+#[cfg(feature = "telegram")]
 pub mod telegram;
 pub mod wechat;
 pub mod whatsapp;

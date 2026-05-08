@@ -279,12 +279,23 @@ pub(crate) async fn dispatch_rpc(
         "logs.tail" => handle_logs_tail(&params).await,
 
         // ── System ──────────────────────────────────────────────────────
-        "last-heartbeat" => handle_last_heartbeat(&params).await,
-        "set-heartbeats" => handle_set_heartbeats(&params, channel).await,
-        "system-presence" => handle_system_presence(&params, session_mgr).await,
-        "system-event" => handle_system_event(&params, channel, session_mgr, cron_service).await,
-        "system-disconnect" => handle_system_disconnect(&params, session_mgr).await,
-        "system-kick" => handle_system_kick(&params, session_mgr).await,
+        // The dash-style names below pre-date the `domain.action` convention
+        // used elsewhere; they're kept as deprecated aliases so existing
+        // Dioxus + scope-guard call sites keep working while clients migrate.
+        "system.heartbeat" | "last-heartbeat" => handle_last_heartbeat(&params).await,
+        "system.heartbeats.set" | "set-heartbeats" => {
+            handle_set_heartbeats(&params, channel).await
+        }
+        "system.presence" | "system-presence" => {
+            handle_system_presence(&params, session_mgr).await
+        }
+        "system.event" | "system-event" => {
+            handle_system_event(&params, channel, session_mgr, cron_service).await
+        }
+        "system.disconnect" | "system-disconnect" => {
+            handle_system_disconnect(&params, session_mgr).await
+        }
+        "system.kick" | "system-kick" => handle_system_kick(&params, session_mgr).await,
         "approvals.policy" => handle_approvals_policy(&params, channel).await,
 
         // ── Models ──────────────────────────────────────────────────────
