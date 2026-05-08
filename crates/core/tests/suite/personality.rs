@@ -25,6 +25,7 @@ use wiremock::{BodyPrintLimit, MockServer};
 const LOCAL_FRIENDLY_TEMPLATE: &str =
     "You optimize for team morale and being a supportive teammate as much as code quality.";
 const LOCAL_PRAGMATIC_TEMPLATE: &str = "You are a deeply pragmatic, effective software engineer.";
+const LOCAL_PERSONALITY_MODEL: &str = "exp-savfox-personality";
 
 fn sse_completed(id: &str) -> String {
     sse(vec![ev_response_created(id), ev_completed(id)])
@@ -52,7 +53,7 @@ async fn base_instructions_override_disables_personality_template() {
     config.personality = Some(Personality::Friendly);
     config.base_instructions = Some("override instructions".to_owned());
 
-    let model_info = ModelsManager::construct_model_info_offline("gpt-5.2-savfox", &config);
+    let model_info = ModelsManager::construct_model_info_offline(LOCAL_PERSONALITY_MODEL, &config);
 
     assert_eq!(model_info.base_instructions, "override instructions");
     assert_eq!(
@@ -68,7 +69,7 @@ async fn user_turn_personality_none_does_not_add_update_message() -> anyhow::Res
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
     let mut builder = test_savfox()
-        .with_model("gpt-5.2-savfox")
+        .with_model(LOCAL_PERSONALITY_MODEL)
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
@@ -114,7 +115,7 @@ async fn config_personality_some_sets_instructions_template() -> anyhow::Result<
     let server = start_mock_server().await;
     let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
     let mut builder = test_savfox()
-        .with_model("gpt-5.2-savfox")
+        .with_model(LOCAL_PERSONALITY_MODEL)
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
@@ -172,7 +173,7 @@ async fn user_turn_personality_some_adds_update_message() -> anyhow::Result<()> 
     )
     .await;
     let mut builder = test_savfox()
-        .with_model("exp-savfox-personality")
+        .with_model(LOCAL_PERSONALITY_MODEL)
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
@@ -269,7 +270,7 @@ async fn user_turn_personality_same_value_does_not_add_update_message() -> anyho
     )
     .await;
     let mut builder = test_savfox()
-        .with_model("exp-savfox-personality")
+        .with_model(LOCAL_PERSONALITY_MODEL)
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
@@ -357,7 +358,7 @@ async fn instructions_uses_base_if_feature_disabled() -> anyhow::Result<()> {
     config.features.disable(Feature::Personality);
     config.personality = Some(Personality::Friendly);
 
-    let model_info = ModelsManager::construct_model_info_offline("gpt-5.2-savfox", &config);
+    let model_info = ModelsManager::construct_model_info_offline(LOCAL_PERSONALITY_MODEL, &config);
     assert_eq!(
         model_info.get_model_instructions(config.personality),
         model_info.base_instructions
@@ -377,7 +378,7 @@ async fn user_turn_personality_skips_if_feature_disabled() -> anyhow::Result<()>
     )
     .await;
     let mut builder = test_savfox()
-        .with_model("exp-savfox-personality")
+        .with_model(LOCAL_PERSONALITY_MODEL)
         .with_config(|config| {
             config.features.disable(Feature::RemoteModels);
             config.features.disable(Feature::Personality);
@@ -465,7 +466,7 @@ async fn ignores_remote_personality_if_remote_models_disabled() -> anyhow::Resul
         .start()
         .await;
 
-    let remote_slug = "gpt-5.2-savfox";
+    let remote_slug = LOCAL_PERSONALITY_MODEL;
     let remote_personality_message = "Friendly from remote template";
     let remote_model = ModelInfo {
         slug: remote_slug.to_owned(),
@@ -752,7 +753,7 @@ async fn user_turn_personality_remote_model_template_includes_update_message() -
         .with_config(|config| {
             config.features.enable(Feature::RemoteModels);
             config.features.enable(Feature::Personality);
-            config.model = Some("gpt-5.2-savfox".to_owned());
+            config.model = Some(LOCAL_PERSONALITY_MODEL.to_owned());
         });
     let test = builder.build(&server).await?;
 
