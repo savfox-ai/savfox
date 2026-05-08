@@ -1,7 +1,7 @@
 use savfox_protocol::config_types::Verbosity;
 use savfox_protocol::openai_models::{
     ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
-    ModelVisibility, TruncationPolicyConfig, default_input_modalities,
+    ModelVisibility, ReasoningEffort, TruncationPolicyConfig, default_input_modalities,
 };
 
 pub const BASE_INSTRUCTIONS: &str = include_str!("../prompt.md");
@@ -93,10 +93,21 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
             supports_reasoning_summaries: true,
             truncation_policy: TruncationPolicyConfig::bytes(10_000),
         )
+    } else if slug.starts_with("gpt-5.1-savfox") {
+        model_info!(
+            slug,
+            apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            default_reasoning_level: Some(ReasoningEffort::Medium),
+            shell_type: ConfigShellToolType::ShellCommand,
+            supports_parallel_tool_calls: true,
+            supports_reasoning_summaries: true,
+            truncation_policy: TruncationPolicyConfig::tokens(10_000),
+        )
     } else if slug == "gpt-5.1" {
         model_info!(
             slug,
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            default_reasoning_level: Some(ReasoningEffort::Medium),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
             supports_reasoning_summaries: true,
@@ -110,6 +121,7 @@ pub fn find_model_info_for_slug(slug: &str) -> ModelInfo {
         model_info!(
             slug,
             apply_patch_tool_type: Some(ApplyPatchToolType::Freeform),
+            default_reasoning_level: Some(ReasoningEffort::Medium),
             shell_type: ConfigShellToolType::ShellCommand,
             supports_parallel_tool_calls: true,
             supports_reasoning_summaries: true,
