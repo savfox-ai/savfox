@@ -1,8 +1,9 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 // TODO(F6): 收敛 unreachable_pub 与 dead_code —— workspace 全局是 deny,
-// 这里临时 allow 是为了不阻塞迭代。dead_code 暴露了 ~50 处未接入的子系统
-// (BroadcastManager / TemplateEngine / AutoReplyRule 等),需独立 PR 评估
-// 是删除还是接入。后续应逐文件修可见性。
+// 这里临时 allow 是为了不阻塞迭代。第六轮已删 auto_reply 三个未接入子系统
+// (broadcast / templating / triggers, ~978 行)，剩余 ~150 处 dead_code
+// 警告分散在各 channel 适配 / test-only helper / 未实装 RPC handler，
+// 需独立 PR 逐文件评估。
 #![allow(unreachable_pub, dead_code)]
 #![allow(missing_debug_implementations)]
 #![allow(
