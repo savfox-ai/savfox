@@ -499,10 +499,10 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
 
     let server = start_mock_server().await;
 
-    let non_openai_provider_name = non_openai_model_provider(&server).name;
+    let model_provider = non_openai_model_provider(&server);
     let savfox = test_savfox()
         .with_config(move |config| {
-            config.model_provider.name = non_openai_provider_name;
+            config.model_provider = model_provider;
         })
         .build(&server)
         .await

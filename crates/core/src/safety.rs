@@ -260,4 +260,53 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn unless_trusted_workspace_patch_auto_approves_when_sandbox_available() {
+        let Some(expected_sandbox_type) = get_platform_sandbox(true) else {
+            return;
+        };
+        let windows_sandbox_level = if cfg!(target_os = "windows") {
+            WindowsSandboxLevel::RestrictedToken
+        } else {
+            WindowsSandboxLevel::Disabled
+        };
+
+        let tmp = TempDir::new().unwrap();
+        let cwd = tmp.path().to_path_buf();
+        let parent = cwd.parent().unwrap().to_path_buf();
+        let add_inside = ApplyPatchAction::new_add_for_test(&cwd.join("inner.txt"), "".to_owned());
+        let add_outside =
+            ApplyPatchAction::new_add_for_test(&parent.join("outside.txt"), "".to_owned());
+        let policy = SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        };
+
+        assert_eq!(
+            assess_patch_safety(
+                &add_inside,
+                AskForApproval::UnlessTrusted,
+                &policy,
+                &cwd,
+                windows_sandbox_level,
+            ),
+            SafetyCheck::AutoApprove {
+                sandbox_type: expected_sandbox_type,
+                user_explicitly_approved: false,
+            }
+        );
+        assert_eq!(
+            assess_patch_safety(
+                &add_outside,
+                AskForApproval::UnlessTrusted,
+                &policy,
+                &cwd,
+                windows_sandbox_level,
+            ),
+            SafetyCheck::AskUser
+        );
+    }
 }
