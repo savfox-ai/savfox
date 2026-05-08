@@ -2288,13 +2288,10 @@ impl ChatScreen {
         );
         widget.sync_personality_command_enabled();
         #[cfg(target_os = "windows")]
-        widget.bottom_pane.set_windows_degraded_sandbox_active(
-            savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                && matches!(
-                    WindowsSandboxLevel::from_config(&widget.config),
-                    WindowsSandboxLevel::RestrictedToken
-                ),
-        );
+        widget.bottom_pane.set_windows_degraded_sandbox_active(matches!(
+            WindowsSandboxLevel::from_config(&widget.config),
+            WindowsSandboxLevel::RestrictedToken
+        ));
         widget.update_collaboration_mode_indicator();
         widget.refresh_model_display();
 
@@ -2597,13 +2594,10 @@ impl ChatScreen {
         );
         widget.sync_personality_command_enabled();
         #[cfg(target_os = "windows")]
-        widget.bottom_pane.set_windows_degraded_sandbox_active(
-            savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                && matches!(
-                    WindowsSandboxLevel::from_config(&widget.config),
-                    WindowsSandboxLevel::RestrictedToken
-                ),
-        );
+        widget.bottom_pane.set_windows_degraded_sandbox_active(matches!(
+            WindowsSandboxLevel::from_config(&widget.config),
+            WindowsSandboxLevel::RestrictedToken
+        ));
         widget.update_collaboration_mode_indicator();
         widget.refresh_model_display();
         // Existing session ⇒ already in session mode.
@@ -2906,9 +2900,7 @@ impl ChatScreen {
                     let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
                     let windows_degraded_sandbox_enabled =
                         matches!(windows_sandbox_level, WindowsSandboxLevel::RestrictedToken);
-                    if !windows_degraded_sandbox_enabled
-                        || !savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                    {
+                    if !windows_degraded_sandbox_enabled {
                         // This command should not be visible/recognized outside degraded mode,
                         // but guard anyway in case something dispatches it directly.
                         return;
@@ -5110,9 +5102,8 @@ impl ChatScreen {
         #[cfg(not(target_os = "windows"))]
         let windows_degraded_sandbox_enabled = false;
 
-        let show_elevate_sandbox_hint = savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-            && windows_degraded_sandbox_enabled
-            && presets.iter().any(|preset| preset.id == "auto");
+        let show_elevate_sandbox_hint =
+            windows_degraded_sandbox_enabled && presets.iter().any(|preset| preset.id == "auto");
 
         for preset in presets.into_iter() {
             if !include_read_only && preset.id == "read-only" {
@@ -5152,11 +5143,9 @@ impl ChatScreen {
                         == WindowsSandboxLevel::Disabled
                     {
                         let preset_clone = preset.clone();
-                        if savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                            && savfox_core::windows_sandbox::sandbox_setup_is_complete(
-                                self.config.savfox_home.as_path(),
-                            )
-                        {
+                        if savfox_core::windows_sandbox::sandbox_setup_is_complete(
+                            self.config.savfox_home.as_path(),
+                        ) {
                             vec![Box::new(move |tx| {
                                 tx.send(AppEvent::EnableWindowsSandboxForAgentMode {
                                     preset: preset_clone.clone(),
@@ -5510,53 +5499,6 @@ impl ChatScreen {
     pub(crate) fn open_windows_sandbox_enable_prompt(&mut self, preset: PermissionPreset) {
         use ratatui_macros::line;
 
-        if !savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED {
-            // Legacy flow (pre-NUX): explain the experimental sandbox and let the user enable it
-            // directly (no elevation prompts).
-            let mut header = ColumnRenderable::new();
-            header.push(*Box::new(
-                Paragraph::new(vec![
-                    line!["Agent mode on Windows uses an experimental sandbox to limit network and filesystem access.".bold()],
-                    line!["Learn more: https://developers.openai.com/savfox/windows"],
-                ])
-                .wrap(Wrap { trim: false }),
-            ));
-
-            let preset_clone = preset;
-            let items = vec![
-                SelectionItem {
-                    name: "Enable experimental sandbox".to_owned(),
-                    description: None,
-                    actions: vec![Box::new(move |tx| {
-                        tx.send(AppEvent::EnableWindowsSandboxForAgentMode {
-                            preset: preset_clone.clone(),
-                            mode: WindowsSandboxEnableMode::Legacy,
-                        });
-                    })],
-                    dismiss_on_select: true,
-                    ..Default::default()
-                },
-                SelectionItem {
-                    name: "Go back".to_owned(),
-                    description: None,
-                    actions: vec![Box::new(|tx| {
-                        tx.send(AppEvent::OpenApprovalsPopup);
-                    })],
-                    dismiss_on_select: true,
-                    ..Default::default()
-                },
-            ];
-
-            self.bottom_pane.show_selection_view(SelectionViewParams {
-                title: None,
-                footer_hint: Some(standard_popup_hint_line()),
-                items,
-                header: Box::new(header),
-                ..Default::default()
-            });
-            return;
-        }
-
         let current_approval = self.config.approval_policy.value();
         let current_sandbox = self.config.sandbox_policy.get();
         let presets = builtin_tui_presets();
@@ -5871,13 +5813,10 @@ impl ChatScreen {
             feature,
             Feature::WindowsSandbox | Feature::WindowsSandboxElevated
         ) {
-            self.bottom_pane.set_windows_degraded_sandbox_active(
-                savfox_core::windows_sandbox::ELEVATED_SANDBOX_NUX_ENABLED
-                    && matches!(
-                        WindowsSandboxLevel::from_config(&self.config),
-                        WindowsSandboxLevel::RestrictedToken
-                    ),
-            );
+            self.bottom_pane.set_windows_degraded_sandbox_active(matches!(
+                WindowsSandboxLevel::from_config(&self.config),
+                WindowsSandboxLevel::RestrictedToken
+            ));
         }
     }
 

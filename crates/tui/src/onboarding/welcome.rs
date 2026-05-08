@@ -14,7 +14,6 @@ use crate::tui::FrameRequester;
 
 pub(crate) struct WelcomeWidget {
     pub is_logged_in: bool,
-    animations_enabled: bool,
     layout_area: Cell<Option<Rect>>,
 }
 
@@ -25,14 +24,9 @@ impl KeyboardHandler for WelcomeWidget {
 }
 
 impl WelcomeWidget {
-    pub(crate) fn new(
-        is_logged_in: bool,
-        _request_frame: FrameRequester,
-        animations_enabled: bool,
-    ) -> Self {
+    pub(crate) fn new(is_logged_in: bool, _request_frame: FrameRequester) -> Self {
         Self {
             is_logged_in,
-            animations_enabled,
             layout_area: Cell::new(None),
         }
     }
@@ -45,8 +39,6 @@ impl WelcomeWidget {
 impl WidgetRef for &WelcomeWidget {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         Clear.render(area, buf);
-
-        let _ = self.animations_enabled; // kept for API compatibility
 
         let lines: Vec<Line> = vec![Line::from(vec![
             "  ".into(),
@@ -90,7 +82,7 @@ mod tests {
 
     #[test]
     fn welcome_renders_welcome_message() {
-        let widget = WelcomeWidget::new(false, FrameRequester::test_dummy(), true);
+        let widget = WelcomeWidget::new(false, FrameRequester::test_dummy());
         let area = Rect::new(0, 0, 60, 10);
         let mut buf = Buffer::empty(area);
         (&widget).render_ref(area, &mut buf);

@@ -1211,19 +1211,6 @@
         {
           "type": "null"
         }
-      ],
-      "description": "Legacy, now use features"
-    },
-    "experimental_use_freeform_apply_patch": {
-      "type": [
-        "boolean",
-        "null"
-      ]
-    },
-    "experimental_use_unified_exec_tool": {
-      "type": [
-        "boolean",
-        "null"
       ]
     },
     "features": {
@@ -1246,13 +1233,7 @@
         "collaboration_modes": {
           "type": "boolean"
         },
-        "connectors": {
-          "type": "boolean"
-        },
         "elevated_windows_sandbox": {
-          "type": "boolean"
-        },
-        "enable_experimental_windows_sandbox": {
           "type": "boolean"
         },
         "enable_request_compression": {
@@ -1261,16 +1242,7 @@
         "exec_policy": {
           "type": "boolean"
         },
-        "experimental_use_freeform_apply_patch": {
-          "type": "boolean"
-        },
-        "experimental_use_unified_exec_tool": {
-          "type": "boolean"
-        },
         "experimental_windows_sandbox": {
-          "type": "boolean"
-        },
-        "include_apply_patch_tool": {
           "type": "boolean"
         },
         "personality": {
@@ -1316,9 +1288,6 @@
           "type": "boolean"
         },
         "unified_exec": {
-          "type": "boolean"
-        },
-        "web_search": {
           "type": "boolean"
         },
         "web_search_cached": {

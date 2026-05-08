@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use savfox_utils::pty::{ExecCommandSession, SpawnedPty};
+use savfox_utils::pty::{ProcessHandle, SpawnedProcess};
 use tokio::sync::oneshot::error::TryRecvError;
 use tokio::sync::{Mutex, Notify, mpsc};
 use tokio::task::JoinHandle;
@@ -23,7 +23,7 @@ pub(crate) struct OutputHandles {
 
 #[derive(Debug)]
 pub(crate) struct UnifiedExecProcess {
-    process_handle: ExecCommandSession,
+    process_handle: ProcessHandle,
     output_buffer: OutputBuffer,
     output_notify: Arc<Notify>,
     cancellation_token: CancellationToken,
@@ -34,7 +34,7 @@ pub(crate) struct UnifiedExecProcess {
 
 impl UnifiedExecProcess {
     pub(super) fn new(
-        process_handle: ExecCommandSession,
+        process_handle: ProcessHandle,
         initial_output_rx: tokio::sync::broadcast::Receiver<Vec<u8>>,
         sandbox_type: SandboxType,
     ) -> Self {
@@ -166,10 +166,10 @@ impl UnifiedExecProcess {
     }
 
     pub(super) async fn from_spawned(
-        spawned: SpawnedPty,
+        spawned: SpawnedProcess,
         sandbox_type: SandboxType,
     ) -> Result<Self, UnifiedExecError> {
-        let SpawnedPty {
+        let SpawnedProcess {
             session: process_handle,
             output_rx,
             mut exit_rx,

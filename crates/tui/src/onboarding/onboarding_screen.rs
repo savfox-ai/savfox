@@ -78,7 +78,6 @@ impl OnboardingScreen {
         steps.push(Step::Welcome(WelcomeWidget::new(
             has_connected_provider,
             tui.frame_requester(),
-            config.animations,
         )));
         if show_provider_setup_screen {
             let highlighted_mode = match forced_login_method {

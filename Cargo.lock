@@ -8811,6 +8811,7 @@ dependencies = [
  "savfox-file-search",
  "savfox-http-client",
  "savfox-keyring-store",
+ "savfox-linux-sandbox",
  "savfox-model",
  "savfox-otel",
  "savfox-protocol",

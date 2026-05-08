@@ -8,16 +8,12 @@ use serde_json::{Map, Value};
 use crate::config::ConfigToml;
 use crate::features::FEATURES;
 
-/// Schema for the `[features]` map with known + legacy keys only.
+/// Schema for the `[features]` map with known keys only.
 pub(crate) fn features_schema(schema_gen: &mut SchemaGenerator) -> Schema {
     let mut properties = Map::new();
     for feature in FEATURES {
         let bool_schema = schema_gen.subschema_for::<bool>();
         properties.insert(feature.key.to_owned(), bool_schema.into());
-    }
-    for legacy_key in crate::features::legacy_feature_keys() {
-        let bool_schema = schema_gen.subschema_for::<bool>();
-        properties.insert(legacy_key.to_owned(), bool_schema.into());
     }
 
     serde_json::json!({

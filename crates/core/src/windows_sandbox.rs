@@ -7,12 +7,6 @@ use crate::config::Config;
 use crate::features::{Feature, Features};
 use crate::protocol::SandboxPolicy;
 
-/// Kill switch for the elevated sandbox NUX on Windows.
-///
-/// When false, revert to the previous sandbox NUX, which only
-/// prompts users to enable the legacy sandbox feature.
-pub const ELEVATED_SANDBOX_NUX_ENABLED: bool = true;
-
 pub trait WindowsSandboxLevelExt {
     fn from_config(config: &Config) -> WindowsSandboxLevel;
     fn from_features(features: &Features) -> WindowsSandboxLevel;

@@ -15,9 +15,6 @@ use toml::Value as TomlValue;
 use crate::config::{CONFIG_TOML_FILE, Config, ConfigToml};
 use crate::protocol::{Event, EventMsg, WarningEvent};
 
-mod legacy;
-pub(crate) use legacy::{LegacyFeatureToggles, legacy_feature_keys};
-
 /// High-level lifecycle stage for a feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
@@ -173,12 +170,20 @@ pub struct FeatureOverrides {
 
 impl FeatureOverrides {
     fn apply(self, features: &mut Features) {
-        LegacyFeatureToggles {
-            include_apply_patch_tool: self.include_apply_patch_tool,
-            tools_web_search: self.web_search_request,
-            ..Default::default()
+        if let Some(enabled) = self.include_apply_patch_tool {
+            set_feature(features, Feature::ApplyPatchFreeform, enabled);
         }
-        .apply(features);
+        if let Some(enabled) = self.web_search_request {
+            set_feature(features, Feature::WebSearchRequest, enabled);
+        }
+    }
+}
+
+fn set_feature(features: &mut Features, feature: Feature, enabled: bool) {
+    if enabled {
+        features.enable(feature);
+    } else {
+        features.disable(feature);
     }
 }
 
@@ -269,9 +274,6 @@ impl Features {
             }
             match feature_for_key(k) {
                 Some(feat) => {
-                    if k != feat.key() {
-                        self.record_legacy_usage(k.as_str(), feat);
-                    }
                     if *v {
                         self.enable(feat);
                     } else {
@@ -288,14 +290,6 @@ impl Features {
     #[must_use]
     pub fn from_config(cfg: &ConfigToml, overrides: FeatureOverrides) -> Self {
         let mut features = Self::with_defaults();
-
-        let base_legacy = LegacyFeatureToggles {
-            experimental_use_freeform_apply_patch: cfg.experimental_use_freeform_apply_patch,
-            experimental_use_unified_exec_tool: cfg.experimental_use_unified_exec_tool,
-            tools_web_search: cfg.tools.as_ref().and_then(|t| t.web_search),
-            ..Default::default()
-        };
-        base_legacy.apply(&mut features);
 
         if let Some(base_features) = cfg.features.as_ref() {
             features.apply_map(&base_features.entries);
@@ -350,12 +344,10 @@ fn web_search_details() -> &'static str {
 
 /// Keys accepted in `[features]` tables.
 fn feature_for_key(key: &str) -> Option<Feature> {
-    for spec in FEATURES {
-        if spec.key == key {
-            return Some(spec.id);
-        }
-    }
-    legacy::feature_for_key(key)
+    FEATURES
+        .iter()
+        .find(|spec| spec.key == key)
+        .map(|spec| spec.id)
 }
 
 /// Returns `true` if the provided string matches a known feature toggle key.

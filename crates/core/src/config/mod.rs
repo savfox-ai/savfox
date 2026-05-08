@@ -1143,10 +1143,7 @@ pub struct ConfigToml {
     /// See [`crate::config::types::Notices`] for more details
     pub notice: Option<Notice>,
 
-    /// Legacy, now use features
     pub experimental_compact_prompt_file: Option<AbsolutePathBuf>,
-    pub experimental_use_unified_exec_tool: Option<bool>,
-    pub experimental_use_freeform_apply_patch: Option<bool>,
     /// Preferred OSS provider for local models, e.g. "lmstudio", "ollama", or "ollama-chat".
     pub oss_provider: Option<String>,
 }
@@ -2535,31 +2532,6 @@ trust_level = "trusted"
         let mode = resolve_web_search_mode_for_turn(None, true, &SandboxPolicy::DangerFullAccess);
 
         assert_eq!(mode, WebSearchMode::Disabled);
-    }
-
-    #[test]
-    fn legacy_toggles_map_to_features() -> std::io::Result<()> {
-        let savfox_home = TempDir::new()?;
-        let cfg = ConfigToml {
-            experimental_use_unified_exec_tool: Some(true),
-            experimental_use_freeform_apply_patch: Some(true),
-            ..Default::default()
-        };
-
-        let config = Config::load_from_base_config_with_overrides(
-            cfg,
-            ConfigOverrides::default(),
-            savfox_home.path().to_path_buf(),
-        )?;
-
-        assert!(config.features.enabled(Feature::ApplyPatchFreeform));
-        assert!(config.features.enabled(Feature::UnifiedExec));
-
-        assert!(config.include_apply_patch_tool);
-
-        assert!(config.use_experimental_unified_exec_tool);
-
-        Ok(())
     }
 
     #[test]
