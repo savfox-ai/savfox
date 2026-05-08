@@ -9,6 +9,7 @@ use savfox_core::protocol::{EventMsg, Op};
 use savfox_protocol::user_input::UserInput;
 use serde_json::Value;
 use tokio::sync::oneshot;
+use tokio::time::{Duration, timeout};
 
 fn ev_message_item_done(id: &str, text: &str) -> Value {
     serde_json::json!({
@@ -82,8 +83,14 @@ async fn injected_user_input_triggers_follow_up_request_with_deltas() {
         },
     ];
 
-    let (server, _completions) =
-        start_streaming_sse_server(vec![first_chunks, second_chunks]).await;
+    let (server, completions) = start_streaming_sse_server(vec![first_chunks, second_chunks]).await;
+    let mut completions = completions.into_iter();
+    let _first_completion = completions
+        .next()
+        .expect("first response completion receiver");
+    let second_completion = completions
+        .next()
+        .expect("second response completion receiver");
 
     let savfox = test_savfox()
         .with_model("gpt-5.1")
@@ -119,8 +126,13 @@ async fn injected_user_input_triggers_follow_up_request_with_deltas() {
         .await
         .unwrap();
 
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let _ = gate_completed_tx.send(());
 
+    timeout(Duration::from_secs(10), second_completion)
+        .await
+        .expect("follow-up response should complete")
+        .expect("follow-up response completion sender should fire");
     wait_for_event(&savfox, |event| matches!(event, EventMsg::TurnComplete(_))).await;
 
     let requests = server.requests().await;
