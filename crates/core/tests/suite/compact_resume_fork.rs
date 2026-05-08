@@ -949,6 +949,7 @@ async fn start_test_conversation(
     let base_url = format!("{}/v1", server.uri());
     let model = model.map(str::to_owned);
     let mut builder = test_savfox().with_config(move |config| {
+        config.model_provider.id = "openai-compatible-test".to_owned();
         config.model_provider.name = "Non-OpenAI Model provider".to_owned();
         config.model_provider.base_url = Some(base_url);
         config.compact_prompt = Some(SUMMARIZATION_PROMPT.to_owned());
