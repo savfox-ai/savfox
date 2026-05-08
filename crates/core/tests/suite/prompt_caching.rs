@@ -213,8 +213,16 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
 
     wait_for_event(&savfox, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
 
-    let expected_instructions =
-        [base_instructions, APPLY_PATCH_TOOL_INSTRUCTIONS.to_owned()].join("\n");
+    let expected_tools_names = vec![
+        "shell",
+        "list_mcp_resources",
+        "list_mcp_resource_templates",
+        "read_mcp_resource",
+        "update_plan",
+        "request_user_input",
+        "web_search",
+        "view_image",
+    ];
 
     let body0 = req1.single_request().body_json();
     let instructions0 = body0["instructions"]
@@ -222,8 +230,13 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
         .expect("instructions should be a string");
     assert_eq!(
         normalize_newlines(instructions0),
-        normalize_newlines(&expected_instructions)
+        normalize_newlines(&base_instructions)
     );
+    assert!(
+        instructions0.contains("apply_patch"),
+        "expected base instructions to include apply_patch guidance"
+    );
+    assert_tool_names(&body0, &expected_tools_names);
 
     let body1 = req2.single_request().body_json();
     let instructions1 = body1["instructions"]
@@ -231,8 +244,9 @@ async fn savfox_mini_latest_tools() -> anyhow::Result<()> {
         .expect("instructions should be a string");
     assert_eq!(
         normalize_newlines(instructions1),
-        normalize_newlines(&expected_instructions)
+        normalize_newlines(&base_instructions)
     );
+    assert_tool_names(&body1, &expected_tools_names);
 
     Ok(())
 }

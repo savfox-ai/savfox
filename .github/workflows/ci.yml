@@ -157,12 +157,17 @@ jobs:
       - name: Build spawned test binaries
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.tui == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: |
-          cargo build --bin savfox
+          bins=(--bin savfox)
+          if [ "${{ needs.changes.outputs.workspace }}" = "true" ] || [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+            bins+=(--bin savfox-exec --bin savfox-linux-sandbox)
+          fi
+
+          cargo build "${bins[@]}"
+
           {
             echo "CARGO_BIN_EXE_savfox=$PWD/target/debug/savfox"
           } >> "$GITHUB_ENV"
           if [ "${{ needs.changes.outputs.workspace }}" = "true" ] || [ "${{ needs.changes.outputs.core }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
-            cargo build --bin savfox-exec --bin savfox-linux-sandbox
             {
               echo "CARGO_BIN_EXE_savfox_exec=$PWD/target/debug/savfox-exec"
               echo "CARGO_BIN_EXE_savfox_linux_sandbox=$PWD/target/debug/savfox-linux-sandbox"
