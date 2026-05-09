@@ -283,7 +283,7 @@ mod tests {
         let mode = CollaborationMode {
             mode: ModeKind::Code,
             settings: Settings {
-                model: "gpt-5.2-codex".to_owned(),
+                model: "gpt-5.2-savfox".to_owned(),
                 reasoning_effort: Some(ReasoningEffort::High),
                 developer_instructions: Some("stay focused".to_owned()),
             },
@@ -299,7 +299,7 @@ mod tests {
         let expected = CollaborationMode {
             mode: ModeKind::Code,
             settings: Settings {
-                model: "gpt-5.2-codex".to_owned(),
+                model: "gpt-5.2-savfox".to_owned(),
                 reasoning_effort: None,
                 developer_instructions: None,
             },

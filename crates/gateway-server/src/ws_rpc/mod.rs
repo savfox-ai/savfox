@@ -1074,9 +1074,9 @@ mod tests {
     #[test]
     fn enrich_model_reasoning_metadata_normalizes_reasoning_aliases() {
         let mut model = json!({
-            "id": "openai/gpt-5.2-codex",
+            "id": "openai/gpt-5.2-savfox",
             "provider": "openai",
-            "model_slug": "gpt-5.2-codex",
+            "model_slug": "gpt-5.2-savfox",
             "default_reasoning_effort": "medium",
             "supported_reasoning_efforts": [
                 {

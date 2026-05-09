@@ -12,9 +12,9 @@ pub const HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG: &str =
 static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
     vec![
         ModelPreset {
-            id: "gpt-5.2-codex".to_owned(),
-            slug: "gpt-5.2-codex".to_owned(),
-            name: "gpt-5.2-codex".to_owned(),
+            id: "gpt-5.2-savfox".to_owned(),
+            slug: "gpt-5.2-savfox".to_owned(),
+            name: "gpt-5.2-savfox".to_owned(),
             description: "Latest frontier agentic coding model.".to_owned(),
             default_reasoning_effort: ReasoningEffort::Medium,
             supported_reasoning_efforts: vec![
@@ -68,7 +68,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: true,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -91,7 +91,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: true,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -122,7 +122,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: true,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -212,7 +212,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: false,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -235,7 +235,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: false,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -262,7 +262,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: false,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -293,7 +293,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: false,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -320,7 +320,7 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
             ],
             supports_personality: false,
             is_default: false,
-            upgrade: Some(gpt_52_codex_upgrade()),
+            upgrade: Some(gpt_52_savfox_upgrade()),
             show_in_picker: false,
             supported_in_api: true,
             input_modalities: default_input_modalities(),
@@ -328,20 +328,20 @@ static PRESETS: Lazy<Vec<ModelPreset>> = Lazy::new(|| {
     ]
 });
 
-fn gpt_52_codex_upgrade() -> ModelUpgrade {
+fn gpt_52_savfox_upgrade() -> ModelUpgrade {
     ModelUpgrade {
-        id: "gpt-5.2-codex".to_owned(),
+        id: "gpt-5.2-savfox".to_owned(),
         reasoning_effort_mapping: None,
-        migration_config_key: "gpt-5.2-codex".to_owned(),
-        model_link: Some("https://openai.com/index/introducing-gpt-5-2-codex".to_owned()),
+        migration_config_key: "gpt-5.2-savfox".to_owned(),
+        model_link: Some("https://openai.com/index/introducing-gpt-5-2-savfox".to_owned()),
         upgrade_copy: Some(
-            "Savfox is now powered by gpt-5.2-codex, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.".to_owned(),
+            "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.".to_owned(),
         ),
         migration_markdown: Some(
             r#"
                 **Savfox just got an upgrade. Introducing {model_to}.**
 
-                Savfox is now powered by gpt-5.2-codex, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox
+                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox
 
                 You can continue using {model_from} if you prefer.
             "#.to_owned(),
