@@ -42,9 +42,9 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
 
     let expected_models = vec![
         Model {
-            id: "gpt-5.2-codex".to_owned(),
-            slug: "gpt-5.2-codex".to_owned(),
-            name: "gpt-5.2-codex".to_owned(),
+            id: "gpt-5.2-savfox".to_owned(),
+            slug: "gpt-5.2-savfox".to_owned(),
+            name: "gpt-5.2-savfox".to_owned(),
             description: "Latest frontier agentic coding model.".to_owned(),
             supported_reasoning_efforts: vec![
                 ReasoningEffortOption {
@@ -187,7 +187,7 @@ async fn list_models_pagination_works() -> Result<()> {
     } = to_response::<ModelListResponse>(first_response)?;
 
     assert_eq!(first_items.len(), 1);
-    assert_eq!(first_items[0].id, "gpt-5.2-codex");
+    assert_eq!(first_items[0].id, "gpt-5.2-savfox");
     let next_cursor = first_cursor.ok_or_else(|| anyhow!("cursor for second page"))?;
 
     let second_request = mcp
