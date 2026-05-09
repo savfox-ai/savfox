@@ -34,6 +34,7 @@ savfox-protocol = { workspace = true }
 savfox-rmcp-client = { workspace = true }
 savfox-stdio-to-uds = { workspace = true }
 savfox-tui = { workspace = true }
+savfox-utils = { workspace = true }
 libc = { workspace = true }
 owo-colors = { workspace = true }
 regex-lite = { workspace = true }
@@ -69,6 +70,5 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 [dev-dependencies]
 assert_cmd = { workspace = true }
 assert_matches = { workspace = true }
-savfox-utils = { workspace = true }
 predicates = { workspace = true }
 pretty_assertions = { workspace = true }
