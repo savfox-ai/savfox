@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::api::types::ModelInfo;
+use crate::api::types::AvailableModel;
 use crate::utils::provider_registry::{
     canonical_provider_id, known_provider_ids,
     provider_display_name as registry_provider_display_name,
@@ -76,7 +76,7 @@ fn base_provider_id(account_id: &str, account_slug: &str) -> String {
     canonical_provider_id(trimmed_account_id)
 }
 
-fn normalize_model_id(model: &ModelInfo, provider_id: &str) -> String {
+fn normalize_model_id(model: &AvailableModel, provider_id: &str) -> String {
     if let Some(model_slug) = model
         .model_slug
         .as_deref()
@@ -114,7 +114,7 @@ fn infer_provider_source(provider: &ProviderItem) -> String {
     }
 }
 
-pub fn build_provider_catalog(models: &[ModelInfo]) -> ProviderCatalog {
+pub fn build_provider_catalog(models: &[AvailableModel]) -> ProviderCatalog {
     let mut providers_map: BTreeMap<String, ProviderItem> = BTreeMap::new();
 
     for provider_id in known_provider_ids().iter() {
@@ -302,15 +302,15 @@ pub fn first_default_full_id(catalog: &ProviderCatalog) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::build_provider_catalog;
-    use crate::api::types::ModelInfo;
+    use crate::api::types::AvailableModel;
 
     fn test_model(
         provider: &str,
         provider_name: Option<&str>,
         account_name: Option<&str>,
         account_slug: Option<&str>,
-    ) -> ModelInfo {
-        ModelInfo {
+    ) -> AvailableModel {
+        AvailableModel {
             id: format!("{provider}/gpt-5"),
             name: Some("GPT-5".to_string()),
             provider: Some(provider.to_string()),

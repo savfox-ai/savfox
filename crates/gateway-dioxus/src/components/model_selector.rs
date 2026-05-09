@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::api::types::{ModelInfo, ModelsResponse};
+use crate::api::types::{AvailableModel, AvailableModelsResponse};
 use crate::api::ws::WsRpc;
 use crate::i18n::use_i18n;
 use crate::route::Route;
@@ -29,7 +29,7 @@ fn fallback_model_display_name(full_id: &str) -> String {
     trimmed.to_string()
 }
 
-fn model_info_display_name(model: &ModelInfo) -> String {
+fn model_info_display_name(model: &AvailableModel) -> String {
     model
         .name
         .as_deref()
@@ -84,7 +84,7 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
             if !connected {
                 return None;
             }
-            ws.call::<ModelsResponse>("models.list", None)
+            ws.call::<AvailableModelsResponse>("models.list", None)
                 .await
                 .ok()
                 .map(|r| r.models)
