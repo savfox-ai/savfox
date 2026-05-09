@@ -8,11 +8,6 @@ use tracing::{info, warn};
 use crate::auth::GatewayAuth;
 use crate::channel::GatewayChannel;
 
-pub(crate) mod event_bus;
-pub(crate) mod llm_hook;
-pub(crate) mod transformer;
-pub(crate) mod validator;
-
 /// Maximum body size for hook payloads (256 KB).
 const MAX_BODY_SIZE: usize = 256 * 1024;
 
