@@ -64,24 +64,6 @@ fn provider_models_from_slugs(provider_id: &str, slugs: &[String]) -> Vec<Value>
         .collect()
 }
 
-fn hydrate_provider_file_disabled_models(file: &mut ProviderFile) {
-    file.disabled_models = file
-        .disabled_models
-        .iter()
-        .filter_map(|slug| {
-            let trimmed = slug.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            Some(
-                savfox_core::parse_provider_prefixed_model(trimmed)
-                    .map(|(_, model_slug)| model_slug.to_owned())
-                    .unwrap_or_else(|| trimmed.to_owned()),
-            )
-        })
-        .collect();
-}
-
 fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str) {
     if !file.models.is_empty() {
         return;
@@ -136,7 +118,7 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
         if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
             file.slug = savfox_utils::string::normalize_slug(&file.name).unwrap_or_default();
         }
-        hydrate_provider_file_disabled_models(&mut file);
+        file.normalize_disabled_models();
         hydrate_provider_file_models(&mut file, account_id);
         return file;
     }
@@ -157,7 +139,7 @@ async fn save_provider_file(
     file: &ProviderFile,
 ) -> Result<(), String> {
     let mut file_to_write = file.clone();
-    hydrate_provider_file_disabled_models(&mut file_to_write);
+    file_to_write.normalize_disabled_models();
     let dir = models_dir(channel);
     tokio::fs::create_dir_all(&dir)
         .await

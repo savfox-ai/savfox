@@ -74,6 +74,17 @@ impl ProviderStoreFile {
             id
         }
     }
+
+    /// Strip provider prefixes from each disabled-model entry and drop any
+    /// empty / whitespace-only entries. Idempotent — safe to call on read,
+    /// before write, and after a user mutation.
+    pub fn normalize_disabled_models(&mut self) {
+        self.disabled_models = self
+            .disabled_models
+            .iter()
+            .filter_map(|slug| normalize_model_slug(slug))
+            .collect();
+    }
 }
 
 impl Default for ProviderStoreFile {
@@ -209,11 +220,7 @@ pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> Provide
         if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
             file.slug = normalize_slug(&file.name).unwrap_or_default();
         }
-        file.disabled_models = file
-            .disabled_models
-            .iter()
-            .filter_map(|slug| normalize_model_slug(slug))
-            .collect();
+        file.normalize_disabled_models();
         return file;
     }
 
