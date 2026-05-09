@@ -1,9 +1,11 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 // TODO(F6): 收敛 unreachable_pub 与 dead_code —— workspace 全局是 deny,
-// 这里临时 allow 是为了不阻塞迭代。第六轮已删 auto_reply 三个未接入子系统
-// (broadcast / templating / triggers, ~978 行)，剩余 ~150 处 dead_code
-// 警告分散在各 channel 适配 / test-only helper / 未实装 RPC handler，
-// 需独立 PR 逐文件评估。
+// 这里临时 allow 是为了不阻塞迭代。第六轮删 auto_reply 三个子系统 (~978 行)，
+// 第七轮删 5 个 unwired channel (~1185 行)，第八轮删 2 个 dead Channel struct
+// + cfg(test) 收敛 test-only helper (~3 处)。剩余 ~138 处 dead_code 警告
+// 分布在 Tailscale / hooks / validator / transformer / service-discovery /
+// maintenance / OTel-config / WebChat 等未接入子系统，需逐子系统立项评估
+// 删除还是接入。
 #![allow(unreachable_pub, dead_code)]
 #![allow(missing_debug_implementations)]
 #![allow(
