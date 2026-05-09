@@ -217,26 +217,6 @@ POST /api/devices/<device_id>/revoke
 
 Revoke access for a paired device.
 
-### Models
-
-```
-GET /api/models
-```
-
-List available LLM models across all configured providers.
-
-```
-GET /api/models/providers
-```
-
-List configured providers.
-
-```
-GET /api/models/<model_id>
-```
-
-Get details for a specific model.
-
 ### OpenAI-Compatible API
 
 ```

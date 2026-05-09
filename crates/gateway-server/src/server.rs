@@ -438,10 +438,6 @@ pub(crate) fn build_router(
         .push(Router::with_path("api/agents/<agent_id>").get(routing::agents_get_handler))
         .push(Router::with_path("api/agents/<agent_id>").post(routing::agents_update_handler))
         .push(Router::with_path("api/agents/<agent_id>").delete(routing::agents_delete_handler))
-        // Models API
-        .push(Router::with_path("api/models").get(routing::models_list_handler))
-        .push(Router::with_path("api/models/providers").get(routing::models_providers_handler))
-        .push(Router::with_path("api/models/<model_id>").get(routing::models_get_handler))
         // Sessions management API
         .push(Router::with_path("api/sessions/preview").get(routing::sessions_preview_handler))
         .push(Router::with_path("api/sessions/<session_id>").post(routing::sessions_patch_handler))
