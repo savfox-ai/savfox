@@ -406,11 +406,11 @@ pub fn Models() -> Element {
                                                         let info = model_info_map.get(&model_full_id);
                                                         let reasoning_levels: Vec<String> = info
                                                             .and_then(|m| m.supported_reasoning_levels.as_ref())
-                                                            .map(|levels| levels.iter().map(|l| l.effort.clone()).collect())
+                                                            .map(|levels| levels.iter().map(|l| l.effort.to_string()).collect())
                                                             .unwrap_or_default();
                                                         let max_tokens = info.and_then(|m| m.max_tokens);
                                                         let temperature = info.and_then(|m| m.temperature);
-                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.clone());
+                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.map(|e| e.to_string()));
                                                         let base_url = info.and_then(|m| m.base_url.clone());
 
                                                         rsx! {
@@ -572,11 +572,11 @@ pub fn Models() -> Element {
                                                         let info = model_info_map.get(&model_full_id);
                                                         let reasoning_levels: Vec<String> = info
                                                             .and_then(|m| m.supported_reasoning_levels.as_ref())
-                                                            .map(|levels| levels.iter().map(|l| l.effort.clone()).collect())
+                                                            .map(|levels| levels.iter().map(|l| l.effort.to_string()).collect())
                                                             .unwrap_or_default();
                                                         let max_tokens = info.and_then(|m| m.max_tokens);
                                                         let temperature = info.and_then(|m| m.temperature);
-                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.clone());
+                                                        let default_reasoning = info.and_then(|m| m.default_reasoning_level.map(|e| e.to_string()));
                                                         let base_url = info.and_then(|m| m.base_url.clone());
 
                                                         rsx! {

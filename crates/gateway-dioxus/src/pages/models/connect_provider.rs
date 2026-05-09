@@ -463,7 +463,9 @@ fn build_model_entries(
                 id: model.id.clone(),
                 name: model.name.unwrap_or_else(|| model.id.clone()),
                 provider: Some(provider_id),
-                default_reasoning_level: model.default_reasoning_level,
+                default_reasoning_level: model
+                    .default_reasoning_level
+                    .map(|effort| effort.to_string()),
                 supported_reasoning_levels: model.supported_reasoning_levels,
             }
         })

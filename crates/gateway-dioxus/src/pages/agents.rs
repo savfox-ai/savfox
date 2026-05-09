@@ -643,7 +643,7 @@ fn normalized_reasoning_presets(model: Option<&ModelInfo>) -> Vec<(String, Strin
         .unwrap_or_default()
         .iter()
     {
-        let Some(effort) = normalized_reasoning_level(&preset.effort) else {
+        let Some(effort) = normalized_reasoning_level(preset.effort.as_wire_str()) else {
             continue;
         };
         if presets.iter().any(|(value, _)| value == &effort) {
@@ -658,7 +658,7 @@ fn model_default_reasoning_level(model: Option<&ModelInfo>) -> Option<String> {
     model.and_then(|model| {
         model
             .default_reasoning_level
-            .as_deref()
+            .map(|effort| effort.as_wire_str())
             .and_then(normalized_reasoning_level)
     })
 }
