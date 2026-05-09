@@ -72,9 +72,27 @@ pub fn normalize_slug(raw: &str) -> Option<String> {
     }
 }
 
+/// Generate a unique account id from a provider id and a human-readable name.
+///
+/// The name is lowercased, non-alphanumeric characters are replaced with
+/// hyphens, and consecutive hyphens are collapsed. When a normalized slug is
+/// available, the returned id is `{provider_id}-{slug}`; otherwise the bare
+/// `provider_id` is returned.
+#[must_use]
+pub fn slugify_account_id(provider_id: &str, name: &str) -> String {
+    let provider_id = provider_id.trim();
+    let slug = normalize_slug(name).unwrap_or_default();
+
+    if slug.is_empty() {
+        return provider_id.to_owned();
+    }
+
+    format!("{provider_id}-{slug}")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_slug;
+    use super::{normalize_slug, slugify_account_id};
 
     #[test]
     fn normalize_slug_compacts_separators() {
@@ -102,5 +120,32 @@ mod tests {
             Some("my-work-account")
         );
         assert_eq!(normalize_slug("OpenAI").as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn slugify_account_id_basic() {
+        assert_eq!(
+            slugify_account_id("openai", "Work Account"),
+            "openai-work-account"
+        );
+    }
+
+    #[test]
+    fn slugify_account_id_same_as_provider() {
+        assert_eq!(slugify_account_id("openai", "OpenAI"), "openai-openai");
+    }
+
+    #[test]
+    fn slugify_account_id_empty_name() {
+        assert_eq!(slugify_account_id("openai", ""), "openai");
+        assert_eq!(slugify_account_id("openai", "  "), "openai");
+    }
+
+    #[test]
+    fn slugify_account_id_special_chars() {
+        assert_eq!(
+            slugify_account_id("openai", "My  Work---Account!"),
+            "openai-my-work-account"
+        );
     }
 }

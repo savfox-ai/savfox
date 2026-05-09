@@ -349,41 +349,8 @@ fn find_profile_mut<'a>(
 
 /// Atomically write `data` to `path` with mode 0600 on Unix (default ACL on
 /// Windows; tightening to a per-user DACL is tracked as follow-up).
-///
-/// "Atomically" here means we write to `path.tmp` first then rename — even
-/// if the daemon crashes mid-write the existing `profiles.json` is left
-/// intact. Each create uses `O_TRUNC` so a previous-run leftover with
-/// looser permissions is replaced rather than re-used.
 async fn write_secret_file(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("json.tmp");
-    let parent = tmp
-        .parent()
-        .ok_or_else(|| std::io::Error::other("profiles store path has no parent"))?;
-    tokio::fs::create_dir_all(parent).await?;
-
-    // Use blocking IO for the create+chmod step so we can set the mode
-    // atomically with the create. On Unix this guarantees no other process
-    // can open the file with the more permissive default mode in the
-    // window between open() and chmod().
-    let tmp_clone = tmp.clone();
-    let data = data.to_vec();
-    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
-        let mut opts = std::fs::OpenOptions::new();
-        opts.create(true).write(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut file = opts.open(&tmp_clone)?;
-        std::io::Write::write_all(&mut file, &data)?;
-        file.sync_all()?;
-        Ok(())
-    })
-    .await
-    .map_err(std::io::Error::other)??;
-
-    tokio::fs::rename(&tmp, path).await
+    savfox_utils::fs::write_atomically_async(path, data.to_vec(), Some(0o600)).await
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

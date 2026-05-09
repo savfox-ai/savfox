@@ -12,25 +12,34 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 
+[features]
+default = ["discord", "telegram", "dingtalk", "feishu"]
+# Streaming/polling SDK adapters per platform. Disable to skip the heavy
+# upstream SDK and the corresponding `<platform>` module.
+discord = ["dep:serenity"]
+telegram = ["dep:teloxide"]
+dingtalk = ["dep:dingtalk-sdk"]
+feishu = ["dep:feishu-sdk"]
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
-dingtalk-sdk = { workspace = true }
-feishu-sdk = { workspace = true }
+dingtalk-sdk = { workspace = true, optional = true }
+feishu-sdk = { workspace = true, optional = true }
 form_urlencoded = { workspace = true }
 futures-util = { workspace = true, features = ["alloc"] }
 ed25519-dalek = { workspace = true }
-hex = { workspace = true }
+hex = { workspace = true, features = ["alloc"] }
 hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }
 serde_json = { workspace = true }
-serenity = { workspace = true }
+serenity = { workspace = true, optional = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
-teloxide = { workspace = true }
+teloxide = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 url = { workspace = true }

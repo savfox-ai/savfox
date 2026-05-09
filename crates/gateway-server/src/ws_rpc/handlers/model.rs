@@ -4,6 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use savfox_core::config::provider_store::{
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth as ProviderAuth,
+    ProviderStoreFile as ProviderFile,
+};
 use savfox_core::{AuthManager, SavfoxAuth};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -20,60 +24,10 @@ fn models_dir(channel: &GatewayChannel) -> std::path::PathBuf {
     channel.config().savfox_home.join("models")
 }
 
-// ── Provider file v1 types ──────────────────────────────────────────────
-
-fn default_version() -> u32 {
-    1
-}
-fn default_auth_type() -> String {
-    "api_key".to_owned()
-}
-
-/// On-disk representation of `models/{account_id}.json` (v1).
-/// Persisted shape is `disabled_models` (blacklist) plus auth/provider metadata.
-/// `models` is kept runtime-only for RPC responses.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProviderFile {
-    #[serde(default = "default_version")]
-    version: u32,
-    /// Unique account identifier (filename stem). Defaults to `provider_id`.
-    #[serde(default)]
-    id: String,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    slug: String,
-    #[serde(default)]
-    provider_id: String,
-    #[serde(default)]
-    auth: Option<ProviderAuth>,
-    #[serde(default, rename = "models", skip_serializing)]
-    models: Vec<Value>,
-    #[serde(default, alias = "enabled_models")]
-    disabled_models: Vec<String>,
-}
-
-impl ProviderFile {
-    /// Return the effective account id.
-    fn account_id(&self) -> &str {
-        let id = self.id.trim();
-        if id.is_empty() {
-            self.provider_id.trim()
-        } else {
-            id
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ProviderAuth {
-    #[serde(rename = "type", default = "default_auth_type")]
-    auth_type: String,
-    #[serde(default)]
-    env_key: Option<String>,
-    #[serde(default)]
-    api_key: Option<String>,
-}
+// ── Provider file types ─────────────────────────────────────────────────
+// Re-uses `ProviderFile` and `ProviderAuth` from `savfox-core`. Gateway
+// keeps `models` runtime-only, populating it from builtin defaults on read
+// and clearing it before each write.
 
 fn provider_models_from_slugs(provider_id: &str, slugs: &[String]) -> Vec<Value> {
     let canonical_provider = savfox_core::canonical_provider_id(provider_id);
@@ -160,20 +114,18 @@ fn hydrate_provider_file_models(file: &mut ProviderFile, provider_id_hint: &str)
 /// legacy files, or a full account id like `"openai-work"`).
 async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> ProviderFile {
     let path = models_dir(channel).join(format!("{account_id}.json"));
-    let Ok(data) = tokio::fs::read_to_string(&path).await else {
-        return ProviderFile {
-            version: 2,
-            id: account_id.to_owned(),
-            provider_id: account_id.to_owned(),
-            name: String::new(),
-            slug: String::new(),
-            auth: None,
-            models: Vec::new(),
-            disabled_models: Vec::new(),
-        };
+    let bare = || ProviderFile {
+        version: PROVIDER_STORE_FILE_VERSION,
+        id: account_id.to_owned(),
+        provider_id: account_id.to_owned(),
+        ..ProviderFile::default()
     };
 
-    // Try v2 (object with "models" key) first, then fall back to v1 (bare array).
+    let Ok(data) = tokio::fs::read_to_string(&path).await else {
+        return bare();
+    };
+
+    // Try v2 (object) first, then fall back to a bare `[..models..]` array.
     if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
         // Populate id from filename when missing in JSON (backward compat).
         if file.id.trim().is_empty() {
@@ -188,28 +140,12 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
         return file;
     }
     if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
-        return ProviderFile {
-            version: 2,
-            id: account_id.to_owned(),
-            provider_id: account_id.to_owned(),
-            name: String::new(),
-            slug: String::new(),
-            auth: None,
-            models,
-            disabled_models: Vec::new(),
-        };
+        let mut file = bare();
+        file.models = models;
+        return file;
     }
 
-    ProviderFile {
-        version: 2,
-        id: account_id.to_owned(),
-        provider_id: account_id.to_owned(),
-        name: String::new(),
-        slug: String::new(),
-        auth: None,
-        models: Vec::new(),
-        disabled_models: Vec::new(),
-    }
+    bare()
 }
 
 /// Save a v2 provider file. Creates the `models/` dir on first write.
@@ -242,6 +178,10 @@ async fn save_provider_file(
         });
         return Ok(());
     }
+    // `models` is hydrated at runtime from builtin defaults and never
+    // persisted; clear it before serializing so the on-disk file stays
+    // small and re-derivable.
+    file_to_write.models.clear();
     let data = serde_json::to_string_pretty(&file_to_write)
         .map_err(|e| format!("serialize error: {e}"))?;
     tokio::fs::write(&path, data)

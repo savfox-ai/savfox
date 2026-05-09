@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
+pub use savfox_utils::string::slugify_account_id;
 use savfox_utils::string::normalize_slug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -43,7 +44,7 @@ pub struct ProviderStoreFile {
     pub provider_id: String,
     #[serde(default)]
     pub auth: Option<ProviderStoreAuth>,
-    #[serde(default, alias = "enabled_models")]
+    #[serde(default)]
     pub disabled_models: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<Value>,
@@ -152,24 +153,6 @@ pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
 ///
 /// Lowercases, replaces non-alphanumeric chars with hyphens, collapses
 /// consecutive hyphens, and trims leading/trailing hyphens.
-/// Returns empty string when the input is empty or normalizes to nothing.
-/// Generate a unique account id from a provider id and a human-readable name.
-///
-/// The name is lowercased, non-alphanumeric characters are replaced with
-/// hyphens, and consecutive hyphens are collapsed. When a normalized slug is
-/// available, the returned id is always `{provider_id}-{slug}`.
-#[must_use]
-pub fn slugify_account_id(provider_id: &str, name: &str) -> String {
-    let provider_id = provider_id.trim();
-    let slug = normalize_slug(name).unwrap_or_default();
-
-    if slug.is_empty() {
-        return provider_id.to_owned();
-    }
-
-    format!("{provider_id}-{slug}")
-}
-
 /// Check whether an account id already has a corresponding store file on disk.
 #[must_use]
 pub fn account_id_exists(savfox_home: &Path, account_id: &str) -> bool {

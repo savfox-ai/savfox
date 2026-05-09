@@ -18,6 +18,7 @@ tracing = { workspace = true, features = ["log"] }
 which = { workspace = true }
 
 [dev-dependencies]
+core_test_support = { workspace = true }
 wiremock = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 

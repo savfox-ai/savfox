@@ -28,20 +28,15 @@ pub enum HealthStatus {
 }
 
 /// Health check service
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ProviderHealthService {
     health: RwLock<HashMap<String, ProviderHealth>>,
-    #[allow(dead_code)]
-    check_interval_secs: u64,
 }
 
 impl ProviderHealthService {
     #[must_use]
-    pub fn new(check_interval_secs: u64) -> Self {
-        Self {
-            health: RwLock::new(HashMap::new()),
-            check_interval_secs,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Record a successful API call

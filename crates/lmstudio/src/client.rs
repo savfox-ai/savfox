@@ -30,10 +30,7 @@ impl LMStudioClient {
             )
         })?;
 
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+        let client = savfox_core::default_client::build_reqwest_client();
 
         let client = Self {
             client,
@@ -193,12 +190,8 @@ impl LMStudioClient {
     /// Low-level constructor given a raw host root, e.g. "http://localhost:1234".
     #[cfg(test)]
     fn from_host_root(host_root: impl Into<String>) -> Self {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client,
+            client: savfox_core::default_client::build_reqwest_client(),
             base_url: host_root.into(),
         }
     }
@@ -211,13 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_models_happy_path() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_fetch_models_happy_path",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -243,13 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_models_no_data_array() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_fetch_models_no_data_array",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -274,13 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_models_server_error() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_fetch_models_server_error",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -302,13 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_server_happy_path() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_check_server_happy_path",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -326,13 +295,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_server_error() {
-        if std::env::var(savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR).is_ok() {
-            tracing::info!(
-                "{} is set; skipping test_check_server_error",
-                savfox_core::spawn::SAVFOX_SANDBOX_NETWORK_DISABLED_ENV_VAR
-            );
-            return;
-        }
+        core_test_support::skip_if_no_network!();
 
         let server = wiremock::MockServer::start().await;
         wiremock::Mock::given(wiremock::matchers::method("GET"))

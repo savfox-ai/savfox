@@ -109,11 +109,27 @@ pub fn get_bearer_token_override(provider_id: &str) -> Option<String> {
 /// This enables TUI/CLI sessions to use provider keys stored by the gateway's
 /// provider file format without requiring environment variables to be exported
 /// in the parent shell.
+///
+/// Multi-account handling: when several files share the same `provider_id`
+/// (e.g. `openai-work.json` + `openai-personal.json`), the **bare** provider
+/// key (`"openai"`) is intentionally NOT injected — registering it would be
+/// nondeterministic since dir iteration order would decide which token wins.
+/// Callers that want a specific account must query by the full account id.
 pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
     let models_dir = provider_models_store_dir(savfox_home);
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };
+
+    // First pass: parse all files and count accounts per bare provider_id.
+    struct Loaded {
+        account_id: String,
+        provider_id: String,
+        env_key: Option<String>,
+        api_key: String,
+    }
+    let mut loaded: Vec<Loaded> = Vec::new();
+    let mut accounts_per_provider: HashMap<String, usize> = HashMap::new();
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -138,7 +154,6 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
             continue;
         };
 
-        // Extract account_id and provider_id before moving auth out.
         let file_account_id = file.account_id().to_owned();
         let file_provider_id = file.provider_id.trim().to_owned();
 
@@ -155,29 +170,58 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
             continue;
         };
 
-        if let Some(env_key) = auth
+        let account_id = if file_account_id.is_empty() {
+            id_from_filename.to_owned()
+        } else {
+            file_account_id
+        };
+        let provider_id = if file_provider_id.is_empty() {
+            account_id.clone()
+        } else {
+            file_provider_id
+        };
+
+        let env_key = auth
             .env_key
             .as_deref()
             .map(str::trim)
             .filter(|v| !v.is_empty())
+            .map(str::to_owned);
+
+        *accounts_per_provider
+            .entry(provider_id.clone())
+            .or_insert(0) += 1;
+
+        loaded.push(Loaded {
+            account_id,
+            provider_id,
+            env_key,
+            api_key,
+        });
+    }
+
+    // Second pass: inject overrides. Bare provider key is only registered
+    // when exactly one account exists for that provider (otherwise the
+    // result would depend on dir iteration order).
+    for entry in loaded {
+        if let Some(env_key) = entry.env_key.as_deref() {
+            set_env_override(env_key, &entry.api_key);
+        }
+
+        if !entry.account_id.is_empty() {
+            set_bearer_token_override(&entry.account_id, &entry.api_key);
+        }
+
+        let only_account = accounts_per_provider
+            .get(&entry.provider_id)
+            .copied()
+            .unwrap_or(0)
+            == 1;
+        if only_account
+            && entry.provider_id != entry.account_id
+            && !entry.provider_id.is_empty()
         {
-            set_env_override(env_key, &api_key);
-        }
-
-        // Key bearer-token override by account id (from file.id or filename).
-        let account_id = if file_account_id.is_empty() {
-            id_from_filename
-        } else {
-            file_account_id.as_str()
-        };
-        if !account_id.is_empty() {
-            set_bearer_token_override(account_id, &api_key);
-        }
-
-        // Also set override for bare provider_id for backward compat when
-        // they differ (e.g. account_id="openai-work", provider_id="openai").
-        if !file_provider_id.is_empty() && file_provider_id != account_id {
-            set_bearer_token_override(&file_provider_id, &api_key);
+            set_bearer_token_override(&entry.provider_id, &entry.api_key);
         }
     }
 }
@@ -1031,6 +1075,51 @@ env_key = "GEMINI_API_KEY"
         // Cleanup global override maps to avoid cross-test leakage.
         remove_env_override(env_key);
         remove_bearer_token_override(provider_id);
+    }
+
+    #[test]
+    fn inject_provider_auth_skips_bare_provider_when_multiple_accounts() {
+        let tmp = tempdir().expect("temp savfox home");
+        let models_dir = tmp.path().join("models");
+        std::fs::create_dir_all(&models_dir).expect("create models dir");
+
+        let provider_id = "savfox-multi-test";
+        let work_id = "savfox-multi-test-work";
+        let personal_id = "savfox-multi-test-personal";
+
+        // Ensure clean state.
+        for id in [provider_id, work_id, personal_id] {
+            remove_bearer_token_override(id);
+        }
+
+        for (account_id, name, key) in [
+            (work_id, "Work", "sk-work"),
+            (personal_id, "Personal", "sk-personal"),
+        ] {
+            std::fs::write(
+                models_dir.join(format!("{account_id}.json")),
+                format!(
+                    r#"{{"version":2,"id":"{account_id}","provider_id":"{provider_id}","name":"{name}","auth":{{"type":"api_key","api_key":"{key}"}},"models":[]}}"#
+                ),
+            )
+            .expect("write provider file");
+        }
+
+        inject_provider_auth_overrides_from_store(tmp.path());
+
+        // Both account-scoped overrides resolve.
+        assert_eq!(get_bearer_token_override(work_id).as_deref(), Some("sk-work"));
+        assert_eq!(
+            get_bearer_token_override(personal_id).as_deref(),
+            Some("sk-personal")
+        );
+        // Bare-provider override is NOT registered when multiple accounts
+        // exist (would be nondeterministic).
+        assert_eq!(get_bearer_token_override(provider_id), None);
+
+        for id in [provider_id, work_id, personal_id] {
+            remove_bearer_token_override(id);
+        }
     }
 
     #[test]

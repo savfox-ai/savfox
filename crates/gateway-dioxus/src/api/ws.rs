@@ -240,7 +240,11 @@ impl WsRpc {
             if let Some(text) = data.as_string() {
                 // Try as JSON-RPC response (has `id` field) first.
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&text) {
-                    if let Some(tx) = inner.pending.borrow_mut().remove(&resp.id) {
+                    // We always allocate numeric ids on the client; ignore
+                    // any non-numeric server replies.
+                    if let Some(numeric_id) = resp.id.as_u64()
+                        && let Some(tx) = inner.pending.borrow_mut().remove(&numeric_id)
+                    {
                         let result = if let Some(err) = resp.error {
                             Err(err.message)
                         } else {
@@ -249,8 +253,7 @@ impl WsRpc {
                         if tx.send(result).is_err() {
                             web_sys::console::warn_1(
                                 &format!(
-                                    "WsRpc: response for id {} dropped (caller gone)",
-                                    resp.id
+                                    "WsRpc: response for id {numeric_id} dropped (caller gone)"
                                 )
                                 .into(),
                             );

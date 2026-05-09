@@ -3,7 +3,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use savfox_utils::absolute_path::AbsolutePathBuf;
-use tempfile::NamedTempFile;
 
 use crate::env;
 
@@ -99,17 +98,7 @@ pub fn resolve_symlink_write_paths(path: &Path) -> io::Result<SymlinkWritePaths>
 }
 
 pub fn write_atomically(write_path: &Path, contents: &str) -> io::Result<()> {
-    let parent = write_path.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("path {} has no parent directory", write_path.display()),
-        )
-    })?;
-    std::fs::create_dir_all(parent)?;
-    let tmp = NamedTempFile::new_in(parent)?;
-    std::fs::write(tmp.path(), contents)?;
-    tmp.persist(write_path)?;
-    Ok(())
+    savfox_utils::fs::write_atomically(write_path, contents.as_bytes(), None)
 }
 
 fn normalize_for_wsl(path: PathBuf) -> PathBuf {

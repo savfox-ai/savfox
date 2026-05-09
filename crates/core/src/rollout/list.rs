@@ -2,10 +2,8 @@ use std::cmp::Reverse;
 use std::ffi::OsStr;
 use std::io::{self};
 use std::num::NonZero;
-use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use savfox_file_search as file_search;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{RolloutItem, RolloutLine, SessionMetaLine, SessionSource};
@@ -71,16 +69,10 @@ pub enum SessionSortKey {
     UpdatedAt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SessionListLayout {
-    Flat,
-}
-
 pub(crate) struct SessionListConfig<'a> {
     pub(crate) allowed_sources: &'a [SessionSource],
     pub(crate) model_providers: Option<&'a [String]>,
     pub(crate) default_provider: &'a str,
-    pub(crate) layout: SessionListLayout,
 }
 
 /// Pagination cursor identifying a file by timestamp and UUID.
@@ -135,99 +127,6 @@ impl AnchorState {
     }
 }
 
-/// Visitor interface to customize behavior when visiting each rollout file
-/// in `walk_rollout_files`.
-///
-/// We need to apply different logic if we're ultimately going to be returning
-/// sessions ordered by created_at or updated_at.
-#[async_trait]
-#[allow(dead_code)]
-trait RolloutFileVisitor {
-    async fn visit(
-        &mut self,
-        ts: OffsetDateTime,
-        id: Uuid,
-        path: PathBuf,
-        scanned: usize,
-    ) -> ControlFlow<()>;
-}
-
-/// Collects session items during directory traversal in created_at order,
-/// applying pagination and filters inline.
-#[allow(dead_code)]
-struct FilesByCreatedAtVisitor<'a> {
-    items: &'a mut Vec<SessionItem>,
-    page_size: usize,
-    anchor_state: AnchorState,
-    more_matches_available: bool,
-    allowed_sources: &'a [SessionSource],
-    provider_matcher: Option<&'a ProviderMatcher<'a>>,
-}
-
-#[async_trait]
-impl<'a> RolloutFileVisitor for FilesByCreatedAtVisitor<'a> {
-    async fn visit(
-        &mut self,
-        ts: OffsetDateTime,
-        id: Uuid,
-        path: PathBuf,
-        scanned: usize,
-    ) -> ControlFlow<()> {
-        if scanned >= MAX_SCAN_FILES && self.items.len() >= self.page_size {
-            self.more_matches_available = true;
-            return ControlFlow::Break(());
-        }
-        if self.anchor_state.should_skip(ts, id) {
-            return ControlFlow::Continue(());
-        }
-        if self.items.len() == self.page_size {
-            self.more_matches_available = true;
-            return ControlFlow::Break(());
-        }
-        let updated_at = file_modified_time(&path)
-            .await
-            .unwrap_or(None)
-            .and_then(format_rfc3339);
-        if let Some(item) = build_session_item(
-            path,
-            self.allowed_sources,
-            self.provider_matcher,
-            updated_at,
-        )
-        .await
-        {
-            self.items.push(item);
-        }
-        ControlFlow::Continue(())
-    }
-}
-
-/// Collects lightweight file candidates (path + id + mtime).
-/// Sorting after mtime happens after all files are collected.
-#[allow(dead_code)]
-struct FilesByUpdatedAtVisitor<'a> {
-    candidates: &'a mut Vec<SessionCandidate>,
-}
-
-#[async_trait]
-impl<'a> RolloutFileVisitor for FilesByUpdatedAtVisitor<'a> {
-    async fn visit(
-        &mut self,
-        _ts: OffsetDateTime,
-        id: Uuid,
-        path: PathBuf,
-        _scanned: usize,
-    ) -> ControlFlow<()> {
-        let updated_at = file_modified_time(&path).await.unwrap_or(None);
-        self.candidates.push(SessionCandidate {
-            path,
-            id,
-            updated_at,
-        });
-        ControlFlow::Continue(())
-    }
-}
-
 impl serde::Serialize for Cursor {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -274,7 +173,6 @@ pub(crate) async fn get_sessions(
             allowed_sources,
             model_providers,
             default_provider,
-            layout: SessionListLayout::Flat,
         },
     )
     .await
@@ -302,192 +200,28 @@ pub(crate) async fn get_sessions_in_root(
         .model_providers
         .and_then(|filters| ProviderMatcher::new(filters, config.default_provider));
 
-    let result = match config.layout {
-        SessionListLayout::Flat => {
-            traverse_flat_paths(
-                root.clone(),
+    match sort_key {
+        SessionSortKey::CreatedAt => {
+            traverse_flat_paths_created(
+                root,
                 page_size,
                 anchor,
-                sort_key,
                 config.allowed_sources,
                 provider_matcher.as_ref(),
             )
-            .await?
-        }
-    };
-    Ok(result)
-}
-
-/// Load session file paths from disk using directory traversal.
-///
-/// Directory layout: `~/.savfox/sessions/<uuid>.jsonl` (UUID v7)
-/// Returned newest (based on sort key) first.
-#[allow(dead_code)]
-async fn traverse_directories_for_paths(
-    root: PathBuf,
-    page_size: usize,
-    anchor: Option<Cursor>,
-    sort_key: SessionSortKey,
-    allowed_sources: &[SessionSource],
-    provider_matcher: Option<&ProviderMatcher<'_>>,
-) -> io::Result<SessionsPage> {
-    match sort_key {
-        SessionSortKey::CreatedAt => {
-            traverse_directories_for_paths_created(
-                root,
-                page_size,
-                anchor,
-                allowed_sources,
-                provider_matcher,
-            )
             .await
         }
         SessionSortKey::UpdatedAt => {
-            traverse_directories_for_paths_updated(
+            traverse_flat_paths_updated(
                 root,
                 page_size,
                 anchor,
-                allowed_sources,
-                provider_matcher,
+                config.allowed_sources,
+                provider_matcher.as_ref(),
             )
             .await
         }
     }
-}
-
-async fn traverse_flat_paths(
-    root: PathBuf,
-    page_size: usize,
-    anchor: Option<Cursor>,
-    sort_key: SessionSortKey,
-    allowed_sources: &[SessionSource],
-    provider_matcher: Option<&ProviderMatcher<'_>>,
-) -> io::Result<SessionsPage> {
-    match sort_key {
-        SessionSortKey::CreatedAt => {
-            traverse_flat_paths_created(root, page_size, anchor, allowed_sources, provider_matcher)
-                .await
-        }
-        SessionSortKey::UpdatedAt => {
-            traverse_flat_paths_updated(root, page_size, anchor, allowed_sources, provider_matcher)
-                .await
-        }
-    }
-}
-
-/// Walk the rollout directory tree in reverse chronological order and
-/// collect items until the page fills or the scan cap is hit.
-///
-/// Ordering comes from directory/filename sorting, so created_at is derived
-/// from the filename timestamp. Pagination is handled by the anchor cursor
-/// so we resume strictly after the last returned `(ts, id)` pair.
-#[allow(dead_code)]
-async fn traverse_directories_for_paths_created(
-    root: PathBuf,
-    page_size: usize,
-    anchor: Option<Cursor>,
-    allowed_sources: &[SessionSource],
-    provider_matcher: Option<&ProviderMatcher<'_>>,
-) -> io::Result<SessionsPage> {
-    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
-    let mut scanned_files = 0usize;
-    let mut more_matches_available = false;
-    let mut visitor = FilesByCreatedAtVisitor {
-        items: &mut items,
-        page_size,
-        anchor_state: AnchorState::new(anchor),
-        more_matches_available,
-        allowed_sources,
-        provider_matcher,
-    };
-    walk_rollout_files(&root, &mut scanned_files, &mut visitor).await?;
-    more_matches_available = visitor.more_matches_available;
-
-    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
-    if reached_scan_cap && !items.is_empty() {
-        more_matches_available = true;
-    }
-
-    let next = if more_matches_available {
-        build_next_cursor(&items, SessionSortKey::CreatedAt)
-    } else {
-        None
-    };
-    Ok(SessionsPage {
-        items,
-        next_cursor: next,
-        num_scanned_files: scanned_files,
-        reached_scan_cap,
-    })
-}
-
-/// Walk the rollout directory tree to collect files by updated_at, then sort by
-/// file mtime (updated_at) and apply pagination/filtering in that order.
-///
-/// Because updated_at is not encoded in filenames, this path must scan all
-/// files up to the scan cap, then sort and filter by the anchor cursor.
-///
-/// NOTE: This can be optimized in the future if we store additional state on disk
-/// to cache updated_at timestamps.
-#[allow(dead_code)]
-async fn traverse_directories_for_paths_updated(
-    root: PathBuf,
-    page_size: usize,
-    anchor: Option<Cursor>,
-    allowed_sources: &[SessionSource],
-    provider_matcher: Option<&ProviderMatcher<'_>>,
-) -> io::Result<SessionsPage> {
-    let mut items: Vec<SessionItem> = Vec::with_capacity(page_size);
-    let mut scanned_files = 0usize;
-    let mut anchor_state = AnchorState::new(anchor);
-    let mut more_matches_available = false;
-
-    let candidates = collect_files_by_updated_at(&root, &mut scanned_files).await?;
-    let mut candidates = candidates;
-    candidates.sort_by_key(|candidate| {
-        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
-        (Reverse(ts), Reverse(candidate.id))
-    });
-
-    for candidate in candidates.into_iter() {
-        let ts = candidate.updated_at.unwrap_or(OffsetDateTime::UNIX_EPOCH);
-        if anchor_state.should_skip(ts, candidate.id) {
-            continue;
-        }
-        if items.len() == page_size {
-            more_matches_available = true;
-            break;
-        }
-
-        let updated_at_fallback = candidate.updated_at.and_then(format_rfc3339);
-        if let Some(item) = build_session_item(
-            candidate.path,
-            allowed_sources,
-            provider_matcher,
-            updated_at_fallback,
-        )
-        .await
-        {
-            items.push(item);
-        }
-    }
-
-    let reached_scan_cap = scanned_files >= MAX_SCAN_FILES;
-    if reached_scan_cap && !items.is_empty() {
-        more_matches_available = true;
-    }
-
-    let next = if more_matches_available {
-        build_next_cursor(&items, SessionSortKey::UpdatedAt)
-    } else {
-        None
-    };
-    Ok(SessionsPage {
-        items,
-        next_cursor: next,
-        num_scanned_files: scanned_files,
-        reached_scan_cap,
-    })
 }
 
 async fn traverse_flat_paths_created(
@@ -816,20 +550,6 @@ struct SessionCandidate {
     updated_at: Option<OffsetDateTime>,
 }
 
-#[allow(dead_code)]
-async fn collect_files_by_updated_at(
-    root: &Path,
-    scanned_files: &mut usize,
-) -> io::Result<Vec<SessionCandidate>> {
-    let mut candidates = Vec::new();
-    let mut visitor = FilesByUpdatedAtVisitor {
-        candidates: &mut candidates,
-    };
-    walk_rollout_files(root, scanned_files, &mut visitor).await?;
-
-    Ok(candidates)
-}
-
 async fn collect_flat_files_by_updated_at(
     root: &Path,
     scanned_files: &mut usize,
@@ -871,24 +591,6 @@ async fn collect_flat_files_by_updated_at(
     }
 
     Ok(candidates)
-}
-
-#[allow(dead_code)]
-async fn walk_rollout_files(
-    root: &Path,
-    scanned_files: &mut usize,
-    visitor: &mut impl RolloutFileVisitor,
-) -> io::Result<()> {
-    // Read all .jsonl files directly in the sessions directory
-    let files = collect_flat_rollout_files(root, scanned_files).await?;
-
-    for (ts, id, path) in files.into_iter() {
-        if visitor.visit(ts, id, path, *scanned_files).await == ControlFlow::Break(()) {
-            break;
-        }
-    }
-
-    Ok(())
 }
 
 struct ProviderMatcher<'a> {

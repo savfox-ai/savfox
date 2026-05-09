@@ -13,6 +13,17 @@ pub fn rpc_success(id: Value, mut result: Value) -> String {
 }
 
 pub fn rpc_error(id: Value, code: i64, message: impl Into<String>) -> String {
+    rpc_error_with_data(id, code, message, None)
+}
+
+/// Like `rpc_error`, but attaches a structured `data` payload that clients can
+/// use for typed error handling (instead of string-matching the message).
+pub fn rpc_error_with_data(
+    id: Value,
+    code: i64,
+    message: impl Into<String>,
+    data: Option<Value>,
+) -> String {
     let safe_message = crate::redaction::redact_text(&message.into());
     serde_json::to_string(&JsonRpcError {
         jsonrpc: "2.0",
@@ -20,7 +31,7 @@ pub fn rpc_error(id: Value, code: i64, message: impl Into<String>) -> String {
         error: JsonRpcErrorBody {
             code,
             message: safe_message,
-            data: None,
+            data,
         },
     })
     .unwrap_or_default()

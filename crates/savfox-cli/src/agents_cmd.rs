@@ -183,11 +183,11 @@ pub async fn run(
                 let result = ws_rpc_client::rpc_call(
                     gateway_url,
                     token,
-                    "agent.identity.get",
+                    "agent.identity",
                     json!({ "name": name }),
                 )
                 .await
-                .map_err(|e| format!("agent.identity.get failed: {e}"))?;
+                .map_err(|e| format!("agent.identity failed: {e}"))?;
                 ws_rpc_client::print_json(&result);
             }
         }

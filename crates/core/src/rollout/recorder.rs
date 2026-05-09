@@ -26,8 +26,7 @@ use tokio::sync::oneshot;
 use tracing::{info, warn};
 
 use super::list::{
-    Cursor, SessionListConfig, SessionListLayout, SessionSortKey, SessionsPage, get_sessions,
-    get_sessions_in_root,
+    Cursor, SessionListConfig, SessionSortKey, SessionsPage, get_sessions, get_sessions_in_root,
 };
 use super::policy::is_persisted_response_item;
 use super::{ARCHIVED_SESSIONS_SUBDIR, SESSIONS_SUBDIR, metadata};
@@ -174,7 +173,6 @@ impl RolloutRecorder {
                 allowed_sources,
                 model_providers,
                 default_provider,
-                layout: SessionListLayout::Flat,
             },
         )
         .await?;

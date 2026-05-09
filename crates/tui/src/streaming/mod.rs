@@ -18,18 +18,6 @@ pub(crate) enum StreamingSpeed {
     Instant,
 }
 
-#[allow(dead_code)]
-impl StreamingSpeed {
-    /// Parse from a config string (case-insensitive).
-    pub(crate) fn from_str_loose(s: &str) -> Self {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "fast" => Self::Fast,
-            "instant" | "off" | "none" => Self::Instant,
-            _ => Self::Normal,
-        }
-    }
-}
-
 pub(crate) struct StreamState {
     pub(crate) collector: MarkdownStreamCollector,
     queued_lines: VecDeque<Line<'static>>,

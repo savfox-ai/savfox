@@ -1278,7 +1278,7 @@ pub(crate) async fn handle_dm_allowlist_set(params: &Value, channel: &GatewayCha
 // ─── Provider Health handler ────────────────────────────────────────────────
 
 pub(crate) async fn handle_providers_health(_channel: &GatewayChannel) -> RpcResult {
-    let service = crate::provider_health::ProviderHealthService::new(300);
+    let service = crate::provider_health::ProviderHealthService::new();
     let status = service.get_all().await;
     Ok(json!({ "providers": status }))
 }

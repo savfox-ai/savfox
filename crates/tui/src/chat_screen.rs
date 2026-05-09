@@ -29,7 +29,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use rand::RngExt;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Stylize};
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Wrap};
 use savfox_core::config::provider_store::{
@@ -79,8 +79,6 @@ use savfox_protocol::user_input::{TextElement, UserInput};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use tracing::debug;
-
-use crate::version::SAVFOX_CLI_VERSION;
 
 const DEFAULT_MODEL_DISPLAY_NAME: &str = "loading";
 const PLAN_IMPLEMENTATION_TITLE: &str = "Implement this plan?";
@@ -6169,21 +6167,6 @@ impl ChatScreen {
             ConnectorsCacheState::Ready(snapshot) => Some(snapshot.connectors.as_slice()),
             _ => None,
         }
-    }
-
-    /// Build a placeholder header cell while the session is configuring.
-    #[allow(dead_code)]
-    fn placeholder_session_header_cell(config: &Config, model: &str) -> Box<dyn HistoryCell> {
-        let placeholder_style = Style::default().add_modifier(Modifier::DIM | Modifier::ITALIC);
-        Box::new(
-            history_cell::SessionHeaderHistoryCell::new_startup_with_style(
-                model.to_owned(),
-                placeholder_style,
-                None,
-                config.cwd.clone(),
-                SAVFOX_CLI_VERSION,
-            ),
-        )
     }
 
     /// Merge the real session info cell with any placeholder header to avoid double boxes.

@@ -16,6 +16,8 @@ pub mod cache;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cargo_bin;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod fs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod git;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod home_dir;
@@ -25,6 +27,7 @@ pub mod image;
 pub mod json_to_toml;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod pty;
+pub mod provider_id;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod readiness;
 pub mod string;

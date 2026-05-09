@@ -403,8 +403,18 @@ pub fn required_scope(method: &str) -> Scope {
     }
 
     // ── Agent operations ─────────────────────────────────────────────
-    if method == "agent" || method.starts_with("agent.") {
+    // Bare `agent` is a write op (it spawns / drives a subagent). Sub-methods
+    // honor the `is_read_suffix` convention so e.g. `agent.delegation.list`
+    // resolves to Read.
+    if method == "agent" {
         return Scope::Write;
+    }
+    if method.starts_with("agent.") {
+        return if is_read_suffix(method) {
+            Scope::Read
+        } else {
+            Scope::Write
+        };
     }
 
     // ── Misc mutating: wake, update.run, talk.mode, voicewake, heartbeats ──
@@ -412,8 +422,13 @@ pub fn required_scope(method: &str) -> Scope {
         || method == "update.run"
         || method.starts_with("talk.")
         || method.starts_with("voicewake.")
-        || method == "set-heartbeats"
-        || method == "system-event"
+        || matches!(
+            method,
+            "system.heartbeats.set"
+                | "set-heartbeats"
+                | "system.event"
+                | "system-event"
+        )
     {
         return Scope::Write;
     }
@@ -427,7 +442,13 @@ pub fn required_scope(method: &str) -> Scope {
     // strict deny rule below.
     if matches!(
         method,
-        "connect" | "health" | "status" | "last-heartbeat" | "system-presence"
+        "connect"
+            | "health"
+            | "status"
+            | "system.heartbeat"
+            | "last-heartbeat"
+            | "system.presence"
+            | "system-presence"
     ) {
         return Scope::Read;
     }
@@ -714,7 +735,9 @@ mod tests {
             "connect",
             "health",
             "status",
+            "system.heartbeat",
             "last-heartbeat",
+            "system.presence",
             "system-presence",
         ] {
             assert_eq!(required_scope(method), Scope::Read, "{method}");
