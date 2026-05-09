@@ -1288,19 +1288,7 @@ pub(crate) fn verify_telegram_webhook_secret(expected_secret: &str, received_sec
     savfox_channels::telegram::verify_webhook_secret(expected_secret, received_secret)
 }
 
+#[cfg(test)]
 pub(crate) fn escape_telegram_html_text(text: &str) -> String {
     savfox_channels::telegram::escape_html(text)
-}
-
-pub(crate) fn truncate_telegram_log_preview(text: &str, max_chars: usize) -> String {
-    savfox_channels::telegram::truncate_log_preview(text, max_chars)
-}
-
-/// Verify WhatsApp webhook signature using HMAC-SHA256.
-pub(crate) fn verify_whatsapp_webhook_signature(
-    app_secret: &str,
-    body: &[u8],
-    signature: &str,
-) -> bool {
-    savfox_channels::whatsapp::client::verify_webhook_signature(app_secret, body, signature)
 }

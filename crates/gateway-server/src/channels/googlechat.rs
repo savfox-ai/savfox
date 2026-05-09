@@ -1,83 +1,8 @@
-use async_trait::async_trait;
 use salvo::prelude::*;
-use savfox_channels::http::warn_on_error;
-use serde_json::{Value, json};
+use serde_json::json;
 use tracing::info;
 
-use super::{Channel, ensure_inbound_channel_enabled, render_error, runtime};
-use crate::protocol::ChannelAction;
-
-/// Google Chat channel using webhook and Spaces API.
-pub(crate) struct GoogleChatChannel {
-    webhook_url: Option<String>,
-    http_client: reqwest::Client,
-}
-
-impl GoogleChatChannel {
-    #[must_use]
-    pub(crate) fn new(webhook_url: Option<String>, http_client: reqwest::Client) -> Self {
-        Self {
-            webhook_url,
-            http_client,
-        }
-    }
-}
-
-#[async_trait]
-impl Channel for GoogleChatChannel {
-    async fn start(&mut self) -> anyhow::Result<()> {
-        info!("Google Chat channel starting");
-        Ok(())
-    }
-
-    async fn send_message(&self, _channel: &str, message: &str) -> anyhow::Result<()> {
-        let url = match &self.webhook_url {
-            Some(url) => url.clone(),
-            None => return Err(anyhow::anyhow!("Google Chat webhook URL not configured")),
-        };
-        let body = json!({ "text": message });
-        let response = self
-            .http_client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .body(body.to_string())
-            .send()
-            .await?;
-        warn_on_error(response, "Google Chat send error").await;
-        Ok(())
-    }
-
-    async fn handle_webhook(&self, payload: Value) -> anyhow::Result<ChannelAction> {
-        let message = payload.get("message").unwrap_or(&Value::Null);
-        let text = message.get("text").and_then(|t| t.as_str()).unwrap_or("");
-        let space = payload
-            .get("space")
-            .and_then(|s| s.get("name"))
-            .and_then(|n| n.as_str())
-            .unwrap_or("")
-            .to_owned();
-        let _sender = message
-            .get("sender")
-            .and_then(|s| s.get("name"))
-            .and_then(|n| n.as_str())
-            .unwrap_or("")
-            .to_owned();
-
-        if let Some(prompt) = text
-            .strip_prefix("/savfox ")
-            .or_else(|| text.strip_prefix("@savfox "))
-        {
-            let prompt = prompt.trim().to_owned();
-            if !prompt.is_empty() {
-                return Ok(ChannelAction::StartThread {
-                    channel: space,
-                    prompt,
-                });
-            }
-        }
-        Ok(ChannelAction::Ignore)
-    }
-}
+use super::{ensure_inbound_channel_enabled, render_error, runtime};
 
 #[handler]
 pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &mut Response) {
