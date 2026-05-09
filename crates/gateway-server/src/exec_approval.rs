@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use salvo::prelude::*;
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{info, warn};
@@ -23,7 +24,7 @@ fn approval_store_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 fn approval_store_path(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("exec-approvals.json")
+    savfox_home.join(GATEWAY_SUBDIR).join("exec-approvals.json")
 }
 
 async fn load_store(path: &Path) -> ApprovalStore {

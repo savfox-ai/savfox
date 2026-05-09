@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use savfox_utils::home_dir::PLUGINS_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -230,7 +231,7 @@ impl PluginLoader {
     #[must_use]
     pub fn new(savfox_home: &std::path::Path) -> Self {
         Self {
-            plugins_dir: savfox_home.join("plugins"),
+            plugins_dir: savfox_home.join(PLUGINS_SUBDIR),
             state_path: savfox_home.join("plugins-state.json"),
         }
     }

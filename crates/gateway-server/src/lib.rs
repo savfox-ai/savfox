@@ -35,6 +35,7 @@ use savfox_common::service_runtime::env_filter_from_default;
 use savfox_core::config::{Config, ConfigBuilder};
 use savfox_core::config_loader::CloudRequirementsLoader;
 use savfox_feedback::SavfoxFeedback;
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
@@ -388,7 +389,7 @@ async fn persist_generated_token(
     savfox_home: &std::path::Path,
     token: &str,
 ) -> std::io::Result<PathBuf> {
-    let dir = savfox_home.join("gateway");
+    let dir = savfox_home.join(GATEWAY_SUBDIR);
     tokio::fs::create_dir_all(&dir).await?;
     let path = dir.join("token");
 

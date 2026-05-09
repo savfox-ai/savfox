@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use clap::{CommandFactory, ValueEnum};
 use clap_complete::{Shell, generate};
 use savfox_core::config::find_savfox_home;
+use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -230,7 +231,7 @@ fn source_fingerprints(savfox_home: &Path) -> BTreeMap<String, u64> {
     );
     map.insert(
         "agents_dir".to_owned(),
-        directory_fingerprint(&savfox_home.join("agents")),
+        directory_fingerprint(&savfox_home.join(AGENTS_SUBDIR)),
     );
     map
 }
@@ -324,7 +325,7 @@ fn collect_models(savfox_home: &Path) -> Vec<String> {
 
 fn collect_agents(savfox_home: &Path) -> Vec<String> {
     let mut values = BTreeSet::new();
-    let dir = savfox_home.join("agents");
+    let dir = savfox_home.join(AGENTS_SUBDIR);
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };

@@ -5,6 +5,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use savfox_utils::home_dir::GATEWAY_LOG_FILE;
 use serde_json::Value;
 use tracing::info;
 
@@ -384,7 +385,10 @@ async fn run_start(host: IpAddr, port: u16, pid_file: Option<PathBuf>) -> std::i
             eprintln!("Gateway daemon started (PID {child_pid}).");
             eprintln!("  Listening on {host}:{port}");
             eprintln!("  PID file: {}", pid_path.display());
-            eprintln!("  Log file: {}", savfox_home.join("gateway.log").display());
+            eprintln!(
+                "  Log file: {}",
+                savfox_home.join(GATEWAY_LOG_FILE).display()
+            );
         }
         Err(err) => {
             eprintln!("Failed to start gateway daemon: {err}");

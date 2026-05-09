@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_utils::home_dir::LOGS_SUBDIR;
 use serde_json::{Value, json};
 
 use super::super::types::{
@@ -211,7 +212,7 @@ pub(crate) async fn handle_logs_rotate(channel: &GatewayChannel) -> RpcResult {
 
     if count > 0 {
         // Archive to a timestamped JSONL file.
-        let logs_dir = channel.config().savfox_home.join("logs");
+        let logs_dir = channel.config().savfox_home.join(LOGS_SUBDIR);
         if !logs_dir.exists() {
             tokio::fs::create_dir_all(&logs_dir)
                 .await
@@ -256,7 +257,7 @@ async fn prune_log_archives(channel: &GatewayChannel) -> Result<usize, String> {
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
 
-    let logs_dir = channel.config().savfox_home.join("logs");
+    let logs_dir = channel.config().savfox_home.join(LOGS_SUBDIR);
     if !logs_dir.exists() {
         return Ok(0);
     }

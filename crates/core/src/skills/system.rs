@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use include_dir::Dir;
 use savfox_utils::absolute_path::AbsolutePathBuf;
+use savfox_utils::home_dir::REGISTRY_SUBDIR;
 use thiserror::Error;
 
 const SYSTEM_SKILLS_DIR: Dir =
@@ -114,7 +115,7 @@ fn ensure_default_registry_cloned(
     let config = registry_config.unwrap_or(&default_config);
     let git_url = &config.git;
     let dir_name = registry_dir_from_url(git_url);
-    let registry_dir = savfox_home.join("registry").join(&dir_name);
+    let registry_dir = savfox_home.join(REGISTRY_SUBDIR).join(&dir_name);
     if registry_dir.is_dir() {
         return;
     }

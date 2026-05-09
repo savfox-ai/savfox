@@ -9,6 +9,7 @@ use savfox_core::config::provider_store::{
     ProviderStoreFile as ProviderFile,
 };
 use savfox_core::{AuthManager, SavfoxAuth};
+use savfox_utils::home_dir::MODELS_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -21,7 +22,7 @@ use crate::channel::GatewayChannel;
 // ── Models (per-provider store) ─────────────────────────────────────────
 
 fn models_dir(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("models")
+    channel.config().savfox_home.join(MODELS_SUBDIR)
 }
 
 // ── Provider file types ─────────────────────────────────────────────────

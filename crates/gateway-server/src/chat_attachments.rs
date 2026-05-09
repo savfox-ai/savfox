@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::info;
@@ -51,7 +52,7 @@ impl AttachmentStore {
     }
 
     pub fn from_home(savfox_home: &Path) -> Self {
-        Self::new(savfox_home.join("gateway").join("attachments"))
+        Self::new(savfox_home.join(GATEWAY_SUBDIR).join("attachments"))
     }
 
     /// Validate MIME type against the allow-list

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -28,7 +29,7 @@ pub(crate) struct WizardState {
 }
 
 fn store_path(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway").join("wizard-state.json")
+    savfox_home.join(GATEWAY_SUBDIR).join("wizard-state.json")
 }
 
 fn steps_for_type(wizard_type: &str) -> Vec<&'static str> {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_utils::home_dir::LOGS_SUBDIR;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{RwLock, mpsc};
@@ -20,7 +21,7 @@ const MAX_FILE_SIZE_MB: u64 = 100;
 impl AuditStore {
     #[must_use]
     pub fn new(savfox_home: &std::path::Path) -> Self {
-        let log_path = savfox_home.join("logs").join("audit.log");
+        let log_path = savfox_home.join(LOGS_SUBDIR).join("audit.log");
         let (tx, rx) = mpsc::channel::<AuditEvent>(CHANNEL_SIZE);
         let enabled = Arc::new(RwLock::new(true));
 

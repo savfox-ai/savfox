@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
@@ -106,7 +107,7 @@ pub(crate) async fn handle_agent_capabilities(
         .unwrap_or("default");
 
     // Collect tools from agent config (if it exists).
-    let agents_dir = channel.config().savfox_home.join("agents");
+    let agents_dir = channel.config().savfox_home.join(AGENTS_SUBDIR);
     let Some(agent_config_path) = safe_join(&agents_dir, agent_id, ".json") else {
         return Err((INVALID_PARAMS, "invalid agent identifier".to_owned()));
     };
@@ -359,7 +360,7 @@ pub(crate) async fn handle_agent_delegation_remove(params: &Value) -> RpcResult 
 
 /// Get the agents directory (SAVFOX_HOME/agents/).
 pub(crate) fn agents_dir(channel: &GatewayChannel) -> std::path::PathBuf {
-    channel.config().savfox_home.join("agents")
+    channel.config().savfox_home.join(AGENTS_SUBDIR)
 }
 
 /// Read an agent config JSON file.

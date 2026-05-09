@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
+use savfox_utils::home_dir::SKILLS_SUBDIR;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 
@@ -306,7 +307,7 @@ pub(crate) async fn bins(savfox_home: &Path, params: Option<&Value>) -> Result<V
     let keyring = DefaultKeyringStore;
     let allowlist = parse_allowlist();
     let current_os = std::env::consts::OS.to_ascii_lowercase();
-    let skills_dir = savfox_home.join("skills");
+    let skills_dir = savfox_home.join(SKILLS_SUBDIR);
 
     // Load skill_roots from DB.
     let skill_roots = load_skill_roots(&pool).await;
@@ -693,8 +694,8 @@ pub(crate) async fn set_enabled(
 
 /// Find the skill directory for a given skill name by scanning manifest dirs.
 fn find_skill_dir(savfox_home: &Path, name: &str) -> Option<PathBuf> {
-    let system_dir = savfox_home.join("skills").join(".system");
-    let skills_dir = savfox_home.join("skills");
+    let system_dir = savfox_home.join(SKILLS_SUBDIR).join(".system");
+    let skills_dir = savfox_home.join(SKILLS_SUBDIR);
     let empty_skip = HashSet::new();
 
     let dirs_to_scan: Vec<(&Path, bool)> = vec![(&system_dir, false), (&skills_dir, true)];

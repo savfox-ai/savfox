@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use savfox_utils::home_dir::{GATEWAY_LOG_FILE, GATEWAY_PID_FILE};
 use tracing::{error, info, warn};
 
 /// Maximum time to wait for a process to exit after sending a termination signal.
@@ -101,7 +102,7 @@ pub(crate) fn detect_service_manager_with_override(runtime: Option<&str>) -> Ser
 
 /// Return the default PID file path: `{savfox_home}/gateway.pid`.
 pub(crate) fn default_pid_file(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("gateway.pid")
+    savfox_home.join(GATEWAY_PID_FILE)
 }
 
 /// Read a PID from the file at `path`. Returns `None` if the file doesn't
@@ -323,7 +324,7 @@ pub(crate) fn spawn_daemon(
     fs::create_dir_all(savfox_home)?;
 
     // Log file for the daemon's output.
-    let log_path = savfox_home.join("gateway.log");
+    let log_path = savfox_home.join(GATEWAY_LOG_FILE);
 
     let log_file = fs::OpenOptions::new()
         .create(true)
