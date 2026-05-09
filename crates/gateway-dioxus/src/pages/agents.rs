@@ -6,8 +6,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
     AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig,
-    AgentTerminalDelegateConfig, AgentsResponse, AvailableModel, AvailableModelsResponse, SkillDetail,
-    SkillsBinsResponse, SkillsStatusResponse,
+    AgentTerminalDelegateConfig, AgentsResponse, AvailableModel, AvailableModelsResponse,
+    SkillDetail, SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::icon::Icon;
@@ -663,7 +663,10 @@ fn model_default_reasoning_level(model: Option<&AvailableModel>) -> Option<Strin
     })
 }
 
-fn selected_model_info<'a>(models: &'a [AvailableModel], model_id: &str) -> Option<&'a AvailableModel> {
+fn selected_model_info<'a>(
+    models: &'a [AvailableModel],
+    model_id: &str,
+) -> Option<&'a AvailableModel> {
     let trimmed = model_id.trim();
     if trimmed.is_empty() {
         return None;

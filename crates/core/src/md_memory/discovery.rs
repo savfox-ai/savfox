@@ -48,7 +48,10 @@ pub fn layer_dirs(
         savfox_home.join(MEMORY_SUBDIR).join("global"),
     ));
     if let Some(root) = project_root {
-        dirs.push((MemoryLayer::Project, root.join(".savfox").join(MEMORY_SUBDIR)));
+        dirs.push((
+            MemoryLayer::Project,
+            root.join(".savfox").join(MEMORY_SUBDIR),
+        ));
     }
     dirs.push((
         MemoryLayer::Agent,

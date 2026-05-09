@@ -217,10 +217,7 @@ pub fn inject_provider_auth_overrides_from_store(savfox_home: &Path) {
             .copied()
             .unwrap_or(0)
             == 1;
-        if only_account
-            && entry.provider_id != entry.account_id
-            && !entry.provider_id.is_empty()
-        {
+        if only_account && entry.provider_id != entry.account_id && !entry.provider_id.is_empty() {
             set_bearer_token_override(&entry.provider_id, &entry.api_key);
         }
     }
@@ -1108,7 +1105,10 @@ env_key = "GEMINI_API_KEY"
         inject_provider_auth_overrides_from_store(tmp.path());
 
         // Both account-scoped overrides resolve.
-        assert_eq!(get_bearer_token_override(work_id).as_deref(), Some("sk-work"));
+        assert_eq!(
+            get_bearer_token_override(work_id).as_deref(),
+            Some("sk-work")
+        );
         assert_eq!(
             get_bearer_token_override(personal_id).as_deref(),
             Some("sk-personal")

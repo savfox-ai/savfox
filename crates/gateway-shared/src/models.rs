@@ -78,17 +78,36 @@ pub struct ReasoningEffortPreset {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn reasoning_effort_serializes_lowercase() {
-        assert_eq!(serde_json::to_value(ReasoningEffort::None).unwrap(), json!("none"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::Minimal).unwrap(), json!("minimal"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::Low).unwrap(), json!("low"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::Medium).unwrap(), json!("medium"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::High).unwrap(), json!("high"));
-        assert_eq!(serde_json::to_value(ReasoningEffort::XHigh).unwrap(), json!("xhigh"));
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::None).unwrap(),
+            json!("none")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Minimal).unwrap(),
+            json!("minimal")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Low).unwrap(),
+            json!("low")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::Medium).unwrap(),
+            json!("medium")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::High).unwrap(),
+            json!("high")
+        );
+        assert_eq!(
+            serde_json::to_value(ReasoningEffort::XHigh).unwrap(),
+            json!("xhigh")
+        );
     }
 
     #[test]

@@ -62,7 +62,10 @@ pub fn Models() -> Element {
             // Retry up to 3 times with delays to handle race condition
             // where WebSocket connects but server isn't ready yet
             for attempt in 0..3 {
-                if let Ok(resp) = ws.call::<AvailableModelsResponse>("models.list", None).await {
+                if let Ok(resp) = ws
+                    .call::<AvailableModelsResponse>("models.list", None)
+                    .await
+                {
                     return Some(resp.models);
                 }
                 // Small delay before retry (except on last attempt)

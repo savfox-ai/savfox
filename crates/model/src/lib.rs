@@ -4,8 +4,8 @@ mod model_info;
 
 use std::collections::HashSet;
 
+pub use model_info::{BASE_INSTRUCTIONS, find_model_info_for_slug};
 use savfox_protocol::openai_models::ModelInfo;
-
 // Pure provider-id helpers live in `savfox-utils` so the WASM frontend can
 // reuse them without depending on `savfox-protocol`. Re-export here for the
 // existing `savfox_model::canonical_provider_id` import paths.
@@ -13,8 +13,6 @@ pub use savfox_utils::provider_id::{
     DEFAULT_OPENAI_API_BASE_URL, canonical_provider_id, provider_default_base_url,
     provider_default_base_url_entry,
 };
-
-pub use model_info::{BASE_INSTRUCTIONS, find_model_info_for_slug};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Provider {

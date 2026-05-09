@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::api::client::fetch_json;
 use crate::api::types::{
-    AgentsResponse, LogEntry, LogsResponse, AvailableModel, AvailableModelsResponse, SessionEntry,
+    AgentsResponse, AvailableModel, AvailableModelsResponse, LogEntry, LogsResponse, SessionEntry,
     SessionsResponse, StatusResponse, UsageStatus,
 };
 use crate::api::ws::WsRpc;
@@ -201,7 +201,11 @@ pub fn Overview() -> Element {
         let _c = ws_connected();
         let _t = refresh_tick();
         let ws = ws_models.clone();
-        async move { ws.call::<AvailableModelsResponse>("models.list", None).await.ok() }
+        async move {
+            ws.call::<AvailableModelsResponse>("models.list", None)
+                .await
+                .ok()
+        }
     });
 
     let ws_usage = ws.clone();

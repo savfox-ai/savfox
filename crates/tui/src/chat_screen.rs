@@ -2200,10 +2200,12 @@ impl ChatScreen {
         );
         widget.sync_personality_command_enabled();
         #[cfg(target_os = "windows")]
-        widget.bottom_pane.set_windows_degraded_sandbox_active(matches!(
-            WindowsSandboxLevel::from_config(&widget.config),
-            WindowsSandboxLevel::RestrictedToken
-        ));
+        widget
+            .bottom_pane
+            .set_windows_degraded_sandbox_active(matches!(
+                WindowsSandboxLevel::from_config(&widget.config),
+                WindowsSandboxLevel::RestrictedToken
+            ));
         widget.update_collaboration_mode_indicator();
         widget.refresh_model_display();
 
@@ -2506,10 +2508,12 @@ impl ChatScreen {
         );
         widget.sync_personality_command_enabled();
         #[cfg(target_os = "windows")]
-        widget.bottom_pane.set_windows_degraded_sandbox_active(matches!(
-            WindowsSandboxLevel::from_config(&widget.config),
-            WindowsSandboxLevel::RestrictedToken
-        ));
+        widget
+            .bottom_pane
+            .set_windows_degraded_sandbox_active(matches!(
+                WindowsSandboxLevel::from_config(&widget.config),
+                WindowsSandboxLevel::RestrictedToken
+            ));
         widget.update_collaboration_mode_indicator();
         widget.refresh_model_display();
         // Existing session ⇒ already in session mode.
@@ -5725,10 +5729,11 @@ impl ChatScreen {
             feature,
             Feature::WindowsSandbox | Feature::WindowsSandboxElevated
         ) {
-            self.bottom_pane.set_windows_degraded_sandbox_active(matches!(
-                WindowsSandboxLevel::from_config(&self.config),
-                WindowsSandboxLevel::RestrictedToken
-            ));
+            self.bottom_pane
+                .set_windows_degraded_sandbox_active(matches!(
+                    WindowsSandboxLevel::from_config(&self.config),
+                    WindowsSandboxLevel::RestrictedToken
+                ));
         }
     }
 

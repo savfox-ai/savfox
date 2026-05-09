@@ -283,12 +283,8 @@ pub(crate) async fn dispatch_rpc(
         // used elsewhere; they're kept as deprecated aliases so existing
         // Dioxus + scope-guard call sites keep working while clients migrate.
         "system.heartbeat" | "last-heartbeat" => handle_last_heartbeat(&params).await,
-        "system.heartbeats.set" | "set-heartbeats" => {
-            handle_set_heartbeats(&params, channel).await
-        }
-        "system.presence" | "system-presence" => {
-            handle_system_presence(&params, session_mgr).await
-        }
+        "system.heartbeats.set" | "set-heartbeats" => handle_set_heartbeats(&params, channel).await,
+        "system.presence" | "system-presence" => handle_system_presence(&params, session_mgr).await,
         "system.event" | "system-event" => {
             handle_system_event(&params, channel, session_mgr, cron_service).await
         }

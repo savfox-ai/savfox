@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
-pub use savfox_utils::string::slugify_account_id;
 use savfox_utils::string::normalize_slug;
+pub use savfox_utils::string::slugify_account_id;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

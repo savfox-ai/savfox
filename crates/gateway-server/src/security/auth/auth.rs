@@ -424,10 +424,7 @@ pub fn required_scope(method: &str) -> Scope {
         || method.starts_with("voicewake.")
         || matches!(
             method,
-            "system.heartbeats.set"
-                | "set-heartbeats"
-                | "system.event"
-                | "system-event"
+            "system.heartbeats.set" | "set-heartbeats" | "system.event" | "system-event"
         )
     {
         return Scope::Write;

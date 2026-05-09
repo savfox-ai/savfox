@@ -158,7 +158,10 @@ mod tests {
 
     #[test]
     fn unknown_provider_passthrough() {
-        assert_eq!(canonical_provider_id("never-heard-of-it"), "never-heard-of-it");
+        assert_eq!(
+            canonical_provider_id("never-heard-of-it"),
+            "never-heard-of-it"
+        );
         assert_eq!(provider_default_base_url("never-heard-of-it"), None);
         assert_eq!(provider_default_base_url_entry("never-heard-of-it"), None);
     }
