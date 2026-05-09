@@ -1,11 +1,16 @@
 #![warn(clippy::print_stdout, clippy::print_stderr)]
 // TODO(F6): 收敛 unreachable_pub 与 dead_code —— workspace 全局是 deny,
-// 这里临时 allow 是为了不阻塞迭代。第六轮删 auto_reply 三个子系统 (~978 行)，
-// 第七轮删 5 个 unwired channel (~1185 行)，第八轮删 2 个 dead Channel struct
-// + cfg(test) 收敛 test-only helper (~3 处)。剩余 ~138 处 dead_code 警告
-// 分布在 Tailscale / hooks / validator / transformer / service-discovery /
-// maintenance / OTel-config / WebChat 等未接入子系统，需逐子系统立项评估
-// 删除还是接入。
+// 这里临时 allow 是为了不阻塞迭代。
+//
+// 累计清理:
+//   r6  删 auto_reply 三个子系统 (~978 行)
+//   r7  删 5 个 unwired channel (~1185 行)
+//   r8  删 2 个 dead Channel struct + cfg(test) 收敛 helper (~170 行)
+//   r9  删 7 个 unwired 子系统: tailscale / discovery / maintenance +
+//       hooks/{event_bus,llm_hook,transformer,validator} (~2700 行)
+//
+// 剩余 ~79 处 dead_code 警告分布在 OTel-config / WebChat / canvas-host /
+// 部分 RPC handler 占位字段，需独立 PR 逐位评估删除还是接入。
 #![allow(unreachable_pub, dead_code)]
 #![allow(missing_debug_implementations)]
 #![allow(
@@ -60,7 +65,6 @@ pub mod compaction;
 pub mod config;
 pub mod cron_service;
 mod daemon;
-pub(crate) mod discovery;
 pub mod dm_policy;
 mod exec_approval;
 pub mod gateway_cli;
@@ -70,7 +74,6 @@ pub mod identity_links;
 mod json_store;
 mod log_level;
 mod log_store;
-pub(crate) mod maintenance;
 pub mod media_store;
 pub mod media_understanding;
 pub mod memory_service;
@@ -90,7 +93,6 @@ mod server;
 pub mod skills_api;
 mod skills_store;
 mod static_assets;
-pub(crate) mod tailscale;
 mod tools_invoke;
 pub mod utils;
 pub mod voice;
