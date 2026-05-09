@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use savfox_utils::string::slugify_account_id;
 use serde_json::{Value, json};
 
-use crate::api::types::{AvailableModelsResponse, ReasoningEffortPreset};
+use crate::api::types::{AvailableModelsResponse, ReasoningEffort, ReasoningEffortPreset};
 use crate::api::ws::WsRpc;
 use crate::components::skeleton::*;
 use crate::utils::model_visibility::{
@@ -432,7 +432,7 @@ struct ModelEntry {
     id: String,
     name: String,
     provider: Option<String>,
-    default_reasoning_level: Option<String>,
+    default_reasoning_level: Option<ReasoningEffort>,
     supported_reasoning_levels: Option<Vec<ReasoningEffortPreset>>,
 }
 
@@ -463,9 +463,7 @@ fn build_model_entries(
                 id: model.id.clone(),
                 name: model.name.unwrap_or_else(|| model.id.clone()),
                 provider: Some(provider_id),
-                default_reasoning_level: model
-                    .default_reasoning_level
-                    .map(|effort| effort.to_string()),
+                default_reasoning_level: model.default_reasoning_level,
                 supported_reasoning_levels: model.supported_reasoning_levels,
             }
         })
