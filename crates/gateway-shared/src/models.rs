@@ -41,7 +41,7 @@ impl fmt::Display for ReasoningEffort {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ModelInfo {
+pub struct AvailableModel {
     pub id: String,
     pub name: Option<String>,
     pub provider: Option<String>,
@@ -66,8 +66,8 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ModelsResponse {
-    pub models: Vec<ModelInfo>,
+pub struct AvailableModelsResponse {
+    pub models: Vec<AvailableModel>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

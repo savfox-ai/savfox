@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use savfox_utils::string::slugify_account_id;
 use serde_json::{Value, json};
 
-use crate::api::types::{ModelsResponse, ReasoningEffortPreset};
+use crate::api::types::{AvailableModelsResponse, ReasoningEffortPreset};
 use crate::api::ws::WsRpc;
 use crate::components::skeleton::*;
 use crate::utils::model_visibility::{
@@ -332,7 +332,7 @@ pub fn ConnectProvider() -> Element {
                                     let ws = ws_fetch.clone();
                                     spawn(async move {
                                         let result = ws
-                                            .call::<ModelsResponse>("models.list", request_params)
+                                            .call::<AvailableModelsResponse>("models.list", request_params)
                                             .await;
                                         models_loading.set(false);
                                         match result {
@@ -387,7 +387,7 @@ pub fn ConnectProvider() -> Element {
                                             let ws = ws_fetch.clone();
                                             spawn(async move {
                                                 let result = ws
-                                                    .call::<ModelsResponse>(
+                                                    .call::<AvailableModelsResponse>(
                                                         "models.list",
                                                         request_params,
                                                     )
@@ -451,7 +451,7 @@ fn model_provider_id(provider: Option<&str>, model_id: &str) -> String {
 }
 
 fn build_model_entries(
-    response: ModelsResponse,
+    response: AvailableModelsResponse,
     selected_provider_id: Option<String>,
 ) -> Vec<ModelEntry> {
     let mut entries = response
@@ -857,7 +857,7 @@ fn render_step_model(
                                 let request_params = models_list_params.clone();
                                 spawn(async move {
                                     let result = ws
-                                        .call::<ModelsResponse>("models.list", request_params)
+                                        .call::<AvailableModelsResponse>("models.list", request_params)
                                         .await;
                                     models_loading.set(false);
                                     match result {
