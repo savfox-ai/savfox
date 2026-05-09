@@ -7,12 +7,56 @@ use savfox_app_server_protocol::{
     JSONRPCError, JSONRPCResponse, Model, ModelListParams, ModelListResponse,
     ReasoningEffortOption, RequestId,
 };
-use savfox_protocol::openai_models::{InputModality, ReasoningEffort};
+use savfox_core::models_manager::model_presets::all_model_presets;
+use savfox_protocol::openai_models::ModelPreset;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const INVALID_REQUEST_ERROR_CODE: i64 = -32600;
+
+/// Project a `ModelPreset` (catalog entry) onto the `Model` shape that the
+/// app-server emits over the v2 RPC. Mirrors the upstream codex pattern in
+/// `codex-rs/app-server/tests/suite/v2/model_list.rs`.
+fn model_from_preset(preset: &ModelPreset) -> Model {
+    Model {
+        id: preset.id.clone(),
+        slug: preset.slug.clone(),
+        name: preset.name.clone(),
+        description: preset.description.clone(),
+        supported_reasoning_efforts: preset
+            .supported_reasoning_efforts
+            .iter()
+            .map(|preset| ReasoningEffortOption {
+                reasoning_effort: preset.effort,
+                description: preset.description.clone(),
+            })
+            .collect(),
+        default_reasoning_effort: preset.default_reasoning_effort,
+        input_modalities: preset.input_modalities.clone(),
+        // `write_models_cache()` round-trips through a simplified ModelInfo
+        // fixture that does not preserve personality placeholders in base
+        // instructions, so app-server list results from cache report
+        // `supports_personality = false`.
+        supports_personality: false,
+        is_default: preset.is_default,
+    }
+}
+
+/// Build the list of models the v2 RPC is expected to return for a fresh
+/// cache + non-ChatGPT auth, drawn directly from the bundled catalog so that
+/// adding or rebranding a preset does not require touching this test.
+fn expected_visible_models() -> Vec<Model> {
+    let presets = ModelPreset::filter_by_auth(
+        all_model_presets().clone(),
+        /* chatgpt_mode */ false,
+    );
+    presets
+        .iter()
+        .filter(|preset| preset.show_in_picker)
+        .map(model_from_preset)
+        .collect()
+}
 
 #[tokio::test]
 async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
@@ -40,120 +84,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
         next_cursor,
     } = to_response::<ModelListResponse>(response)?;
 
-    let expected_models = vec![
-        Model {
-            id: "gpt-5.2-codex".to_owned(),
-            slug: "gpt-5.2-codex".to_owned(),
-            name: "gpt-5.2-codex".to_owned(),
-            description: "Latest frontier agentic coding model.".to_owned(),
-            supported_reasoning_efforts: vec![
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Low,
-                    description: "Fast responses with lighter reasoning".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Medium,
-                    description: "Balances speed and reasoning depth for everyday tasks".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::High,
-                    description: "Greater reasoning depth for complex problems".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_owned(),
-                },
-            ],
-            default_reasoning_effort: ReasoningEffort::Medium,
-            input_modalities: vec![InputModality::Text, InputModality::Image],
-            supports_personality: false,
-            is_default: true,
-        },
-        Model {
-            id: "gpt-5.1-codex-max".to_owned(),
-            slug: "gpt-5.1-codex-max".to_owned(),
-            name: "gpt-5.1-codex-max".to_owned(),
-            description: "Codex-optimized flagship for deep and fast reasoning.".to_owned(),
-            supported_reasoning_efforts: vec![
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Low,
-                    description: "Fast responses with lighter reasoning".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Medium,
-                    description: "Balances speed and reasoning depth for everyday tasks".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::High,
-                    description: "Greater reasoning depth for complex problems".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_owned(),
-                },
-            ],
-            default_reasoning_effort: ReasoningEffort::Medium,
-            input_modalities: vec![InputModality::Text, InputModality::Image],
-            supports_personality: false,
-            is_default: false,
-        },
-        Model {
-            id: "gpt-5.1-codex-mini".to_owned(),
-            slug: "gpt-5.1-codex-mini".to_owned(),
-            name: "gpt-5.1-codex-mini".to_owned(),
-            description: "Optimized for codex. Cheaper, faster, but less capable.".to_owned(),
-            supported_reasoning_efforts: vec![
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Medium,
-                    description: "Dynamically adjusts reasoning based on the task".to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems"
-                        .to_owned(),
-                },
-            ],
-            default_reasoning_effort: ReasoningEffort::Medium,
-            input_modalities: vec![InputModality::Text, InputModality::Image],
-            supports_personality: false,
-            is_default: false,
-        },
-        Model {
-            id: "gpt-5.2".to_owned(),
-            slug: "gpt-5.2".to_owned(),
-            name: "gpt-5.2".to_owned(),
-            description:
-                "Latest frontier model with improvements across knowledge, reasoning and coding"
-                    .to_owned(),
-            supported_reasoning_efforts: vec![
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Low,
-                    description: "Balances speed with some reasoning; useful for straightforward \
-                                   queries and short explanations"
-                        .to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::Medium,
-                    description: "Provides a solid balance of reasoning depth and latency for \
-                         general-purpose tasks"
-                        .to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::High,
-                    description: "Maximizes reasoning depth for complex or ambiguous problems"
-                        .to_owned(),
-                },
-                ReasoningEffortOption {
-                    reasoning_effort: ReasoningEffort::XHigh,
-                    description: "Extra high reasoning depth for complex problems".to_owned(),
-                },
-            ],
-            default_reasoning_effort: ReasoningEffort::Medium,
-            input_modalities: vec![InputModality::Text, InputModality::Image],
-            supports_personality: false,
-            is_default: false,
-        },
-    ];
+    let expected_models = expected_visible_models();
 
     assert_eq!(items, expected_models);
     assert!(next_cursor.is_none());
@@ -168,94 +99,44 @@ async fn list_models_pagination_works() -> Result<()> {
 
     timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
 
-    let first_request = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(1),
-            cursor: None,
-        })
-        .await?;
+    let expected_models = expected_visible_models();
+    let mut cursor: Option<String> = None;
+    let mut items: Vec<Model> = Vec::new();
 
-    let first_response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(first_request)),
-    )
-    .await??;
+    for _ in 0..expected_models.len() {
+        let request_id = mcp
+            .send_list_models_request(ModelListParams {
+                limit: Some(1),
+                cursor: cursor.clone(),
+            })
+            .await?;
 
-    let ModelListResponse {
-        data: first_items,
-        next_cursor: first_cursor,
-    } = to_response::<ModelListResponse>(first_response)?;
+        let response: JSONRPCResponse = timeout(
+            DEFAULT_TIMEOUT,
+            mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
+        )
+        .await??;
 
-    assert_eq!(first_items.len(), 1);
-    assert_eq!(first_items[0].id, "gpt-5.2-codex");
-    let next_cursor = first_cursor.ok_or_else(|| anyhow!("cursor for second page"))?;
+        let ModelListResponse {
+            data: page_items,
+            next_cursor,
+        } = to_response::<ModelListResponse>(response)?;
 
-    let second_request = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(1),
-            cursor: Some(next_cursor.clone()),
-        })
-        .await?;
+        assert_eq!(page_items.len(), 1);
+        items.extend(page_items);
 
-    let second_response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(second_request)),
-    )
-    .await??;
+        if let Some(next_cursor) = next_cursor {
+            cursor = Some(next_cursor);
+        } else {
+            assert_eq!(items, expected_models);
+            return Ok(());
+        }
+    }
 
-    let ModelListResponse {
-        data: second_items,
-        next_cursor: second_cursor,
-    } = to_response::<ModelListResponse>(second_response)?;
-
-    assert_eq!(second_items.len(), 1);
-    assert_eq!(second_items[0].id, "gpt-5.1-codex-max");
-    let third_cursor = second_cursor.ok_or_else(|| anyhow!("cursor for third page"))?;
-
-    let third_request = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(1),
-            cursor: Some(third_cursor.clone()),
-        })
-        .await?;
-
-    let third_response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(third_request)),
-    )
-    .await??;
-
-    let ModelListResponse {
-        data: third_items,
-        next_cursor: third_cursor,
-    } = to_response::<ModelListResponse>(third_response)?;
-
-    assert_eq!(third_items.len(), 1);
-    assert_eq!(third_items[0].id, "gpt-5.1-codex-mini");
-    let fourth_cursor = third_cursor.ok_or_else(|| anyhow!("cursor for fourth page"))?;
-
-    let fourth_request = mcp
-        .send_list_models_request(ModelListParams {
-            limit: Some(1),
-            cursor: Some(fourth_cursor.clone()),
-        })
-        .await?;
-
-    let fourth_response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(fourth_request)),
-    )
-    .await??;
-
-    let ModelListResponse {
-        data: fourth_items,
-        next_cursor: fourth_cursor,
-    } = to_response::<ModelListResponse>(fourth_response)?;
-
-    assert_eq!(fourth_items.len(), 1);
-    assert_eq!(fourth_items[0].id, "gpt-5.2");
-    assert!(fourth_cursor.is_none());
-    Ok(())
+    Err(anyhow!(
+        "model pagination did not terminate after {} pages",
+        expected_models.len()
+    ))
 }
 
 #[tokio::test]

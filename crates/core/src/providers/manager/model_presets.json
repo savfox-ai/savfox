@@ -1,0 +1,404 @@
+[
+  {
+    "id": "gpt-5.2-savfox",
+    "slug": "gpt-5.2-savfox",
+    "name": "gpt-5.2-savfox",
+    "description": "Latest frontier agentic coding model.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Fast responses with lighter reasoning"
+      },
+      {
+        "effort": "medium",
+        "description": "Balances speed and reasoning depth for everyday tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Greater reasoning depth for complex problems"
+      },
+      {
+        "effort": "xhigh",
+        "description": "Extra high reasoning depth for complex problems"
+      }
+    ],
+    "supports_personality": true,
+    "is_default": true,
+    "upgrade": null,
+    "show_in_picker": true,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5.1-codex-max",
+    "slug": "gpt-5.1-codex-max",
+    "name": "gpt-5.1-codex-max",
+    "description": "Codex-optimized flagship for deep and fast reasoning.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Fast responses with lighter reasoning"
+      },
+      {
+        "effort": "medium",
+        "description": "Balances speed and reasoning depth for everyday tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Greater reasoning depth for complex problems"
+      },
+      {
+        "effort": "xhigh",
+        "description": "Extra high reasoning depth for complex problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": true,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5.1-codex-mini",
+    "slug": "gpt-5.1-codex-mini",
+    "name": "gpt-5.1-codex-mini",
+    "description": "Optimized for codex. Cheaper, faster, but less capable.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "medium",
+        "description": "Dynamically adjusts reasoning based on the task"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": true,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5.2",
+    "slug": "gpt-5.2",
+    "name": "gpt-5.2",
+    "description": "Latest frontier model with improvements across knowledge, reasoning and coding",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+      },
+      {
+        "effort": "medium",
+        "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      },
+      {
+        "effort": "xhigh",
+        "description": "Extra high reasoning depth for complex problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": true,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "bengalfox",
+    "slug": "bengalfox",
+    "name": "bengalfox",
+    "description": "bengalfox",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Fast responses with lighter reasoning"
+      },
+      {
+        "effort": "medium",
+        "description": "Balances speed and reasoning depth for everyday tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Greater reasoning depth for complex problems"
+      },
+      {
+        "effort": "xhigh",
+        "description": "Extra high reasoning depth for complex problems"
+      }
+    ],
+    "supports_personality": true,
+    "is_default": false,
+    "upgrade": null,
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "boomslang",
+    "slug": "boomslang",
+    "name": "boomslang",
+    "description": "boomslang",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+      },
+      {
+        "effort": "medium",
+        "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      },
+      {
+        "effort": "xhigh",
+        "description": "Extra high reasoning depth for complex problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": null,
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5-codex",
+    "slug": "gpt-5-codex",
+    "name": "gpt-5-codex",
+    "description": "Optimized for codex.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Fastest responses with limited reasoning"
+      },
+      {
+        "effort": "medium",
+        "description": "Dynamically adjusts reasoning based on the task"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5-codex-mini",
+    "slug": "gpt-5-codex-mini",
+    "name": "gpt-5-codex-mini",
+    "description": "Optimized for codex. Cheaper, faster, but less capable.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "medium",
+        "description": "Dynamically adjusts reasoning based on the task"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5.1-codex",
+    "slug": "gpt-5.1-codex",
+    "name": "gpt-5.1-codex",
+    "description": "Optimized for codex.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Fastest responses with limited reasoning"
+      },
+      {
+        "effort": "medium",
+        "description": "Dynamically adjusts reasoning based on the task"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5",
+    "slug": "gpt-5",
+    "name": "gpt-5",
+    "description": "Broad world knowledge with strong general reasoning.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "minimal",
+        "description": "Fastest responses with little reasoning"
+      },
+      {
+        "effort": "low",
+        "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+      },
+      {
+        "effort": "medium",
+        "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  },
+  {
+    "id": "gpt-5.1",
+    "slug": "gpt-5.1",
+    "name": "gpt-5.1",
+    "description": "Broad world knowledge with strong general reasoning.",
+    "default_reasoning_effort": "medium",
+    "supported_reasoning_efforts": [
+      {
+        "effort": "low",
+        "description": "Balances speed with some reasoning; useful for straightforward queries and short explanations"
+      },
+      {
+        "effort": "medium",
+        "description": "Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+      },
+      {
+        "effort": "high",
+        "description": "Maximizes reasoning depth for complex or ambiguous problems"
+      }
+    ],
+    "supports_personality": false,
+    "is_default": false,
+    "upgrade": {
+      "id": "gpt-5.2-savfox",
+      "reasoning_effort_mapping": null,
+      "migration_config_key": "gpt-5.2-savfox",
+      "model_link": "https://openai.com/index/introducing-gpt-5-2-savfox",
+      "upgrade_copy": "Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work.",
+      "migration_markdown": "\n                **Savfox just got an upgrade. Introducing {model_to}.**\n\n                Savfox is now powered by gpt-5.2-savfox, our latest frontier agentic coding model. It is smarter and faster than its predecessors and capable of long-running project-scale work. Learn more about {model_to} at https://openai.com/index/introducing-gpt-5-2-savfox\n\n                You can continue using {model_from} if you prefer.\n            "
+    },
+    "show_in_picker": false,
+    "supported_in_api": true,
+    "input_modalities": [
+      "text",
+      "image"
+    ]
+  }
+]
