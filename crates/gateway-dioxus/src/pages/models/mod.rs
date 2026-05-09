@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use lucide_dioxus::{ChevronDown, ChevronRight, LayoutGrid, LayoutList, Search};
 use serde_json::json;
 
-use crate::api::types::{ModelInfo, ModelsResponse};
+use crate::api::types::{AvailableModel, AvailableModelsResponse};
 use crate::api::ws::WsRpc;
 use crate::components::empty_state::EmptyState;
 use crate::components::skeleton::*;
@@ -62,7 +62,7 @@ pub fn Models() -> Element {
             // Retry up to 3 times with delays to handle race condition
             // where WebSocket connects but server isn't ready yet
             for attempt in 0..3 {
-                if let Ok(resp) = ws.call::<ModelsResponse>("models.list", None).await {
+                if let Ok(resp) = ws.call::<AvailableModelsResponse>("models.list", None).await {
                     return Some(resp.models);
                 }
                 // Small delay before retry (except on last attempt)
@@ -124,8 +124,8 @@ pub fn Models() -> Element {
 
     let catalog = build_provider_catalog(&models_snapshot);
 
-    // Build lookup from full_id -> ModelInfo for expanded details
-    let model_info_map: std::collections::HashMap<String, &ModelInfo> =
+    // Build lookup from full_id -> AvailableModel for expanded details
+    let model_info_map: std::collections::HashMap<String, &AvailableModel> =
         models_snapshot.iter().map(|m| (m.id.clone(), m)).collect();
 
     // Determine the current default model ID: local override takes priority,
@@ -138,7 +138,7 @@ pub fn Models() -> Element {
                 .find(|m| m.is_default == Some(true))
                 .map(|m| m.id.clone())
         });
-    let current_default: Option<&ModelInfo> = effective_default_id
+    let current_default: Option<&AvailableModel> = effective_default_id
         .as_deref()
         .and_then(|id| model_info_map.get(id).copied());
 

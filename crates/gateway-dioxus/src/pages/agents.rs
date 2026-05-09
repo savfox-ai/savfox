@@ -6,7 +6,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::api::types::{
     AgentDetail, AgentEntry, AgentFile, AgentFilesResponse, AgentIdleReplyConfig,
-    AgentTerminalDelegateConfig, AgentsResponse, ModelInfo, ModelsResponse, SkillDetail,
+    AgentTerminalDelegateConfig, AgentsResponse, AvailableModel, AvailableModelsResponse, SkillDetail,
     SkillsBinsResponse, SkillsStatusResponse,
 };
 use crate::api::ws::WsRpc;
@@ -631,7 +631,7 @@ fn reasoning_level_label(level: &str) -> &'static str {
     }
 }
 
-fn normalized_reasoning_presets(model: Option<&ModelInfo>) -> Vec<(String, String)> {
+fn normalized_reasoning_presets(model: Option<&AvailableModel>) -> Vec<(String, String)> {
     let Some(model) = model else {
         return Vec::new();
     };
@@ -654,7 +654,7 @@ fn normalized_reasoning_presets(model: Option<&ModelInfo>) -> Vec<(String, Strin
     presets
 }
 
-fn model_default_reasoning_level(model: Option<&ModelInfo>) -> Option<String> {
+fn model_default_reasoning_level(model: Option<&AvailableModel>) -> Option<String> {
     model.and_then(|model| {
         model
             .default_reasoning_level
@@ -663,7 +663,7 @@ fn model_default_reasoning_level(model: Option<&ModelInfo>) -> Option<String> {
     })
 }
 
-fn selected_model_info<'a>(models: &'a [ModelInfo], model_id: &str) -> Option<&'a ModelInfo> {
+fn selected_model_info<'a>(models: &'a [AvailableModel], model_id: &str) -> Option<&'a AvailableModel> {
     let trimmed = model_id.trim();
     if trimmed.is_empty() {
         return None;
@@ -674,7 +674,7 @@ fn selected_model_info<'a>(models: &'a [ModelInfo], model_id: &str) -> Option<&'
         .find(|model| model.id.eq_ignore_ascii_case(trimmed))
 }
 
-fn model_option_label(model: &ModelInfo) -> String {
+fn model_option_label(model: &AvailableModel) -> String {
     model
         .name
         .as_deref()
@@ -692,7 +692,7 @@ fn model_option_label(model: &ModelInfo) -> String {
         .unwrap_or_else(|| model.id.clone())
 }
 
-fn model_select_value(models: &[ModelInfo], model_id: &str) -> String {
+fn model_select_value(models: &[AvailableModel], model_id: &str) -> String {
     let trimmed = model_id.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -1396,13 +1396,13 @@ fn AgentCreateForm(
         let _c = ws_connected();
         let ws = ws_models.clone();
         async move {
-            ws.call::<ModelsResponse>("models.list", None)
+            ws.call::<AvailableModelsResponse>("models.list", None)
                 .await
                 .map(|r| r.models)
                 .unwrap_or_default()
         }
     });
-    let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
+    let models: Vec<AvailableModel> = models_data.read().as_ref().cloned().unwrap_or_default();
     let (providers, provider_models): (
         Vec<String>,
         std::collections::BTreeMap<String, Vec<(String, String)>>,
@@ -2339,13 +2339,13 @@ fn AgentOverviewTab(
         let _c = ws_connected();
         let ws = ws_models.clone();
         async move {
-            ws.call::<ModelsResponse>("models.list", None)
+            ws.call::<AvailableModelsResponse>("models.list", None)
                 .await
                 .map(|r| r.models)
                 .unwrap_or_default()
         }
     });
-    let models: Vec<ModelInfo> = models_data.read().as_ref().cloned().unwrap_or_default();
+    let models: Vec<AvailableModel> = models_data.read().as_ref().cloned().unwrap_or_default();
     let selected_model = selected_model_info(&models, &form_model());
     let selected_model_value = model_select_value(&models, &form_model());
     let selected_model_missing = !selected_model_value.is_empty() && selected_model.is_none();
@@ -4504,10 +4504,10 @@ const TD: &str = "td-cell";
 #[cfg(test)]
 mod tests {
     use super::{model_option_label, model_select_value};
-    use crate::api::types::ModelInfo;
+    use crate::api::types::AvailableModel;
 
-    fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> ModelInfo {
-        ModelInfo {
+    fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> AvailableModel {
+        AvailableModel {
             id: id.to_string(),
             name: name.map(str::to_string),
             provider: None,
