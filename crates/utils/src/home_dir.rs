@@ -2,6 +2,36 @@ use std::path::PathBuf;
 
 use dirs::home_dir;
 
+// ─── Standard subdirectory names under `$SAVFOX_HOME` ──────────────────────
+//
+// These are the canonical strings used by `savfox_home.join(...)` across
+// the workspace. Centralising them here prevents typo drift (e.g. "model"
+// vs "models", ".system" vs "system") and makes a future migration to a
+// typed `SavfoxPaths` accessor straightforward — every site that uses the
+// constant is found by a single grep instead of hunting raw string literals
+// in twenty crates.
+//
+// `SESSIONS_SUBDIR` and `ARCHIVED_SESSIONS_SUBDIR` already live in
+// `savfox_core::rollout` and are not duplicated here; `CONFIG_TOML_FILE`
+// stays in `savfox_core::config` for the same reason.
+
+pub const AUTH_SUBDIR: &str = "auth";
+pub const LOGS_SUBDIR: &str = "logs";
+pub const MODELS_SUBDIR: &str = "models";
+pub const SKILLS_SUBDIR: &str = "skills";
+pub const PLUGINS_SUBDIR: &str = "plugins";
+pub const REGISTRY_SUBDIR: &str = "registry";
+pub const MEMORY_SUBDIR: &str = "memory";
+pub const AGENTS_SUBDIR: &str = "agents";
+pub const SHELL_SNAPSHOTS_SUBDIR: &str = "shell_snapshots";
+pub const CONFIG_BACKUPS_SUBDIR: &str = "config-backups";
+pub const SANDBOX_SUBDIR: &str = ".sandbox";
+pub const SYSTEM_SUBDIR: &str = ".system";
+pub const GATEWAY_SUBDIR: &str = "gateway";
+
+pub const GATEWAY_PID_FILE: &str = "gateway.pid";
+pub const GATEWAY_LOG_FILE: &str = "gateway.log";
+
 /// Returns the path to the Codex configuration directory, which can be
 /// specified by the `SAVFOX_HOME` environment variable. If not set, defaults to
 /// `~/.savfox`.

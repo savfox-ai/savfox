@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -60,7 +61,7 @@ pub struct DmPolicyStore {
 impl DmPolicyStore {
     #[must_use]
     pub fn new(savfox_home: &Path) -> Self {
-        let path = savfox_home.join("gateway").join("dm-policies.json");
+        let path = savfox_home.join(GATEWAY_SUBDIR).join("dm-policies.json");
         Self {
             path,
             policies: RwLock::new(HashMap::new()),

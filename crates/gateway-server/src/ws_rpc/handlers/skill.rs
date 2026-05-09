@@ -6,6 +6,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose;
 use savfox_skill_registry::package::SkillSourceType;
 use savfox_skill_registry::{SkillInstaller, SkillManifest, SkillPackage, SkillSource};
+use savfox_utils::home_dir::SKILLS_SUBDIR;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
@@ -161,7 +162,7 @@ pub(crate) async fn handle_skills_install_url(
         ));
     }
 
-    let skills_dir = channel.config().savfox_home.join("skills");
+    let skills_dir = channel.config().savfox_home.join(SKILLS_SUBDIR);
     let installer = SkillInstaller::new(skills_dir);
 
     // Git URL installs use SkillSourceType::Git → skills/{domain}/{org}/{repo}
@@ -253,7 +254,7 @@ pub(crate) async fn handle_skills_install_zip(
         _ => ConflictStrategy::Overwrite,
     };
 
-    let skills_dir = channel.config().savfox_home.join("skills");
+    let skills_dir = channel.config().savfox_home.join(SKILLS_SUBDIR);
     let result = zip_installer::install_from_zip_bytes(zip_bytes, skills_dir, strategy)
         .await
         .map_err(|e| (INTERNAL_ERROR, format!("zip install failed: {e}")))?;

@@ -9,6 +9,7 @@ use savfox_protocol::protocol::{
     AgentMessageEvent, EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine,
     SessionModel, SessionSource, UserMessageEvent,
 };
+use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
@@ -99,7 +100,7 @@ async fn read_agent_config(path: &Path) -> Option<serde_json::Value> {
 }
 
 fn agents_dir(config: &Config) -> PathBuf {
-    config.savfox_home.join("agents")
+    config.savfox_home.join(AGENTS_SUBDIR)
 }
 
 pub(crate) async fn resolve_agent_config(

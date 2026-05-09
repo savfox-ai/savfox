@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use savfox_utils::home_dir::{AGENTS_SUBDIR, MEMORY_SUBDIR};
 use tracing::warn;
 
 use super::entry::{MAX_MEMORY_FILE_BYTES, MdMemoryEntry, MemoryLayer};
@@ -44,14 +45,17 @@ pub fn layer_dirs(
     let mut dirs = Vec::with_capacity(3);
     dirs.push((
         MemoryLayer::Global,
-        savfox_home.join("memory").join("global"),
+        savfox_home.join(MEMORY_SUBDIR).join("global"),
     ));
     if let Some(root) = project_root {
-        dirs.push((MemoryLayer::Project, root.join(".savfox").join("memory")));
+        dirs.push((MemoryLayer::Project, root.join(".savfox").join(MEMORY_SUBDIR)));
     }
     dirs.push((
         MemoryLayer::Agent,
-        savfox_home.join("memory").join("agents").join(agent_name),
+        savfox_home
+            .join(MEMORY_SUBDIR)
+            .join(AGENTS_SUBDIR)
+            .join(agent_name),
     ));
     dirs
 }

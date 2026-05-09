@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use savfox_utils::home_dir::GATEWAY_SUBDIR;
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -23,7 +24,7 @@ const SCHEMA_VERSION: u32 = 1;
 /// On first access the database file is created and [`init_schema`] is run.
 pub(crate) async fn get_pool(savfox_home: &Path) -> Result<SqlitePool, String> {
     let pools = DB_POOLS.get_or_init(|| Mutex::new(HashMap::new()));
-    let db_dir = savfox_home.join("gateway");
+    let db_dir = savfox_home.join(GATEWAY_SUBDIR);
     let db_path = db_dir.join("cached_data.sqlite");
 
     {

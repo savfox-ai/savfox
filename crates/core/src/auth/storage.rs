@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use once_cell::sync::Lazy;
 use savfox_app_server_protocol::AuthMode;
 use savfox_keyring_store::{DefaultKeyringStore, KeyringStore};
+use savfox_utils::home_dir::MODELS_SUBDIR;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -163,7 +164,7 @@ impl FileAuthStorage {
     }
 
     fn find_named_provider_auth_file(&self) -> std::io::Result<Option<PathBuf>> {
-        let models_dir = self.savfox_home.join("models");
+        let models_dir = self.savfox_home.join(MODELS_SUBDIR);
         let entries = match std::fs::read_dir(models_dir) {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),

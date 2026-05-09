@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use savfox_browser_automation::screenshot::ScreenshotFormat;
 use savfox_browser_automation::{Browser, BrowserLaunchOptions, ScreenshotOptions};
+use savfox_utils::home_dir::CONFIG_BACKUPS_SUBDIR;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
@@ -1547,7 +1548,7 @@ pub(crate) async fn handle_plugins_config(params: &Value, channel: &GatewayChann
 
 pub(crate) async fn handle_config_snapshot(channel: &GatewayChannel) -> RpcResult {
     let config_path = primary_config_toml_path(channel);
-    let backups_dir = channel.config().savfox_home.join("config-backups");
+    let backups_dir = channel.config().savfox_home.join(CONFIG_BACKUPS_SUBDIR);
 
     if !backups_dir.exists() {
         tokio::fs::create_dir_all(&backups_dir)
@@ -1578,7 +1579,7 @@ pub(crate) async fn handle_config_snapshot(channel: &GatewayChannel) -> RpcResul
 }
 
 pub(crate) async fn handle_config_snapshots_list(channel: &GatewayChannel) -> RpcResult {
-    let backups_dir = channel.config().savfox_home.join("config-backups");
+    let backups_dir = channel.config().savfox_home.join(CONFIG_BACKUPS_SUBDIR);
     if !backups_dir.exists() {
         return Ok(json!({ "snapshots": [], "count": 0 }));
     }
@@ -1619,7 +1620,7 @@ pub(crate) async fn handle_config_restore(params: &Value, channel: &GatewayChann
         return Err((INVALID_PARAMS, "missing 'snapshot' parameter".to_owned()));
     }
 
-    let backups_dir = channel.config().savfox_home.join("config-backups");
+    let backups_dir = channel.config().savfox_home.join(CONFIG_BACKUPS_SUBDIR);
     let snapshot_path = backups_dir.join(snapshot);
 
     if !snapshot_path.exists() {

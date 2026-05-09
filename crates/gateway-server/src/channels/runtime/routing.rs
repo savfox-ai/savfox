@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use savfox_core::config::channel_store::{ChannelConfig, Router};
+use savfox_utils::home_dir::AGENTS_SUBDIR;
 use serde_json::{Value, json};
 use tracing::warn;
 
@@ -118,7 +119,7 @@ async fn read_json_value(path: &Path) -> Option<Value> {
 }
 
 fn agents_dir(savfox_home: &Path) -> PathBuf {
-    savfox_home.join("agents")
+    savfox_home.join(AGENTS_SUBDIR)
 }
 
 fn sanitize_agent_file_stem(raw: &str) -> Option<String> {
