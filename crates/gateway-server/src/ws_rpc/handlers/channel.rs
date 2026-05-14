@@ -1775,18 +1775,10 @@ fn session_peer_id(entry: &SessionEntry) -> Option<String> {
 }
 
 fn session_display_name(entry: &SessionEntry) -> Option<String> {
-    entry
-        .name
-        .as_deref()
-        .map(str::trim)
+    latest_provenance(entry)
+        .map(|item| item.name.trim())
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
-        .or_else(|| {
-            latest_provenance(entry)
-                .map(|item| item.name.trim())
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-        })
 }
 
 fn channel_accounts_path(channel: &GatewayChannel) -> std::path::PathBuf {

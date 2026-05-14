@@ -745,14 +745,6 @@ Validate a configuration object without applying it.
 - **Params**: `{ "config": {...} }`
 - **Response**: `{ "valid": true, "errors": [] }`
 
-### `config.migrate`
-
-Migrate the configuration to the latest schema version.
-
-- **Scope**: Admin
-- **Params**: none
-- **Response**: `{ "status": "migrated" }`
-
 ### `config.snapshot`
 
 Create a point-in-time snapshot of the current configuration.

@@ -528,21 +528,6 @@ fn keyboard_shortcuts() {
 // ── P3: YAML Config Support ────────────────────────────────────────────────
 
 #[test]
-fn config_format_detection_json() {
-    let json_config = json!({
-        "config_version": 2,
-        "gateway": {
-            "host": "127.0.0.1",
-            "port": 18881
-        }
-    });
-
-    // JSON configs have a numeric config_version field
-    let version = json_config["config_version"].as_u64().unwrap_or(1);
-    assert_eq!(version, 2);
-}
-
-#[test]
 fn config_format_detection_by_extension() {
     let extensions = ["config.json", "config.toml", "config.yaml", "config.yml"];
 
@@ -571,30 +556,6 @@ fn config_format_detection_by_extension() {
         "other"
     };
     assert_eq!(yaml_fmt, yml_fmt);
-}
-
-#[test]
-fn config_version_migration_trigger() {
-    // Config with no version field should default to v1 and require migration
-    let legacy_config = json!({
-        "gateway": { "port": 18881 },
-        "agents": {
-            "default": { "model": "gpt-4o", "provider": "openai" }
-        }
-    });
-
-    let version = legacy_config
-        .get("config_version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1) as u32;
-    assert_eq!(version, 1, "Missing config_version should default to v1");
-
-    // Current version is 2, so migration should be needed
-    let current_version: u32 = 2;
-    assert!(
-        version < current_version,
-        "v1 config should need migration to v2"
-    );
 }
 
 // ── P3: QR Code Pairing ───────────────────────────────────────────────────

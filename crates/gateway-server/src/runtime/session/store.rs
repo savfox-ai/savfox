@@ -152,9 +152,6 @@ pub struct SessionEntry {
     /// Sender information (last message sender).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender: Option<SessionSender>,
-    /// Legacy name field for backward compatibility during migration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
 
     // ── Agent config overrides ──────────────────────────────────────
     /// Model to use for this session.
@@ -302,7 +299,6 @@ impl Default for SessionEntry {
             group_channel: None,
             space: None,
             sender: None,
-            name: None,
             model: None,
             provider: None,
             identity: None,

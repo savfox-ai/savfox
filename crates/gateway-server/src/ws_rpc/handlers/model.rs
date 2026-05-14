@@ -108,23 +108,9 @@ async fn load_provider_file(channel: &GatewayChannel, account_id: &str) -> Provi
         return bare();
     };
 
-    // Try v2 (object) first, then fall back to a bare `[..models..]` array.
     if let Ok(mut file) = serde_json::from_str::<ProviderFile>(&data) {
-        // Populate id from filename when missing in JSON (backward compat).
-        if file.id.trim().is_empty() {
-            file.id = account_id.to_owned();
-        }
-        // Derive slug from name when missing (backward compat with pre-slug files).
-        if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
-            file.slug = savfox_utils::string::normalize_slug(&file.name).unwrap_or_default();
-        }
         file.normalize_disabled_models();
         hydrate_provider_file_models(&mut file, account_id);
-        return file;
-    }
-    if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
-        let mut file = bare();
-        file.models = models;
         return file;
     }
 
@@ -176,8 +162,7 @@ async fn save_provider_file(
 ///
 /// Sets both the env-variable override (for providers with `env_key`) and
 /// the bearer-token override (keyed by account id, for providers like
-/// OpenAI whose built-in config has `env_key: None`). Also sets the
-/// override for the bare provider_id for backward compat when they differ.
+/// OpenAI whose built-in config has `env_key: None`).
 fn inject_provider_auth(file: &ProviderFile) {
     if let Some(auth) = &file.auth
         && let Some(api_key) = &auth.api_key
@@ -193,11 +178,6 @@ fn inject_provider_auth(file: &ProviderFile) {
         let account_id = file.account_id();
         if !account_id.is_empty() {
             savfox_core::set_bearer_token_override(account_id, api_key);
-        }
-        // Also set for bare provider_id for backward compat.
-        let provider_id = file.provider_id.trim();
-        if !provider_id.is_empty() && provider_id != account_id {
-            savfox_core::set_bearer_token_override(provider_id, api_key);
         }
     }
 }

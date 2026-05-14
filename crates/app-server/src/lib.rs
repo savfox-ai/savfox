@@ -204,29 +204,6 @@ pub async fn run_main(
         spawn_stdin_json_reader(incoming_tx, "Failed to deserialize JsonRpcMessage");
 
     // Load configuration.
-    // Run personality migration from a preliminary config load.
-    if let Ok(config) = ConfigBuilder::default()
-        .loader_overrides(loader_overrides.clone())
-        .build()
-        .await
-    {
-        let effective_toml = config.config_layer_stack.effective_config();
-        match effective_toml.try_into() {
-            Ok(config_toml) => {
-                if let Err(err) = savfox_core::personality_migration::maybe_migrate_personality(
-                    &config.savfox_home,
-                    &config_toml,
-                )
-                .await
-                {
-                    warn!(error = %err, "Failed to run personality migration");
-                }
-            }
-            Err(err) => {
-                warn!(error = %err, "Failed to deserialize config for personality migration");
-            }
-        }
-    }
     let cloud_requirements = CloudRequirementsLoader::default();
     let loader_overrides_for_config_api = loader_overrides.clone();
     let mut config_warnings = Vec::new();

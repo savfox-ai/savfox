@@ -85,8 +85,6 @@ pub(crate) async fn apply_bespoke_event_handling(
             reason,
             grant_root,
         }) => {
-            // Until we migrate the core to be aware of a first class FileChangeItem
-            // and emit the corresponding EventMsg, we repurpose the call_id as the item_id.
             let item_id = call_id.clone();
             let patch_changes = convert_patch_changes(&changes);
 
@@ -157,8 +155,6 @@ pub(crate) async fn apply_bespoke_event_handling(
             let params = CommandExecutionRequestApprovalParams {
                 session_id: conversation_id.to_string(),
                 turn_id: turn_id.clone(),
-                // Until we migrate the core to be aware of a first class CommandExecutionItem
-                // and emit the corresponding EventMsg, we repurpose the call_id as the item_id.
                 item_id: item_id.clone(),
                 reason,
                 command: Some(command_string.clone()),
@@ -690,8 +686,6 @@ pub(crate) async fn apply_bespoke_event_handling(
             .await;
         }
         EventMsg::PatchApplyBegin(patch_begin_event) => {
-            // Until we migrate the core to be aware of a first class FileChangeItem
-            // and emit the corresponding EventMsg, we repurpose the call_id as the item_id.
             let item_id = patch_begin_event.call_id.clone();
 
             let first_start = {
@@ -716,8 +710,6 @@ pub(crate) async fn apply_bespoke_event_handling(
             }
         }
         EventMsg::PatchApplyEnd(patch_end_event) => {
-            // Until we migrate the core to be aware of a first class FileChangeItem
-            // and emit the corresponding EventMsg, we repurpose the call_id as the item_id.
             let item_id = patch_end_event.call_id.clone();
 
             let status = if patch_end_event.success {

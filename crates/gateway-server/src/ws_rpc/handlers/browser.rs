@@ -1333,36 +1333,6 @@ pub(crate) async fn handle_config_validate(params: &Value, _channel: &GatewayCha
     Ok(json!({ "valid": result.errors.is_empty(), "errors": result.errors }))
 }
 
-pub(crate) async fn handle_config_migrate(channel: &GatewayChannel) -> RpcResult {
-    // Auto-snapshot before migration (#33)
-    let _ = handle_config_snapshot(channel).await;
-
-    let config_path = primary_config_toml_path(channel);
-    if config_path.exists() {
-        let data = tokio::fs::read_to_string(&config_path)
-            .await
-            .map_err(|e| (INTERNAL_ERROR, format!("failed to read config: {e}")))?;
-        let toml_val: toml::Value = data
-            .parse()
-            .map_err(|e| (INTERNAL_ERROR, format!("failed to parse config: {e}")))?;
-        let config: Value = serde_json::to_value(toml_val)
-            .map_err(|e| (INTERNAL_ERROR, format!("TOML->JSON conversion failed: {e}")))?;
-        let (migrated, changes) =
-            crate::config::migrate::migrate(config).map_err(|e| (INTERNAL_ERROR, e))?;
-        if !changes.is_empty() {
-            let toml_value = savfox_utils::json_to_toml::json_to_toml(migrated);
-            let migrated_str = toml::to_string_pretty(&toml_value)
-                .map_err(|e| (INTERNAL_ERROR, format!("failed to serialize config: {e}")))?;
-            tokio::fs::write(&config_path, migrated_str)
-                .await
-                .map_err(|e| (INTERNAL_ERROR, format!("failed to write config: {e}")))?;
-        }
-        Ok(json!({ "status": "migrated", "changes": changes }))
-    } else {
-        Ok(json!({ "status": "no_config_found" }))
-    }
-}
-
 // ─── STT handlers ───────────────────────────────────────────────────────────
 
 pub(crate) async fn handle_stt_transcribe(params: &Value, channel: &GatewayChannel) -> RpcResult {

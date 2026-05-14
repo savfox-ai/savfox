@@ -48,7 +48,6 @@ mod otel;
 mod pending_input;
 mod permissions_messages;
 mod personality;
-mod personality_migration;
 mod prompt_caching;
 mod quota_exceeded;
 mod read_file;

@@ -507,13 +507,6 @@ pub async fn run_main(
         }
     };
 
-    if let Err(err) =
-        savfox_core::personality_migration::maybe_migrate_personality(&savfox_home, &config_toml)
-            .await
-    {
-        tracing::warn!(error = %err, "failed to run personality migration");
-    }
-
     let has_model_cli_override = false;
     if !cli.oss && cli.model.is_none() && !has_model_cli_override {
         match maybe_repair_model_from_provider_store(&savfox_home, &config_toml).await {

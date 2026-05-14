@@ -34,7 +34,6 @@ pub struct RouteRule {
     pub filter: Option<String>,
     #[serde(default)]
     pub sender: Option<String>,
-    #[serde(alias = "agent")]
     pub agent_id: String,
     #[serde(default)]
     pub priority: i32,
@@ -54,7 +53,7 @@ pub struct RouteRule {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RouteRules {
-    #[serde(default = "default_router_agent_id", alias = "default_agent")]
+    #[serde(default = "default_router_agent_id")]
     pub default_agent_id: String,
     #[serde(default)]
     pub rules: Vec<RouteRule>,
@@ -67,7 +66,7 @@ pub enum Router {
         agent_id: String,
     },
     RouteRules {
-        #[serde(default = "default_router_agent_id", alias = "default_agent")]
+        #[serde(default = "default_router_agent_id")]
         default_agent_id: String,
         #[serde(default)]
         rules: Vec<RouteRule>,
@@ -178,55 +177,9 @@ fn is_json_file(path: &Path) -> bool {
 }
 
 fn parse_channel_config(content: &str) -> Result<ChannelConfig, serde_json::Error> {
-    let mut raw = serde_json::from_str::<Value>(content)?;
-    migrate_legacy_nested_enabled_field(&mut raw);
-    migrate_legacy_router_fields(&mut raw);
-    let mut config = serde_json::from_value::<ChannelConfig>(raw)?;
+    let mut config = serde_json::from_str::<ChannelConfig>(content)?;
     normalize_config(&mut config);
     Ok(config)
-}
-
-fn migrate_legacy_nested_enabled_field(raw: &mut Value) {
-    let Some(obj) = raw.as_object_mut() else {
-        return;
-    };
-    let Some(config_obj) = obj.get_mut("config").and_then(Value::as_object_mut) else {
-        return;
-    };
-    let Some(enabled) = config_obj
-        .remove("enabled")
-        .and_then(|value| value.as_bool())
-    else {
-        return;
-    };
-    obj.insert("enabled".to_owned(), Value::Bool(enabled));
-}
-
-fn migrate_legacy_router_fields(raw: &mut Value) {
-    let Some(obj) = raw.as_object_mut() else {
-        return;
-    };
-
-    if obj.get("router").is_some() {
-        return;
-    }
-
-    let Some(agent_id) = obj
-        .get("agent_id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return;
-    };
-
-    obj.insert(
-        "router".to_owned(),
-        serde_json::to_value(Router::AgentId {
-            agent_id: agent_id.to_owned(),
-        })
-        .unwrap_or(Value::Null),
-    );
 }
 
 fn normalize_channel_name(raw: &str) -> Option<String> {
@@ -938,27 +891,4 @@ mod tests {
         let _ = tokio::fs::remove_dir_all(&home).await;
     }
 
-    #[test]
-    fn parse_channel_config_migrates_nested_enabled_flag() {
-        let parsed = parse_channel_config(
-            r#"{
-                "id": "line-default",
-                "kind": "line",
-                "name": "Default",
-                "enabled": true,
-                "config": {
-                    "enabled": false,
-                    "channel_secret": "secret"
-                }
-            }"#,
-        )
-        .expect("parse");
-
-        assert!(!parsed.enabled);
-        assert_eq!(
-            parsed.config["channel_secret"],
-            Value::String("secret".to_owned())
-        );
-        assert!(parsed.config.get("enabled").is_none());
-    }
 }

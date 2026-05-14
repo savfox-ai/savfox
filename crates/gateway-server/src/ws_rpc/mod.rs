@@ -380,7 +380,6 @@ pub(crate) async fn dispatch_rpc(
         // ── Config Reload ───────────────────────────────────────────────
         "config.reload" => handle_config_reload(channel).await,
         "config.validate" => handle_config_validate(&params, channel).await,
-        "config.migrate" => handle_config_migrate(channel).await,
 
         // ── STT (speech-to-text) ────────────────────────────────────────
         "stt.transcribe" => handle_stt_transcribe(&params, channel).await,

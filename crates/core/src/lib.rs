@@ -116,7 +116,7 @@ pub mod a2a {
 }
 mod turn_metadata;
 pub mod updater;
-pub use prompting::{custom_prompts, instructions, personality_migration, project_doc};
+pub use prompting::{custom_prompts, instructions, project_doc};
 pub use reviewing::{review_format, review_prompts, turn_diff_tracker};
 pub use rollout::list::{
     Cursor, SessionItem, SessionSortKey, SessionsPage, parse_cursor, read_head_for_summary,

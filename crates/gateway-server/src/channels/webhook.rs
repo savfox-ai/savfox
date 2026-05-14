@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::{Channel, RichMessage, obtain_channel_and_store, render_error, runtime};
-use crate::config::{GatewayConfig, WebhookBridgeConfig};
+use crate::config::{GatewayConfig, WebhookChannelConfig};
 use crate::protocol::ChannelAction;
 
 /// Generic webhook channel for custom integrations.
@@ -21,7 +21,7 @@ use crate::protocol::ChannelAction;
 /// }
 /// ```
 pub(crate) struct GenericWebhookChannel {
-    config: WebhookBridgeConfig,
+    config: WebhookChannelConfig,
     http_client: reqwest::Client,
     callback_url: Option<String>,
     secret: Option<String>,
@@ -29,7 +29,7 @@ pub(crate) struct GenericWebhookChannel {
 
 impl GenericWebhookChannel {
     #[must_use]
-    pub(crate) fn new(config: WebhookBridgeConfig, http_client: reqwest::Client) -> Self {
+    pub(crate) fn new(config: WebhookChannelConfig, http_client: reqwest::Client) -> Self {
         let callback_url = config.callback_url.clone();
         let secret = config.secret.clone();
         Self {

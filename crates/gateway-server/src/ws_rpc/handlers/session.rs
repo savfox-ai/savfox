@@ -1670,7 +1670,6 @@ fn merge_session_entries(mut left: SessionEntry, right: SessionEntry) -> Session
         left.reply_target = right.reply_target.clone().or(left.reply_target);
         left.parent_thread_id = right.parent_thread_id.clone().or(left.parent_thread_id);
         left.parent_message_id = right.parent_message_id.clone().or(left.parent_message_id);
-        left.name = right.name.clone().or(left.name);
         left.identity = right.identity.clone().or(left.identity);
     }
 

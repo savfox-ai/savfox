@@ -31,7 +31,7 @@ fn default_auth_type() -> String {
 pub struct ProviderStoreFile {
     #[serde(default = "default_provider_file_version")]
     pub version: u32,
-    /// Unique account identifier. Defaults to `provider_id` for legacy files.
+    /// Unique account identifier.
     #[serde(default)]
     pub id: String,
     /// Normalized slug derived from `name` (e.g. "work-account").
@@ -197,9 +197,8 @@ pub fn list_provider_store_files(savfox_home: &Path) -> Vec<ProviderStoreFile> {
     files
 }
 
-/// Load a provider store file. The `account_id` is the filename stem (which
-/// may be a bare `provider_id` for legacy single-account files, or a full
-/// account id like `"openai-work"` for multi-account setups).
+/// Load a provider store file. The `account_id` is the filename stem
+/// (a full account id like `"openai-work"`).
 #[must_use]
 pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> ProviderStoreFile {
     let path = provider_store_path(savfox_home, account_id);
@@ -209,25 +208,7 @@ pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> Provide
     };
 
     if let Ok(mut file) = serde_json::from_str::<ProviderStoreFile>(&data) {
-        // Populate id from filename when missing in JSON (backward compat).
-        if file.id.trim().is_empty() {
-            file.id = account_id.to_owned();
-        }
-        if file.provider_id.trim().is_empty() {
-            file.provider_id = account_id.to_owned();
-        }
-        // Derive slug from name when missing (backward compat with pre-slug files).
-        if file.slug.trim().is_empty() && !file.name.trim().is_empty() {
-            file.slug = normalize_slug(&file.name).unwrap_or_default();
-        }
         file.normalize_disabled_models();
-        return file;
-    }
-
-    if let Ok(models) = serde_json::from_str::<Vec<Value>>(&data) {
-        let mut file = ProviderStoreFile::empty(account_id);
-        file.disabled_models = Vec::new();
-        file.models = models;
         return file;
     }
 
@@ -363,7 +344,6 @@ pub fn persist_provider_connection(
     api_key: Option<&str>,
 ) -> std::io::Result<()> {
     let mut file = load_provider_store_file(savfox_home, account_id);
-    let mut migrated_auth_from_provider_file = false;
     file.version = PROVIDER_STORE_FILE_VERSION;
     file.id = account_id.to_owned();
     file.provider_id = provider_id.to_owned();
@@ -383,29 +363,9 @@ pub fn persist_provider_connection(
             api_key: Some(api_key),
             ..ProviderStoreAuth::default()
         });
-    } else if file.auth.is_none() && account_id != provider_id {
-        let source = load_provider_store_file(savfox_home, provider_id);
-        if source.auth.is_some() {
-            file.auth = source.auth;
-            migrated_auth_from_provider_file = true;
-        }
     }
 
-    save_provider_store_file(savfox_home, account_id, &file)?;
-
-    if migrated_auth_from_provider_file {
-        let source_path = provider_store_path(savfox_home, provider_id);
-        let target_path = provider_store_path(savfox_home, account_id);
-        if source_path != target_path {
-            match std::fs::remove_file(source_path) {
-                Ok(()) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(err),
-            }
-        }
-    }
-
-    Ok(())
+    save_provider_store_file(savfox_home, account_id, &file)
 }
 
 /// When `removed_account_id` was the active default provider, pick another
@@ -566,65 +526,6 @@ mod tests {
 
         let files = list_provider_store_files(savfox_home);
         assert_eq!(files.len(), 2);
-    }
-
-    #[test]
-    fn persist_provider_connection_migrates_auth_from_bare_provider_file() {
-        let tmp = tempfile::tempdir().expect("temp dir");
-        let savfox_home = tmp.path();
-        let dir = provider_models_store_dir(savfox_home);
-        std::fs::create_dir_all(&dir).expect("create dir");
-
-        std::fs::write(
-            dir.join("openai.json"),
-            r#"{
-  "version": 2,
-  "id": "openai",
-  "provider_id": "openai",
-  "name": "OpenAI",
-  "auth": {
-    "type": "chatgpt_oauth",
-    "env_key": "OPENAI_API_KEY",
-    "api_key": "sk-test"
-  },
-  "disabled_models": []
-}"#,
-        )
-        .expect("write source auth file");
-
-        let models = vec![serde_json::json!({
-            "id": "openai/gpt-5.2",
-            "model_slug": "gpt-5.2",
-            "name": "GPT-5.2",
-            "is_default": true
-        })];
-
-        persist_provider_connection(
-            savfox_home,
-            "openai-work",
-            "openai",
-            "Work",
-            &models,
-            Some("OPENAI_API_KEY"),
-            None,
-        )
-        .expect("persist provider");
-
-        let migrated = load_provider_store_file(savfox_home, "openai-work");
-        assert_eq!(migrated.id, "openai-work");
-        assert_eq!(migrated.slug, "work");
-        assert_eq!(migrated.name, "Work");
-        assert_eq!(
-            migrated
-                .auth
-                .as_ref()
-                .and_then(|auth| auth.api_key.as_deref()),
-            Some("sk-test")
-        );
-        assert!(
-            !dir.join("openai.json").exists(),
-            "bare provider auth file should be removed after migration"
-        );
     }
 
     #[test]
