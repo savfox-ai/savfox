@@ -13,19 +13,24 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["discord", "telegram", "dingtalk", "feishu"]
+default = ["discord", "telegram", "dingtalk", "feishu", "contrix"]
 # Streaming/polling SDK adapters per platform. Disable to skip the heavy
 # upstream SDK and the corresponding `<platform>` module.
 discord = ["dep:serenity"]
 telegram = ["dep:teloxide"]
 dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
+contrix = ["dep:contrix-http-client", "dep:contrix-core", "dep:contrix-identifiers", "dep:contrix"]
 
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
+contrix-http-client = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/http-client", optional = true, default-features = false }
+contrix-core = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/core", optional = true, default-features = false, features = ["client"] }
+contrix-identifiers = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/identifiers", optional = true, default-features = false }
+contrix = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/sdk", optional = true, default-features = false, features = ["client", "applet-runtime", "full-surface", "signer"] }
 dingtalk-sdk = { workspace = true, optional = true }
 feishu-sdk = { workspace = true, optional = true }
 form_urlencoded = { workspace = true }
@@ -35,12 +40,16 @@ hex = { workspace = true, features = ["alloc"] }
 hmac = { workspace = true }
 reqwest = { workspace = true }
 savfox-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+zeroize = { workspace = true }
 serenity = { workspace = true, optional = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
 teloxide = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "io-util"] }
+tokio-util = { workspace = true, features = ["io"] }
+bytes = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }

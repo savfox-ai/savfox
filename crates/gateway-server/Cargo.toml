@@ -12,6 +12,16 @@ path = "src/lib.rs"
 [lints]
 workspace = true
 
+[features]
+default = ["contrix"]
+contrix = [
+    "savfox-channels/contrix",
+    "dep:contrix-http-client",
+    "dep:contrix-core",
+    "dep:contrix-identifiers",
+    "dep:contrix",
+]
+
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -32,6 +42,10 @@ savfox-memory = { workspace = true }
 savfox-model = { workspace = true }
 savfox-channels = { workspace = true }
 feishu-sdk = { workspace = true }
+contrix-http-client = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/http-client", optional = true, default-features = false }
+contrix-core = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/core", optional = true, default-features = false, features = ["client"] }
+contrix-identifiers = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/identifiers", optional = true, default-features = false }
+contrix = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/sdk", optional = true, default-features = false, features = ["client", "applet-runtime", "full-surface", "signer"] }
 chrono = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }

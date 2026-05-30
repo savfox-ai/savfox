@@ -75,6 +75,7 @@ pub const CHANNEL_NAMES: &[&str] = &[
     "imessage",
     "irc",
     "line",
+    "contrix",
     "matrix",
     "mattermost",
     "msteams",

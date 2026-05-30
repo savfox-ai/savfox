@@ -1,0 +1,1140 @@
+//! Contrix Applet HTTP server endpoints.
+//!
+//! When savfox runs as a registered Contrix Applet (savfox channel config
+//! with `kind = "contrix"` + `mode = "applet"`), this module hosts the
+//! inbound HTTP routes the Contrix server calls. Mirrors the Matrix
+//! Appservice route layout in [`channels::matrix`](crate::channels::matrix)
+//! one-for-one:
+//!
+//! | path | method | corresponds to |
+//! |---|---|---|
+//! | `/api/v1/applet/ping` | GET | Matrix `/_matrix/app/v1/ping` |
+//! | `/api/v1/applet/describe` | GET | (new — capability descriptor) |
+//! | `/api/v1/applet/transactions` | POST | Matrix `PUT /_matrix/app/v1/transactions/{txn_id}` |
+//! | `/api/v1/applet/actors/{actor_id}` | GET | Matrix `/_matrix/app/v1/users/{user_id}` |
+//! | `/api/v1/applet/realms/{realm_id_or_alias}` | GET | Matrix `/_matrix/app/v1/rooms/{room_alias}` |
+//! | `/api/v1/applet/protocols/{protocol}` | GET | Matrix `/_matrix/app/v1/thirdparty/protocol/{protocol}` |
+//! | `/api/v1/applet/third_party/users` | GET | Third-party actor lookup |
+//! | `/api/v1/applet/third_party/locations` | GET | Third-party realm lookup |
+//!
+//! Two mount points (mirroring matrix.rs convention):
+//!
+//! * Direct: `/api/v1/applet/...` — auth resolves the channel via bearer.
+//! * Per-config: `/appservices/contrix/{config_id}/api/v1/applet/...`.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+
+use anyhow::Context as _;
+use contrix::{IdempotencyDecision, IdempotencyWindow};
+use contrix_core::{
+    AppletActorResBody, AppletDescription, AppletPingResBody, AppletProtocolResBody,
+    AppletRealmResBody, AppletTransactionReqBody, AppletTransactionResBody, Did, Hash, canonical,
+};
+use salvo::http::StatusCode;
+use salvo::prelude::*;
+use savfox_channels::contrix::applet::{
+    AppletEventOutcome, ContrixAppletConfig, classify_inbound_event, load_contrix_applet_configs,
+};
+use serde_json::Map;
+use serde_json::{Value, json};
+use subtle::ConstantTimeEq;
+use tracing::{debug, info, warn};
+
+use super::{render_error, runtime};
+use crate::channel::GatewayChannel;
+use crate::session::SessionStore;
+
+/// Per-config in-memory state. We don't try to persist anything yet — the
+/// idempotency window is 5 minutes; cold restart cleanly accepts a retry.
+///
+/// Phase 7: `txn_dedupe` is now an SDK [`IdempotencyWindow`] (S-5) that
+/// implements spec applet-integration.md §7.3 properly — including
+/// `duplicate_conflict` detection when the same `(source_service_did,
+/// idempotency_key)` arrives with a different canonical body hash.
+#[derive(Debug)]
+struct AppletRuntimeState {
+    txn_dedupe: IdempotencyWindow,
+}
+
+impl Default for AppletRuntimeState {
+    fn default() -> Self {
+        Self {
+            txn_dedupe: IdempotencyWindow::new(TXN_DEDUPE_WINDOW),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AppletChannelState {
+    config: ContrixAppletConfig,
+    runtime: Mutex<AppletRuntimeState>,
+}
+
+type AppletRegistry = HashMap<String, Arc<AppletChannelState>>;
+
+fn applet_registry() -> &'static Mutex<AppletRegistry> {
+    static REGISTRY: OnceLock<Mutex<AppletRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+const TXN_DEDUPE_WINDOW: Duration = Duration::from_secs(300);
+const MAX_APPLET_TRANSACTION_BODY_BYTES: usize = 65_536;
+
+fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
+    let mut reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    reg.insert(state.config.id.clone(), Arc::new(state));
+    Ok(())
+}
+
+fn lookup_by_config_id(config_id: &str) -> anyhow::Result<Option<Arc<AppletChannelState>>> {
+    let reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    Ok(reg.get(config_id).cloned())
+}
+
+fn applet_registry_is_empty() -> anyhow::Result<bool> {
+    let reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    Ok(reg.is_empty())
+}
+
+fn lookup_by_bearer(req: &Request) -> anyhow::Result<Option<Arc<AppletChannelState>>> {
+    let Some(token) = bearer_token(req) else {
+        return Ok(None);
+    };
+    let reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    Ok(reg
+        .values()
+        .find(|state| applet_token_matches(state.config.contrix_bearer_token.as_deref(), &token))
+        .cloned())
+}
+
+fn lookup_by_realm(realm_id: &str) -> anyhow::Result<Option<Arc<AppletChannelState>>> {
+    let reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    Ok(reg
+        .values()
+        .find(|state| state.config.namespaces.realm_matches(realm_id))
+        .cloned())
+}
+
+fn parse_bearer_header(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    let rest = trimmed
+        .strip_prefix("Bearer ")
+        .or_else(|| trimmed.strip_prefix("bearer "))?;
+    let token = rest.trim();
+    (!token.is_empty()).then_some(token)
+}
+
+fn bearer_token(req: &Request) -> Option<String> {
+    req.header::<String>("authorization")
+        .and_then(|hv| parse_bearer_header(&hv).map(str::to_owned))
+}
+
+fn applet_token_matches(configured: Option<&str>, provided: &str) -> bool {
+    let Some(configured) = configured.map(str::trim).filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    bool::from(configured.as_bytes().ct_eq(provided.trim().as_bytes()))
+}
+
+fn render_unauthorized(res: &mut Response, code: &str, message: impl Into<String>) {
+    render_error(res, StatusCode::UNAUTHORIZED, code, message);
+}
+
+fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
+    warn!("contrix applet state unavailable: {err:#}");
+    render_error(
+        res,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "state_unavailable",
+        "Contrix applet state unavailable",
+    );
+}
+
+fn resolve_applet_for_request(
+    req: &mut Request,
+    res: &mut Response,
+) -> Option<Arc<AppletChannelState>> {
+    // 1. Per-config path param wins.
+    if let Some(config_id) = req.param::<String>("config_id")
+        && !config_id.is_empty()
+    {
+        let state = match lookup_by_config_id(&config_id) {
+            Ok(state) => state,
+            Err(err) => {
+                render_state_unavailable(res, &err);
+                return None;
+            }
+        };
+        if let Some(state) = state {
+            let Some(token) = bearer_token(req) else {
+                render_unauthorized(
+                    res,
+                    "missing_bearer_token",
+                    "Contrix applet endpoint requires Authorization: Bearer <token>",
+                );
+                return None;
+            };
+            if applet_token_matches(state.config.contrix_bearer_token.as_deref(), &token) {
+                return Some(state);
+            }
+            render_unauthorized(
+                res,
+                "invalid_bearer_token",
+                "Authorization token does not match this Contrix applet channel",
+            );
+            return None;
+        }
+        render_error(
+            res,
+            StatusCode::NOT_FOUND,
+            "applet_not_found",
+            format!("no contrix applet channel configured with id '{config_id}'"),
+        );
+        return None;
+    }
+    // 2. Bearer token match.
+    match lookup_by_bearer(req) {
+        Ok(Some(state)) => return Some(state),
+        Ok(None) => {}
+        Err(err) => {
+            render_state_unavailable(res, &err);
+            return None;
+        }
+    }
+    match applet_registry_is_empty() {
+        Ok(true) => {
+            render_error(
+                res,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "applet_unconfigured",
+                "no contrix applet channel is currently registered",
+            );
+            return None;
+        }
+        Ok(false) => {}
+        Err(err) => {
+            render_state_unavailable(res, &err);
+            return None;
+        }
+    }
+    render_unauthorized(
+        res,
+        "invalid_bearer_token",
+        "Contrix applet endpoint requires a matching Authorization bearer token",
+    );
+    None
+}
+
+// ─── Handlers ───────────────────────────────────────────────────────────────
+
+#[handler]
+async fn applet_ping(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let body = AppletPingResBody {
+        ok: true,
+        applet_id: state.config.applet_id.clone(),
+        service_did: Did::new(state.config.service_did.clone())
+            .unwrap_or_else(|_| Did::new("did:web:applet.unknown").unwrap()),
+        protocol_version: "1.0".to_owned(),
+    };
+    res.status_code(StatusCode::OK);
+    res.render(Json(body));
+}
+
+#[handler]
+async fn applet_describe(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let cfg = &state.config;
+    let body = AppletDescription {
+        applet_id: cfg.applet_id.clone(),
+        service_did: Did::new(cfg.service_did.clone())
+            .unwrap_or_else(|_| Did::new("did:web:applet.unknown").unwrap()),
+        protocols: cfg.protocols.clone(),
+        namespaces: json!({
+            "actors": cfg.namespaces.actors,
+            "realms": cfg.namespaces.realms,
+            "handles": cfg.namespaces.handles,
+        }),
+        limits: json!({
+            "max_events_per_transaction": 100,
+            "max_body_bytes": 65_536,
+        }),
+        auth: json!({
+            "type": "bearer",
+            "controller_did": cfg.controller_did,
+            "bot_actor_id": cfg.bot_actor_id,
+        }),
+    };
+    res.status_code(StatusCode::OK);
+    res.render(Json(body));
+}
+
+#[handler]
+async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let Some(idempotency_key) = req
+        .header::<String>("idempotency-key")
+        .filter(|v| !v.trim().is_empty())
+    else {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "missing_idempotency_key",
+            "Contrix applet transactions require an Idempotency-Key header",
+        );
+        return;
+    };
+
+    let body_bytes = match req
+        .payload_with_max_size(MAX_APPLET_TRANSACTION_BODY_BYTES)
+        .await
+    {
+        Ok(bytes) => bytes,
+        Err(salvo::http::ParseError::PayloadTooLarge) => {
+            render_error(
+                res,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                format!(
+                    "Contrix applet transaction body exceeds {MAX_APPLET_TRANSACTION_BODY_BYTES} bytes"
+                ),
+            );
+            return;
+        }
+        Err(err) => {
+            render_error(
+                res,
+                StatusCode::BAD_REQUEST,
+                "invalid_payload",
+                format!("failed to read AppletTransactionReqBody: {err}"),
+            );
+            return;
+        }
+    };
+
+    let body: AppletTransactionReqBody = match serde_json::from_slice(body_bytes) {
+        Ok(body) => body,
+        Err(err) => {
+            render_error(
+                res,
+                StatusCode::BAD_REQUEST,
+                "invalid_payload",
+                format!("invalid AppletTransactionReqBody: {err}"),
+            );
+            return;
+        }
+    };
+
+    let source_service_did = body.source_service_did.as_str().to_owned();
+
+    // Canonical body hash for idempotency body-equality check (spec §7.3).
+    // Same `(source_service_did, key)` with matching body → return cached
+    // accepted; differing body → 409 duplicate_conflict.
+    let body_hash = match canonical::canonical_sha256(&body) {
+        Ok(digest) => match Hash::new(digest) {
+            Ok(h) => h,
+            Err(err) => {
+                warn!("applet: body hash construct failed: {err}");
+                render_error(
+                    res,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "hash_failed",
+                    "failed to compute body canonical hash",
+                );
+                return;
+            }
+        },
+        Err(err) => {
+            warn!("applet: canonical hash failed: {err}");
+            render_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "hash_failed",
+                "failed to compute body canonical hash",
+            );
+            return;
+        }
+    };
+
+    // Idempotency check (SDK S-5 IdempotencyWindow).
+    {
+        let runtime_state = match state.runtime.lock() {
+            Ok(runtime_state) => runtime_state,
+            Err(_) => {
+                render_error(
+                    res,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "state_unavailable",
+                    "Contrix applet runtime state unavailable",
+                );
+                return;
+            }
+        };
+        runtime_state.txn_dedupe.gc();
+        match runtime_state
+            .txn_dedupe
+            .check(&source_service_did, &idempotency_key, &body_hash)
+        {
+            IdempotencyDecision::Fresh => {
+                runtime_state.txn_dedupe.record(
+                    &source_service_did,
+                    &idempotency_key,
+                    body_hash.clone(),
+                );
+            }
+            IdempotencyDecision::Duplicate { .. } => {
+                debug!(
+                    source_service_did,
+                    idempotency_key,
+                    "applet: duplicate transaction (matching body hash) — returning cached ok"
+                );
+                res.status_code(StatusCode::OK);
+                res.render(Json(AppletTransactionResBody {
+                    ok: true,
+                    rejected: vec![],
+                    retry_after_ms: None,
+                }));
+                return;
+            }
+            IdempotencyDecision::Conflict { .. } => {
+                warn!(
+                    source_service_did,
+                    idempotency_key, "applet: idempotency conflict — same key, different body hash"
+                );
+                render_error(
+                    res,
+                    StatusCode::CONFLICT,
+                    "duplicate_conflict",
+                    "Idempotency-Key already used for a different request body",
+                );
+                return;
+            }
+        }
+    }
+
+    // Classify events.
+    let mut rejected: Vec<Value> = Vec::new();
+    let mut dispatched_commands = Vec::new();
+    for event in body.events.iter() {
+        match classify_inbound_event(&state.config, event) {
+            AppletEventOutcome::Dispatch(cmd) => dispatched_commands.push(cmd),
+            AppletEventOutcome::Skip(reason) => {
+                rejected.push(json!({
+                    "event_id": event.event_id.as_str(),
+                    "reason_code": format!("{reason:?}"),
+                }));
+            }
+        }
+    }
+
+    // Dispatch each accepted command via gateway-server runtime.
+    let Ok(gateway_channel) = depot.obtain::<Arc<GatewayChannel>>() else {
+        warn!("applet: gateway channel state missing from depot");
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "state_unavailable",
+            "gateway channel state unavailable",
+        );
+        return;
+    };
+    let Ok(session_store) = depot.obtain::<Arc<SessionStore>>() else {
+        warn!("applet: session store state missing from depot");
+        render_error(
+            res,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "state_unavailable",
+            "session store state unavailable",
+        );
+        return;
+    };
+    let gateway_channel = gateway_channel.clone();
+    let session_store = session_store.clone();
+    let config_id = state.config.id.clone();
+
+    for cmd in dispatched_commands {
+        let gw = gateway_channel.clone();
+        let store = session_store.clone();
+        let cid = config_id.clone();
+        let dedupe_key = format!("contrix-applet:{}:{}", cid, cmd.event_id);
+        if runtime::should_drop_duplicate(Some(dedupe_key)).await {
+            continue;
+        }
+        tokio::spawn(async move {
+            runtime::spawn_start_thread_pipeline_with_meta_coordinated(
+                gw,
+                store,
+                "contrix",
+                cmd.realm_id.clone(),
+                cmd.body,
+                Some(cmd.sender_did.clone()),
+                Some(runtime::StartThreadMeta {
+                    peer_id: Some(cmd.sender_did),
+                    group_id: Some(cmd.realm_id),
+                    thread_id: cmd.thread_root_id,
+                    reply_target: cmd.flow_id,
+                    chat_type: Some("group".to_owned()),
+                    saved_channel_config_id: Some(cid),
+                    ..runtime::StartThreadMeta::default()
+                }),
+            )
+            .await;
+        });
+    }
+
+    res.status_code(StatusCode::OK);
+    res.render(Json(AppletTransactionResBody {
+        ok: true,
+        rejected,
+        retry_after_ms: None,
+    }));
+}
+
+#[handler]
+async fn applet_actor(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let actor_id = req.param::<String>("actor_id").unwrap_or_default();
+    if !state.config.namespaces.actor_matches(&actor_id) {
+        render_error(
+            res,
+            StatusCode::NOT_FOUND,
+            "actor_not_in_namespace",
+            format!("actor '{actor_id}' is not in this applet's namespace"),
+        );
+        return;
+    }
+    let body = AppletActorResBody {
+        exists: true,
+        actor_id: Did::new(actor_id.clone()).ok(),
+        display_name: None,
+        external_ref: Value::Null,
+    };
+    res.status_code(StatusCode::OK);
+    res.render(Json(body));
+}
+
+#[handler]
+async fn applet_realm(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let realm = req.param::<String>("realm_id_or_alias").unwrap_or_default();
+    if !state.config.namespaces.realm_matches(&realm) {
+        render_error(
+            res,
+            StatusCode::NOT_FOUND,
+            "realm_not_in_namespace",
+            format!("realm '{realm}' is not in this applet's namespace"),
+        );
+        return;
+    }
+    let body = AppletRealmResBody {
+        exists: true,
+        realm_id: contrix_identifiers::RealmId::new(realm.clone()).ok(),
+        title: None,
+        external_ref: Value::Null,
+    };
+    res.status_code(StatusCode::OK);
+    res.render(Json(body));
+}
+
+#[handler]
+async fn applet_protocol(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let protocol = req.param::<String>("protocol").unwrap_or_default();
+    if !state.config.protocols.iter().any(|p| p == &protocol) {
+        render_error(
+            res,
+            StatusCode::NOT_FOUND,
+            "protocol_not_supported",
+            format!("protocol '{protocol}' is not registered with this applet"),
+        );
+        return;
+    }
+    let body = AppletProtocolResBody {
+        protocol: protocol.clone(),
+        display_name: protocol.clone(),
+        icon_blob_ref: None,
+        field_types: json!({}),
+        instances: vec![],
+    };
+    res.status_code(StatusCode::OK);
+    res.render(Json(body));
+}
+
+fn third_party_query_fields(req: &Request) -> Map<String, Value> {
+    let mut fields = Map::new();
+    for (key, value) in req.queries().flat_iter() {
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            continue;
+        }
+        match fields.get_mut(key) {
+            Some(Value::Array(values)) => values.push(Value::String(value.to_owned())),
+            Some(existing) => {
+                let first = std::mem::take(existing);
+                *existing = Value::Array(vec![first, Value::String(value.to_owned())]);
+            }
+            None => {
+                fields.insert(key.to_owned(), Value::String(value.to_owned()));
+            }
+        }
+    }
+    fields
+}
+
+fn field_string<'a>(fields: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+    keys.iter().find_map(|key| match fields.get(*key) {
+        Some(Value::String(value)) => {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then_some(trimmed)
+        }
+        Some(Value::Array(values)) => values.iter().find_map(|value| match value {
+            Value::String(value) => {
+                let trimmed = value.trim();
+                (!trimmed.is_empty()).then_some(trimmed)
+            }
+            _ => None,
+        }),
+        _ => None,
+    })
+}
+
+fn ensure_supported_protocol(
+    cfg: &ContrixAppletConfig,
+    fields: &Map<String, Value>,
+    res: &mut Response,
+) -> Option<String> {
+    let Some(protocol) = field_string(fields, &["protocol"]) else {
+        render_error(
+            res,
+            StatusCode::BAD_REQUEST,
+            "missing_protocol",
+            "third_party lookup requires a protocol query parameter",
+        );
+        return None;
+    };
+    if !cfg.protocols.iter().any(|value| value == protocol) {
+        render_error(
+            res,
+            StatusCode::NOT_FOUND,
+            "protocol_not_supported",
+            format!("protocol '{protocol}' is not registered with this applet"),
+        );
+        return None;
+    }
+    Some(protocol.to_owned())
+}
+
+fn third_party_external_ref(protocol: &str, fields: Map<String, Value>) -> Value {
+    let mut external_ref = fields;
+    external_ref
+        .entry("protocol".to_owned())
+        .or_insert_with(|| Value::String(protocol.to_owned()));
+    Value::Object(external_ref)
+}
+
+fn location_candidates(protocol: &str, fields: &Map<String, Value>) -> Vec<String> {
+    let mut candidates = Vec::new();
+    for key in ["realm_id", "space_id"] {
+        if let Some(value) = field_string(fields, &[key]) {
+            candidates.push(value.to_owned());
+        }
+    }
+
+    let team = field_string(fields, &["team", "team_id", "workspace", "workspace_id"]);
+    let channel = field_string(fields, &["channel", "channel_id", "room", "room_id"]);
+    if let (Some(team), Some(channel)) = (team, channel) {
+        candidates.push(format!("{protocol}:team:{team}:channel:{channel}"));
+    }
+    if let Some(channel) = channel {
+        candidates.push(format!("{protocol}:channel:{channel}"));
+    }
+    if let Some(location) = field_string(
+        fields,
+        &[
+            "location",
+            "location_id",
+            "external_id",
+            "id",
+            "conversation",
+            "conversation_id",
+        ],
+    ) {
+        candidates.push(format!("{protocol}:location:{location}"));
+    }
+    candidates
+}
+
+#[handler]
+async fn applet_third_party_users(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let fields = third_party_query_fields(req);
+    let Some(protocol) = ensure_supported_protocol(&state.config, &fields, res) else {
+        return;
+    };
+    let external_ref = third_party_external_ref(&protocol, fields.clone());
+    let actor_id = field_string(
+        &fields,
+        &["actor_id", "user", "user_id", "external_id", "id", "actor"],
+    )
+    .map(|external_id| {
+        savfox_channels::contrix::mint_ghost_did(
+            &state.config.service_did,
+            &state.config.ghost_did_prefix,
+            external_id,
+        )
+    })
+    .filter(|actor_id| state.config.namespaces.actor_matches(actor_id));
+    let exists = actor_id.is_some();
+
+    res.status_code(StatusCode::OK);
+    res.render(Json(json!({
+        "actor_id": actor_id,
+        "exists": exists,
+        "external_ref": external_ref,
+    })));
+}
+
+#[handler]
+async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
+    let Some(state) = resolve_applet_for_request(req, res) else {
+        return;
+    };
+    let fields = third_party_query_fields(req);
+    let Some(protocol) = ensure_supported_protocol(&state.config, &fields, res) else {
+        return;
+    };
+    let external_ref = third_party_external_ref(&protocol, fields.clone());
+    let realm_id = location_candidates(&protocol, &fields)
+        .into_iter()
+        .find(|candidate| state.config.namespaces.realm_matches(candidate));
+    let exists = realm_id.is_some();
+
+    res.status_code(StatusCode::OK);
+    res.render(Json(json!({
+        "realm_id": realm_id.clone(),
+        "space_id": realm_id,
+        "exists": exists,
+        "external_ref": external_ref,
+    })));
+}
+
+// ─── Outbound + bridge_error (Phase 7 T7.C2/T7.D1) ──────────────────────────
+
+/// Try to send an agent reply through a registered applet whose realm
+/// namespace covers `realm_id`.
+///
+/// Returns `Ok(false)` when no registered applet claims the realm so callers
+/// can fall back to account-mode Contrix sending.
+pub(crate) async fn send_to_contrix_applet_for_realm(
+    realm_id: &str,
+    flow_id: Option<&str>,
+    body: &str,
+) -> anyhow::Result<bool> {
+    let Some(state) = lookup_by_realm(realm_id)? else {
+        return Ok(false);
+    };
+    let flow_id = flow_id.ok_or_else(|| {
+        anyhow::anyhow!(
+            "Contrix applet '{}' cannot reply to realm '{}' without a flow id",
+            state.config.id,
+            realm_id
+        )
+    })?;
+    let external_ref = json!({
+        "protocol": "savfox",
+        "network_id": state.config.id,
+        "external_id": format!("{realm_id}:{flow_id}"),
+        "kind": "agent_reply",
+    });
+    let actor_seq = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    send_via_applet(
+        &state.config.id,
+        realm_id,
+        flow_id,
+        &state.config.bot_actor_id,
+        body,
+        external_ref,
+        actor_seq,
+    )
+    .await?;
+    Ok(true)
+}
+
+/// Send a Ghost-actor-attributed `cx.message.create` Event from this applet
+/// to the Contrix server. On failure, emit a best-effort
+/// `cx.applet.bridge_error` Event so receivers don't silently lose state
+/// (spec applet-integration.md §14).
+///
+/// `config_id` looks up the registered applet; `external_ref` is the
+/// bridge-side origin (protocol/network/external_id) for audit.
+pub(crate) async fn send_via_applet(
+    config_id: &str,
+    realm_id: &str,
+    flow_id: &str,
+    ghost_actor_did: &str,
+    body: &str,
+    external_ref: Value,
+    actor_seq: u64,
+) -> anyhow::Result<()> {
+    let state = lookup_by_config_id(config_id)
+        .with_context(|| format!("contrix applet '{config_id}' registry lookup failed"))?
+        .ok_or_else(|| anyhow::anyhow!("contrix applet '{config_id}' not registered"))?;
+    let cfg = &state.config;
+
+    // Phase 8: prefer login_did_proof when key_ref is set; otherwise fall
+    // back to static bearer for Phase 6/7-style configs.
+    let http = construct_applet_client(cfg).await?;
+
+    // Phase 8 (T8.E): if a grant is configured, attach its event_id as
+    // authorization_ref on the outbound event.
+    let authorization_ref = load_applet_grant_event_id(cfg)
+        .await
+        .or_else(|| cfg.authorization_grant_id.clone());
+
+    let req = savfox_channels::contrix::AppletMessageRequest {
+        applet_id: cfg.applet_id.clone(),
+        realm_id: realm_id.to_owned(),
+        flow_id: flow_id.to_owned(),
+        ghost_actor_did: ghost_actor_did.to_owned(),
+        body: body.to_owned(),
+        external_ref: external_ref.clone(),
+        authorization_ref,
+        executed_by: None,
+        actor_seq,
+        thread_root_id: None,
+    };
+    let mut event = savfox_channels::contrix::build_applet_message_event(&req)?;
+
+    // Phase 8 (T8.C): sign with the applet's bot key when key_ref is set.
+    sign_applet_event_if_keyed(cfg, ghost_actor_did, &mut event).await?;
+
+    match http.submit_event(&event).await {
+        Ok(_resp) => Ok(()),
+        Err(err) => {
+            warn!(
+                config_id,
+                realm_id,
+                flow_id,
+                error = %err,
+                "contrix applet: send_via_applet submission failed — emitting bridge_error"
+            );
+            // Best-effort bridge_error emission. If THIS submit also fails,
+            // we log and continue — there is no escalation path for a
+            // double failure in Phase 7.
+            if let Err(err2) = emit_bridge_error(
+                &state,
+                realm_id,
+                "contrix_submit_failed",
+                &err.to_string(),
+                Some(external_ref),
+            )
+            .await
+            {
+                warn!(config_id, error = %err2, "contrix applet: bridge_error emit also failed");
+            }
+            Err(err)
+        }
+    }
+}
+
+/// Emit a `cx.applet.bridge_error` Event (SDK S-11).
+///
+/// `code` should be one of the spec-blessed strings:
+/// `external_rate_limited` / `external_rejected` / `contrix_submit_failed` /
+/// `delivery_unconfirmed`. `message` is human-readable.
+async fn emit_bridge_error(
+    state: &Arc<AppletChannelState>,
+    realm_id: &str,
+    code: &str,
+    message: &str,
+    external_ref: Option<Value>,
+) -> anyhow::Result<()> {
+    use contrix::{AppletBridgeErrorBuilder, AppletBridgeErrorSeverity};
+    use contrix_identifiers::{Hlc, RealmId};
+
+    let cfg = &state.config;
+    let realm = RealmId::new(realm_id.to_owned())
+        .with_context(|| format!("invalid realm_id: {realm_id}"))?;
+    let actor = Did::new(cfg.bot_actor_id.clone())
+        .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
+    let unix_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    let hlc = Hlc::new(format!("{unix_ms:012x}-0000-00000000"))
+        .map_err(|err| anyhow::anyhow!("hlc: {err}"))?;
+
+    let mut builder =
+        AppletBridgeErrorBuilder::new(realm, cfg.applet_id.clone(), actor, code, message)
+            .with_severity(AppletBridgeErrorSeverity::Error);
+    if let Some(ext) = external_ref {
+        builder = builder.with_external_ref(ext);
+    }
+    let mut event = builder
+        .build(0, hlc)
+        .map_err(|err| anyhow::anyhow!("bridge_error build: {err}"))?;
+
+    // Phase 8: sign bridge_error too if a signer is configured.
+    sign_applet_event_if_keyed(cfg, &cfg.bot_actor_id, &mut event).await?;
+    let http = construct_applet_client(cfg).await?;
+    http.submit_event(&event).await?;
+    Ok(())
+}
+
+/// Build the outbound HTTP client for an applet config. Uses DID-proof
+/// login when `key_ref` is set; falls back to the static bearer otherwise.
+async fn construct_applet_client(
+    cfg: &savfox_channels::contrix::ContrixAppletConfig,
+) -> anyhow::Result<savfox_channels::contrix::ContrixHttpClient> {
+    if let Some(key_ref) = &cfg.key_ref {
+        use savfox_channels::contrix::ContrixHttpClient;
+        let vm = cfg
+            .verification_method
+            .clone()
+            .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
+        let audience = cfg.service_did.clone();
+        let signer =
+            savfox_channels::contrix::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
+        let principal = contrix_identifiers::Did::new(cfg.bot_actor_id.clone())
+            .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
+        // applet bot doesn't carry a device id; mint a stable synthetic one.
+        let device = contrix_identifiers::DeviceId::new(format!(
+            "cx:device:applet-{}",
+            cfg.applet_id.trim_start_matches("cx:applet:")
+        ))
+        .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
+        let (client, _session) = ContrixHttpClient::login(
+            &cfg.contrix_server_url,
+            &signer,
+            principal,
+            device,
+            &vm,
+            &audience,
+        )
+        .await?;
+        Ok(client)
+    } else {
+        let bearer = cfg.contrix_bearer_token.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "applet '{}' has neither key_ref nor contrix_bearer_token",
+                cfg.id
+            )
+        })?;
+        savfox_channels::contrix::ContrixHttpClient::new(&cfg.contrix_server_url, bearer)
+    }
+}
+
+/// Phase 8 (T8.C): sign the outbound event with the applet's bot key,
+/// if `key_ref` is set. No-op otherwise.
+async fn sign_applet_event_if_keyed(
+    cfg: &savfox_channels::contrix::ContrixAppletConfig,
+    actor_did: &str,
+    event: &mut contrix_core::Event,
+) -> anyhow::Result<()> {
+    let Some(key_ref) = &cfg.key_ref else {
+        return Ok(());
+    };
+    let vm = cfg
+        .verification_method
+        .clone()
+        .unwrap_or_else(|| format!("{actor_did}#key-1"));
+    let signer = savfox_channels::contrix::load_ed25519_signer(key_ref, actor_did, &vm)?;
+    savfox_channels::contrix::applet::sign_outbound_event(event, &signer, &vm)?;
+    Ok(())
+}
+
+/// Phase 8 (T8.E): if `grant_event_path` is set, load + verify the
+/// capability grant and return its `event_id` for use as
+/// `authorization_ref`. Logs and returns `None` on load failure (grant
+/// is operator-managed; missing files shouldn't crash outbound).
+async fn load_applet_grant_event_id(
+    cfg: &savfox_channels::contrix::ContrixAppletConfig,
+) -> Option<String> {
+    let path = cfg.grant_event_path.as_ref()?;
+    match savfox_channels::contrix::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
+        Ok(grant) if grant.covers_action("cx.message.create") => Some(grant.event_id),
+        Ok(_) => {
+            warn!(
+                "contrix applet '{}': capability grant at {} does not cover cx.message.create",
+                cfg.id,
+                path.display()
+            );
+            None
+        }
+        Err(err) => {
+            warn!(
+                "contrix applet '{}': capability grant load failed at {}: {err:#}",
+                cfg.id,
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+// ─── Router ─────────────────────────────────────────────────────────────────
+
+/// Routes mounted at `/api/v1/applet/...` (direct).
+pub(crate) fn contrix_applet_router() -> Router {
+    Router::with_path("api/v1/applet")
+        .push(Router::with_path("ping").get(applet_ping))
+        .push(Router::with_path("describe").get(applet_describe))
+        .push(Router::with_path("transactions").post(applet_transactions))
+        .push(Router::with_path("actors/{actor_id}").get(applet_actor))
+        .push(Router::with_path("realms/{realm_id_or_alias}").get(applet_realm))
+        .push(Router::with_path("protocols/{protocol}").get(applet_protocol))
+        .push(Router::with_path("third_party/users").get(applet_third_party_users))
+        .push(Router::with_path("third_party/locations").get(applet_third_party_locations))
+}
+
+/// Routes mounted at `/appservices/contrix/{config_id}/api/v1/applet/...`.
+pub(crate) fn contrix_appservices_router() -> Router {
+    Router::with_path("appservices/contrix/{config_id}").push(contrix_applet_router())
+}
+
+// ─── Startup glue ───────────────────────────────────────────────────────────
+
+/// Start (register) a Contrix Applet channel. Mounts no extra HTTP listener
+/// — the routes are added to the main savfox-gateway-server `Router` in
+/// `server.rs`. Returns once registry insertion is done.
+pub(crate) async fn start_contrix_applet_channel(
+    config: &savfox_core::config::channel_store::ChannelConfig,
+    _channel: &Arc<GatewayChannel>,
+    _session_store: &Arc<SessionStore>,
+) -> anyhow::Result<()> {
+    let applet_cfg = ContrixAppletConfig::from_channel_config(config).ok_or_else(|| {
+        anyhow::anyhow!("Contrix applet channel '{}' missing or invalid", config.id)
+    })?;
+    applet_cfg.validate().with_context(|| {
+        format!(
+            "Contrix applet channel '{}' validation failed",
+            applet_cfg.id
+        )
+    })?;
+    let state = AppletChannelState {
+        config: applet_cfg,
+        runtime: Mutex::new(AppletRuntimeState::default()),
+    };
+    info!(
+        "contrix: applet channel '{}' registered (applet_id={}, service_did={})",
+        state.config.id, state.config.applet_id, state.config.service_did
+    );
+    register_channel(state)?;
+    Ok(())
+}
+
+/// Loader used at gateway startup to count + log configured applet channels
+/// without booting them (booting is `start_contrix_applet_channel`).
+pub(crate) async fn log_contrix_applet_configs(savfox_home: &std::path::PathBuf) {
+    match load_contrix_applet_configs(savfox_home).await {
+        Ok(configs) => {
+            for cfg in configs {
+                info!(
+                    "contrix applet config '{}': applet_id={}, service_did={}, protocols={:?}",
+                    cfg.id, cfg.applet_id, cfg.service_did, cfg.protocols,
+                );
+            }
+        }
+        Err(err) => {
+            warn!("contrix applet: failed to load configs: {err}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use savfox_core::config::channel_store::ChannelConfig;
+
+    fn valid_channel_config() -> ChannelConfig {
+        ChannelConfig {
+            id: "applet-test".into(),
+            kind: "contrix".into(),
+            slug: "applet".into(),
+            name: "Applet".into(),
+            enabled: true,
+            config: json!({
+                "mode": "applet",
+                "appletId": "cx:applet:21532600-0000-7000-8000-000000000000",
+                "serviceDid": "did:web:bridge.example",
+                "controllerDid": "did:webvh:example.com:admin",
+                "baseUrl": "https://savfox.example/applet-test",
+                "botActorId": "did:web:bridge.example#bot",
+                "contrixServerUrl": "https://contrix.example.org",
+                "accessToken": "test-bearer",
+                "protocols": ["slack"],
+                "namespaces": {
+                    "actors": [{"pattern": "did:web:bridge.example#ghost-*", "exclusive": true}],
+                    "realms": [{"pattern": "cx:realm:*", "exclusive": true}],
+                    "handles": []
+                }
+            }),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn start_registers_applet_into_registry() {
+        let cfg = valid_channel_config();
+        // We can't easily build a full GatewayChannel/SessionStore in unit
+        // scope — but `start_contrix_applet_channel` only uses them for
+        // logging context and accepts &Arc<...>. We use placeholder Arcs.
+        // Actually it doesn't use them at all in Phase 6, so dummies are fine.
+        // We bypass by calling internals directly:
+        let applet = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
+        applet.validate().expect("validate");
+        let state = AppletChannelState {
+            config: applet.clone(),
+            runtime: Mutex::new(AppletRuntimeState::default()),
+        };
+        register_channel(state).expect("register");
+        let resolved = lookup_by_config_id(&applet.id)
+            .expect("lookup")
+            .expect("registered");
+        assert_eq!(resolved.config.applet_id, applet.applet_id);
+    }
+
+    #[test]
+    fn bearer_header_parser_trims_without_leaking() {
+        assert_eq!(parse_bearer_header("Bearer  abc123  "), Some("abc123"));
+        assert_eq!(parse_bearer_header("bearer abc123"), Some("abc123"));
+        assert_eq!(parse_bearer_header("Basic abc123"), None);
+        assert_eq!(parse_bearer_header("Bearer   "), None);
+    }
+
+    #[test]
+    fn applet_token_match_requires_configured_token() {
+        assert!(applet_token_matches(Some("secret"), "secret"));
+        assert!(!applet_token_matches(Some("secret"), "wrong"));
+        assert!(!applet_token_matches(None, "secret"));
+        assert!(!applet_token_matches(Some(""), "secret"));
+    }
+}

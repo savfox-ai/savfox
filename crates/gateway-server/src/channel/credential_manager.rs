@@ -1215,6 +1215,30 @@ impl GatewayChannel {
                     warn!("Zalo OA access token not configured");
                 }
             }
+            #[cfg(feature = "contrix")]
+            "contrix" => {
+                let flow_id = non_empty_trimmed(reply_target).or_else(|| {
+                    non_empty_trimmed(session_id).filter(|value| value.starts_with("cx:flow:"))
+                });
+                if crate::channels::contrix_applet::send_to_contrix_applet_for_realm(
+                    channel_id, flow_id, text,
+                )
+                .await?
+                {
+                    return Ok(());
+                }
+                crate::channels::contrix::send_to_contrix_account(
+                    savfox_home,
+                    channel_id,
+                    flow_id,
+                    text,
+                )
+                .await?;
+            }
+            #[cfg(not(feature = "contrix"))]
+            "contrix" => {
+                warn!("Contrix support is not enabled for channel: {channel}");
+            }
             _ => {
                 warn!("unknown platform for channel: {channel}");
             }
