@@ -31,6 +31,7 @@ use crate::session::{
     build_routing_id, derive_session_label_from_history, peek_ambient_messages,
     remove_ambient_session,
 };
+use crate::terminal_agent::TerminalAgentEvent;
 
 // ── Chat ────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,59 @@ async fn emit_typing_stop(
             }),
         )
         .await;
+}
+
+fn terminal_event_stream_payload(
+    request_id: &str,
+    session_id: &str,
+    thread_id: &str,
+    event: &TerminalAgentEvent,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+    log_dir: &str,
+) -> Option<(&'static str, Value)> {
+    match event {
+        TerminalAgentEvent::Log { stream, text } => Some((
+            "agent.stream",
+            json!({
+                "request_id": request_id,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "kind": "log",
+                "stream": stream,
+                "terminal_event": "log",
+                "delta": text,
+                "truncated": match stream.as_str() {
+                    "stdout" => stdout_truncated,
+                    "stderr" => stderr_truncated,
+                    _ => false,
+                },
+                "log_dir": log_dir,
+            }),
+        )),
+        TerminalAgentEvent::Status { status } => Some((
+            "agent.stream",
+            json!({
+                "request_id": request_id,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "kind": "status",
+                "terminal_event": "status",
+                "status": status,
+            }),
+        )),
+        TerminalAgentEvent::Error { message } => Some((
+            "agent.error",
+            json!({
+                "request_id": request_id,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "terminal_event": "error",
+                "error": message,
+            }),
+        )),
+        TerminalAgentEvent::Message { .. } | TerminalAgentEvent::Completed { .. } => None,
+    }
 }
 
 pub(crate) async fn handle_chat_send(
@@ -352,6 +406,7 @@ pub(crate) async fn handle_chat_send(
                     "session_id": logical_session_id,
                     "thread_id": thread_id,
                     "phase": "start",
+                    "terminal_event": "started",
                     "model": terminal_model_for_start,
                     "provider": "terminal",
                     "profile": model_profile,
@@ -377,6 +432,7 @@ pub(crate) async fn handle_chat_send(
                         json!({
                             "request_id": request_id,
                             "session_id": logical_session_id,
+                            "terminal_event": "error",
                             "error": message,
                         }),
                     )
@@ -391,6 +447,7 @@ pub(crate) async fn handle_chat_send(
                         json!({
                             "request_id": request_id,
                             "session_id": logical_session_id,
+                            "terminal_event": "error",
                             "error": message,
                         }),
                     )
@@ -402,6 +459,22 @@ pub(crate) async fn handle_chat_send(
         let rollout_path = invocation.result.rollout_path;
         let model = invocation.model;
         let provider = invocation.provider;
+        let terminal = invocation.terminal;
+
+        let terminal_log_dir = terminal.log_dir.to_string_lossy().to_string();
+        for event in &terminal.events {
+            if let Some((topic, payload)) = terminal_event_stream_payload(
+                &request_id,
+                &logical_session_id,
+                &thread_id,
+                event,
+                terminal.stdout_truncated,
+                terminal.stderr_truncated,
+                &terminal_log_dir,
+            ) {
+                session_mgr.broadcast_to_all(topic, payload).await;
+            }
+        }
 
         session_mgr
             .broadcast_to_all(
@@ -409,7 +482,9 @@ pub(crate) async fn handle_chat_send(
                 json!({
                     "request_id": request_id,
                     "session_id": logical_session_id,
+                    "thread_id": thread_id,
                     "kind": "text",
+                    "terminal_event": "message",
                     "delta": reply,
                 }),
             )
@@ -481,6 +556,22 @@ pub(crate) async fn handle_chat_send(
                     "model": model,
                     "provider": provider,
                     "profile": model_profile,
+                    "terminal_event": "completed",
+                    "terminal": {
+                        "agent_id": terminal.agent_id,
+                        "agent_name": terminal.agent_name,
+                        "profile": terminal.profile,
+                        "mode": terminal.mode,
+                        "session_scope": terminal.session_scope,
+                        "io_protocol": terminal.io_protocol,
+                        "workspace_dir": terminal.workspace_dir.to_string_lossy().to_string(),
+                        "log_dir": terminal.log_dir.to_string_lossy().to_string(),
+                        "stdout_truncated": terminal.stdout_truncated,
+                        "stderr_truncated": terminal.stderr_truncated,
+                        "pid": terminal.pid,
+                        "exit_code": terminal.exit_code,
+                        "events": terminal.events,
+                    },
                     "aborted": false,
                 }),
             )
@@ -493,6 +584,21 @@ pub(crate) async fn handle_chat_send(
             "model": model,
             "provider": provider,
             "profile": model_profile,
+            "terminal": {
+                "agent_id": terminal.agent_id,
+                "agent_name": terminal.agent_name,
+                "profile": terminal.profile,
+                "mode": terminal.mode,
+                "session_scope": terminal.session_scope,
+                "io_protocol": terminal.io_protocol,
+                "workspace_dir": terminal.workspace_dir.to_string_lossy().to_string(),
+                "log_dir": terminal.log_dir.to_string_lossy().to_string(),
+                "stdout_truncated": terminal.stdout_truncated,
+                "stderr_truncated": terminal.stderr_truncated,
+                "pid": terminal.pid,
+                "exit_code": terminal.exit_code,
+                "events": terminal.events,
+            },
             "session_id": logical_session_id,
             "thread_id": thread_id,
             "aborted": false,
@@ -2078,4 +2184,67 @@ pub(crate) async fn handle_events_list() -> RpcResult {
         "events": events,
         "count": events.len(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TerminalAgentEvent, terminal_event_stream_payload};
+
+    fn terminal_stream_order(events: &[TerminalAgentEvent]) -> Vec<String> {
+        let mut order = vec!["started".to_owned()];
+        for event in events {
+            if let Some((_topic, payload)) = terminal_event_stream_payload(
+                "req", "session", "thread", event, false, true, "logs",
+            ) {
+                if let Some(kind) = payload
+                    .get("terminal_event")
+                    .and_then(|value| value.as_str())
+                {
+                    order.push(kind.to_owned());
+                }
+            }
+        }
+        order.push("message".to_owned());
+        order.push("completed".to_owned());
+        order
+    }
+
+    #[test]
+    fn terminal_event_stream_order_keeps_terminal_lifecycle_stable() {
+        let order = terminal_stream_order(&[
+            TerminalAgentEvent::Log {
+                stream: "stderr".to_owned(),
+                text: "warning".to_owned(),
+            },
+            TerminalAgentEvent::Status {
+                status: "running".to_owned(),
+            },
+            TerminalAgentEvent::Message {
+                text: "reply chunk".to_owned(),
+            },
+            TerminalAgentEvent::Completed { exit_code: Some(0) },
+        ]);
+
+        assert_eq!(order, ["started", "log", "status", "message", "completed"]);
+    }
+
+    #[test]
+    fn terminal_event_stream_payload_marks_stderr_truncation() {
+        let (_topic, payload) = terminal_event_stream_payload(
+            "req",
+            "session",
+            "thread",
+            &TerminalAgentEvent::Log {
+                stream: "stderr".to_owned(),
+                text: "warning".to_owned(),
+            },
+            false,
+            true,
+            "logs",
+        )
+        .expect("stderr log maps to stream payload");
+
+        assert_eq!(payload["terminal_event"], "log");
+        assert_eq!(payload["truncated"], true);
+    }
 }

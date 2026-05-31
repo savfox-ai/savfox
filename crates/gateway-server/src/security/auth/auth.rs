@@ -334,11 +334,21 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Read;
     }
 
-    // ── Agent terminal launch (privileged) ──────────────────────────
+    // ── Agent terminal local filesystem/process operations (privileged) ─
     // S6: agent.terminal.launch shells out to a system terminal. Even
     // though it lives in the agent.* namespace (which would otherwise
-    // resolve to Write), the operation is Admin-equivalent.
-    if method == "agent.terminal.launch" {
+    // resolve to Write), the operation is Admin-equivalent. Cleanup deletes
+    // local terminal session directories, so it follows the same boundary.
+    if matches!(
+        method,
+        "agent.terminal.launch"
+            | "agent.terminal.cleanup"
+            | "agent.terminal.pty.start"
+            | "agent.terminal.pty.write"
+            | "agent.terminal.pty.resize"
+            | "agent.terminal.pty.close"
+            | "agent.terminal.pty.close_idle"
+    ) {
         return Scope::Admin;
     }
 
@@ -468,6 +478,7 @@ fn is_read_suffix(method: &str) -> bool {
         "list"
             | "get"
             | "status"
+            | "read"
             | "search"
             | "layers"
             | "preview"
@@ -480,6 +491,7 @@ fn is_read_suffix(method: &str) -> bool {
             | "schema"
             | "identity"
             | "health"
+            | "metrics"
             | "validate"
             | "transcribe"
             | "poll"
@@ -654,6 +666,18 @@ mod tests {
         // S6: spawning a system terminal is Admin-equivalent regardless
         // of the surrounding agent.* namespace.
         assert_eq!(required_scope("agent.terminal.launch"), Scope::Admin);
+        assert_eq!(required_scope("agent.terminal.cleanup"), Scope::Admin);
+        assert_eq!(required_scope("agent.terminal.pty.start"), Scope::Admin);
+        assert_eq!(required_scope("agent.terminal.pty.write"), Scope::Admin);
+        assert_eq!(required_scope("agent.terminal.pty.resize"), Scope::Admin);
+        assert_eq!(required_scope("agent.terminal.pty.close"), Scope::Admin);
+        assert_eq!(
+            required_scope("agent.terminal.pty.close_idle"),
+            Scope::Admin
+        );
+        assert_eq!(required_scope("agent.terminal.pty.read"), Scope::Read);
+        assert_eq!(required_scope("agent.terminal.pty.list"), Scope::Read);
+        assert_eq!(required_scope("agent.terminal.metrics"), Scope::Read);
         // Other agent.* methods stay at Write.
         assert_eq!(required_scope("agent.list"), Scope::Read);
         assert_eq!(required_scope("agent"), Scope::Write);

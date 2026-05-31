@@ -2,17 +2,235 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use savfox_utils::home_dir::AGENTS_SUBDIR;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use super::channel::{channel_is_configured, load_saved_channel_configs};
 use super::channel_management::load_nostr_profile;
 use crate::channel::GatewayChannel;
+use crate::chat_session::validate_uuid_v7_session_id;
 use crate::security::path_safety::safe_join;
+use crate::terminal_agent::{
+    TerminalCommandResolver, TerminalCommandTemplate, TerminalTemplateValues, command_health,
+    path_writable, resolve_cwd, terminal_profile_preset, terminal_profile_presets,
+    terminal_runtime_metrics_snapshot,
+};
+use crate::terminal_pty::{
+    TerminalPtyCloseReason, TerminalPtySessionKey, TerminalPtySize, TerminalPtySpawnSpec,
+    TerminalPtyWrite, TerminalPtyWriteKind, terminal_pty_manager,
+};
 
 // ── Agent (single-agent operations) ─────────────────────────────────────────
+
+const MANAGED_PTY_DEFAULT_TIMEOUT_SECS: u64 = 300;
+const MANAGED_PTY_MIN_TIMEOUT_SECS: u64 = 5;
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct ManagedPtyDelegateSpec {
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    stdin: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    env: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    interactive_command: Option<String>,
+    #[serde(default)]
+    interactive_args: Option<Vec<String>>,
+}
+
+fn parse_pty_size(params: &Value) -> TerminalPtySize {
+    let cols = params
+        .get("cols")
+        .or_else(|| params.get("columns"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .filter(|value| *value >= 20)
+        .unwrap_or(TerminalPtySize::default().cols);
+    let rows = params
+        .get("rows")
+        .and_then(Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .filter(|value| *value >= 5)
+        .unwrap_or(TerminalPtySize::default().rows);
+    TerminalPtySize { cols, rows }
+}
+
+fn parse_string_array(value: Option<&Value>) -> Option<Vec<String>> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty())
+}
+
+fn parse_string_map(value: Option<&Value>) -> std::collections::BTreeMap<String, String> {
+    value
+        .and_then(Value::as_object)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|(key, value)| {
+                    let key = key.trim();
+                    if key.is_empty() {
+                        return None;
+                    }
+                    let value = value.as_str().unwrap_or("").to_owned();
+                    Some((key.to_owned(), value))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn terminal_pty_key_from_params(params: &Value) -> Result<TerminalPtySessionKey, String> {
+    let agent = params
+        .get("agent")
+        .or_else(|| params.get("agent_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default")
+        .to_owned();
+    let session_id = validate_uuid_v7_session_id(
+        params
+            .get("session_id")
+            .or_else(|| params.get("session"))
+            .and_then(Value::as_str),
+    )?
+    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+    Ok(TerminalPtySessionKey::new(agent, session_id))
+}
+
+async fn resolve_terminal_pty_spawn_spec(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+    key: &TerminalPtySessionKey,
+) -> Result<TerminalPtySpawnSpec, String> {
+    let mut raw_agent = None;
+    let mut agent_name = key.agent_id.clone();
+    let mut spec = ManagedPtyDelegateSpec::default();
+    if let Some((file_stem, raw_config)) =
+        crate::agent_terminal_delegate::resolve_agent_config(channel.config(), &key.agent_id).await
+    {
+        agent_name = raw_config
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&key.agent_id)
+            .to_owned();
+        raw_agent = Some(file_stem);
+        if let Some(delegate) = raw_config.get("terminal_delegate") {
+            spec = serde_json::from_value::<ManagedPtyDelegateSpec>(delegate.clone())
+                .map_err(|err| format!("invalid terminal_delegate for managed PTY: {err}"))?;
+        }
+    }
+
+    let command = params
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            spec.interactive_command
+                .as_deref()
+                .or(spec.command.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .ok_or_else(|| {
+            format!(
+                "agent `{}` has no managed PTY command; configure terminal_delegate.command or pass command",
+                key.agent_id
+            )
+        })?;
+    let args = parse_string_array(params.get("args"))
+        .or_else(|| spec.interactive_args.clone())
+        .unwrap_or(spec.args.clone());
+    let cwd = params
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(spec.cwd.clone());
+    let mut env = spec.env.clone();
+    env.extend(parse_string_map(params.get("env")));
+
+    let agent_dir = raw_agent.unwrap_or_else(|| key.agent_id.clone());
+    let root = channel
+        .config()
+        .savfox_home
+        .join("terminal-agents")
+        .join(agent_dir)
+        .join("pty")
+        .join(&key.session_id);
+    let home_dir = root.join("home");
+    let workspace_dir = root.join("workspace");
+    let log_dir = root.join("logs");
+    tokio::fs::create_dir_all(&home_dir)
+        .await
+        .map_err(|err| format!("failed to create managed PTY home: {err}"))?;
+    tokio::fs::create_dir_all(&workspace_dir)
+        .await
+        .map_err(|err| format!("failed to create managed PTY workspace: {err}"))?;
+    tokio::fs::create_dir_all(&log_dir)
+        .await
+        .map_err(|err| format!("failed to create managed PTY logs: {err}"))?;
+
+    let values = TerminalTemplateValues {
+        agent_id: key.agent_id.clone(),
+        agent_name,
+        session_id: key.session_id.clone(),
+        agent_home: home_dir.to_string_lossy().into_owned(),
+        workspace_dir: workspace_dir.to_string_lossy().into_owned(),
+        log_dir: log_dir.to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+    let resolved = TerminalCommandResolver::new(channel.config().cwd.clone())
+        .resolve(
+            TerminalCommandTemplate {
+                command,
+                args,
+                stdin: spec.stdin.clone(),
+                cwd,
+                env,
+                timeout_secs: None,
+                default_args_to_prompt: false,
+                default_timeout_secs: MANAGED_PTY_DEFAULT_TIMEOUT_SECS,
+                min_timeout_secs: MANAGED_PTY_MIN_TIMEOUT_SECS,
+                max_output_bytes: 0,
+            },
+            &values,
+        )
+        .map_err(|err| err.to_string())?;
+
+    Ok(TerminalPtySpawnSpec {
+        program: resolved.spec.program,
+        args: resolved.spec.args,
+        cwd: resolved.spec.cwd,
+        env: resolved.spec.env,
+        size: parse_pty_size(params),
+    })
+}
 
 pub(crate) async fn handle_agent(params: &Value, channel: &Arc<GatewayChannel>) -> RpcResult {
     let message = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
@@ -91,6 +309,488 @@ pub(crate) async fn handle_agent_terminal_launch(
             format!("agent.terminal.launch error: {err}"),
         )),
     }
+}
+
+pub(crate) async fn handle_agent_terminal_profile_list() -> RpcResult {
+    Ok(json!({
+        "profiles": terminal_profile_presets(),
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_health(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let agent = params
+        .get("agent")
+        .or_else(|| params.get("agent_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut profile = params
+        .get("profile")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("custom")
+        .to_owned();
+    let mut command = params
+        .get("command")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let mut cwd_raw = params
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let mut health_args_override = params
+        .get("version_args")
+        .or_else(|| params.get("health_check_args"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+
+    if let Some(agent) = agent {
+        let (file_stem, raw_config) =
+            crate::agent_terminal_delegate::resolve_agent_config(channel.config(), agent)
+                .await
+                .ok_or_else(|| (INVALID_REQUEST, format!("agent `{agent}` not found")))?;
+        let delegate = raw_config.get("terminal_delegate").ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                format!("agent `{agent}` has no terminal_delegate configuration"),
+            )
+        })?;
+        let delegate: crate::agent_terminal_delegate::AgentTerminalDelegateConfig =
+            serde_json::from_value(delegate.clone()).map_err(|err| {
+                (
+                    INVALID_REQUEST,
+                    format!("invalid terminal_delegate configuration for `{file_stem}`: {err}"),
+                )
+            })?;
+        if let Some(value) = delegate
+            .profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            profile = value.to_owned();
+        }
+        if command.is_none() {
+            command = delegate
+                .health_check_command
+                .as_deref()
+                .or(delegate.command.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+        if health_args_override.is_none() {
+            health_args_override = delegate
+                .health_check_args
+                .clone()
+                .filter(|items| !items.is_empty());
+        }
+        if command.is_none() {
+            command = delegate
+                .command
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+        if cwd_raw.is_none() {
+            cwd_raw = delegate
+                .cwd
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+        }
+    }
+
+    let preset = terminal_profile_preset(&profile);
+    let command = command.unwrap_or_else(|| preset.command.to_owned());
+    let version_args = health_args_override.unwrap_or_else(|| {
+        preset
+            .version_args
+            .iter()
+            .map(|arg| (*arg).to_owned())
+            .collect()
+    });
+    let version_arg_refs = version_args.iter().map(String::as_str).collect::<Vec<_>>();
+
+    let cwd = resolve_cwd(&channel.config().cwd, cwd_raw.as_deref());
+    let cwd_exists = cwd.exists();
+    let cwd_is_dir = cwd.is_dir();
+    let terminal_root = channel.config().savfox_home.join("terminal-agents");
+    let terminal_root_writable = path_writable(&terminal_root).await;
+    let command = command_health(&command, &version_arg_refs, Duration::from_secs(5)).await;
+
+    Ok(json!({
+        "agent": agent,
+        "profile": profile,
+        "preset": preset,
+        "command": command,
+        "version_args": version_args,
+        "cwd": cwd.to_string_lossy(),
+        "cwd_exists": cwd_exists,
+        "cwd_is_dir": cwd_is_dir,
+        "terminal_root": terminal_root.to_string_lossy(),
+        "terminal_root_writable": terminal_root_writable,
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_metrics() -> RpcResult {
+    Ok(json!({
+        "metrics": terminal_runtime_metrics_snapshot(),
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_start(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let key = terminal_pty_key_from_params(params).map_err(|message| (INVALID_PARAMS, message))?;
+    let spec = resolve_terminal_pty_spawn_spec(params, channel, &key)
+        .await
+        .map_err(|message| (INVALID_PARAMS, message))?;
+    let session = terminal_pty_manager()
+        .get_or_spawn(key.clone(), spec)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, format!("managed PTY start failed: {err}")))?;
+    let metadata = session.metadata().await;
+    Ok(json!({
+        "started": true,
+        "agent": key.agent_id,
+        "session_id": key.session_id,
+        "metadata": metadata,
+        "transcript": session.transcript().await,
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_write(params: &Value) -> RpcResult {
+    let key = terminal_pty_key_from_params(params).map_err(|message| (INVALID_PARAMS, message))?;
+    let kind = params
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("line");
+    let kind = match kind {
+        "text" => TerminalPtyWriteKind::Text,
+        "line" | "" => TerminalPtyWriteKind::Line,
+        "newline" => TerminalPtyWriteKind::Newline,
+        "interrupt" => TerminalPtyWriteKind::Interrupt,
+        "control_sequence" | "control" => TerminalPtyWriteKind::ControlSequence,
+        "manual_complete" | "complete" => TerminalPtyWriteKind::ManualComplete,
+        other => {
+            return Err((
+                INVALID_PARAMS,
+                format!("unsupported managed PTY write kind `{other}`"),
+            ));
+        }
+    };
+    let input = TerminalPtyWrite {
+        kind,
+        text: params
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+    };
+    terminal_pty_manager()
+        .write(&key, input)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, format!("managed PTY write failed: {err}")))?;
+    Ok(json!({
+        "written": true,
+        "agent": key.agent_id,
+        "session_id": key.session_id,
+        "metadata": terminal_pty_manager().metadata(&key).await.ok(),
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_read(params: &Value) -> RpcResult {
+    let key = terminal_pty_key_from_params(params).map_err(|message| (INVALID_PARAMS, message))?;
+    let since_sequence = params
+        .get("since_sequence")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let wait_for_text = params
+        .get("wait_for_text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let timeout_ms = params
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(30_000);
+
+    let entries = if let Some(needle) = wait_for_text {
+        terminal_pty_manager()
+            .wait_for_text(&key, needle, Duration::from_millis(timeout_ms.max(1)))
+            .await
+            .map_err(|err| (INTERNAL_ERROR, format!("managed PTY read failed: {err}")))?
+            .unwrap_or_default()
+    } else {
+        terminal_pty_manager()
+            .read_transcript(&key)
+            .await
+            .map_err(|err| (INTERNAL_ERROR, format!("managed PTY read failed: {err}")))?
+    };
+    let entries = entries
+        .into_iter()
+        .filter(|entry| entry.sequence > since_sequence)
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "agent": key.agent_id,
+        "session_id": key.session_id,
+        "entries": entries,
+        "metadata": terminal_pty_manager().metadata(&key).await.ok(),
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_resize(params: &Value) -> RpcResult {
+    let key = terminal_pty_key_from_params(params).map_err(|message| (INVALID_PARAMS, message))?;
+    let size = parse_pty_size(params);
+    terminal_pty_manager()
+        .resize(&key, size)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, format!("managed PTY resize failed: {err}")))?;
+    Ok(json!({
+        "resized": true,
+        "agent": key.agent_id,
+        "session_id": key.session_id,
+        "metadata": terminal_pty_manager().metadata(&key).await.ok(),
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_close(params: &Value) -> RpcResult {
+    let key = terminal_pty_key_from_params(params).map_err(|message| (INVALID_PARAMS, message))?;
+    let metadata = terminal_pty_manager()
+        .close(&key, TerminalPtyCloseReason::ExplicitClose)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, format!("managed PTY close failed: {err}")))?;
+    Ok(json!({
+        "closed": metadata.is_some(),
+        "agent": key.agent_id,
+        "session_id": key.session_id,
+        "metadata": metadata,
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_list() -> RpcResult {
+    Ok(json!({
+        "sessions": terminal_pty_manager().list_metadata().await,
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_pty_close_idle() -> RpcResult {
+    let closed = terminal_pty_manager().close_idle().await.map_err(|err| {
+        (
+            INTERNAL_ERROR,
+            format!("managed PTY idle cleanup failed: {err}"),
+        )
+    })?;
+    Ok(json!({
+        "closed": closed,
+    }))
+}
+
+pub(crate) async fn handle_agent_terminal_cleanup(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let dry_run = params
+        .get("dry_run")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let all = params.get("all").and_then(Value::as_bool).unwrap_or(false);
+    let agent = params
+        .get("agent")
+        .or_else(|| params.get("agent_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let session_id = validate_uuid_v7_session_id(
+        params
+            .get("session_id")
+            .or_else(|| params.get("session"))
+            .and_then(Value::as_str),
+    )
+    .map_err(|message| (INVALID_PARAMS, message))?;
+
+    if !all && agent.is_none() && session_id.is_none() {
+        return Err((
+            INVALID_PARAMS,
+            "missing cleanup target: provide agent, session_id, or all=true".to_owned(),
+        ));
+    }
+
+    let terminal_root = channel.config().savfox_home.join("terminal-agents");
+    let targets = terminal_cleanup_targets(&terminal_root, agent, session_id.as_deref(), all)
+        .await
+        .map_err(|message| (INVALID_PARAMS, message))?;
+
+    let mut cleaned = Vec::new();
+    let mut missing = Vec::new();
+    let mut errors = Vec::new();
+    for target in targets {
+        let target_string = target.to_string_lossy().to_string();
+        if tokio::fs::metadata(&target).await.is_err() {
+            missing.push(target_string);
+            continue;
+        }
+        if dry_run {
+            cleaned.push(target_string);
+            continue;
+        }
+        match tokio::fs::remove_dir_all(&target).await {
+            Ok(()) => cleaned.push(target_string),
+            Err(err) => errors.push(json!({
+                "path": target_string,
+                "error": err.to_string(),
+            })),
+        }
+    }
+
+    let cleaned_count = cleaned.len();
+    let missing_count = missing.len();
+    let error_count = errors.len();
+
+    Ok(json!({
+        "dry_run": dry_run,
+        "cleaned": cleaned,
+        "cleaned_count": cleaned_count,
+        "missing": missing,
+        "missing_count": missing_count,
+        "errors": errors,
+        "error_count": error_count,
+    }))
+}
+
+async fn terminal_cleanup_targets(
+    terminal_root: &std::path::Path,
+    agent: Option<&str>,
+    session_id: Option<&str>,
+    all: bool,
+) -> Result<Vec<PathBuf>, String> {
+    if all {
+        return list_terminal_session_dirs(terminal_root).await;
+    }
+
+    if let Some(agent) = agent {
+        let agent_root = safe_join(terminal_root, agent, "")
+            .ok_or_else(|| format!("invalid agent identifier `{agent}`"))?;
+        let sessions_root = agent_root.join("sessions");
+        if let Some(session_id) = session_id {
+            return Ok(vec![sessions_root.join(session_id)]);
+        }
+        return Ok(vec![sessions_root]);
+    }
+
+    let Some(session_id) = session_id else {
+        return Ok(Vec::new());
+    };
+    let mut targets = Vec::new();
+    let mut agents = match tokio::fs::read_dir(terminal_root).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(targets),
+        Err(err) => {
+            return Err(format!(
+                "failed to list terminal root `{}`: {err}",
+                terminal_root.display()
+            ));
+        }
+    };
+    while let Some(entry) = agents.next_entry().await.map_err(|err| {
+        format!(
+            "failed to read terminal root `{}`: {err}",
+            terminal_root.display()
+        )
+    })? {
+        let path = entry.path();
+        if !entry
+            .file_type()
+            .await
+            .map(|ty| ty.is_dir())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        targets.push(path.join("sessions").join(session_id));
+    }
+    Ok(targets)
+}
+
+async fn list_terminal_session_dirs(
+    terminal_root: &std::path::Path,
+) -> Result<Vec<PathBuf>, String> {
+    let mut targets = Vec::new();
+    let mut agents = match tokio::fs::read_dir(terminal_root).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(targets),
+        Err(err) => {
+            return Err(format!(
+                "failed to list terminal root `{}`: {err}",
+                terminal_root.display()
+            ));
+        }
+    };
+    while let Some(agent_entry) = agents.next_entry().await.map_err(|err| {
+        format!(
+            "failed to read terminal root `{}`: {err}",
+            terminal_root.display()
+        )
+    })? {
+        if !agent_entry
+            .file_type()
+            .await
+            .map(|ty| ty.is_dir())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let sessions_root = agent_entry.path().join("sessions");
+        let mut sessions = match tokio::fs::read_dir(&sessions_root).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(format!(
+                    "failed to list terminal sessions `{}`: {err}",
+                    sessions_root.display()
+                ));
+            }
+        };
+        while let Some(session_entry) = sessions.next_entry().await.map_err(|err| {
+            format!(
+                "failed to read terminal sessions `{}`: {err}",
+                sessions_root.display()
+            )
+        })? {
+            if session_entry
+                .file_type()
+                .await
+                .map(|ty| ty.is_dir())
+                .unwrap_or(false)
+            {
+                targets.push(session_entry.path());
+            }
+        }
+    }
+    Ok(targets)
 }
 
 // ── Agent capabilities & delegation ─────────────────────────────────────────
@@ -1623,4 +2323,93 @@ pub(crate) async fn handle_agent_avatar_get(params: &Value, channel: &GatewayCha
         "agent": agent_id,
         "avatar": avatar,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        parse_pty_size, parse_string_array, parse_string_map, terminal_cleanup_targets,
+        terminal_pty_key_from_params,
+    };
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn terminal_cleanup_targets_can_find_session_across_agents() {
+        let root = tempfile::tempdir().expect("create temp dir");
+        let session_id = "018f0000-0000-7000-8000-000000000701";
+        let alpha = root.path().join("alpha").join("sessions").join(session_id);
+        let beta = root.path().join("beta").join("sessions").join(session_id);
+        tokio::fs::create_dir_all(&alpha)
+            .await
+            .expect("create alpha session");
+        tokio::fs::create_dir_all(&beta)
+            .await
+            .expect("create beta session");
+
+        let mut targets = terminal_cleanup_targets(root.path(), None, Some(session_id), false)
+            .await
+            .expect("plan cleanup targets");
+        targets.sort();
+
+        assert_eq!(targets, vec![alpha, beta]);
+    }
+
+    #[tokio::test]
+    async fn terminal_cleanup_targets_rejects_invalid_agent() {
+        let root = tempfile::tempdir().expect("create temp dir");
+
+        let err = terminal_cleanup_targets(root.path(), Some("../agent"), None, false)
+            .await
+            .expect_err("invalid agent should be rejected");
+
+        assert!(err.contains("invalid agent identifier"));
+    }
+
+    #[test]
+    fn managed_pty_rpc_parses_size_arrays_maps_and_uuid_aliases() {
+        let size = parse_pty_size(&json!({
+            "columns": 140,
+            "rows": 42
+        }));
+        assert_eq!(size.cols, 140);
+        assert_eq!(size.rows, 42);
+
+        let defaulted_size = parse_pty_size(&json!({
+            "cols": 10,
+            "rows": 2
+        }));
+        assert_eq!(defaulted_size.cols, 120);
+        assert_eq!(defaulted_size.rows, 30);
+
+        assert_eq!(
+            parse_string_array(Some(&json!([" run ", "", 1, "now"]))),
+            Some(vec!["run".to_string(), "now".to_string()])
+        );
+        assert_eq!(
+            parse_string_map(Some(&json!({
+                " FOO ": "bar",
+                "COUNT": 3,
+                "": "skip"
+            }))),
+            std::collections::BTreeMap::from([
+                ("COUNT".to_string(), String::new()),
+                ("FOO".to_string(), "bar".to_string()),
+            ])
+        );
+
+        let key = terminal_pty_key_from_params(&json!({
+            "agent_id": "codex",
+            "session": "018f0000-0000-7000-8000-000000000701"
+        }))
+        .expect("valid UUID v7 session should parse");
+        assert_eq!(key.agent_id, "codex");
+        assert_eq!(key.session_id, "018f0000-0000-7000-8000-000000000701");
+        assert!(
+            terminal_pty_key_from_params(&json!({
+                "agent": "codex",
+                "session_id": "not-a-uuid"
+            }))
+            .is_err()
+        );
+    }
 }

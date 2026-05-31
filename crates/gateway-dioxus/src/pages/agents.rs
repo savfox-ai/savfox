@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use lucide_dioxus::{ArrowLeft, Bot, X};
+use lucide_dioxus::{ArrowLeft, Bot, Terminal, X};
 use serde_json::{Value, json};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -380,6 +380,53 @@ fn terminal_env_value(env: Option<&std::collections::BTreeMap<String, String>>) 
     .unwrap_or_default()
 }
 
+fn terminal_health_message(value: &Value) -> (bool, String) {
+    let command = value
+        .get("command")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let command_name = command
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("terminal");
+    let available = command
+        .get("available")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let version = command.get("version").and_then(Value::as_str).unwrap_or("");
+    let error = command.get("error").and_then(Value::as_str).unwrap_or("");
+    let cwd_ok = value
+        .get("cwd_is_dir")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let root_ok = value
+        .get("terminal_root_writable")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let ok = available && cwd_ok && root_ok;
+
+    let detail = if available {
+        if version.is_empty() {
+            format!("{command_name} is available")
+        } else {
+            format!("{command_name}: {version}")
+        }
+    } else if error.is_empty() {
+        format!("{command_name} is not available")
+    } else {
+        format!("{command_name}: {error}")
+    };
+    let dirs = match (cwd_ok, root_ok) {
+        (true, true) => "paths OK",
+        (false, true) => "cwd unavailable",
+        (true, false) => "terminal root not writable",
+        (false, false) => "cwd unavailable; terminal root not writable",
+    };
+
+    (ok, format!("{detail}; {dirs}"))
+}
+
 fn json_terminal_delegate_fields(
     value: Option<&Value>,
 ) -> (bool, String, String, String, String, String, String, bool) {
@@ -459,6 +506,105 @@ fn json_terminal_delegate_fields(
     )
 }
 
+fn json_terminal_runtime_fields(value: Option<&Value>) -> (String, String, String, String) {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return (
+            "custom".to_string(),
+            "one_shot".to_string(),
+            "per_session".to_string(),
+            "plain_text".to_string(),
+        );
+    };
+
+    (
+        config
+            .get("profile")
+            .and_then(Value::as_str)
+            .unwrap_or("custom")
+            .to_string(),
+        config
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("one_shot")
+            .to_string(),
+        config
+            .get("session_scope")
+            .and_then(Value::as_str)
+            .unwrap_or("per_session")
+            .to_string(),
+        config
+            .get("io_protocol")
+            .and_then(Value::as_str)
+            .unwrap_or("plain_text")
+            .to_string(),
+    )
+}
+
+fn json_terminal_permission_fields(value: Option<&Value>) -> (String, String) {
+    let Some(config) = value.and_then(Value::as_object) else {
+        return ("native_terminal".to_string(), "disabled".to_string());
+    };
+
+    let bridge = config
+        .get("savfox_approval_bridge")
+        .and_then(|value| {
+            value.as_str().map(ToString::to_string).or_else(|| {
+                value.as_bool().map(|enabled| {
+                    if enabled {
+                        "prompt".to_string()
+                    } else {
+                        "disabled".to_string()
+                    }
+                })
+            })
+        })
+        .unwrap_or_else(|| "disabled".to_string());
+    let execution = config
+        .get("terminal_execution")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| {
+            if bridge != "disabled" {
+                "managed_workspace".to_string()
+            } else {
+                "native_terminal".to_string()
+            }
+        });
+
+    (execution, bridge)
+}
+
+fn json_terminal_workspace_fields(value: Option<&Value>) -> (String, String, String) {
+    let workspace = value
+        .and_then(Value::as_object)
+        .and_then(|config| config.get("workspace"))
+        .and_then(Value::as_object);
+
+    let mode = workspace
+        .and_then(|workspace| workspace.get("mode"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("shared")
+        .to_string();
+    let base = workspace
+        .and_then(|workspace| workspace.get("base"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let cleanup_policy = workspace
+        .and_then(|workspace| workspace.get("cleanup_policy"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("per_session")
+        .to_string();
+
+    (mode, base, cleanup_policy)
+}
+
 fn detail_terminal_delegate_fields(
     detail: Option<&AgentTerminalDelegateConfig>,
 ) -> (bool, String, String, String, String, String, String, bool) {
@@ -484,6 +630,42 @@ fn detail_terminal_delegate_fields(
         terminal_env_value(config.env.as_ref()),
         config.timeout_secs.unwrap_or(300).to_string(),
         config.include_system_prompt.unwrap_or(true),
+    )
+}
+
+fn detail_terminal_runtime_fields(
+    detail: Option<&AgentTerminalDelegateConfig>,
+) -> (String, String, String, String) {
+    let Some(config) = detail else {
+        return (
+            "custom".to_string(),
+            "one_shot".to_string(),
+            "per_session".to_string(),
+            "plain_text".to_string(),
+        );
+    };
+
+    (
+        config
+            .profile
+            .as_ref()
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "custom".to_string()),
+        config
+            .mode
+            .as_ref()
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "one_shot".to_string()),
+        config
+            .session_scope
+            .as_ref()
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "per_session".to_string()),
+        config
+            .io_protocol
+            .as_ref()
+            .map(|value| value.as_str().to_string())
+            .unwrap_or_else(|| "plain_text".to_string()),
     )
 }
 
@@ -549,6 +731,73 @@ fn normalize_terminal_env(raw: &str) -> std::collections::BTreeMap<String, Strin
     out
 }
 
+fn terminal_launch_config_summary(
+    command_raw: &str,
+    interactive_command_raw: &str,
+    cwd_raw: &str,
+    env_raw: &str,
+) -> (String, String, String) {
+    let command = interactive_command_raw
+        .trim()
+        .split_whitespace()
+        .next()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            command_raw
+                .trim()
+                .split_whitespace()
+                .next()
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("(not configured)")
+        .to_string();
+    let cwd = cwd_raw.trim();
+    let cwd = if cwd.is_empty() {
+        "Savfox cwd".to_string()
+    } else {
+        cwd.to_string()
+    };
+    let env_count = normalize_terminal_env(env_raw).len();
+    let env = if env_count == 0 {
+        "no env overrides".to_string()
+    } else {
+        format!("{env_count} env override(s)")
+    };
+
+    (command, cwd, env)
+}
+
+fn terminal_launch_result_summary(value: &Value) -> String {
+    let terminal = value
+        .get("terminal")
+        .and_then(Value::as_str)
+        .unwrap_or("terminal");
+    let pid = value
+        .get("pid")
+        .and_then(Value::as_u64)
+        .map(|pid| pid.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let command = value
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let cwd = value
+        .get("cwd")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+
+    let mut summary = format!("terminal: {terminal}; pid: {pid}");
+    if !command.is_empty() {
+        summary.push_str(&format!("; command: {command}"));
+    }
+    if !cwd.is_empty() {
+        summary.push_str(&format!("; cwd: {cwd}"));
+    }
+    summary
+}
+
 fn terminal_delegate_payload(
     enabled: bool,
     command_raw: &str,
@@ -560,6 +809,15 @@ fn terminal_delegate_payload(
     include_system_prompt: bool,
     interactive_command_raw: &str,
     interactive_args_raw: &str,
+    profile_raw: &str,
+    mode_raw: &str,
+    session_scope_raw: &str,
+    io_protocol_raw: &str,
+    terminal_execution_raw: &str,
+    savfox_approval_bridge_raw: &str,
+    workspace_mode_raw: &str,
+    workspace_base_raw: &str,
+    workspace_cleanup_policy_raw: &str,
 ) -> Option<Value> {
     let command = command_raw.trim();
     let args = normalize_terminal_args(args_raw);
@@ -574,6 +832,15 @@ fn terminal_delegate_payload(
         .unwrap_or(300);
     let interactive_command = interactive_command_raw.trim();
     let interactive_args = normalize_terminal_args(interactive_args_raw);
+    let profile = profile_raw.trim();
+    let mode = mode_raw.trim();
+    let session_scope = session_scope_raw.trim();
+    let io_protocol = io_protocol_raw.trim();
+    let terminal_execution = terminal_execution_raw.trim();
+    let savfox_approval_bridge = savfox_approval_bridge_raw.trim();
+    let workspace_mode = workspace_mode_raw.trim();
+    let workspace_base = workspace_base_raw.trim();
+    let workspace_cleanup_policy = workspace_cleanup_policy_raw.trim();
 
     if !enabled
         && command.is_empty()
@@ -585,6 +852,15 @@ fn terminal_delegate_payload(
         && include_system_prompt
         && interactive_command.is_empty()
         && interactive_args.is_empty()
+        && matches!(profile, "" | "custom")
+        && matches!(mode, "" | "one_shot")
+        && matches!(session_scope, "" | "per_session")
+        && matches!(io_protocol, "" | "plain_text")
+        && matches!(terminal_execution, "" | "native_terminal")
+        && matches!(savfox_approval_bridge, "" | "disabled")
+        && matches!(workspace_mode, "" | "shared")
+        && workspace_base.is_empty()
+        && matches!(workspace_cleanup_policy, "" | "per_session")
     {
         return None;
     }
@@ -614,6 +890,43 @@ fn terminal_delegate_payload(
     }
     if !interactive_args.is_empty() {
         payload["interactive_args"] = json!(interactive_args);
+    }
+    if !profile.is_empty() {
+        payload["profile"] = json!(profile);
+    }
+    if !mode.is_empty() {
+        payload["mode"] = json!(mode);
+    }
+    if !session_scope.is_empty() {
+        payload["session_scope"] = json!(session_scope);
+    }
+    if !io_protocol.is_empty() {
+        payload["io_protocol"] = json!(io_protocol);
+    }
+    payload["terminal_execution"] = json!(if terminal_execution.is_empty() {
+        "native_terminal"
+    } else {
+        terminal_execution
+    });
+    payload["savfox_approval_bridge"] = json!(if savfox_approval_bridge.is_empty() {
+        "disabled"
+    } else {
+        savfox_approval_bridge
+    });
+    payload["workspace"] = json!({
+        "mode": if workspace_mode.is_empty() {
+            "shared"
+        } else {
+            workspace_mode
+        },
+        "cleanup_policy": if workspace_cleanup_policy.is_empty() {
+            "per_session"
+        } else {
+            workspace_cleanup_policy
+        },
+    });
+    if !workspace_base.is_empty() {
+        payload["workspace"]["base"] = json!(workspace_base);
     }
 
     Some(payload)
@@ -805,6 +1118,15 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_terminal_env = use_signal(String::new);
     let mut new_terminal_timeout = use_signal(|| "300".to_string());
     let mut new_terminal_include_system_prompt = use_signal(|| true);
+    let mut new_terminal_profile = use_signal(|| "custom".to_string());
+    let mut new_terminal_mode = use_signal(|| "one_shot".to_string());
+    let mut new_terminal_session_scope = use_signal(|| "per_session".to_string());
+    let mut new_terminal_io_protocol = use_signal(|| "plain_text".to_string());
+    let mut new_terminal_execution = use_signal(|| "native_terminal".to_string());
+    let mut new_terminal_approval_bridge = use_signal(|| "disabled".to_string());
+    let mut new_terminal_workspace_mode = use_signal(|| "shared".to_string());
+    let mut new_terminal_workspace_base = use_signal(String::new);
+    let mut new_terminal_workspace_cleanup_policy = use_signal(|| "per_session".to_string());
 
     // Fetch agent list
     let ws_list = ws.clone();
@@ -1016,6 +1338,21 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 terminal_interactive_command,
                                                 terminal_interactive_args,
                                             ) = json_terminal_interactive_fields(parsed.get("terminal_delegate"));
+                                            let (
+                                                terminal_profile,
+                                                terminal_mode,
+                                                terminal_session_scope,
+                                                terminal_io_protocol,
+                                            ) = json_terminal_runtime_fields(parsed.get("terminal_delegate"));
+                                            let (
+                                                terminal_execution,
+                                                terminal_approval_bridge,
+                                            ) = json_terminal_permission_fields(parsed.get("terminal_delegate"));
+                                            let (
+                                                terminal_workspace_mode,
+                                                terminal_workspace_base,
+                                                terminal_workspace_cleanup_policy,
+                                            ) = json_terminal_workspace_fields(parsed.get("terminal_delegate"));
 
                                             let id_slug: String = name.chars()
                                                 .map(|c| if c.is_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
@@ -1068,6 +1405,15 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                     terminal_include_system_prompt,
                                                     &terminal_interactive_command,
                                                     &terminal_interactive_args,
+                                                    &terminal_profile,
+                                                    &terminal_mode,
+                                                    &terminal_session_scope,
+                                                    &terminal_io_protocol,
+                                                    &terminal_execution,
+                                                    &terminal_approval_bridge,
+                                                    &terminal_workspace_mode,
+                                                    &terminal_workspace_base,
+                                                    &terminal_workspace_cleanup_policy,
                                                 ) {
                                                     payload["terminal_delegate"] = terminal_delegate;
                                                 }
@@ -1127,6 +1473,15 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_terminal_env.set(String::new());
                                 new_terminal_timeout.set("300".to_string());
                                 new_terminal_include_system_prompt.set(true);
+                                new_terminal_profile.set("custom".to_string());
+                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_session_scope.set("per_session".to_string());
+                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_execution.set("native_terminal".to_string());
+                                new_terminal_approval_bridge.set("disabled".to_string());
+                                new_terminal_workspace_mode.set("shared".to_string());
+                                new_terminal_workspace_base.set(String::new());
+                                new_terminal_workspace_cleanup_policy.set("per_session".to_string());
                             },
                             class: "{TOOL_BTN} tool-btn--primary",
                             "+ New"
@@ -1207,7 +1562,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                             .and_then(|config| config.command.as_deref())
                                                             .unwrap_or("terminal");
                                                         rsx! {
-                                                            div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "terminal: {command}" }
+                                                            div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "Terminal Agent: {command}" }
                                                         }
                                                     }
                                                 } else if let Some(ref model) = agent.model {
@@ -1259,6 +1614,15 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                         new_terminal_env,
                         new_terminal_timeout,
                         new_terminal_include_system_prompt,
+                        new_terminal_profile,
+                        new_terminal_mode,
+                        new_terminal_session_scope,
+                        new_terminal_io_protocol,
+                        new_terminal_execution,
+                        new_terminal_approval_bridge,
+                        new_terminal_workspace_mode,
+                        new_terminal_workspace_base,
+                        new_terminal_workspace_cleanup_policy,
                     }
                 } else if show_settings() {
                     AgentSettingsPane {
@@ -1346,6 +1710,15 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_terminal_env.set(String::new());
                                     new_terminal_timeout.set("300".to_string());
                                     new_terminal_include_system_prompt.set(true);
+                                    new_terminal_profile.set("custom".to_string());
+                                    new_terminal_mode.set("one_shot".to_string());
+                                    new_terminal_session_scope.set("per_session".to_string());
+                                    new_terminal_io_protocol.set("plain_text".to_string());
+                                    new_terminal_execution.set("native_terminal".to_string());
+                                    new_terminal_approval_bridge.set("disabled".to_string());
+                                    new_terminal_workspace_mode.set("shared".to_string());
+                                    new_terminal_workspace_base.set(String::new());
+                                    new_terminal_workspace_cleanup_policy.set("per_session".to_string());
                                 },
                                 "Create Agent"
                             }
@@ -1389,6 +1762,15 @@ fn AgentCreateForm(
     mut new_terminal_env: Signal<String>,
     mut new_terminal_timeout: Signal<String>,
     mut new_terminal_include_system_prompt: Signal<bool>,
+    mut new_terminal_profile: Signal<String>,
+    mut new_terminal_mode: Signal<String>,
+    mut new_terminal_session_scope: Signal<String>,
+    mut new_terminal_io_protocol: Signal<String>,
+    mut new_terminal_execution: Signal<String>,
+    mut new_terminal_approval_bridge: Signal<String>,
+    mut new_terminal_workspace_mode: Signal<String>,
+    mut new_terminal_workspace_base: Signal<String>,
+    mut new_terminal_workspace_cleanup_policy: Signal<String>,
 ) -> Element {
     let mut toaster = use_context::<Toaster>();
     let ws_connected = use_context::<Signal<bool>>();
@@ -1590,10 +1972,10 @@ fn AgentCreateForm(
                     }
                 }
                 div { class: "{SECTION_CARD}", style: "padding:12px;margin-top:4px;",
-                    h4 { class: "{SECTION_TITLE}", "Execution Backend" }
+                    h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
                     ToggleSwitch {
-                        label: "Delegate to Terminal CLI".to_string(),
-                        description: Some("Run a local CLI command for this agent and return its output.".to_string()),
+                        label: "Use Terminal Agent".to_string(),
+                        description: Some("Run a local CLI as this agent while preserving the CLI's own login, quota, context, and plugins.".to_string()),
                         checked: new_terminal_enabled(),
                         on_toggle: move |value| new_terminal_enabled.set(value),
                     }
@@ -1601,10 +1983,39 @@ fn AgentCreateForm(
                         button {
                             class: "{TOOL_BTN}",
                             onclick: move |_| {
+                                new_terminal_enabled.set(false);
+                                new_terminal_command.set(String::new());
+                                new_terminal_args.set("{{prompt}}".to_string());
+                                new_terminal_stdin.set(String::new());
+                                new_terminal_cwd.set(String::new());
+                                new_terminal_env.set(String::new());
+                                new_terminal_timeout.set("300".to_string());
+                                new_terminal_include_system_prompt.set(true);
+                                new_terminal_profile.set("custom".to_string());
+                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_session_scope.set("per_session".to_string());
+                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_execution.set("native_terminal".to_string());
+                                new_terminal_approval_bridge.set("disabled".to_string());
+                                new_terminal_workspace_mode.set("shared".to_string());
+                                new_terminal_workspace_base.set(String::new());
+                                new_terminal_workspace_cleanup_policy.set("per_session".to_string());
+                            },
+                            "Savfox"
+                        }
+                        button {
+                            class: "{TOOL_BTN}",
+                            onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("claude".to_string());
                                 new_terminal_args.set("-p\n{{prompt}}".to_string());
                                 new_terminal_stdin.set(String::new());
+                                new_terminal_profile.set("claude".to_string());
+                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_session_scope.set("per_session".to_string());
+                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_execution.set("native_terminal".to_string());
+                                new_terminal_approval_bridge.set("disabled".to_string());
                             },
                             "Claude"
                         }
@@ -1615,6 +2026,12 @@ fn AgentCreateForm(
                                 new_terminal_command.set("codex".to_string());
                                 new_terminal_args.set("exec\n{{prompt}}".to_string());
                                 new_terminal_stdin.set(String::new());
+                                new_terminal_profile.set("codex".to_string());
+                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_session_scope.set("per_session".to_string());
+                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_execution.set("native_terminal".to_string());
+                                new_terminal_approval_bridge.set("disabled".to_string());
                             },
                             "Codex"
                         }
@@ -1622,13 +2039,129 @@ fn AgentCreateForm(
                             class: "{TOOL_BTN}",
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
+                                new_terminal_command.set(String::new());
                                 new_terminal_args.set(String::new());
                                 new_terminal_stdin.set("{{prompt}}".to_string());
+                                new_terminal_cwd.set(String::new());
+                                new_terminal_env.set(String::new());
+                                new_terminal_timeout.set("300".to_string());
+                                new_terminal_include_system_prompt.set(true);
+                                new_terminal_profile.set("custom".to_string());
+                                new_terminal_mode.set("one_shot".to_string());
+                                new_terminal_session_scope.set("per_session".to_string());
+                                new_terminal_io_protocol.set("plain_text".to_string());
+                                new_terminal_execution.set("native_terminal".to_string());
+                                new_terminal_approval_bridge.set("disabled".to_string());
+                                new_terminal_workspace_mode.set("shared".to_string());
+                                new_terminal_workspace_base.set(String::new());
+                                new_terminal_workspace_cleanup_policy.set("per_session".to_string());
                             },
-                            "Use stdin"
+                            "Custom CLI"
                         }
                     }
                     div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                        div {
+                            label { class: "{LABEL}", "Profile" }
+                            select {
+                                value: "{new_terminal_profile}",
+                                onchange: move |e| new_terminal_profile.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "custom", "Custom CLI" }
+                                option { value: "codex", "Codex" }
+                                option { value: "claude", "Claude" }
+                                option { value: "jsonl_custom", "JSONL Custom" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Mode" }
+                            select {
+                                value: "{new_terminal_mode}",
+                                onchange: move |e| new_terminal_mode.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "one_shot", "One-shot" }
+                                option { value: "interactive_launch", "Interactive Launch" }
+                                option { value: "managed_pty", "Managed PTY" }
+                                option { value: "jsonl_adapter", "JSONL Adapter" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Session Scope" }
+                            select {
+                                value: "{new_terminal_session_scope}",
+                                onchange: move |e| new_terminal_session_scope.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "per_session", "Per session" }
+                                option { value: "per_turn", "Per turn" }
+                                option { value: "per_agent", "Per agent" }
+                                option { value: "manual", "Manual" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "I/O Protocol" }
+                            select {
+                                value: "{new_terminal_io_protocol}",
+                                onchange: move |e| new_terminal_io_protocol.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "plain_text", "Plain Text" }
+                                option { value: "jsonl", "JSONL" }
+                                option { value: "profile", "Profile Default" }
+                                option { value: "sentinel", "Sentinel" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Terminal Execution" }
+                            select {
+                                value: "{new_terminal_execution}",
+                                onchange: move |e| new_terminal_execution.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "native_terminal", "Native terminal" }
+                                option { value: "managed_workspace", "Managed workspace" }
+                                option { value: "disabled", "Disabled" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Approval Bridge" }
+                            select {
+                                value: "{new_terminal_approval_bridge}",
+                                onchange: move |e| new_terminal_approval_bridge.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "disabled", "Disabled" }
+                                option { value: "prompt", "Prompt" }
+                                option { value: "required", "Required" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Workspace Mode" }
+                            select {
+                                value: "{new_terminal_workspace_mode}",
+                                onchange: move |e| new_terminal_workspace_mode.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "shared", "Shared" }
+                                option { value: "read_only", "Read only" }
+                                option { value: "worktree", "Worktree" }
+                                option { value: "patch_only", "Patch only" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Workspace Cleanup" }
+                            select {
+                                value: "{new_terminal_workspace_cleanup_policy}",
+                                onchange: move |e| new_terminal_workspace_cleanup_policy.set(e.value()),
+                                class: "{INPUT}",
+                                option { value: "per_session", "Per session" }
+                                option { value: "per_turn", "Per turn" }
+                                option { value: "manual", "Manual" }
+                            }
+                        }
+                        div {
+                            label { class: "{LABEL}", "Workspace Base" }
+                            input {
+                                value: "{new_terminal_workspace_base}",
+                                oninput: move |e| new_terminal_workspace_base.set(e.value()),
+                                placeholder: "Use runtime default",
+                                class: "{INPUT}",
+                            }
+                        }
                         div {
                             label { class: "{LABEL}", "Command" }
                             input {
@@ -1656,6 +2189,9 @@ fn AgentCreateForm(
                                 class: "{INPUT}",
                             }
                         }
+                    }
+                    p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
+                        "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
                     }
                     div { style: "margin-top:12px;",
                         label { class: "{LABEL}", "Arguments" }
@@ -1853,6 +2389,16 @@ fn AgentCreateForm(
                             let terminal_timeout = new_terminal_timeout();
                             let terminal_include_system_prompt =
                                 new_terminal_include_system_prompt();
+                            let terminal_profile = new_terminal_profile();
+                            let terminal_mode = new_terminal_mode();
+                            let terminal_session_scope = new_terminal_session_scope();
+                            let terminal_io_protocol = new_terminal_io_protocol();
+                            let terminal_execution = new_terminal_execution();
+                            let terminal_approval_bridge = new_terminal_approval_bridge();
+                            let terminal_workspace_mode = new_terminal_workspace_mode();
+                            let terminal_workspace_base = new_terminal_workspace_base();
+                            let terminal_workspace_cleanup_policy =
+                                new_terminal_workspace_cleanup_policy();
                             if id.is_empty() {
                                 toaster.error("Agent ID is required");
                                 return;
@@ -1921,6 +2467,15 @@ fn AgentCreateForm(
                                     terminal_include_system_prompt,
                                     "",
                                     "",
+                                    &terminal_profile,
+                                    &terminal_mode,
+                                    &terminal_session_scope,
+                                    &terminal_io_protocol,
+                                    &terminal_execution,
+                                    &terminal_approval_bridge,
+                                    &terminal_workspace_mode,
+                                    &terminal_workspace_base,
+                                    &terminal_workspace_cleanup_policy,
                                 ) {
                                     payload["terminal_delegate"] = terminal_delegate;
                                 }
@@ -1951,6 +2506,16 @@ fn AgentCreateForm(
                                         new_terminal_env.set(String::new());
                                         new_terminal_timeout.set("300".to_string());
                                         new_terminal_include_system_prompt.set(true);
+                                        new_terminal_profile.set("custom".to_string());
+                                        new_terminal_mode.set("one_shot".to_string());
+                                        new_terminal_session_scope.set("per_session".to_string());
+                                        new_terminal_io_protocol.set("plain_text".to_string());
+                                        new_terminal_execution.set("native_terminal".to_string());
+                                        new_terminal_approval_bridge.set("disabled".to_string());
+                                        new_terminal_workspace_mode.set("shared".to_string());
+                                        new_terminal_workspace_base.set(String::new());
+                                        new_terminal_workspace_cleanup_policy
+                                            .set("per_session".to_string());
                                         refresh_tick += 1;
                                     }
                                     Err(e) => toaster.error(format!("Create failed: {e}")),
@@ -1980,6 +2545,15 @@ fn AgentCreateForm(
                             new_terminal_env.set(String::new());
                             new_terminal_timeout.set("300".to_string());
                             new_terminal_include_system_prompt.set(true);
+                            new_terminal_profile.set("custom".to_string());
+                            new_terminal_mode.set("one_shot".to_string());
+                            new_terminal_session_scope.set("per_session".to_string());
+                            new_terminal_io_protocol.set("plain_text".to_string());
+                            new_terminal_execution.set("native_terminal".to_string());
+                            new_terminal_approval_bridge.set("disabled".to_string());
+                            new_terminal_workspace_mode.set("shared".to_string());
+                            new_terminal_workspace_base.set(String::new());
+                            new_terminal_workspace_cleanup_policy.set("per_session".to_string());
                         },
                         class: "{TOOL_BTN} tool-btn--lg",
                         "Cancel"
@@ -2190,7 +2764,19 @@ fn AgentOverviewTab(
     let mut form_terminal_include_system_prompt = use_signal(|| true);
     let mut form_terminal_interactive_command = use_signal(String::new);
     let mut form_terminal_interactive_args = use_signal(String::new);
+    let mut form_terminal_profile = use_signal(|| "custom".to_string());
+    let mut form_terminal_mode = use_signal(|| "one_shot".to_string());
+    let mut form_terminal_session_scope = use_signal(|| "per_session".to_string());
+    let mut form_terminal_io_protocol = use_signal(|| "plain_text".to_string());
+    let mut form_terminal_execution = use_signal(|| "native_terminal".to_string());
+    let mut form_terminal_approval_bridge = use_signal(|| "disabled".to_string());
+    let mut form_terminal_workspace_mode = use_signal(|| "shared".to_string());
+    let mut form_terminal_workspace_base = use_signal(String::new);
+    let mut form_terminal_workspace_cleanup_policy = use_signal(|| "per_session".to_string());
     let mut launching_terminal = use_signal(|| false);
+    let mut terminal_launch_result = use_signal(|| Option::<String>::None);
+    let mut checking_terminal_health = use_signal(|| false);
+    let mut terminal_health_result = use_signal(|| Option::<(bool, String)>::None);
 
     let mut form_fallbacks = use_signal(Vec::<String>::new);
     let mut form_matrix_channels: Signal<std::collections::HashSet<String>> =
@@ -2208,16 +2794,26 @@ fn AgentOverviewTab(
         let ws = ws_detail.clone();
         let id = detail_id.clone();
         async move {
-            ws.call::<AgentDetail>("agents.get", Some(json!({ "id": id })))
+            let raw = ws
+                .call::<Value>("agents.get", Some(json!({ "id": id })))
                 .await
-                .ok()
+                .ok()?;
+            let detail = serde_json::from_value::<AgentDetail>(raw.clone()).ok()?;
+            Some((detail, raw))
         }
     });
 
     let detail_snapshot = detail_data
         .read()
         .as_ref()
-        .and_then(|detail| detail.clone());
+        .and_then(|detail| detail.as_ref().map(|(detail, _)| detail.clone()));
+    let detail_raw_snapshot = detail_data
+        .read()
+        .as_ref()
+        .and_then(|detail| detail.as_ref().map(|(_, raw)| raw.clone()));
+    let detail_terminal_delegate_raw = detail_raw_snapshot
+        .as_ref()
+        .and_then(|detail| detail.get("terminal_delegate"));
     if !detail_seeded() {
         if let Some(ref detail) = detail_snapshot {
             let detail_model = detail
@@ -2285,6 +2881,21 @@ fn AgentOverviewTab(
                 detail_terminal_interactive_fields(detail.terminal_delegate.as_ref());
             form_terminal_interactive_command.set(interactive_command);
             form_terminal_interactive_args.set(interactive_args);
+            let (profile, mode, session_scope, io_protocol) =
+                detail_terminal_runtime_fields(detail.terminal_delegate.as_ref());
+            form_terminal_profile.set(profile);
+            form_terminal_mode.set(mode);
+            form_terminal_session_scope.set(session_scope);
+            form_terminal_io_protocol.set(io_protocol);
+            let (terminal_execution, terminal_approval_bridge) =
+                json_terminal_permission_fields(detail_terminal_delegate_raw);
+            form_terminal_execution.set(terminal_execution);
+            form_terminal_approval_bridge.set(terminal_approval_bridge);
+            let (workspace_mode, workspace_base, workspace_cleanup_policy) =
+                json_terminal_workspace_fields(detail_terminal_delegate_raw);
+            form_terminal_workspace_mode.set(workspace_mode);
+            form_terminal_workspace_base.set(workspace_base);
+            form_terminal_workspace_cleanup_policy.set(workspace_cleanup_policy);
             detail_seeded.set(true);
         }
     }
@@ -2460,6 +3071,23 @@ fn AgentOverviewTab(
                     .as_ref()
                     .and_then(|detail| detail.terminal_delegate.as_ref()),
             );
+        let (
+            orig_terminal_profile,
+            orig_terminal_mode,
+            orig_terminal_session_scope,
+            orig_terminal_io_protocol,
+        ) = detail_terminal_runtime_fields(
+            detail_snapshot
+                .as_ref()
+                .and_then(|detail| detail.terminal_delegate.as_ref()),
+        );
+        let (orig_terminal_execution, orig_terminal_approval_bridge) =
+            json_terminal_permission_fields(detail_terminal_delegate_raw);
+        let (
+            orig_terminal_workspace_mode,
+            orig_terminal_workspace_base,
+            orig_terminal_workspace_cleanup_policy,
+        ) = json_terminal_workspace_fields(detail_terminal_delegate_raw);
         let orig_matrix_channels: std::collections::HashSet<String> = detail_snapshot
             .as_ref()
             .and_then(|detail| detail.matrix_auto_user_channels.as_ref())
@@ -2489,9 +3117,25 @@ fn AgentOverviewTab(
             || form_terminal_include_system_prompt() != orig_terminal_include_system_prompt
             || form_terminal_interactive_command() != orig_terminal_interactive_command
             || form_terminal_interactive_args() != orig_terminal_interactive_args
+            || form_terminal_profile() != orig_terminal_profile
+            || form_terminal_mode() != orig_terminal_mode
+            || form_terminal_session_scope() != orig_terminal_session_scope
+            || form_terminal_io_protocol() != orig_terminal_io_protocol
+            || form_terminal_execution() != orig_terminal_execution
+            || form_terminal_approval_bridge() != orig_terminal_approval_bridge
+            || form_terminal_workspace_mode() != orig_terminal_workspace_mode
+            || form_terminal_workspace_base() != orig_terminal_workspace_base
+            || form_terminal_workspace_cleanup_policy() != orig_terminal_workspace_cleanup_policy
             || *form_fallbacks.read() != orig_fallbacks
             || *form_matrix_channels.read() != orig_matrix_channels
     };
+    let (launch_summary_command, launch_summary_cwd, launch_summary_env) =
+        terminal_launch_config_summary(
+            &form_terminal_command(),
+            &form_terminal_interactive_command(),
+            &form_terminal_cwd(),
+            &form_terminal_env(),
+        );
 
     let entry_id = agent_id.clone();
     let ws_save = ws.clone();
@@ -2500,6 +3144,7 @@ fn AgentOverviewTab(
     let ws_clone = ws.clone();
     let clone_entry = entry.clone();
     let clone_detail = detail_snapshot.clone();
+    let clone_detail_raw = detail_raw_snapshot.clone();
     let clone_agents = agents.clone();
 
     rsx! {
@@ -2516,11 +3161,13 @@ fn AgentOverviewTab(
                                 let ws = ws_clone.clone();
                                 let entry = clone_entry.clone();
                                 let detail = clone_detail.clone();
+                                let detail_raw = clone_detail_raw.clone();
                                 let agents = clone_agents.clone();
                                 move |_| {
                                     let ws = ws.clone();
                                     let entry = entry.clone();
                                     let detail = detail.clone();
+                                    let detail_raw = detail_raw.clone();
                                     let agents = agents.clone();
                                     spawn(async move {
                                         // Generate a unique clone name
@@ -2584,8 +3231,17 @@ fn AgentOverviewTab(
                                             if let Some(ref idle_reply) = detail.idle_reply {
                                                 payload["idle_reply"] = json!(idle_reply);
                                             }
-                                            if let Some(ref terminal_delegate) = detail.terminal_delegate {
-                                                payload["terminal_delegate"] = json!(terminal_delegate);
+                                            if let Some(terminal_delegate) = detail_raw
+                                                .as_ref()
+                                                .and_then(|detail| detail.get("terminal_delegate"))
+                                            {
+                                                payload["terminal_delegate"] =
+                                                    terminal_delegate.clone();
+                                            } else if let Some(ref terminal_delegate) =
+                                                detail.terminal_delegate
+                                            {
+                                                payload["terminal_delegate"] =
+                                                    json!(terminal_delegate);
                                             }
                                         }
 
@@ -2611,6 +3267,7 @@ fn AgentOverviewTab(
                         onclick: {
                             let export_entry = entry.clone();
                             let export_detail = detail_snapshot.clone();
+                            let export_detail_raw = detail_raw_snapshot.clone();
                             move |_| {
                                 let mut export_data = json!({
                                     "name": export_entry.name,
@@ -2652,7 +3309,14 @@ fn AgentOverviewTab(
                                     if let Some(ref idle_reply) = detail.idle_reply {
                                         export_data["idle_reply"] = json!(idle_reply);
                                     }
-                                    if let Some(ref terminal_delegate) = detail.terminal_delegate {
+                                    if let Some(terminal_delegate) = export_detail_raw
+                                        .as_ref()
+                                        .and_then(|detail| detail.get("terminal_delegate"))
+                                    {
+                                        export_data["terminal_delegate"] = terminal_delegate.clone();
+                                    } else if let Some(ref terminal_delegate) =
+                                        detail.terminal_delegate
+                                    {
                                         export_data["terminal_delegate"] = json!(terminal_delegate);
                                     }
                                     if let Some(ref pp) = detail.permission_policy {
@@ -2771,14 +3435,39 @@ fn AgentOverviewTab(
             }
 
             div { class: "{SECTION_CARD}",
-                h4 { class: "{SECTION_TITLE}", "Execution Backend" }
+                h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
                 ToggleSwitch {
-                    label: "Delegate to Terminal CLI".to_string(),
-                    description: Some("Run a local CLI command for this agent and return its output instead of using the native model loop.".to_string()),
+                    label: "Use Terminal Agent".to_string(),
+                    description: Some("Run a local CLI as this agent while preserving the CLI's own login, quota, context, and plugins.".to_string()),
                     checked: form_terminal_enabled(),
                     on_toggle: move |value| form_terminal_enabled.set(value),
                 }
                 div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
+                    button {
+                        class: "{TOOL_BTN}",
+                        onclick: move |_| {
+                            form_terminal_enabled.set(false);
+                            form_terminal_command.set(String::new());
+                            form_terminal_args.set("{{prompt}}".to_string());
+                            form_terminal_stdin.set(String::new());
+                            form_terminal_cwd.set(String::new());
+                            form_terminal_env.set(String::new());
+                            form_terminal_timeout.set("300".to_string());
+                            form_terminal_include_system_prompt.set(true);
+                            form_terminal_interactive_command.set(String::new());
+                            form_terminal_interactive_args.set(String::new());
+                            form_terminal_profile.set("custom".to_string());
+                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_session_scope.set("per_session".to_string());
+                            form_terminal_io_protocol.set("plain_text".to_string());
+                            form_terminal_execution.set("native_terminal".to_string());
+                            form_terminal_approval_bridge.set("disabled".to_string());
+                            form_terminal_workspace_mode.set("shared".to_string());
+                            form_terminal_workspace_base.set(String::new());
+                            form_terminal_workspace_cleanup_policy.set("per_session".to_string());
+                        },
+                        "Savfox"
+                    }
                     button {
                         class: "{TOOL_BTN}",
                         onclick: move |_| {
@@ -2788,6 +3477,12 @@ fn AgentOverviewTab(
                             form_terminal_stdin.set(String::new());
                             form_terminal_interactive_command.set("claude".to_string());
                             form_terminal_interactive_args.set(String::new());
+                            form_terminal_profile.set("claude".to_string());
+                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_session_scope.set("per_session".to_string());
+                            form_terminal_io_protocol.set("plain_text".to_string());
+                            form_terminal_execution.set("native_terminal".to_string());
+                            form_terminal_approval_bridge.set("disabled".to_string());
                         },
                         "Claude"
                     }
@@ -2800,6 +3495,12 @@ fn AgentOverviewTab(
                             form_terminal_stdin.set(String::new());
                             form_terminal_interactive_command.set("codex".to_string());
                             form_terminal_interactive_args.set(String::new());
+                            form_terminal_profile.set("codex".to_string());
+                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_session_scope.set("per_session".to_string());
+                            form_terminal_io_protocol.set("plain_text".to_string());
+                            form_terminal_execution.set("native_terminal".to_string());
+                            form_terminal_approval_bridge.set("disabled".to_string());
                         },
                         "Codex"
                     }
@@ -2807,13 +3508,131 @@ fn AgentOverviewTab(
                         class: "{TOOL_BTN}",
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
+                            form_terminal_command.set(String::new());
                             form_terminal_args.set(String::new());
                             form_terminal_stdin.set("{{prompt}}".to_string());
+                            form_terminal_cwd.set(String::new());
+                            form_terminal_env.set(String::new());
+                            form_terminal_timeout.set("300".to_string());
+                            form_terminal_include_system_prompt.set(true);
+                            form_terminal_interactive_command.set(String::new());
+                            form_terminal_interactive_args.set(String::new());
+                            form_terminal_profile.set("custom".to_string());
+                            form_terminal_mode.set("one_shot".to_string());
+                            form_terminal_session_scope.set("per_session".to_string());
+                            form_terminal_io_protocol.set("plain_text".to_string());
+                            form_terminal_execution.set("native_terminal".to_string());
+                            form_terminal_approval_bridge.set("disabled".to_string());
+                            form_terminal_workspace_mode.set("shared".to_string());
+                            form_terminal_workspace_base.set(String::new());
+                            form_terminal_workspace_cleanup_policy.set("per_session".to_string());
                         },
-                        "Use stdin"
+                        "Custom CLI"
                     }
                 }
                 div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
+                    div {
+                        label { class: "{LABEL}", "Profile" }
+                        select {
+                            value: "{form_terminal_profile}",
+                            onchange: move |e| form_terminal_profile.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "custom", "Custom CLI" }
+                            option { value: "codex", "Codex" }
+                            option { value: "claude", "Claude" }
+                            option { value: "jsonl_custom", "JSONL Custom" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Mode" }
+                        select {
+                            value: "{form_terminal_mode}",
+                            onchange: move |e| form_terminal_mode.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "one_shot", "One-shot" }
+                            option { value: "interactive_launch", "Interactive Launch" }
+                            option { value: "managed_pty", "Managed PTY" }
+                            option { value: "jsonl_adapter", "JSONL Adapter" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Session Scope" }
+                        select {
+                            value: "{form_terminal_session_scope}",
+                            onchange: move |e| form_terminal_session_scope.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "per_session", "Per session" }
+                            option { value: "per_turn", "Per turn" }
+                            option { value: "per_agent", "Per agent" }
+                            option { value: "manual", "Manual" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "I/O Protocol" }
+                        select {
+                            value: "{form_terminal_io_protocol}",
+                            onchange: move |e| form_terminal_io_protocol.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "plain_text", "Plain Text" }
+                            option { value: "jsonl", "JSONL" }
+                            option { value: "profile", "Profile Default" }
+                            option { value: "sentinel", "Sentinel" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Terminal Execution" }
+                        select {
+                            value: "{form_terminal_execution}",
+                            onchange: move |e| form_terminal_execution.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "native_terminal", "Native terminal" }
+                            option { value: "managed_workspace", "Managed workspace" }
+                            option { value: "disabled", "Disabled" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Approval Bridge" }
+                        select {
+                            value: "{form_terminal_approval_bridge}",
+                            onchange: move |e| form_terminal_approval_bridge.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "disabled", "Disabled" }
+                            option { value: "prompt", "Prompt" }
+                            option { value: "required", "Required" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Workspace Mode" }
+                        select {
+                            value: "{form_terminal_workspace_mode}",
+                            onchange: move |e| form_terminal_workspace_mode.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "shared", "Shared" }
+                            option { value: "read_only", "Read only" }
+                            option { value: "worktree", "Worktree" }
+                            option { value: "patch_only", "Patch only" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Workspace Cleanup" }
+                        select {
+                            value: "{form_terminal_workspace_cleanup_policy}",
+                            onchange: move |e| form_terminal_workspace_cleanup_policy.set(e.value()),
+                            class: "{INPUT}",
+                            option { value: "per_session", "Per session" }
+                            option { value: "per_turn", "Per turn" }
+                            option { value: "manual", "Manual" }
+                        }
+                    }
+                    div {
+                        label { class: "{LABEL}", "Workspace Base" }
+                        input {
+                            value: "{form_terminal_workspace_base}",
+                            oninput: move |e| form_terminal_workspace_base.set(e.value()),
+                            placeholder: "Use runtime default",
+                            class: "{INPUT}",
+                        }
+                    }
                     div {
                         label { class: "{LABEL}", "Command" }
                         input {
@@ -2841,6 +3660,9 @@ fn AgentOverviewTab(
                             class: "{INPUT}",
                         }
                     }
+                }
+                p { style: "font-size:12px;color:var(--danger);margin:12px 0 0 0;line-height:1.5;",
+                    "Native terminal delegates run the vendor CLI directly. Vendor approval prompts, file writes, and network access are not intercepted step by step by Savfox."
                 }
                 div { style: "margin-top:12px;",
                     label { class: "{LABEL}", "Arguments" }
@@ -2899,7 +3721,62 @@ fn AgentOverviewTab(
                         code { "claude" }
                         ", or any CLI that needs your keyboard."
                     }
+                    div {
+                        style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-bottom:12px;",
+                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Command" }
+                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_command}" }
+                        }
+                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "CWD" }
+                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_cwd}" }
+                        }
+                        div { style: "padding:8px 10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);",
+                            div { style: "font-size:11px;color:var(--text-muted);margin-bottom:2px;", "Env" }
+                            div { style: "font-family:var(--font-mono);font-size:12px;color:var(--text-primary);word-break:break-word;", "{launch_summary_env}" }
+                        }
+                    }
                     div { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;",
+                        button {
+                            class: "{TOOL_BTN}",
+                            disabled: checking_terminal_health(),
+                            onclick: {
+                                let ws = ws.clone();
+                                let agent_id = agent_id.clone();
+                                move |_| {
+                                    let ws = ws.clone();
+                                    let agent_id = agent_id.clone();
+                                    checking_terminal_health.set(true);
+                                    terminal_health_result.set(None);
+                                    spawn(async move {
+                                        let res = ws
+                                            .call::<serde_json::Value>(
+                                                "agent.terminal.health",
+                                                Some(json!({ "agent": agent_id })),
+                                            )
+                                            .await;
+                                        checking_terminal_health.set(false);
+                                        match res {
+                                            Ok(value) => {
+                                                let summary = terminal_health_message(&value);
+                                                if summary.0 {
+                                                    toaster.success(summary.1.clone());
+                                                } else {
+                                                    toaster.error(summary.1.clone());
+                                                }
+                                                terminal_health_result.set(Some(summary));
+                                            }
+                                            Err(err) => {
+                                                let msg = format!("Health check failed: {err}");
+                                                toaster.error(msg.clone());
+                                                terminal_health_result.set(Some((false, msg)));
+                                            }
+                                        }
+                                    });
+                                }
+                            },
+                            if checking_terminal_health() { "Checking..." } else { "Health Check" }
+                        }
                         button {
                             class: "{TOOL_BTN}",
                             disabled: launching_terminal(),
@@ -2920,26 +3797,37 @@ fn AgentOverviewTab(
                                         launching_terminal.set(false);
                                         match res {
                                             Ok(value) => {
-                                                let terminal = value
-                                                    .get("terminal")
-                                                    .and_then(|v| v.as_str())
-                                                    .unwrap_or("terminal");
-                                                toaster.success(format!(
-                                                    "Launched in {terminal}"
-                                                ));
+                                                let summary = terminal_launch_result_summary(&value);
+                                                toaster.success(format!("Launched: {summary}"));
+                                                terminal_launch_result.set(Some(summary));
                                             }
                                             Err(err) => {
-                                                toaster.error(format!("Launch failed: {err}"));
+                                                let msg = format!("Launch failed: {err}");
+                                                terminal_launch_result.set(Some(msg.clone()));
+                                                toaster.error(msg);
                                             }
                                         }
                                     });
                                 }
                             },
-                            if launching_terminal() { "Launching…" } else { "🖥 Launch Terminal" }
+                            Terminal { size: 14 }
+                            if launching_terminal() { "Launching…" } else { "Launch Terminal" }
                         }
                         span {
                             style: "font-size:11px;color:var(--text-muted);",
                             "Save the agent first to apply config changes."
+                        }
+                    }
+                    if let Some((ok, ref message)) = terminal_health_result() {
+                        div {
+                            style: if ok { "font-size:12px;color:var(--success);margin-bottom:12px;" } else { "font-size:12px;color:var(--danger);margin-bottom:12px;" },
+                            "{message}"
+                        }
+                    }
+                    if let Some(ref message) = terminal_launch_result() {
+                        div {
+                            style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;",
+                            "{message}"
                         }
                     }
                     div { style: "display:grid;grid-template-columns:1fr;gap:12px;",
@@ -3294,6 +4182,16 @@ fn AgentOverviewTab(
                                 form_terminal_interactive_command();
                             let terminal_interactive_args_val =
                                 form_terminal_interactive_args();
+                            let terminal_profile_val = form_terminal_profile();
+                            let terminal_mode_val = form_terminal_mode();
+                            let terminal_session_scope_val = form_terminal_session_scope();
+                            let terminal_io_protocol_val = form_terminal_io_protocol();
+                            let terminal_execution_val = form_terminal_execution();
+                            let terminal_approval_bridge_val = form_terminal_approval_bridge();
+                            let terminal_workspace_mode_val = form_terminal_workspace_mode();
+                            let terminal_workspace_base_val = form_terminal_workspace_base();
+                            let terminal_workspace_cleanup_policy_val =
+                                form_terminal_workspace_cleanup_policy();
                             let fallback_list: Vec<String> = form_fallbacks()
                                 .iter()
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
@@ -3375,6 +4273,15 @@ fn AgentOverviewTab(
                                         terminal_include_system_prompt_val,
                                         &terminal_interactive_command_val,
                                         &terminal_interactive_args_val,
+                                        &terminal_profile_val,
+                                        &terminal_mode_val,
+                                        &terminal_session_scope_val,
+                                        &terminal_io_protocol_val,
+                                        &terminal_execution_val,
+                                        &terminal_approval_bridge_val,
+                                        &terminal_workspace_mode_val,
+                                        &terminal_workspace_base_val,
+                                        &terminal_workspace_cleanup_policy_val,
                                     ) {
                                     terminal_delegate
                                 } else {
@@ -4506,8 +5413,12 @@ const TD: &str = "td-cell";
 
 #[cfg(test)]
 mod tests {
-    use super::{model_option_label, model_select_value};
+    use super::{
+        json_terminal_permission_fields, json_terminal_workspace_fields, model_option_label,
+        model_select_value, terminal_delegate_payload,
+    };
     use crate::api::types::AvailableModel;
+    use serde_json::json;
 
     fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> AvailableModel {
         AvailableModel {
@@ -4559,6 +5470,104 @@ mod tests {
         assert_eq!(
             model_option_label(&test_model("openai/gpt-5", None, None)),
             "openai/gpt-5"
+        );
+    }
+
+    #[test]
+    fn terminal_delegate_payload_preserves_runtime_permission_and_workspace_fields() {
+        let payload = terminal_delegate_payload(
+            true,
+            "codex",
+            "exec\n{{prompt}}",
+            "",
+            "D:/repo",
+            "FOO=bar\nBAZ = qux\nmalformed",
+            "2",
+            true,
+            "codex",
+            "resume\n--last",
+            "codex",
+            "managed_pty",
+            "per_session",
+            "sentinel",
+            "managed_workspace",
+            "required",
+            "worktree",
+            "D:/base",
+            "delete_on_success",
+        )
+        .expect("enabled delegate should produce payload");
+
+        assert_eq!(payload["enabled"], json!(true));
+        assert_eq!(payload["command"], json!("codex"));
+        assert_eq!(payload["args"], json!(["exec", "{{prompt}}"]));
+        assert_eq!(payload["cwd"], json!("D:/repo"));
+        assert_eq!(payload["env"], json!({"BAZ": "qux", "FOO": "bar"}));
+        assert_eq!(payload["timeout_secs"], json!(300));
+        assert_eq!(payload["interactive_command"], json!("codex"));
+        assert_eq!(payload["interactive_args"], json!(["resume", "--last"]));
+        assert_eq!(payload["profile"], json!("codex"));
+        assert_eq!(payload["mode"], json!("managed_pty"));
+        assert_eq!(payload["session_scope"], json!("per_session"));
+        assert_eq!(payload["io_protocol"], json!("sentinel"));
+        assert_eq!(payload["terminal_execution"], json!("managed_workspace"));
+        assert_eq!(payload["savfox_approval_bridge"], json!("required"));
+        assert_eq!(
+            payload["workspace"],
+            json!({
+                "mode": "worktree",
+                "base": "D:/base",
+                "cleanup_policy": "delete_on_success"
+            })
+        );
+    }
+
+    #[test]
+    fn terminal_permission_fields_accept_legacy_bridge_booleans() {
+        assert_eq!(
+            json_terminal_permission_fields(Some(&json!({
+                "savfox_approval_bridge": true
+            }))),
+            ("managed_workspace".to_string(), "prompt".to_string())
+        );
+        assert_eq!(
+            json_terminal_permission_fields(Some(&json!({
+                "savfox_approval_bridge": false
+            }))),
+            ("native_terminal".to_string(), "disabled".to_string())
+        );
+        assert_eq!(
+            json_terminal_permission_fields(Some(&json!({
+                "terminal_execution": "native_terminal",
+                "savfox_approval_bridge": "required"
+            }))),
+            ("native_terminal".to_string(), "required".to_string())
+        );
+    }
+
+    #[test]
+    fn terminal_workspace_fields_default_to_shared_per_session() {
+        assert_eq!(
+            json_terminal_workspace_fields(Some(&json!({}))),
+            (
+                "shared".to_string(),
+                String::new(),
+                "per_session".to_string()
+            )
+        );
+        assert_eq!(
+            json_terminal_workspace_fields(Some(&json!({
+                "workspace": {
+                    "mode": "patch_only",
+                    "base": "D:/repo",
+                    "cleanup_policy": "manual"
+                }
+            }))),
+            (
+                "patch_only".to_string(),
+                "D:/repo".to_string(),
+                "manual".to_string()
+            )
         );
     }
 }

@@ -18,6 +18,12 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use crate::agent_terminal_delegate::resolve_agent_config;
+use crate::terminal_agent::{
+    TerminalCommandResolver, TerminalCommandTemplate, TerminalTemplateValues,
+};
+
+const INTERACTIVE_LAUNCH_TIMEOUT_SECS: u64 = 300;
+const INTERACTIVE_LAUNCH_MIN_TIMEOUT_SECS: u64 = 5;
 
 /// Result of a successful interactive launch.
 #[derive(Debug, Clone)]
@@ -72,24 +78,6 @@ pub(crate) fn resolve_launch(
     let spec: LaunchSpec = serde_json::from_value(delegate_value.clone())
         .context("invalid terminal_delegate configuration")?;
 
-    let program = spec
-        .interactive_command
-        .as_deref()
-        .or(spec.command.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            anyhow!(
-                "agent `terminal_delegate` is missing a `command` (and `interactive_command`) — nothing to launch"
-            )
-        })?
-        .to_owned();
-
-    let args = spec
-        .interactive_args
-        .map(|args| args.into_iter().filter(|arg| !arg.is_empty()).collect())
-        .unwrap_or_default();
-
     let agent_id = raw
         .get("id")
         .and_then(|value| value.as_str())
@@ -105,27 +93,46 @@ pub(crate) fn resolve_launch(
         .unwrap_or(agent_id.as_str())
         .to_owned();
 
-    let cwd = match spec.cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(raw_cwd) => {
-            let p = PathBuf::from(raw_cwd);
-            if p.is_absolute() { p } else { base_cwd.join(p) }
-        }
-        None => base_cwd.to_path_buf(),
+    let command = spec
+        .interactive_command
+        .as_deref()
+        .or(spec.command.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            anyhow!(
+                "agent `terminal_delegate` is missing a `command` (and `interactive_command`) — nothing to launch"
+            )
+        })?
+        .to_owned();
+    let values = TerminalTemplateValues {
+        agent_id: agent_id.clone(),
+        agent_name: agent_name.clone(),
+        ..Default::default()
     };
-
-    let env = spec
-        .env
-        .into_iter()
-        .filter(|(k, _)| !k.trim().is_empty())
-        .collect();
+    let resolved = TerminalCommandResolver::new(base_cwd).resolve(
+        TerminalCommandTemplate {
+            command,
+            args: spec.interactive_args.unwrap_or_default(),
+            stdin: None,
+            cwd: spec.cwd,
+            env: spec.env,
+            timeout_secs: None,
+            default_args_to_prompt: false,
+            default_timeout_secs: INTERACTIVE_LAUNCH_TIMEOUT_SECS,
+            min_timeout_secs: INTERACTIVE_LAUNCH_MIN_TIMEOUT_SECS,
+            max_output_bytes: 0,
+        },
+        &values,
+    )?;
 
     Ok(ResolvedLaunch {
         agent_id,
         agent_name,
-        program,
-        args,
-        cwd,
-        env,
+        program: resolved.spec.program,
+        args: resolved.spec.args,
+        cwd: resolved.spec.cwd,
+        env: resolved.spec.env,
     })
 }
 
@@ -560,6 +567,31 @@ mod tests {
         });
         let resolved = resolve_launch(&cwd, "x".to_owned(), raw).expect("resolve");
         assert_eq!(resolved.cwd, PathBuf::from("/work").join("sub/dir"));
+    }
+
+    #[test]
+    fn resolve_launch_renders_shared_terminal_templates() {
+        let cwd = PathBuf::from("/work");
+        let raw = json!({
+            "id": "x",
+            "name": "X Agent",
+            "terminal_delegate": {
+                "command": "x",
+                "interactive_args": ["--agent", "{{agent_id}}"],
+                "cwd": "sessions/{{agent_id}}",
+                "env": {
+                    "AGENT_NAME": "{{agent_name}}",
+                    "EMPTY_KEY_IGNORED": "kept"
+                }
+            }
+        });
+        let resolved = resolve_launch(&cwd, "x".to_owned(), raw).expect("resolve");
+        assert_eq!(resolved.args, vec!["--agent", "x"]);
+        assert_eq!(resolved.cwd, PathBuf::from("/work").join("sessions/x"));
+        assert_eq!(
+            resolved.env.get("AGENT_NAME").map(String::as_str),
+            Some("X Agent")
+        );
     }
 
     #[cfg(target_os = "windows")]

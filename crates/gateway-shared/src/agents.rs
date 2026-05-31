@@ -10,6 +10,114 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+macro_rules! terminal_string_enum {
+    ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+            Other(String),
+        }
+
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $(Self::$variant => $value,)+
+                    Self::Other(value) => value.as_str(),
+                }
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = String::deserialize(deserializer)?;
+                Ok(match value.as_str() {
+                    $($value => Self::$variant,)+
+                    _ => Self::Other(value),
+                })
+            }
+        }
+    };
+}
+
+terminal_string_enum!(TerminalProfile {
+    Codex => "codex",
+    Claude => "claude",
+    Custom => "custom",
+    JsonlCustom => "jsonl_custom",
+});
+
+terminal_string_enum!(TerminalMode {
+    OneShot => "one_shot",
+    ManagedPty => "managed_pty",
+    InteractiveLaunch => "interactive_launch",
+    JsonlAdapter => "jsonl_adapter",
+});
+
+terminal_string_enum!(TerminalSessionScope {
+    PerTurn => "per_turn",
+    PerSession => "per_session",
+    PerAgent => "per_agent",
+    Manual => "manual",
+});
+
+terminal_string_enum!(TerminalIoProtocol {
+    PlainText => "plain_text",
+    Jsonl => "jsonl",
+    Profile => "profile",
+    Sentinel => "sentinel",
+});
+
+terminal_string_enum!(TerminalExecution {
+    NativeTerminal => "native_terminal",
+    ManagedWorkspace => "managed_workspace",
+    Disabled => "disabled",
+});
+
+terminal_string_enum!(SavfoxApprovalBridge {
+    Disabled => "disabled",
+    Prompt => "prompt",
+    Required => "required",
+});
+
+terminal_string_enum!(TerminalWorkspaceMode {
+    Shared => "shared",
+    ReadOnly => "read_only",
+    Worktree => "worktree",
+    PatchOnly => "patch_only",
+});
+
+terminal_string_enum!(TerminalWorkspaceCleanupPolicy {
+    PerTurn => "per_turn",
+    PerSession => "per_session",
+    Manual => "manual",
+});
+
+/// Declarative workspace policy for terminal agents. The runtime preserves
+/// unknown string values so newer clients can safely round-trip future modes.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct AgentTerminalWorkspaceConfig {
+    /// Workspace mode. Expected values include `shared`, `read_only`,
+    /// `worktree`, and `patch_only`.
+    pub mode: Option<TerminalWorkspaceMode>,
+    /// Optional base path or template for workspace creation / resolution.
+    pub base: Option<String>,
+    /// Cleanup lifecycle. Expected values include `per_turn`, `per_session`,
+    /// and `manual`.
+    pub cleanup_policy: Option<TerminalWorkspaceCleanupPolicy>,
+}
+
 /// Optional model selection block on an [`AgentEntry`] — `primary` is the
 /// model used when the agent is invoked, `fallbacks` are tried in order
 /// when the primary is unavailable (e.g. provider 5xx, rate limit).
@@ -53,6 +161,33 @@ pub struct AgentIdleReplyConfig {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,
+    /// Terminal agent profile. Expected values include `codex`, `claude`,
+    /// `custom`, and `jsonl_custom`, but clients should preserve unknown
+    /// strings for forward compatibility.
+    pub profile: Option<TerminalProfile>,
+    /// Runtime mode. Expected values include `one_shot`, `managed_pty`,
+    /// `interactive_launch`, and `jsonl_adapter`.
+    pub mode: Option<TerminalMode>,
+    /// Session scoping strategy. Expected values include `per_turn`,
+    /// `per_session`, `per_agent`, and `manual`.
+    pub session_scope: Option<TerminalSessionScope>,
+    /// How terminal output should be interpreted. Expected values include
+    /// `plain_text`, `jsonl`, `profile`, and `sentinel`.
+    pub io_protocol: Option<TerminalIoProtocol>,
+    /// Optional command used only by `agent.terminal.health`. When unset,
+    /// health checks use `command` plus the profile default version args.
+    pub health_check_command: Option<String>,
+    /// Optional arguments used only by `agent.terminal.health`. When unset,
+    /// health checks use the profile default version args.
+    pub health_check_args: Option<Vec<String>>,
+    /// Permission boundary declaration for the terminal command. Expected
+    /// values include `native_terminal`, `managed_workspace`, and `disabled`.
+    pub terminal_execution: Option<TerminalExecution>,
+    /// Whether Savfox should bridge vendor CLI approvals. Expected values
+    /// include `disabled`, `prompt`, and `required`.
+    pub savfox_approval_bridge: Option<SavfoxApprovalBridge>,
+    /// Declarative workspace policy for the terminal runtime.
+    pub workspace: Option<AgentTerminalWorkspaceConfig>,
     pub command: Option<String>,
     pub args: Option<Vec<String>>,
     pub stdin: Option<String>,
@@ -153,4 +288,152 @@ pub struct AgentDetail {
     /// List of Matrix appservice channel config IDs for which to auto-create
     /// a virtual user for this agent.
     pub matrix_auto_user_channels: Option<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        AgentTerminalDelegateConfig, SavfoxApprovalBridge, TerminalExecution, TerminalIoProtocol,
+        TerminalMode, TerminalProfile, TerminalSessionScope, TerminalWorkspaceCleanupPolicy,
+        TerminalWorkspaceMode,
+    };
+
+    #[test]
+    fn terminal_delegate_old_config_deserializes_without_v2_fields() {
+        let parsed: AgentTerminalDelegateConfig = serde_json::from_value(json!({
+            "enabled": true,
+            "command": "codex",
+            "args": ["{{prompt}}"]
+        }))
+        .expect("old terminal delegate config should deserialize");
+
+        assert_eq!(parsed.enabled, Some(true));
+        assert_eq!(parsed.command.as_deref(), Some("codex"));
+        assert_eq!(parsed.profile, None);
+        assert_eq!(parsed.mode, None);
+        assert_eq!(parsed.session_scope, None);
+        assert_eq!(parsed.io_protocol, None);
+        assert_eq!(parsed.terminal_execution, None);
+        assert_eq!(parsed.savfox_approval_bridge, None);
+        assert_eq!(parsed.workspace, None);
+    }
+
+    #[test]
+    fn terminal_delegate_v2_fields_round_trip() {
+        let parsed: AgentTerminalDelegateConfig = serde_json::from_value(json!({
+            "enabled": true,
+            "profile": "claude",
+            "mode": "one_shot",
+            "session_scope": "per_session",
+            "io_protocol": "plain_text",
+            "terminal_execution": "native_terminal",
+            "savfox_approval_bridge": "disabled",
+            "workspace": {
+                "mode": "worktree",
+                "base": "{{workspace_dir}}",
+                "cleanup_policy": "per_session"
+            },
+            "command": "claude"
+        }))
+        .expect("v2 terminal delegate config should deserialize");
+
+        assert_eq!(parsed.profile, Some(TerminalProfile::Claude));
+        assert_eq!(parsed.mode, Some(TerminalMode::OneShot));
+        assert_eq!(parsed.session_scope, Some(TerminalSessionScope::PerSession));
+        assert_eq!(parsed.io_protocol, Some(TerminalIoProtocol::PlainText));
+        assert_eq!(
+            parsed.terminal_execution,
+            Some(TerminalExecution::NativeTerminal)
+        );
+        assert_eq!(
+            parsed.savfox_approval_bridge,
+            Some(SavfoxApprovalBridge::Disabled)
+        );
+        let workspace = parsed.workspace.as_ref().expect("workspace config");
+        assert_eq!(workspace.mode, Some(TerminalWorkspaceMode::Worktree));
+        assert_eq!(workspace.base.as_deref(), Some("{{workspace_dir}}"));
+        assert_eq!(
+            workspace.cleanup_policy,
+            Some(TerminalWorkspaceCleanupPolicy::PerSession)
+        );
+
+        let serialized = serde_json::to_value(&parsed).expect("serialize terminal config");
+        assert_eq!(serialized["profile"], "claude");
+        assert_eq!(serialized["mode"], "one_shot");
+        assert_eq!(serialized["session_scope"], "per_session");
+        assert_eq!(serialized["io_protocol"], "plain_text");
+        assert_eq!(serialized["terminal_execution"], "native_terminal");
+        assert_eq!(serialized["savfox_approval_bridge"], "disabled");
+        assert_eq!(serialized["workspace"]["mode"], "worktree");
+        assert_eq!(serialized["workspace"]["base"], "{{workspace_dir}}");
+        assert_eq!(serialized["workspace"]["cleanup_policy"], "per_session");
+    }
+
+    #[test]
+    fn terminal_delegate_unknown_v2_values_are_preserved() {
+        let parsed: AgentTerminalDelegateConfig = serde_json::from_value(json!({
+            "profile": "future_cli",
+            "mode": "streaming_subprocess",
+            "session_scope": "per_team",
+            "io_protocol": "vendor_frames",
+            "terminal_execution": "remote_sandbox",
+            "savfox_approval_bridge": "brokered",
+            "workspace": {
+                "mode": "shadow_copy",
+                "base": "/tmp/future",
+                "cleanup_policy": "after_review"
+            }
+        }))
+        .expect("unknown terminal v2 values should deserialize");
+
+        assert_eq!(
+            parsed.profile,
+            Some(TerminalProfile::Other("future_cli".to_owned()))
+        );
+        assert_eq!(
+            parsed.mode,
+            Some(TerminalMode::Other("streaming_subprocess".to_owned()))
+        );
+        assert_eq!(
+            parsed.session_scope,
+            Some(TerminalSessionScope::Other("per_team".to_owned()))
+        );
+        assert_eq!(
+            parsed.io_protocol,
+            Some(TerminalIoProtocol::Other("vendor_frames".to_owned()))
+        );
+        assert_eq!(
+            parsed.terminal_execution,
+            Some(TerminalExecution::Other("remote_sandbox".to_owned()))
+        );
+        assert_eq!(
+            parsed.savfox_approval_bridge,
+            Some(SavfoxApprovalBridge::Other("brokered".to_owned()))
+        );
+        let workspace = parsed.workspace.as_ref().expect("workspace config");
+        assert_eq!(
+            workspace.mode,
+            Some(TerminalWorkspaceMode::Other("shadow_copy".to_owned()))
+        );
+        assert_eq!(workspace.base.as_deref(), Some("/tmp/future"));
+        assert_eq!(
+            workspace.cleanup_policy,
+            Some(TerminalWorkspaceCleanupPolicy::Other(
+                "after_review".to_owned()
+            ))
+        );
+
+        let serialized = serde_json::to_value(&parsed).expect("serialize terminal config");
+        assert_eq!(serialized["profile"], "future_cli");
+        assert_eq!(serialized["mode"], "streaming_subprocess");
+        assert_eq!(serialized["session_scope"], "per_team");
+        assert_eq!(serialized["io_protocol"], "vendor_frames");
+        assert_eq!(serialized["terminal_execution"], "remote_sandbox");
+        assert_eq!(serialized["savfox_approval_bridge"], "brokered");
+        assert_eq!(serialized["workspace"]["mode"], "shadow_copy");
+        assert_eq!(serialized["workspace"]["base"], "/tmp/future");
+        assert_eq!(serialized["workspace"]["cleanup_policy"], "after_review");
+    }
 }

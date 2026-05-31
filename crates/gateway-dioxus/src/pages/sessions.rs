@@ -8,8 +8,9 @@ use wasm_bindgen::JsCast;
 
 use crate::api::client::stream_chat;
 use crate::api::types::{
-    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, SessionAmbientMessage,
-    SessionAmbientResponse, SessionEntry, SessionIdleReplyResponse, SessionsResponse,
+    AgentEntry, AgentsResponse, ChatAttachment, ChatMessage, ChatTerminalEvent,
+    SessionAmbientMessage, SessionAmbientResponse, SessionEntry, SessionIdleReplyResponse,
+    SessionsResponse,
 };
 use crate::api::ws::WsRpc;
 use crate::components::chat_input::ChatInput;
@@ -109,7 +110,27 @@ fn parse_history_message(item: &Value) -> Option<ChatMessage> {
         attachments: vec![],
         timestamp: None,
         thinking: None,
+        terminal_events: vec![],
     })
+}
+
+fn agent_has_terminal_delegate(agents: &[AgentEntry], selected: &str) -> bool {
+    find_agent_entry(agents, selected)
+        .and_then(|entry| entry.terminal_delegate.as_ref())
+        .and_then(|delegate| delegate.enabled)
+        .unwrap_or(false)
+}
+
+fn parse_terminal_events(value: Option<&Value>) -> Vec<ChatTerminalEvent> {
+    value
+        .and_then(Value::as_array)
+        .map(|events| {
+            events
+                .iter()
+                .filter_map(|event| serde_json::from_value::<ChatTerminalEvent>(event.clone()).ok())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 fn format_ambient_sidebar(messages: &[SessionAmbientMessage]) -> String {
@@ -464,6 +485,9 @@ pub fn Sessions() -> Element {
         let active_reasoning = normalize_reasoning_mode(&reasoning_mode());
         let active_verbose = normalize_verbose_mode(&verbose_mode());
         let active_group_activation = session_group_activation();
+        let active_agent = selected_agent();
+        let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
+        let use_terminal_ws = agent_has_terminal_delegate(&agents_snapshot, &active_agent);
         let ws_send = ws_for_send.clone();
 
         spawn(async move {
@@ -534,6 +558,7 @@ pub fn Sessions() -> Element {
                 attachments: attachments.clone(),
                 timestamp: None,
                 thinking: None,
+                terminal_events: vec![],
             });
             messages.write().push(ChatMessage {
                 role: "assistant".to_string(),
@@ -541,8 +566,77 @@ pub fn Sessions() -> Element {
                 attachments: vec![],
                 timestamp: None,
                 thinking: None,
+                terminal_events: vec![],
             });
             streaming.set(true);
+
+            if use_terminal_ws {
+                if !attachments.is_empty() {
+                    if let Some(last) = messages.write().last_mut() {
+                        last.content = "Error: terminal agents do not accept image attachments yet"
+                            .to_string();
+                    }
+                    streaming.set(false);
+                    if let Some(key) = session_id {
+                        session_buffers.write().insert(key, messages.read().clone());
+                        session_refresh_tick += 1;
+                    }
+                    return;
+                }
+
+                let request_id = format!("terminal_{}", js_sys::Date::now() as u64);
+                let result = ws_send
+                    .call::<Value>(
+                        "chat.send",
+                        Some(json!({
+                            "message": prompt,
+                            "agent": active_agent,
+                            "request_id": request_id,
+                            "session_id": session_id,
+                        })),
+                    )
+                    .await;
+
+                match result {
+                    Ok(payload) => {
+                        let response = payload
+                            .get("raw_response")
+                            .or_else(|| payload.get("response"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let terminal_events = parse_terminal_events(
+                            payload
+                                .get("terminal")
+                                .and_then(|terminal| terminal.get("events")),
+                        );
+                        if let Some(next_session_id) = payload
+                            .get("session_id")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                        {
+                            current_session_id.set(Some(next_session_id.clone()));
+                            session_id = Some(next_session_id);
+                        }
+                        if let Some(last) = messages.write().last_mut() {
+                            last.content = response;
+                            last.terminal_events = terminal_events;
+                        }
+                    }
+                    Err(err) => {
+                        if let Some(last) = messages.write().last_mut() {
+                            last.content = format!("Error: {err}");
+                        }
+                    }
+                }
+
+                streaming.set(false);
+                if let Some(key) = session_id {
+                    session_buffers.write().insert(key, messages.read().clone());
+                    session_refresh_tick += 1;
+                }
+                return;
+            }
 
             let controller = web_sys::AbortController::new().ok();
             let signal = controller.as_ref().map(|ctl| ctl.signal());
@@ -1725,3 +1819,46 @@ const SESSION_STYLES: &str = r#"
         }
     }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_history_messages, parse_terminal_events};
+    use serde_json::json;
+
+    #[test]
+    fn parse_terminal_events_keeps_known_terminal_fields_and_skips_invalid_rows() {
+        let events = parse_terminal_events(Some(&json!([
+            {
+                "event": "log",
+                "stream": "stderr",
+                "text": "warning"
+            },
+            {
+                "event": "completed",
+                "exit_code": 0
+            },
+            "invalid"
+        ])));
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event, "log");
+        assert_eq!(events[0].stream.as_deref(), Some("stderr"));
+        assert_eq!(events[0].text.as_deref(), Some("warning"));
+        assert_eq!(events[1].event, "completed");
+        assert_eq!(events[1].exit_code, Some(0));
+    }
+
+    #[test]
+    fn parse_history_messages_initializes_terminal_event_storage() {
+        let messages = parse_history_messages(&json!({
+            "messages": [
+                {"role": "assistant", "text": "done"}
+            ]
+        }));
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, "assistant");
+        assert_eq!(messages[0].content, "done");
+        assert!(messages[0].terminal_events.is_empty());
+    }
+}

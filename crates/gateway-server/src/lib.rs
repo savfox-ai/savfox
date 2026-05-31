@@ -93,6 +93,8 @@ mod server;
 pub mod skills_api;
 mod skills_store;
 mod static_assets;
+mod terminal_agent;
+mod terminal_pty;
 mod tools_invoke;
 pub mod utils;
 pub mod voice;

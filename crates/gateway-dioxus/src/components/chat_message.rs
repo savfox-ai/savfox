@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::api::types::ChatMessage;
+use crate::api::types::{ChatMessage, ChatTerminalEvent};
 use crate::components::canvas_renderer::{
     Artifact, CanvasRenderer, parse_artifacts, strip_artifacts,
 };
@@ -124,6 +124,32 @@ fn brief_tool_output(content: &str, max_chars: usize) -> String {
     out
 }
 
+fn terminal_event_title(event: &ChatTerminalEvent) -> String {
+    match event.event.as_str() {
+        "log" => event
+            .stream
+            .as_deref()
+            .map(|stream| format!("log:{stream}"))
+            .unwrap_or_else(|| "log".to_string()),
+        "status" => "status".to_string(),
+        "message" => "message".to_string(),
+        "error" => "error".to_string(),
+        "completed" => "completed".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn terminal_event_body(event: &ChatTerminalEvent) -> String {
+    event
+        .text
+        .as_deref()
+        .or(event.status.as_deref())
+        .or(event.message.as_deref())
+        .map(str::to_string)
+        .or_else(|| event.exit_code.map(|code| format!("exit code {code}")))
+        .unwrap_or_default()
+}
+
 #[component]
 pub fn ChatMessageBubble(
     message: ChatMessage,
@@ -155,6 +181,7 @@ pub fn ChatMessageBubble(
 
     let has_thinking = show_thinking && message.thinking.is_some();
     let has_attachments = !message.attachments.is_empty();
+    let has_terminal_events = !message.terminal_events.is_empty();
 
     // Parse and strip tool calls for assistant messages
     let tool_calls = if !is_user {
@@ -223,6 +250,35 @@ pub fn ChatMessageBubble(
                                     span { "Thinking" }
                                 }
                                 pre { class: "chat-thinking__content", dir: "{thinking_dir}", "{thinking_text}" }
+                            }
+                        }
+                    }
+                }
+
+                if has_terminal_events {
+                    details { class: "terminal-timeline", open: true,
+                        summary { class: "terminal-timeline__summary",
+                            span { "Terminal timeline" }
+                            span { class: "terminal-timeline__count", "{message.terminal_events.len()}" }
+                        }
+                        div { class: "terminal-timeline__list",
+                            for (idx, event) in message.terminal_events.iter().enumerate() {
+                                {
+                                    let title = terminal_event_title(event);
+                                    let body = terminal_event_body(event);
+                                    let item_class = format!("terminal-timeline__item terminal-timeline__item--{}", event.event);
+                                    rsx! {
+                                        div { key: "{idx}", class: "{item_class}",
+                                            div { class: "terminal-timeline__item-head",
+                                                span { class: "terminal-timeline__dot" }
+                                                span { class: "terminal-timeline__title", "{title}" }
+                                            }
+                                            if !body.trim().is_empty() {
+                                                pre { class: "terminal-timeline__body", "{body}" }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -528,6 +584,91 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         line-height: 1.6;
     }
 
+    .terminal-timeline {
+        margin: 10px 0 12px;
+        border: 1px solid color-mix(in srgb, var(--surface-stroke) 62%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--surface-flat-soft) 72%, transparent);
+        overflow: hidden;
+    }
+
+    .terminal-timeline__summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 9px 11px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 650;
+    }
+
+    .terminal-timeline__count {
+        min-width: 22px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: var(--text-primary);
+        font-size: 11px;
+    }
+
+    .terminal-timeline__list {
+        padding: 2px 11px 10px;
+        display: grid;
+        gap: 8px;
+    }
+
+    .terminal-timeline__item {
+        display: grid;
+        gap: 5px;
+        padding-left: 2px;
+    }
+
+    .terminal-timeline__item-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 18px;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .terminal-timeline__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--accent) 76%, var(--text-muted) 24%);
+        flex: 0 0 auto;
+    }
+
+    .terminal-timeline__item--error .terminal-timeline__dot {
+        background: var(--danger);
+    }
+
+    .terminal-timeline__item--completed .terminal-timeline__dot {
+        background: var(--success);
+    }
+
+    .terminal-timeline__body {
+        margin: 0 0 0 15px;
+        padding: 8px 10px;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
+        color: var(--text-primary);
+        font-family: var(--font-mono, monospace);
+        font-size: 11px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        overflow-x: auto;
+        max-height: 220px;
+    }
+
     /* ── Tool Cards ── */
     .tool-card {
         margin: 12px 0;
@@ -785,3 +926,29 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         }
     }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::{terminal_event_body, terminal_event_title};
+    use crate::api::types::ChatTerminalEvent;
+
+    #[test]
+    fn terminal_event_helpers_format_timeline_rows() {
+        let log = ChatTerminalEvent {
+            event: "log".to_string(),
+            stream: Some("stderr".to_string()),
+            text: Some("warning".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(terminal_event_title(&log), "log:stderr");
+        assert_eq!(terminal_event_body(&log), "warning");
+
+        let completed = ChatTerminalEvent {
+            event: "completed".to_string(),
+            exit_code: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(terminal_event_title(&completed), "completed");
+        assert_eq!(terminal_event_body(&completed), "exit code 0");
+    }
+}
