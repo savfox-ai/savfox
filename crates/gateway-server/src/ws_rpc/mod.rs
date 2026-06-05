@@ -76,10 +76,7 @@ pub(crate) async fn dispatch_rpc(
         return rpc_error(
             id,
             PERMISSION_DENIED,
-            format!(
-                "permission denied: method \"{}\" requires scope \"{}\"",
-                method, scope,
-            ),
+            format!("permission denied: method \"{method}\" requires scope \"{scope}\""),
         );
     }
 

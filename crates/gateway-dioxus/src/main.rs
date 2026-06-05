@@ -20,7 +20,6 @@ use dioxus::prelude::*;
 mod api;
 mod chat;
 mod components;
-mod config;
 pub mod i18n;
 mod pages;
 mod route;
@@ -43,7 +42,7 @@ fn main() {
 fn App() -> Element {
     let mut authenticated = use_signal(|| get_token().is_some());
     let locale = use_context_provider(|| Signal::new(detect_locale()));
-    let title = t(locale(), "app.title");
+    let title = use_memo(move || t(locale(), "app.title"));
 
     rsx! {
         document::Stylesheet { href: MAIN_CSS }

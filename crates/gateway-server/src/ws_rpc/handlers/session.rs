@@ -2195,13 +2195,11 @@ mod tests {
         for event in events {
             if let Some((_topic, payload)) = terminal_event_stream_payload(
                 "req", "session", "thread", event, false, true, "logs",
-            ) {
-                if let Some(kind) = payload
-                    .get("terminal_event")
-                    .and_then(|value| value.as_str())
-                {
-                    order.push(kind.to_owned());
-                }
+            ) && let Some(kind) = payload
+                .get("terminal_event")
+                .and_then(|value| value.as_str())
+            {
+                order.push(kind.to_owned());
             }
         }
         order.push("message".to_owned());

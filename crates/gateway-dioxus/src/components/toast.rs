@@ -46,7 +46,7 @@ impl Toaster {
         // Schedule auto-dismiss
         let mut items = self.items;
         spawn(async move {
-            async_sleep(duration_ms).await;
+            crate::utils::sleep_ms(duration_ms as i32).await;
             items.write().retain(|t| t.id != id);
         });
     }
@@ -119,21 +119,4 @@ pub fn ToastContainer() -> Element {
             }
         }
     }
-}
-
-/// Async sleep using setTimeout for WASM.
-async fn async_sleep(ms: u32) {
-    let (tx, rx) = futures::channel::oneshot::channel::<()>();
-    let cb = wasm_bindgen::prelude::Closure::once(move || {
-        let _ = tx.send(());
-    });
-    if let Some(w) = web_sys::window() {
-        use wasm_bindgen::JsCast;
-        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            ms as i32,
-        );
-    }
-    cb.forget();
-    let _ = rx.await;
 }

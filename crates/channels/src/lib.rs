@@ -20,8 +20,8 @@
 #![allow(clippy::if_same_then_else, clippy::manual_let_else)]
 
 pub mod base;
-#[cfg(feature = "contrix")]
-pub mod contrix;
+#[cfg(feature = "cokret")]
+pub mod cokret;
 #[cfg(feature = "dingtalk")]
 pub mod dingtalk;
 #[cfg(feature = "discord")]

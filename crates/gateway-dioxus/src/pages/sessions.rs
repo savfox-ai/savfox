@@ -833,7 +833,6 @@ pub fn Sessions() -> Element {
                                             button {
                                                 class: "{item_class}",
                                                 onclick: move |_| {
-                                                    println!("[DEBUG] Session menu item clicked: session_id={}", sid_for_click);
                                                     current_session_id.set(Some(sid_for_click.clone()));
                                                     session_group_activation.set(entry_group_activation.clone().unwrap_or_default());
                                                     sidebar_content.set(None);
@@ -848,13 +847,11 @@ pub fn Sessions() -> Element {
                                                     }
 
                                                     if let Some(cached) = session_buffers.read().get(&sid_for_click).cloned() {
-                                                        println!("[DEBUG] Loading session from cache: session_id={}, messages={}", sid_for_click, cached.len());
                                                         loading_session.set(false);
                                                         messages.set(cached);
                                                         return;
                                                     }
 
-                                                    println!("[DEBUG] Fetching session history from server: session_id={}", sid_for_click);
                                                     loading_session.set(true);
                                                     messages.write().clear();
                                                     // Use thread_id for history lookup if available, otherwise use session_id
@@ -873,19 +870,13 @@ pub fn Sessions() -> Element {
                                                             )
                                                             .await
                                                         {
-                                                            // Debug: Print rollout_path from response
-                                                            if let Some(rollout_path) = payload.get("rollout_path").and_then(|v| v.as_str()) {
-                                                                println!("[DEBUG] Session history loaded: session_id={}, rollout_path={}", session_for_fetch, rollout_path);
-                                                            }
                                                             let parsed = parse_history_messages(&payload);
-                                                            println!("[DEBUG] Parsed {} messages from history for session_id={}", parsed.len(), session_for_fetch);
                                                             session_buffers
                                                                 .write()
                                                                 .insert(session_for_fetch, parsed.clone());
                                                             messages.set(parsed);
                                                             loading_session.set(false);
                                                         } else {
-                                                            println!("[DEBUG] Failed to load session history: session_id={}", session_for_fetch);
                                                             loading_session.set(false);
                                                         }
                                                     });
@@ -1179,7 +1170,7 @@ pub fn Sessions() -> Element {
                                             show_thinking: show_thinking,
                                             verbose_mode: verbose_mode(),
                                             is_last: is_last,
-                                            is_streaming: streaming(),
+                                            is_streaming: is_last && streaming(),
                                             prev_same_role: prev_same,
                                             on_expand_tool: on_expand_tool,
                                         }
@@ -1822,8 +1813,9 @@ const SESSION_STYLES: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_history_messages, parse_terminal_events};
     use serde_json::json;
+
+    use super::{parse_history_messages, parse_terminal_events};
 
     #[test]
     fn parse_terminal_events_keeps_known_terminal_fields_and_skips_invalid_rows() {

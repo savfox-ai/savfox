@@ -1,3 +1,5 @@
+use std::sync::Once;
+
 use dioxus::prelude::*;
 
 use crate::api::types::{ChatMessage, ChatTerminalEvent};
@@ -152,7 +154,7 @@ fn terminal_event_body(event: &ChatTerminalEvent) -> String {
 
 #[component]
 pub fn ChatMessageBubble(
-    message: ChatMessage,
+    message: ReadOnlySignal<ChatMessage>,
     show_thinking: Option<bool>,
     verbose_mode: Option<String>,
     is_last: Option<bool>,
@@ -160,6 +162,8 @@ pub fn ChatMessageBubble(
     prev_same_role: Option<bool>,
     on_expand_tool: Option<EventHandler<String>>,
 ) -> Element {
+    inject_chat_bubble_styles_once();
+    let message = message();
     let is_user = message.role == "user";
     let is_streaming = is_streaming.unwrap_or(false);
     let is_last = is_last.unwrap_or(false);
@@ -298,13 +302,14 @@ pub fn ChatMessageBubble(
                                 ToolStatus::Error => "!!",
                                 ToolStatus::Running => "..",
                             };
-                            let is_short = tc.content.lines().count() <= 5;
+                            let line_count = tc.content.lines().count();
+                            let is_short = line_count <= 5;
                             let tool_content = tc.content.clone();
                             let tool_preview = brief_tool_output(&tc.content, 180);
-                            let expand_content = tc.content.clone();
+                            let expand_content = tool_content.clone();
                             let handler = on_expand_tool.clone();
                             let card_handler = on_expand_tool.clone();
-                            let card_content = tc.content.clone();
+                            let card_content = tool_content.clone();
                             let clickable_class = if on_expand_tool.is_some() {
                                 "tool-card--clickable"
                             } else {
@@ -343,7 +348,7 @@ pub fn ChatMessageBubble(
                                             }
                                         } else {
                                             details { class: "tool-card__details",
-                                                summary { "Show output ({tc.content.lines().count()} lines)" }
+                                                summary { "Show output ({line_count} lines)" }
                                                 pre { class: "tool-card__body", "{tool_content}" }
                                             }
                                         }
@@ -396,8 +401,23 @@ pub fn ChatMessageBubble(
                 }
             }
         }
-        style { {CHAT_BUBBLE_STYLES} }
     }
+}
+
+/// Injects the chat bubble stylesheet into the document head exactly once,
+/// rather than emitting a `<style>` node per rendered bubble.
+fn inject_chat_bubble_styles_once() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(CHAT_BUBBLE_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
+    });
 }
 
 const CHAT_BUBBLE_STYLES: &str = r#"

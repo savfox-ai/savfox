@@ -30,6 +30,7 @@ pub fn OpenAILogin(
     on_cancel: Option<EventHandler<()>>,
     compact: bool,
 ) -> Element {
+    inject_openai_login_styles_once();
     let mut login_state = use_signal(|| OpenAILoginState::PickMethod);
     let mut api_key = use_signal(String::new);
     let mut loading = use_signal(|| false);
@@ -44,14 +45,16 @@ pub fn OpenAILogin(
             let on_success = on_success.clone();
             async move {
                 loop {
-                    async_sleep_ms(2000).await;
-                    let is_waiting = matches!(
-                        login_state(),
+                    crate::utils::sleep_ms(2000).await;
+                    match login_state() {
+                        // Actively waiting for the user to complete auth — poll below.
                         OpenAILoginState::ChatGPTWaiting { .. }
-                            | OpenAILoginState::DeviceCodeWaiting { .. }
-                    );
-                    if !is_waiting {
-                        continue;
+                        | OpenAILoginState::DeviceCodeWaiting { .. } => {}
+                        // Terminal states: auth resolved, stop the polling loop.
+                        OpenAILoginState::Success { .. } | OpenAILoginState::Error { .. } => break,
+                        // Transient pre-waiting states (method picker, API key entry):
+                        // keep the loop alive until the user enters a waiting state.
+                        OpenAILoginState::PickMethod | OpenAILoginState::ApiKeyInput => continue,
                     }
                     if let Ok(resp) = ws
                         .call::<serde_json::Value>(
@@ -467,7 +470,6 @@ pub fn OpenAILogin(
                 },
             }
         }
-        style { {OPENAI_LOGIN_STYLES} }
     }
 }
 
@@ -745,19 +747,18 @@ const OPENAI_LOGIN_STYLES: &str = r#"
     }
 "#;
 
-/// Async sleep using setTimeout for WASM.
-async fn async_sleep_ms(ms: u32) {
-    let (tx, rx) = futures::channel::oneshot::channel::<()>();
-    let cb = wasm_bindgen::prelude::Closure::once(move || {
-        let _ = tx.send(());
+/// Injects the OpenAI-login stylesheet into the document head exactly once,
+/// instead of emitting an inline `<style>` block on every render.
+fn inject_openai_login_styles_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(OPENAI_LOGIN_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
     });
-    if let Some(w) = web_sys::window() {
-        use wasm_bindgen::JsCast;
-        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            ms as i32,
-        );
-    }
-    cb.forget();
-    let _ = rx.await;
 }

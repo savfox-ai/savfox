@@ -835,7 +835,7 @@ async fn run_command(
         TerminalSupervisor::run_with_spawn_callback(resolved_command.spec, move |pid| {
             let delegate_for_spawn = delegate_for_spawn.clone();
             let context_for_spawn = context_for_spawn.clone();
-            let mut running_state = running_state.clone();
+            let mut running_state = running_state;
             running_state.pid = pid;
             async move {
                 if let Err(err) = write_terminal_session_metadata(

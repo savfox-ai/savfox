@@ -1,44 +1,46 @@
-//! Contrix Applet HTTP server endpoints.
+//! Cokret Applet HTTP server endpoints.
 //!
-//! When savfox runs as a registered Contrix Applet (savfox channel config
-//! with `kind = "contrix"` + `mode = "applet"`), this module hosts the
-//! inbound HTTP routes the Contrix server calls. Mirrors the Matrix
+//! When savfox runs as a registered Cokret Applet (savfox channel config
+//! with `kind = "cokret"` + `mode = "applet"`), this module hosts the
+//! inbound HTTP routes the Cokret server calls. Mirrors the Matrix
 //! Appservice route layout in [`channels::matrix`](crate::channels::matrix)
 //! one-for-one:
 //!
+//! Paths follow the Cokret spec `edge` trust segment (applet-integration.md
+//! §6) — versionless, under the `/_cokret/edge/applet/...` namespace:
+//!
 //! | path | method | corresponds to |
 //! |---|---|---|
-//! | `/api/v1/applet/ping` | GET | Matrix `/_matrix/app/v1/ping` |
-//! | `/api/v1/applet/describe` | GET | (new — capability descriptor) |
-//! | `/api/v1/applet/transactions` | POST | Matrix `PUT /_matrix/app/v1/transactions/{txn_id}` |
-//! | `/api/v1/applet/actors/{actor_id}` | GET | Matrix `/_matrix/app/v1/users/{user_id}` |
-//! | `/api/v1/applet/realms/{realm_id_or_alias}` | GET | Matrix `/_matrix/app/v1/rooms/{room_alias}` |
-//! | `/api/v1/applet/protocols/{protocol}` | GET | Matrix `/_matrix/app/v1/thirdparty/protocol/{protocol}` |
-//! | `/api/v1/applet/third_party/users` | GET | Third-party actor lookup |
-//! | `/api/v1/applet/third_party/locations` | GET | Third-party realm lookup |
+//! | `/_cokret/edge/applet/ping` | GET | Matrix `/_matrix/app/v1/ping` |
+//! | `/_cokret/edge/applet/describe` | GET | (new — capability descriptor) |
+//! | `/_cokret/edge/applet/transactions` | POST | Matrix `PUT /_matrix/app/v1/transactions/{txn_id}` |
+//! | `/_cokret/edge/applet/actors/{actor_id}` | GET | Matrix `/_matrix/app/v1/users/{user_id}` |
+//! | `/_cokret/edge/applet/realms/{realm_id_or_alias}` | GET | Matrix `/_matrix/app/v1/rooms/{room_alias}` |
+//! | `/_cokret/edge/applet/protocols/{protocol}` | GET | Matrix `/_matrix/app/v1/thirdparty/protocol/{protocol}` |
+//! | `/_cokret/edge/applet/third_party/users` | GET | Third-party actor lookup |
+//! | `/_cokret/edge/applet/third_party/locations` | GET | Third-party realm lookup |
 //!
 //! Two mount points (mirroring matrix.rs convention):
 //!
-//! * Direct: `/api/v1/applet/...` — auth resolves the channel via bearer.
-//! * Per-config: `/appservices/contrix/{config_id}/api/v1/applet/...`.
+//! * Direct: `/_cokret/edge/applet/...` — auth resolves the channel via bearer.
+//! * Per-config: `/appservices/cokret/{config_id}/_cokret/edge/applet/...`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use contrix::{IdempotencyDecision, IdempotencyWindow};
-use contrix_core::{
+use cokret::{IdempotencyDecision, IdempotencyWindow};
+use cokret_core::{
     AppletActorResBody, AppletDescription, AppletPingResBody, AppletProtocolResBody,
     AppletRealmResBody, AppletTransactionReqBody, AppletTransactionResBody, Did, Hash, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
-use savfox_channels::contrix::applet::{
-    AppletEventOutcome, ContrixAppletConfig, classify_inbound_event, load_contrix_applet_configs,
+use savfox_channels::cokret::applet::{
+    AppletEventOutcome, CokretAppletConfig, classify_inbound_event, load_cokret_applet_configs,
 };
-use serde_json::Map;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use subtle::ConstantTimeEq;
 use tracing::{debug, info, warn};
 
@@ -66,10 +68,26 @@ impl Default for AppletRuntimeState {
     }
 }
 
-#[derive(Debug)]
 struct AppletChannelState {
-    config: ContrixAppletConfig,
+    config: CokretAppletConfig,
     runtime: Mutex<AppletRuntimeState>,
+    /// Restart-safe monotonic allocator for this applet's outbound
+    /// `actor_seq`. Backed by a file-backed [`SeqStore`] under the savfox
+    /// home dir; replaces the previous `timestamp_millis()` hack which was
+    /// neither monotonic across calls nor restart-safe. `SeqAllocator` is
+    /// internally synchronized, so it lives outside the `runtime` Mutex.
+    seq: cokret_bridge_runtime::SeqAllocator,
+}
+
+// `SeqAllocator` is not `Debug`; provide a manual impl that elides it so
+// `AppletChannelState` keeps a `Debug` representation for tracing/asserts.
+impl std::fmt::Debug for AppletChannelState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppletChannelState")
+            .field("config", &self.config)
+            .field("runtime", &self.runtime)
+            .finish_non_exhaustive()
+    }
 }
 
 type AppletRegistry = HashMap<String, Arc<AppletChannelState>>;
@@ -88,6 +106,20 @@ fn register_channel(state: AppletChannelState) -> anyhow::Result<()> {
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
     reg.insert(state.config.id.clone(), Arc::new(state));
     Ok(())
+}
+
+/// Remove a registered applet channel from the global registry.
+///
+/// Must be called when a Cokret applet channel is disabled, deleted, or
+/// reconfigured. Without this, a stale `AppletChannelState` (carrying the
+/// bearer token and namespace patterns) would linger forever and keep matching
+/// `lookup_by_bearer` / `lookup_by_realm`, dispatching to a channel the
+/// operator already removed. Mirrors `matrix::remove_matrix_appservice_channel`.
+pub(crate) fn remove_cokret_applet_channel(config_id: &str) -> anyhow::Result<bool> {
+    let mut reg = applet_registry()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
+    Ok(reg.remove(config_id).is_some())
 }
 
 fn lookup_by_config_id(config_id: &str) -> anyhow::Result<Option<Arc<AppletChannelState>>> {
@@ -113,7 +145,7 @@ fn lookup_by_bearer(req: &Request) -> anyhow::Result<Option<Arc<AppletChannelSta
         .map_err(|_| anyhow::anyhow!("applet registry poisoned"))?;
     Ok(reg
         .values()
-        .find(|state| applet_token_matches(state.config.contrix_bearer_token.as_deref(), &token))
+        .find(|state| applet_token_matches(state.config.cokret_bearer_token.as_deref(), &token))
         .cloned())
 }
 
@@ -153,12 +185,12 @@ fn render_unauthorized(res: &mut Response, code: &str, message: impl Into<String
 }
 
 fn render_state_unavailable(res: &mut Response, err: &anyhow::Error) {
-    warn!("contrix applet state unavailable: {err:#}");
+    warn!("cokret applet state unavailable: {err:#}");
     render_error(
         res,
         StatusCode::INTERNAL_SERVER_ERROR,
         "state_unavailable",
-        "Contrix applet state unavailable",
+        "Cokret applet state unavailable",
     );
 }
 
@@ -182,17 +214,17 @@ fn resolve_applet_for_request(
                 render_unauthorized(
                     res,
                     "missing_bearer_token",
-                    "Contrix applet endpoint requires Authorization: Bearer <token>",
+                    "Cokret applet endpoint requires Authorization: Bearer <token>",
                 );
                 return None;
             };
-            if applet_token_matches(state.config.contrix_bearer_token.as_deref(), &token) {
+            if applet_token_matches(state.config.cokret_bearer_token.as_deref(), &token) {
                 return Some(state);
             }
             render_unauthorized(
                 res,
                 "invalid_bearer_token",
-                "Authorization token does not match this Contrix applet channel",
+                "Authorization token does not match this Cokret applet channel",
             );
             return None;
         }
@@ -200,7 +232,7 @@ fn resolve_applet_for_request(
             res,
             StatusCode::NOT_FOUND,
             "applet_not_found",
-            format!("no contrix applet channel configured with id '{config_id}'"),
+            format!("no cokret applet channel configured with id '{config_id}'"),
         );
         return None;
     }
@@ -219,7 +251,7 @@ fn resolve_applet_for_request(
                 res,
                 StatusCode::SERVICE_UNAVAILABLE,
                 "applet_unconfigured",
-                "no contrix applet channel is currently registered",
+                "no cokret applet channel is currently registered",
             );
             return None;
         }
@@ -232,7 +264,7 @@ fn resolve_applet_for_request(
     render_unauthorized(
         res,
         "invalid_bearer_token",
-        "Contrix applet endpoint requires a matching Authorization bearer token",
+        "Cokret applet endpoint requires a matching Authorization bearer token",
     );
     None
 }
@@ -247,8 +279,12 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
     let body = AppletPingResBody {
         ok: true,
         applet_id: state.config.applet_id.clone(),
+        // `service_did` is strictly validated (Did::new) in
+        // `CokretAppletConfig::validate()` before the channel is registered,
+        // so a registered applet always has a parseable DID here. No silent
+        // `applet.unknown` fallback that would mask a config error.
         service_did: Did::new(state.config.service_did.clone())
-            .unwrap_or_else(|_| Did::new("did:web:applet.unknown").unwrap()),
+            .expect("service_did validated at channel registration"),
         protocol_version: "1.0".to_owned(),
     };
     res.status_code(StatusCode::OK);
@@ -263,8 +299,9 @@ async fn applet_describe(req: &mut Request, res: &mut Response) {
     let cfg = &state.config;
     let body = AppletDescription {
         applet_id: cfg.applet_id.clone(),
+        // See `applet_ping`: service_did is validated before registration.
         service_did: Did::new(cfg.service_did.clone())
-            .unwrap_or_else(|_| Did::new("did:web:applet.unknown").unwrap()),
+            .expect("service_did validated at channel registration"),
         protocols: cfg.protocols.clone(),
         namespaces: json!({
             "actors": cfg.namespaces.actors,
@@ -298,7 +335,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             res,
             StatusCode::BAD_REQUEST,
             "missing_idempotency_key",
-            "Contrix applet transactions require an Idempotency-Key header",
+            "Cokret applet transactions require an Idempotency-Key header",
         );
         return;
     };
@@ -314,7 +351,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "payload_too_large",
                 format!(
-                    "Contrix applet transaction body exceeds {MAX_APPLET_TRANSACTION_BODY_BYTES} bytes"
+                    "Cokret applet transaction body exceeds {MAX_APPLET_TRANSACTION_BODY_BYTES} bytes"
                 ),
             );
             return;
@@ -376,17 +413,16 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
 
     // Idempotency check (SDK S-5 IdempotencyWindow).
     {
-        let runtime_state = match state.runtime.lock() {
-            Ok(runtime_state) => runtime_state,
-            Err(_) => {
-                render_error(
-                    res,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "state_unavailable",
-                    "Contrix applet runtime state unavailable",
-                );
-                return;
-            }
+        let runtime_state = if let Ok(runtime_state) = state.runtime.lock() {
+            runtime_state
+        } else {
+            render_error(
+                res,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "state_unavailable",
+                "Cokret applet runtime state unavailable",
+            );
+            return;
         };
         runtime_state.txn_dedupe.gc();
         match runtime_state
@@ -474,7 +510,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
         let gw = gateway_channel.clone();
         let store = session_store.clone();
         let cid = config_id.clone();
-        let dedupe_key = format!("contrix-applet:{}:{}", cid, cmd.event_id);
+        let dedupe_key = format!("cokret-applet:{}:{}", cid, cmd.event_id);
         if runtime::should_drop_duplicate(Some(dedupe_key)).await {
             continue;
         }
@@ -482,7 +518,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gw,
                 store,
-                "contrix",
+                "cokret",
                 cmd.realm_id.clone(),
                 cmd.body,
                 Some(cmd.sender_did.clone()),
@@ -525,7 +561,7 @@ async fn applet_actor(req: &mut Request, res: &mut Response) {
     }
     let body = AppletActorResBody {
         exists: true,
-        actor_id: Did::new(actor_id.clone()).ok(),
+        actor_id: Did::new(actor_id).ok(),
         display_name: None,
         external_ref: Value::Null,
     };
@@ -550,7 +586,7 @@ async fn applet_realm(req: &mut Request, res: &mut Response) {
     }
     let body = AppletRealmResBody {
         exists: true,
-        realm_id: contrix_identifiers::RealmId::new(realm.clone()).ok(),
+        realm_id: cokret_identifiers::RealmId::new(realm).ok(),
         title: None,
         external_ref: Value::Null,
     };
@@ -575,7 +611,7 @@ async fn applet_protocol(req: &mut Request, res: &mut Response) {
     }
     let body = AppletProtocolResBody {
         protocol: protocol.clone(),
-        display_name: protocol.clone(),
+        display_name: protocol,
         icon_blob_ref: None,
         field_types: json!({}),
         instances: vec![],
@@ -624,7 +660,7 @@ fn field_string<'a>(fields: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a
 }
 
 fn ensure_supported_protocol(
-    cfg: &ContrixAppletConfig,
+    cfg: &CokretAppletConfig,
     fields: &Map<String, Value>,
     res: &mut Response,
 ) -> Option<String> {
@@ -704,7 +740,7 @@ async fn applet_third_party_users(req: &mut Request, res: &mut Response) {
         &["actor_id", "user", "user_id", "external_id", "id", "actor"],
     )
     .map(|external_id| {
-        savfox_channels::contrix::mint_ghost_did(
+        savfox_channels::cokret::mint_ghost_did(
             &state.config.service_did,
             &state.config.ghost_did_prefix,
             external_id,
@@ -738,8 +774,8 @@ async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
 
     res.status_code(StatusCode::OK);
     res.render(Json(json!({
-        "realm_id": realm_id.clone(),
-        "space_id": realm_id,
+        "realm_id": &realm_id,
+        "space_id": &realm_id,
         "exists": exists,
         "external_ref": external_ref,
     })));
@@ -751,8 +787,8 @@ async fn applet_third_party_locations(req: &mut Request, res: &mut Response) {
 /// namespace covers `realm_id`.
 ///
 /// Returns `Ok(false)` when no registered applet claims the realm so callers
-/// can fall back to account-mode Contrix sending.
-pub(crate) async fn send_to_contrix_applet_for_realm(
+/// can fall back to account-mode Cokret sending.
+pub(crate) async fn send_to_cokret_applet_for_realm(
     realm_id: &str,
     flow_id: Option<&str>,
     body: &str,
@@ -762,7 +798,7 @@ pub(crate) async fn send_to_contrix_applet_for_realm(
     };
     let flow_id = flow_id.ok_or_else(|| {
         anyhow::anyhow!(
-            "Contrix applet '{}' cannot reply to realm '{}' without a flow id",
+            "Cokret applet '{}' cannot reply to realm '{}' without a flow id",
             state.config.id,
             realm_id
         )
@@ -773,7 +809,9 @@ pub(crate) async fn send_to_contrix_applet_for_realm(
         "external_id": format!("{realm_id}:{flow_id}"),
         "kind": "agent_reply",
     });
-    let actor_seq = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    // `actor_seq` is no longer derived from a wall-clock timestamp here — it
+    // is sourced inside `send_via_applet` from the per-applet
+    // `cokret-bridge-runtime` `SeqAllocator` (monotonic, restart-safe).
     send_via_applet(
         &state.config.id,
         realm_id,
@@ -781,19 +819,23 @@ pub(crate) async fn send_to_contrix_applet_for_realm(
         &state.config.bot_actor_id,
         body,
         external_ref,
-        actor_seq,
     )
     .await?;
     Ok(true)
 }
 
-/// Send a Ghost-actor-attributed `cx.message.create` Event from this applet
-/// to the Contrix server. On failure, emit a best-effort
-/// `cx.applet.bridge_error` Event so receivers don't silently lose state
+/// Send a Ghost-actor-attributed `ck.message.create` Event from this applet
+/// to the Cokret server. On failure, emit a best-effort
+/// `ck.applet.bridge_error` Event so receivers don't silently lose state
 /// (spec applet-integration.md §14).
 ///
 /// `config_id` looks up the registered applet; `external_ref` is the
 /// bridge-side origin (protocol/network/external_id) for audit.
+///
+/// The outbound `actor_seq` is allocated from the applet's
+/// `cokret-bridge-runtime` [`SeqAllocator`] (file-backed [`SeqStore`]),
+/// giving a monotonic, restart-safe sequence — no longer
+/// `chrono::Utc::now().timestamp_millis()`.
 pub(crate) async fn send_via_applet(
     config_id: &str,
     realm_id: &str,
@@ -801,12 +843,17 @@ pub(crate) async fn send_via_applet(
     ghost_actor_did: &str,
     body: &str,
     external_ref: Value,
-    actor_seq: u64,
 ) -> anyhow::Result<()> {
     let state = lookup_by_config_id(config_id)
-        .with_context(|| format!("contrix applet '{config_id}' registry lookup failed"))?
-        .ok_or_else(|| anyhow::anyhow!("contrix applet '{config_id}' not registered"))?;
+        .with_context(|| format!("cokret applet '{config_id}' registry lookup failed"))?
+        .ok_or_else(|| anyhow::anyhow!("cokret applet '{config_id}' not registered"))?;
     let cfg = &state.config;
+
+    // Monotonic restart-safe actor sequence from the per-applet allocator.
+    let actor_seq = state
+        .seq
+        .alloc()
+        .map_err(|e| anyhow::anyhow!("seq alloc: {e}"))?;
 
     // Phase 8: prefer login_did_proof when key_ref is set; otherwise fall
     // back to static bearer for Phase 6/7-style configs.
@@ -818,7 +865,7 @@ pub(crate) async fn send_via_applet(
         .await
         .or_else(|| cfg.authorization_grant_id.clone());
 
-    let req = savfox_channels::contrix::AppletMessageRequest {
+    let req = savfox_channels::cokret::AppletMessageRequest {
         applet_id: cfg.applet_id.clone(),
         realm_id: realm_id.to_owned(),
         flow_id: flow_id.to_owned(),
@@ -830,20 +877,42 @@ pub(crate) async fn send_via_applet(
         actor_seq,
         thread_root_id: None,
     };
-    let mut event = savfox_channels::contrix::build_applet_message_event(&req)?;
+    let mut event = savfox_channels::cokret::build_applet_message_event(&req)?;
 
     // Phase 8 (T8.C): sign with the applet's bot key when key_ref is set.
     sign_applet_event_if_keyed(cfg, ghost_actor_did, &mut event).await?;
 
-    match http.submit_event(&event).await {
-        Ok(_resp) => Ok(()),
+    // A transport 200 is not delivery confirmation: inspect the business-level
+    // result and treat a rejection (or zero accepted/duplicate events) as a
+    // failure so it flows through the same bridge_error path as a transport
+    // error (spec §14), instead of being silently dropped.
+    let submit_result = match http.submit_event(&event).await {
+        Ok(resp) => {
+            if !resp.rejected.is_empty() {
+                Err(anyhow::anyhow!(
+                    "cokret applet: server rejected event for realm '{realm_id}': {:?}",
+                    resp.rejected
+                ))
+            } else if resp.accepted.is_empty() && resp.duplicate.is_empty() {
+                Err(anyhow::anyhow!(
+                    "cokret applet: server accepted no events for realm '{realm_id}' (status={:?})",
+                    resp.status
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        Err(err) => Err(err),
+    };
+    match submit_result {
+        Ok(()) => Ok(()),
         Err(err) => {
             warn!(
                 config_id,
                 realm_id,
                 flow_id,
                 error = %err,
-                "contrix applet: send_via_applet submission failed — emitting bridge_error"
+                "cokret applet: send_via_applet submission failed — emitting bridge_error"
             );
             // Best-effort bridge_error emission. If THIS submit also fails,
             // we log and continue — there is no escalation path for a
@@ -851,23 +920,23 @@ pub(crate) async fn send_via_applet(
             if let Err(err2) = emit_bridge_error(
                 &state,
                 realm_id,
-                "contrix_submit_failed",
+                "cokret_submit_failed",
                 &err.to_string(),
                 Some(external_ref),
             )
             .await
             {
-                warn!(config_id, error = %err2, "contrix applet: bridge_error emit also failed");
+                warn!(config_id, error = %err2, "cokret applet: bridge_error emit also failed");
             }
             Err(err)
         }
     }
 }
 
-/// Emit a `cx.applet.bridge_error` Event (SDK S-11).
+/// Emit a `ck.applet.bridge_error` Event (SDK S-11).
 ///
 /// `code` should be one of the spec-blessed strings:
-/// `external_rate_limited` / `external_rejected` / `contrix_submit_failed` /
+/// `external_rate_limited` / `external_rejected` / `cokret_submit_failed` /
 /// `delivery_unconfirmed`. `message` is human-readable.
 async fn emit_bridge_error(
     state: &Arc<AppletChannelState>,
@@ -876,26 +945,50 @@ async fn emit_bridge_error(
     message: &str,
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
-    use contrix::{AppletBridgeErrorBuilder, AppletBridgeErrorSeverity};
-    use contrix_identifiers::{Hlc, RealmId};
+    use cokret::{AppletBridgeErrorBuilder, AppletBridgeErrorVisibility};
+    use cokret_identifiers::{Hlc, RealmId};
 
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
         .with_context(|| format!("invalid realm_id: {realm_id}"))?;
     let actor = Did::new(cfg.bot_actor_id.clone())
         .with_context(|| format!("invalid bot DID: {}", cfg.bot_actor_id))?;
+    // Monotonic restart-safe actor sequence from the per-applet allocator —
+    // bridge_error events get a real sequence instead of the previous
+    // hard-coded `0`. The HLC origin still uses wall-clock millis (there is
+    // no shared HLC source available to the applet host yet).
+    let actor_seq = state
+        .seq
+        .alloc()
+        .map_err(|e| anyhow::anyhow!("seq alloc: {e}"))?;
     let unix_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
     let hlc = Hlc::new(format!("{unix_ms:012x}-0000-00000000"))
         .map_err(|err| anyhow::anyhow!("hlc: {err}"))?;
 
-    let mut builder =
-        AppletBridgeErrorBuilder::new(realm, cfg.applet_id.clone(), actor, code, message)
-            .with_severity(AppletBridgeErrorSeverity::Error);
+    // SDK S-13 reshaped the payload: `severity` → `error_class` /
+    // `error_code` / `retriable` / `visibility_scope` /
+    // `failed_transaction_ref`. An outbound submit failure has no inbound
+    // transaction id, so anchor on the target realm (MUST NOT inline external
+    // plaintext). A hard upstream rejection is terminal; other classes are
+    // retriable.
+    let failed_transaction_ref = format!("outbound:{realm_id}");
+    let retriable = !matches!(code, "external_rejected");
+    let mut builder = AppletBridgeErrorBuilder::new(
+        realm,
+        cfg.applet_id.clone(),
+        actor,
+        failed_transaction_ref,
+        "bridge_delivery",
+        code,
+        retriable,
+        AppletBridgeErrorVisibility::RealmAdmins,
+    )
+    .with_message(message);
     if let Some(ext) = external_ref {
         builder = builder.with_external_ref(ext);
     }
     let mut event = builder
-        .build(0, hlc)
+        .build(actor_seq, hlc)
         .map_err(|err| anyhow::anyhow!("bridge_error build: {err}"))?;
 
     // Phase 8: sign bridge_error too if a signer is configured.
@@ -908,27 +1001,26 @@ async fn emit_bridge_error(
 /// Build the outbound HTTP client for an applet config. Uses DID-proof
 /// login when `key_ref` is set; falls back to the static bearer otherwise.
 async fn construct_applet_client(
-    cfg: &savfox_channels::contrix::ContrixAppletConfig,
-) -> anyhow::Result<savfox_channels::contrix::ContrixHttpClient> {
+    cfg: &savfox_channels::cokret::CokretAppletConfig,
+) -> anyhow::Result<savfox_channels::cokret::CokretHttpClient> {
     if let Some(key_ref) = &cfg.key_ref {
-        use savfox_channels::contrix::ContrixHttpClient;
+        use savfox_channels::cokret::CokretHttpClient;
         let vm = cfg
             .verification_method
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
         let audience = cfg.service_did.clone();
-        let signer =
-            savfox_channels::contrix::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
-        let principal = contrix_identifiers::Did::new(cfg.bot_actor_id.clone())
+        let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
+        let principal = cokret_identifiers::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
         // applet bot doesn't carry a device id; mint a stable synthetic one.
-        let device = contrix_identifiers::DeviceId::new(format!(
-            "cx:device:applet-{}",
-            cfg.applet_id.trim_start_matches("cx:applet:")
+        let device = cokret_identifiers::DeviceId::new(format!(
+            "ck:device:applet-{}",
+            cfg.applet_id.trim_start_matches("ck:applet:")
         ))
         .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
-        let (client, _session) = ContrixHttpClient::login(
-            &cfg.contrix_server_url,
+        let (client, _session) = CokretHttpClient::login(
+            &cfg.cokret_server_url,
             &signer,
             principal,
             device,
@@ -938,22 +1030,22 @@ async fn construct_applet_client(
         .await?;
         Ok(client)
     } else {
-        let bearer = cfg.contrix_bearer_token.as_deref().ok_or_else(|| {
+        let bearer = cfg.cokret_bearer_token.as_deref().ok_or_else(|| {
             anyhow::anyhow!(
-                "applet '{}' has neither key_ref nor contrix_bearer_token",
+                "applet '{}' has neither key_ref nor cokret_bearer_token",
                 cfg.id
             )
         })?;
-        savfox_channels::contrix::ContrixHttpClient::new(&cfg.contrix_server_url, bearer)
+        savfox_channels::cokret::CokretHttpClient::new(&cfg.cokret_server_url, bearer)
     }
 }
 
 /// Phase 8 (T8.C): sign the outbound event with the applet's bot key,
 /// if `key_ref` is set. No-op otherwise.
 async fn sign_applet_event_if_keyed(
-    cfg: &savfox_channels::contrix::ContrixAppletConfig,
+    cfg: &savfox_channels::cokret::CokretAppletConfig,
     actor_did: &str,
-    event: &mut contrix_core::Event,
+    event: &mut cokret_core::Event,
 ) -> anyhow::Result<()> {
     let Some(key_ref) = &cfg.key_ref else {
         return Ok(());
@@ -962,8 +1054,8 @@ async fn sign_applet_event_if_keyed(
         .verification_method
         .clone()
         .unwrap_or_else(|| format!("{actor_did}#key-1"));
-    let signer = savfox_channels::contrix::load_ed25519_signer(key_ref, actor_did, &vm)?;
-    savfox_channels::contrix::applet::sign_outbound_event(event, &signer, &vm)?;
+    let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, actor_did, &vm)?;
+    savfox_channels::cokret::applet::sign_outbound_event(event, &signer, &vm)?;
     Ok(())
 }
 
@@ -972,14 +1064,14 @@ async fn sign_applet_event_if_keyed(
 /// `authorization_ref`. Logs and returns `None` on load failure (grant
 /// is operator-managed; missing files shouldn't crash outbound).
 async fn load_applet_grant_event_id(
-    cfg: &savfox_channels::contrix::ContrixAppletConfig,
+    cfg: &savfox_channels::cokret::CokretAppletConfig,
 ) -> Option<String> {
     let path = cfg.grant_event_path.as_ref()?;
-    match savfox_channels::contrix::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
-        Ok(grant) if grant.covers_action("cx.message.create") => Some(grant.event_id),
+    match savfox_channels::cokret::load_and_verify_grant(path, &cfg.bot_actor_id, None).await {
+        Ok(grant) if grant.covers_action("ck.message.create") => Some(grant.event_id),
         Ok(_) => {
             warn!(
-                "contrix applet '{}': capability grant at {} does not cover cx.message.create",
+                "cokret applet '{}': capability grant at {} does not cover ck.message.create",
                 cfg.id,
                 path.display()
             );
@@ -987,7 +1079,7 @@ async fn load_applet_grant_event_id(
         }
         Err(err) => {
             warn!(
-                "contrix applet '{}': capability grant load failed at {}: {err:#}",
+                "cokret applet '{}': capability grant load failed at {}: {err:#}",
                 cfg.id,
                 path.display()
             );
@@ -998,9 +1090,9 @@ async fn load_applet_grant_event_id(
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
-/// Routes mounted at `/api/v1/applet/...` (direct).
-pub(crate) fn contrix_applet_router() -> Router {
-    Router::with_path("api/v1/applet")
+/// Routes mounted at `/_cokret/edge/applet/...` (direct).
+pub(crate) fn cokret_applet_router() -> Router {
+    Router::with_path("_cokret/edge/applet")
         .push(Router::with_path("ping").get(applet_ping))
         .push(Router::with_path("describe").get(applet_describe))
         .push(Router::with_path("transactions").post(applet_transactions))
@@ -1011,36 +1103,82 @@ pub(crate) fn contrix_applet_router() -> Router {
         .push(Router::with_path("third_party/locations").get(applet_third_party_locations))
 }
 
-/// Routes mounted at `/appservices/contrix/{config_id}/api/v1/applet/...`.
-pub(crate) fn contrix_appservices_router() -> Router {
-    Router::with_path("appservices/contrix/{config_id}").push(contrix_applet_router())
+/// Routes mounted at `/appservices/cokret/{config_id}/_cokret/edge/applet/...`.
+pub(crate) fn cokret_appservices_router() -> Router {
+    Router::with_path("appservices/cokret/{config_id}").push(cokret_applet_router())
 }
 
 // ─── Startup glue ───────────────────────────────────────────────────────────
 
-/// Start (register) a Contrix Applet channel. Mounts no extra HTTP listener
+/// Build the restart-safe monotonic [`SeqAllocator`] for an applet.
+///
+/// The backing [`SeqStore`] is a file under
+/// `{savfox_home}/gateway/cokret-applet-seq/{config_id}.seq`; the allocator
+/// is keyed `applet:{config_id}:actor_seq` so each applet has an independent
+/// monotonic counter. Persisting the high-water mark makes `actor_seq`
+/// restart-safe — the previous `timestamp_millis()` approach was neither
+/// monotonic across rapid calls nor durable across restarts.
+fn build_applet_seq_allocator(
+    savfox_home: &std::path::Path,
+    config_id: &str,
+) -> anyhow::Result<cokret_bridge_runtime::SeqAllocator> {
+    let dir = savfox_home
+        .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
+        .join("cokret-applet-seq");
+    // Sanitize the config id for use as a filename (ids are operator-defined
+    // and may contain path separators / colons).
+    let safe_id: String = config_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let path = dir.join(format!("{safe_id}.seq"));
+    let store = savfox_channels::cokret::FileSeqStore::shared(path)
+        .map_err(|e| anyhow::anyhow!("cokret applet seq store: {e}"))?;
+    Ok(cokret_bridge_runtime::SeqAllocator::new(
+        store,
+        format!("applet:{config_id}:actor_seq"),
+    ))
+}
+
+/// Start (register) a Cokret Applet channel. Mounts no extra HTTP listener
 /// — the routes are added to the main savfox-gateway-server `Router` in
 /// `server.rs`. Returns once registry insertion is done.
-pub(crate) async fn start_contrix_applet_channel(
+pub(crate) async fn start_cokret_applet_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
-    _channel: &Arc<GatewayChannel>,
+    channel: &Arc<GatewayChannel>,
     _session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let applet_cfg = ContrixAppletConfig::from_channel_config(config).ok_or_else(|| {
-        anyhow::anyhow!("Contrix applet channel '{}' missing or invalid", config.id)
+    let applet_cfg = CokretAppletConfig::from_channel_config(config).ok_or_else(|| {
+        anyhow::anyhow!("Cokret applet channel '{}' missing or invalid", config.id)
     })?;
     applet_cfg.validate().with_context(|| {
         format!(
-            "Contrix applet channel '{}' validation failed",
+            "Cokret applet channel '{}' validation failed",
             applet_cfg.id
         )
     })?;
+
+    // Restart-safe monotonic `actor_seq` source for outbound events. The
+    // allocator persists its high-water mark in a per-applet file under the
+    // savfox home dir, so sequence numbers never regress across restarts
+    // (replacing the old `timestamp_millis()` hack). `SeqAllocator` is keyed
+    // per-applet (`config.id`) so multiple applets don't share a counter.
+    let savfox_home = channel.config().savfox_home.clone();
+    let seq = build_applet_seq_allocator(&savfox_home, &applet_cfg.id)?;
+
     let state = AppletChannelState {
         config: applet_cfg,
         runtime: Mutex::new(AppletRuntimeState::default()),
+        seq,
     };
     info!(
-        "contrix: applet channel '{}' registered (applet_id={}, service_did={})",
+        "cokret: applet channel '{}' registered (applet_id={}, service_did={})",
         state.config.id, state.config.applet_id, state.config.service_did
     );
     register_channel(state)?;
@@ -1048,48 +1186,49 @@ pub(crate) async fn start_contrix_applet_channel(
 }
 
 /// Loader used at gateway startup to count + log configured applet channels
-/// without booting them (booting is `start_contrix_applet_channel`).
-pub(crate) async fn log_contrix_applet_configs(savfox_home: &std::path::PathBuf) {
-    match load_contrix_applet_configs(savfox_home).await {
+/// without booting them (booting is `start_cokret_applet_channel`).
+pub(crate) async fn log_cokret_applet_configs(savfox_home: &std::path::PathBuf) {
+    match load_cokret_applet_configs(savfox_home).await {
         Ok(configs) => {
             for cfg in configs {
                 info!(
-                    "contrix applet config '{}': applet_id={}, service_did={}, protocols={:?}",
+                    "cokret applet config '{}': applet_id={}, service_did={}, protocols={:?}",
                     cfg.id, cfg.applet_id, cfg.service_did, cfg.protocols,
                 );
             }
         }
         Err(err) => {
-            warn!("contrix applet: failed to load configs: {err}");
+            warn!("cokret applet: failed to load configs: {err}");
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use savfox_core::config::channel_store::ChannelConfig;
+
+    use super::*;
 
     fn valid_channel_config() -> ChannelConfig {
         ChannelConfig {
             id: "applet-test".into(),
-            kind: "contrix".into(),
+            kind: "cokret".into(),
             slug: "applet".into(),
             name: "Applet".into(),
             enabled: true,
             config: json!({
                 "mode": "applet",
-                "appletId": "cx:applet:21532600-0000-7000-8000-000000000000",
+                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
                 "serviceDid": "did:web:bridge.example",
                 "controllerDid": "did:webvh:example.com:admin",
                 "baseUrl": "https://savfox.example/applet-test",
-                "botActorId": "did:web:bridge.example#bot",
-                "contrixServerUrl": "https://contrix.example.org",
+                "botActorId": "did:web:bridge.example:bot",
+                "cokretServerUrl": "https://cokret.example.org",
                 "accessToken": "test-bearer",
                 "protocols": ["slack"],
                 "namespaces": {
-                    "actors": [{"pattern": "did:web:bridge.example#ghost-*", "exclusive": true}],
-                    "realms": [{"pattern": "cx:realm:*", "exclusive": true}],
+                    "actors": [{"pattern": "did:web:bridge.example:ghost:*", "exclusive": true}],
+                    "realms": [{"pattern": "ck:realm:*", "exclusive": true}],
                     "handles": []
                 }
             }),
@@ -1105,21 +1244,32 @@ mod tests {
     async fn start_registers_applet_into_registry() {
         let cfg = valid_channel_config();
         // We can't easily build a full GatewayChannel/SessionStore in unit
-        // scope — but `start_contrix_applet_channel` only uses them for
+        // scope — but `start_cokret_applet_channel` only uses them for
         // logging context and accepts &Arc<...>. We use placeholder Arcs.
         // Actually it doesn't use them at all in Phase 6, so dummies are fine.
         // We bypass by calling internals directly:
-        let applet = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
+        let applet = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
         applet.validate().expect("validate");
+        let tmp = tempfile::tempdir().expect("tempdir");
         let state = AppletChannelState {
             config: applet.clone(),
             runtime: Mutex::new(AppletRuntimeState::default()),
+            seq: build_applet_seq_allocator(tmp.path(), &applet.id).expect("seq allocator"),
         };
         register_channel(state).expect("register");
         let resolved = lookup_by_config_id(&applet.id)
             .expect("lookup")
             .expect("registered");
         assert_eq!(resolved.config.applet_id, applet.applet_id);
+    }
+
+    #[test]
+    fn seq_allocator_is_strictly_increasing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let seq = build_applet_seq_allocator(tmp.path(), "applet-seq-test").expect("seq allocator");
+        let a = seq.alloc().expect("alloc a");
+        let b = seq.alloc().expect("alloc b");
+        assert!(b > a, "expected strictly increasing seq: a={a}, b={b}");
     }
 
     #[test]

@@ -141,7 +141,7 @@ fn nodes_inner(initial_node: Option<String>) -> Element {
         div { class: "split-view {detail_class}",
             // Left: node list
             div { class: "split-view__list",
-                div { style: "padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;",
+                div { class: "panel-header",
                     h2 { style: "font-size:16px;font-weight:600;", "Nodes" }
                     button {
                         onclick: move |_| refresh_tick += 1,
@@ -379,7 +379,7 @@ fn render_node_detail(
     rsx! {
         div { style: "display:flex;flex-direction:column;height:100%;",
             // Header
-            div { style: "padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;",
+            div { class: "panel-header",
                 div { style: "display:flex;align-items:center;gap:8px;",
                     span { style: "font-weight:600;font-size:16px;", "{node.name.as_deref().unwrap_or(&node_id)}" }
                     Chip { label: status.to_string(), variant: status_variant }

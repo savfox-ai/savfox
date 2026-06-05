@@ -1506,6 +1506,23 @@ pub(crate) async fn handle_channels_logout(
                 }
             }
         }
+        "cokret" => {
+            for saved in load_saved_channel_configs(channel).await {
+                if !channel_platform_matches_kind(&saved.kind, "cokret") {
+                    continue;
+                }
+                // Account mode: abort long-poll listener tasks.
+                let listeners = crate::channels::cokret::stop_cokret_account_listeners(&saved.id);
+                // Applet mode: drop the registry entry so a stale bearer/
+                // namespace can no longer match inbound transactions.
+                let removed_applet =
+                    crate::channels::cokret_applet::remove_cokret_applet_channel(&saved.id)
+                        .unwrap_or(false);
+                if listeners > 0 || removed_applet {
+                    stopped = stopped.saturating_add(1);
+                }
+            }
+        }
         "whatsapp" | "signal" | "mattermost" | "googlechat" | "irc" | "line" | "dingtalk"
         | "zalo" | "nextcloud" | "twitch" | "tlon" | "qq" | "wechat" => {
             // These platforms may not have runtime secrets yet

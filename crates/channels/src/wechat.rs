@@ -2,18 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use savfox_core::channel::ChannelAction;
-use serde_json::{Map, Value, json};
-use tracing::warn;
+use serde_json::{Value, json};
 
-fn non_empty(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        map.get(*key)
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    })
-}
+use crate::base::non_empty;
 
 #[derive(Debug, Clone)]
 pub struct WeChatChannelConfig {
@@ -232,14 +223,7 @@ pub async fn send_webhook_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "WeChat bridge API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "WeChat bridge API error").await;
     Ok(())
 }
 

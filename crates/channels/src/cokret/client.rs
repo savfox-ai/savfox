@@ -1,5 +1,5 @@
-//! Thin wrapper around [`contrix_http_client::Client`] that pre-attaches a
-//! bearer `cx.session.grant` access token for one Contrix account.
+//! Thin wrapper around [`cokret_http_client::Client`] that pre-attaches a
+//! bearer `ck.session.grant` access token for one Cokret account.
 //!
 //! All HTTP / retry / canonical-bytes / NDJSON line splitting logic lives in
 //! the upstream SDK; this type only exists so the gateway runtime never has
@@ -7,56 +7,57 @@
 //!
 //! ### Phase 7 update
 //!
-//! Phase 6 had a local `ContrixFrameStream` that did NDJSON line splitting
+//! Phase 6 had a local `CokretFrameStream` that did NDJSON line splitting
 //! with `tokio::io::AsyncBufReadExt::lines()` and `serde_json::from_str`.
 //! That code is now obsolete — SDK commit `bf29056` ships
 //! `Client::account_subscribe_frames(&SyncReqBody) -> Stream<AccountSubscribeFrame>`
 //! (S-6) plus `AccountSubscribeFrame::from_ndjson_line` (S-3). We delegate
-//! directly. `ContrixFrameStream` is retained as a thin newtype alias for
+//! directly. `CokretFrameStream` is retained as a thin newtype alias for
 //! API stability of downstream callers.
 
 use std::pin::Pin;
 
 use anyhow::Context;
-use contrix::Ed25519MoveSigner;
-use contrix_core::{
+use cokret::Ed25519MoveSigner;
+use cokret_core::{
     AccountSubscribeFrame, Event, EventsSubmitResBody, ServerDescription, SyncReqBody,
 };
-use contrix_http_client::{Auth, Client, ClientBuilder};
-use contrix_identifiers::{DeviceId, Did};
+use cokret_http_client::{Auth, Client, ClientBuilder};
+use cokret_identifiers::{DeviceId, Did};
 use futures_util::Stream;
 use url::Url;
 
-use super::session::{ContrixSession, login_with_signer};
+use super::session::{CokretSession, login_with_signer};
 
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
-pub struct ContrixHttpClient {
+pub struct CokretHttpClient {
     inner: Client,
 }
 
 /// Stream of [`AccountSubscribeFrame`] yielded by
-/// [`ContrixHttpClient::account_subscribe_stream`].
+/// [`CokretHttpClient::account_subscribe_stream`].
 ///
 /// Each item is a fully-parsed frame (transient line decode errors come
 /// through as `Err` but the stream continues). Use
 /// [`futures_util::StreamExt::next`] to pull frames.
-pub type ContrixFrameStream =
+pub type CokretFrameStream =
     Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
 
-impl ContrixHttpClient {
+impl CokretHttpClient {
     /// Build a new HTTP client bound to `base_url`, authenticated via the
-    /// given bearer access token (typically a `cx.session.grant`).
+    /// given bearer access token (typically a `ck.session.grant`).
     pub fn new(base_url: &str, access_token: &str) -> anyhow::Result<Self> {
-        let url = Url::parse(base_url)
-            .with_context(|| format!("invalid Contrix base_url: {base_url}"))?;
+        let url =
+            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
         let inner = ClientBuilder::new(url)
             .auth(Auth::Bearer(access_token.to_owned()))
             .build()
-            .map_err(|err| anyhow::anyhow!("failed to build Contrix HTTP client: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("failed to build Cokret HTTP client: {err}"))?;
         Ok(Self { inner })
     }
 
+    #[must_use]
     pub fn inner(&self) -> &Client {
         &self.inner
     }
@@ -67,7 +68,7 @@ impl ContrixHttpClient {
     /// `AuthManager::login_did_proof` (S-2) to obtain a session grant,
     /// then rebuilds the authenticated `Client` carrying the
     /// `Authorization: Bearer <grant>` header. Returns both the wrapped
-    /// client and the [`ContrixSession`] (so callers can track expiry).
+    /// client and the [`CokretSession`] (so callers can track expiry).
     pub async fn login(
         base_url: &str,
         signer: &Ed25519MoveSigner,
@@ -75,9 +76,9 @@ impl ContrixHttpClient {
         device_id: DeviceId,
         verification_method: &str,
         audience: &str,
-    ) -> anyhow::Result<(Self, ContrixSession)> {
-        let url = Url::parse(base_url)
-            .with_context(|| format!("invalid Contrix base_url: {base_url}"))?;
+    ) -> anyhow::Result<(Self, CokretSession)> {
+        let url =
+            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
         let bootstrap = ClientBuilder::new(url.clone())
             .build()
             .map_err(|err| anyhow::anyhow!("bootstrap HTTP client: {err}"))?;
@@ -99,8 +100,8 @@ impl ContrixHttpClient {
 
     /// Re-bind the bearer token in-place (after a re-login).
     pub fn refresh_bearer(&mut self, base_url: &str, access_token: &str) -> anyhow::Result<()> {
-        let url = Url::parse(base_url)
-            .with_context(|| format!("invalid Contrix base_url: {base_url}"))?;
+        let url =
+            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
         self.inner = ClientBuilder::new(url)
             .auth(Auth::Bearer(access_token.to_owned()))
             .build()
@@ -117,14 +118,14 @@ impl ContrixHttpClient {
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
 
-    /// `GET /api/v1/account/subscribe` — returns a [`ContrixFrameStream`]
+    /// `GET /api/v1/account/subscribe` — returns a [`CokretFrameStream`]
     /// that yields fully-parsed `AccountSubscribeFrame` items. Delegates
     /// to SDK `Client::account_subscribe_frames` (S-6).
     pub async fn account_subscribe_stream(
         &self,
         after: Option<&str>,
         catchup: bool,
-    ) -> anyhow::Result<ContrixFrameStream> {
+    ) -> anyhow::Result<CokretFrameStream> {
         use futures_util::StreamExt;
 
         let req = SyncReqBody {
@@ -139,7 +140,7 @@ impl ContrixHttpClient {
             .inner
             .account_subscribe_frames(&req)
             .await
-            .map_err(|err| anyhow::anyhow!("contrix account_subscribe_frames: {err}"))?;
+            .map_err(|err| anyhow::anyhow!("cokret account_subscribe_frames: {err}"))?;
         let mapped = stream.map(|item| item.map_err(|err| anyhow::anyhow!("frame: {err}")));
         Ok(Box::pin(mapped))
     }

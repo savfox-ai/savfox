@@ -49,12 +49,7 @@ pub async fn send_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        let body_str = String::from_utf8_lossy(&body);
-        warn!("Slack API error: HTTP {status}: {body_str}");
-    }
+    crate::http::warn_on_error(response, "Slack API error").await;
 
     Ok(())
 }

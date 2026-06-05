@@ -99,13 +99,19 @@ fn parse_string_map(value: Option<&Value>) -> std::collections::BTreeMap<String,
 }
 
 fn terminal_pty_key_from_params(params: &Value) -> Result<TerminalPtySessionKey, String> {
-    let agent = params
+    let agent_raw = params
         .get("agent")
         .or_else(|| params.get("agent_id"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("default")
+        .unwrap_or("default");
+    // The agent id becomes a filesystem path segment under
+    // `savfox_home/terminal-agents/<agent>/pty/...` when a managed PTY is
+    // spawned. Validate it as a single safe segment so a value like
+    // `../../../../etc` cannot escape savfox_home (path traversal).
+    let agent = crate::security::path_safety::safe_filename_segment(agent_raw)
+        .ok_or_else(|| format!("invalid agent identifier: {agent_raw:?}"))?
         .to_owned();
     let session_id = validate_uuid_v7_session_id(
         params
@@ -1424,12 +1430,11 @@ async fn resolve_agent_file_stem(channel: &GatewayChannel, agent_ref: &str) -> O
         return None;
     }
 
-    if let Some(safe_ref) = sanitize_agent_file_stem(trimmed) {
-        if let Some(direct) = safe_join(&dir, &safe_ref, ".json") {
-            if direct.exists() {
-                return Some(safe_ref);
-            }
-        }
+    if let Some(safe_ref) = sanitize_agent_file_stem(trimmed)
+        && let Some(direct) = safe_join(&dir, &safe_ref, ".json")
+        && direct.exists()
+    {
+        return Some(safe_ref);
     }
 
     let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
@@ -2327,11 +2332,12 @@ pub(crate) async fn handle_agent_avatar_get(params: &Value, channel: &GatewayCha
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::{
         parse_pty_size, parse_string_array, parse_string_map, terminal_cleanup_targets,
         terminal_pty_key_from_params,
     };
-    use serde_json::json;
 
     #[tokio::test]
     async fn terminal_cleanup_targets_can_find_session_across_agents() {
@@ -2383,7 +2389,7 @@ mod tests {
 
         assert_eq!(
             parse_string_array(Some(&json!([" run ", "", 1, "now"]))),
-            Some(vec!["run".to_string(), "now".to_string()])
+            Some(vec!["run".to_owned(), "now".to_owned()])
         );
         assert_eq!(
             parse_string_map(Some(&json!({
@@ -2392,8 +2398,8 @@ mod tests {
                 "": "skip"
             }))),
             std::collections::BTreeMap::from([
-                ("COUNT".to_string(), String::new()),
-                ("FOO".to_string(), "bar".to_string()),
+                ("COUNT".to_owned(), String::new()),
+                ("FOO".to_owned(), "bar".to_owned()),
             ])
         );
 

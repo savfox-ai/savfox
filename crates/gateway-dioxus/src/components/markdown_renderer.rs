@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
+use std::sync::{LazyLock, Once};
 
 use dioxus::prelude::*;
 use pulldown_cmark::html::push_html;
@@ -76,6 +77,7 @@ impl MarkdownLruCache {
 /// - markdown extensions (tables, task lists, footnotes)
 #[component]
 pub fn MarkdownRenderer(content: String) -> Element {
+    inject_markdown_styles_once();
     let rendered_html = render_markdown_cached(&content);
 
     rsx! {
@@ -83,8 +85,23 @@ pub fn MarkdownRenderer(content: String) -> Element {
             class: "markdown-content",
             dangerous_inner_html: rendered_html
         }
-        style { {MARKDOWN_STYLES} }
     }
+}
+
+/// Injects the markdown stylesheet into the document head exactly once,
+/// instead of emitting an inline `<style>` per rendered message.
+fn inject_markdown_styles_once() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(MARKDOWN_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
+    });
 }
 
 fn render_markdown_cached(content: &str) -> String {
@@ -127,14 +144,18 @@ fn render_markdown_html(content: &str) -> String {
     sanitize_html_output(&html)
 }
 
-fn sanitize_html_output(html: &str) -> String {
-    let script_re =
-        Regex::new(r"(?is)<script\b[^>]*>.*?</script\s*>").expect("script regex should compile");
-    let no_script = script_re.replace_all(html, "");
+static SCRIPT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?is)<script\b[^>]*>.*?</script\s*>").expect("script regex should compile")
+});
 
-    let event_handler_re = Regex::new(r#"(?is)\son[a-z0-9_-]+\s*=\s*(".*?"|'.*?'|[^\s>]+)"#)
-        .expect("event handler regex should compile");
-    event_handler_re.replace_all(&no_script, "").into_owned()
+static EVENT_HANDLER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?is)\son[a-z0-9_-]+\s*=\s*(".*?"|'.*?'|[^\s>]+)"#)
+        .expect("event handler regex should compile")
+});
+
+fn sanitize_html_output(html: &str) -> String {
+    let no_script = SCRIPT_RE.replace_all(html, "");
+    EVENT_HANDLER_RE.replace_all(&no_script, "").into_owned()
 }
 
 fn cache_hash(input: &str) -> u64 {

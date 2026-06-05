@@ -107,6 +107,10 @@ async fn poll_for_token(
     let url = format!("{auth_base_url}/deviceauth/token");
     let max_wait = Duration::from_secs(15 * 60);
     let start = Instant::now();
+    // Clamp the server-provided polling interval to sane bounds so a hostile or
+    // misbehaving server cannot stall the login (huge interval) or trigger a
+    // tight CPU/network poll loop (zero interval).
+    let interval = interval.clamp(1, 60);
 
     loop {
         let body = serde_json::to_string(&TokenPollReq {

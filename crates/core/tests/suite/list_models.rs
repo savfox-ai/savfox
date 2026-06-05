@@ -48,5 +48,5 @@ fn expected_models_for_api_key() -> Vec<ModelPreset> {
 }
 
 fn expected_models_for_chatgpt() -> Vec<ModelPreset> {
-    all_model_presets().to_vec()
+    all_model_presets().clone()
 }

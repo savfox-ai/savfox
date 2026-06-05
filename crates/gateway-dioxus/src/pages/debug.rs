@@ -97,29 +97,40 @@ pub fn Debug() -> Element {
         async move { ws.call::<serde_json::Value>("models.list", None).await.ok() }
     });
 
-    let status_json = status_data
-        .read()
-        .as_ref()
-        .and_then(|s| s.as_ref())
-        .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
-        .unwrap_or_else(|| "No status data".to_string());
+    // Cache the pretty-printed JSON; serialization is recomputed only when the
+    // underlying resource output changes, not on every unrelated re-render.
+    let status_json_memo = use_memo(move || {
+        status_data
+            .read()
+            .as_ref()
+            .and_then(|s| s.as_ref())
+            .map(|s| serde_json::to_string_pretty(s).unwrap_or_default())
+            .unwrap_or_else(|| "No status data".to_string())
+    });
+    let status_json = status_json_memo();
 
-    let health_json = health_data
-        .read()
-        .as_ref()
-        .and_then(|h| h.as_ref())
-        .map(|h| {
-            serde_json::to_string_pretty(&json!({"status": h.status, "version": h.version}))
-                .unwrap_or_default()
-        })
-        .unwrap_or_else(|| "No health data".to_string());
+    let health_json_memo = use_memo(move || {
+        health_data
+            .read()
+            .as_ref()
+            .and_then(|h| h.as_ref())
+            .map(|h| {
+                serde_json::to_string_pretty(&json!({"status": h.status, "version": h.version}))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_else(|| "No health data".to_string())
+    });
+    let health_json = health_json_memo();
 
-    let models_json = models_data
-        .read()
-        .as_ref()
-        .and_then(|m| m.as_ref())
-        .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
-        .unwrap_or_else(|| "No models data".to_string());
+    let models_json_memo = use_memo(move || {
+        models_data
+            .read()
+            .as_ref()
+            .and_then(|m| m.as_ref())
+            .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
+            .unwrap_or_else(|| "No models data".to_string())
+    });
+    let models_json = models_json_memo();
 
     let history = call_history();
 

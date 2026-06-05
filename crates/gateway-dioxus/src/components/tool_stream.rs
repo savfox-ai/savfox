@@ -36,7 +36,7 @@ pub fn ToolStream(calls: Vec<ToolCall>) -> Element {
                 "Tool Calls ({calls.len()})"
             }
             for call in calls.iter() {
-                ToolCallEntry { call: call.clone() }
+                ToolCallEntry { key: "{call.id}", call: call.clone() }
             }
         }
     }

@@ -1,38 +1,37 @@
-//! Contrix channel runtime — phase 1 only.
+//! Cokret channel runtime — phase 1 only.
 //!
 //! Owns one async task per (channel, account) pair. Each task:
 //!
 //! 1. Opens an NDJSON long-poll against `/api/v1/account/subscribe`.
-//! 2. Reads frames one at a time from the SDK-provided
-//!    [`ContrixFrameStream`] (Stream of `AccountSubscribeFrame`).
-//! 3. Walks `delta` frames and extracts `cx.message.create` events.
+//! 2. Reads frames one at a time from the SDK-provided [`CokretFrameStream`] (Stream of
+//!    `AccountSubscribeFrame`).
+//! 3. Walks `delta` frames and extracts `ck.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
-//! Outbound sends go through [`send_to_contrix_account`].
+//! Outbound sends go through [`send_to_cokret_account`].
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context;
-use contrix_core::AccountSubscribeFrameKind;
-use contrix_identifiers::{DeviceId, Did};
-use savfox_channels::contrix::{
-    ContrixAccountConfig, ContrixChannelConfig, ContrixFrameStream, ContrixHttpClient,
-    ContrixInboundEvent, MessageCreateRequest, build_message_create_event, load_ed25519_signer,
-    parse_delta_frame_for_account, resolve_contrix_outbound_account,
+use cokret_core::AccountSubscribeFrameKind;
+use cokret_identifiers::{DeviceId, Did};
+use savfox_channels::cokret::{
+    CokretAccountConfig, CokretChannelConfig, CokretFrameStream, CokretHttpClient,
+    CokretInboundEvent, MessageCreateRequest, build_message_create_event, load_ed25519_signer,
+    parse_delta_frame_for_account, resolve_cokret_outbound_account,
 };
 use savfox_core::channel::ChannelAction;
 use tracing::{debug, info, warn};
 
-use super::ChannelRegistry;
-use super::runtime;
+use super::{ChannelRegistry, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
 
 /// Per-(channel, account) runtime handles. Indexed by `{channel_id}::{account_id}`.
 #[derive(Default)]
-struct ContrixRuntimeState {
+struct CokretRuntimeState {
     handles: HashMap<String, tokio::task::JoinHandle<()>>,
 }
 
@@ -73,38 +72,38 @@ impl EventDedupe {
     }
 }
 
-fn runtime_state() -> &'static StdMutex<ContrixRuntimeState> {
-    static STATE: OnceLock<StdMutex<ContrixRuntimeState>> = OnceLock::new();
-    STATE.get_or_init(|| StdMutex::new(ContrixRuntimeState::default()))
+fn runtime_state() -> &'static StdMutex<CokretRuntimeState> {
+    static STATE: OnceLock<StdMutex<CokretRuntimeState>> = OnceLock::new();
+    STATE.get_or_init(|| StdMutex::new(CokretRuntimeState::default()))
 }
 
 fn task_key(channel_id: &str, account_id: &str) -> String {
     format!("{channel_id}::{account_id}")
 }
 
-pub(crate) async fn start_contrix_channel(
+pub(crate) async fn start_cokret_channel(
     config: &savfox_core::config::channel_store::ChannelConfig,
     _registry: &ChannelRegistry,
     gateway_channel: &Arc<GatewayChannel>,
     session_store: &Arc<SessionStore>,
 ) -> anyhow::Result<()> {
-    let contrix_config = ContrixChannelConfig::from_channel_config(config)
-        .ok_or_else(|| anyhow::anyhow!("Contrix channel config must be an object"))?;
-    contrix_config
+    let cokret_config = CokretChannelConfig::from_channel_config(config)
+        .ok_or_else(|| anyhow::anyhow!("Cokret channel config must be an object"))?;
+    cokret_config
         .validate()
-        .with_context(|| format!("Contrix channel '{}' config validation failed", config.id))?;
+        .with_context(|| format!("Cokret channel '{}' config validation failed", config.id))?;
 
     info!(
-        "contrix: channel '{}' validated; {} account(s), base_url='{}'",
-        contrix_config.id,
-        contrix_config.accounts.len(),
-        contrix_config.base_url,
+        "cokret: channel '{}' validated; {} account(s), base_url='{}'",
+        cokret_config.id,
+        cokret_config.accounts.len(),
+        cokret_config.base_url,
     );
 
-    for account in &contrix_config.accounts {
+    for account in &cokret_config.accounts {
         if account.listen {
             spawn_account_listener(
-                contrix_config.clone(),
+                cokret_config.clone(),
                 account.clone(),
                 Arc::clone(gateway_channel),
                 Arc::clone(session_store),
@@ -115,9 +114,36 @@ pub(crate) async fn start_contrix_channel(
     Ok(())
 }
 
+/// Abort and drop all account-subscribe listener tasks belonging to a channel.
+///
+/// Called when a Cokret channel is disabled/deleted so the long-poll tasks
+/// (and their `JoinHandle`s) don't leak and keep dispatching events for a
+/// channel the operator already removed. Returns the number of tasks stopped.
+pub(crate) fn stop_cokret_account_listeners(channel_id: &str) -> usize {
+    let prefix = format!("{channel_id}::");
+    let Ok(mut state) = runtime_state().lock() else {
+        warn!("cokret: runtime state mutex poisoned; cannot stop listeners for '{channel_id}'");
+        return 0;
+    };
+    let keys: Vec<String> = state
+        .handles
+        .keys()
+        .filter(|key| key.starts_with(&prefix))
+        .cloned()
+        .collect();
+    let mut stopped = 0;
+    for key in keys {
+        if let Some(handle) = state.handles.remove(&key) {
+            handle.abort();
+            stopped += 1;
+        }
+    }
+    stopped
+}
+
 fn spawn_account_listener(
-    channel: ContrixChannelConfig,
-    account: ContrixAccountConfig,
+    channel: CokretChannelConfig,
+    account: CokretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
@@ -126,7 +152,7 @@ fn spawn_account_listener(
         run_account_subscribe_loop(channel, account, gateway_channel, session_store).await;
     });
     let Ok(mut state) = runtime_state().lock() else {
-        warn!("contrix: runtime state mutex poisoned; aborting listener task '{key}'");
+        warn!("cokret: runtime state mutex poisoned; aborting listener task '{key}'");
         handle.abort();
         return;
     };
@@ -136,8 +162,8 @@ fn spawn_account_listener(
 }
 
 async fn run_account_subscribe_loop(
-    channel: ContrixChannelConfig,
-    account: ContrixAccountConfig,
+    channel: CokretChannelConfig,
+    account: CokretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
@@ -153,7 +179,7 @@ async fn run_account_subscribe_loop(
         Ok(client) => client,
         Err(err) => {
             warn!(
-                "contrix: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
+                "cokret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
                 account.id, channel.id
             );
             return;
@@ -161,7 +187,7 @@ async fn run_account_subscribe_loop(
     };
 
     loop {
-        runtime::record_channel_probe("contrix", "tick").await;
+        runtime::record_channel_probe("cokret", "tick").await;
         let initial = cursor.is_none();
         match client
             .account_subscribe_stream(cursor.as_deref(), initial)
@@ -189,7 +215,7 @@ async fn run_account_subscribe_loop(
                     }
                     StreamOutcome::Unauthorized => {
                         warn!(
-                            "contrix: account '{}' became unauthorized mid-stream — stopping",
+                            "cokret: account '{}' became unauthorized mid-stream — stopping",
                             account.id
                         );
                         return;
@@ -201,7 +227,7 @@ async fn run_account_subscribe_loop(
             }
             Err(err) => {
                 warn!(
-                    "contrix: subscribe call for '{}/{}' failed: {err}",
+                    "cokret: subscribe call for '{}/{}' failed: {err}",
                     channel.id, account.id
                 );
                 sleep_with_backoff(&mut backoff).await;
@@ -218,9 +244,9 @@ enum StreamOutcome {
 }
 
 async fn consume_stream(
-    mut stream: ContrixFrameStream,
-    channel: &ContrixChannelConfig,
-    account: &ContrixAccountConfig,
+    mut stream: CokretFrameStream,
+    channel: &CokretChannelConfig,
+    account: &CokretAccountConfig,
     cursor: &mut Option<String>,
     dedupe: &mut EventDedupe,
     gateway_channel: &Arc<GatewayChannel>,
@@ -233,7 +259,7 @@ async fn consume_stream(
             None => return StreamOutcome::Reconnect,
             Some(Err(err)) => {
                 debug!(
-                    "contrix: stream read error on '{}/{}': {err}",
+                    "cokret: stream read error on '{}/{}': {err}",
                     channel.id, account.id
                 );
                 return StreamOutcome::Backoff;
@@ -263,7 +289,7 @@ async fn consume_stream(
                 }
             }
             AccountSubscribeFrameKind::CatchupComplete => {
-                debug!("contrix: '{}/{}' catchup complete", channel.id, account.id);
+                debug!("cokret: '{}/{}' catchup complete", channel.id, account.id);
             }
             AccountSubscribeFrameKind::Frontier => {
                 // cursor already updated above
@@ -271,14 +297,14 @@ async fn consume_stream(
             AccountSubscribeFrameKind::Heartbeat => {}
             AccountSubscribeFrameKind::Dropped => {
                 warn!(
-                    "contrix: '{}/{}' stream dropped — resyncing",
+                    "cokret: '{}/{}' stream dropped — resyncing",
                     channel.id, account.id
                 );
                 return StreamOutcome::ResetCursor;
             }
             AccountSubscribeFrameKind::ResyncRequired => {
                 warn!(
-                    "contrix: '{}/{}' resync required — resetting cursor",
+                    "cokret: '{}/{}' resync required — resetting cursor",
                     channel.id, account.id
                 );
                 return StreamOutcome::ResetCursor;
@@ -291,9 +317,9 @@ async fn consume_stream(
 }
 
 async fn dispatch_to_agent(
-    event: ContrixInboundEvent,
-    channel: &ContrixChannelConfig,
-    account: &ContrixAccountConfig,
+    event: CokretInboundEvent,
+    channel: &CokretChannelConfig,
+    account: &CokretAccountConfig,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
@@ -303,13 +329,13 @@ async fn dispatch_to_agent(
     let realm_id = event.realm_id.clone();
     let flow_id = event.flow_id.clone();
     let thread_id = event.thread_root_id.clone();
-    let body = event.body.clone();
+    let body = event.body;
 
     tokio::spawn(async move {
         runtime::spawn_start_thread_pipeline_with_meta_coordinated(
             gateway_channel,
             session_store,
-            "contrix",
+            "cokret",
             realm_id.clone(),
             body,
             Some(sender.clone()),
@@ -334,26 +360,26 @@ async fn sleep_with_backoff(backoff: &mut Duration) {
     *backoff = Duration::from_secs(next.max(1));
 }
 
-/// Phase 8 (T8.D): build an authenticated `ContrixHttpClient` for one
+/// Phase 8 (T8.D): build an authenticated `CokretHttpClient` for one
 /// account. If `account.key_ref` is set, runs DID-proof login (S-2) to
-/// obtain a `cx.session.grant`; otherwise builds a bare-bearer client
+/// obtain a `ck.session.grant`; otherwise builds a bare-bearer client
 /// from the static `access_token`.
 async fn construct_account_client(
-    channel: &ContrixChannelConfig,
-    account: &ContrixAccountConfig,
-) -> anyhow::Result<ContrixHttpClient> {
+    channel: &CokretChannelConfig,
+    account: &CokretAccountConfig,
+) -> anyhow::Result<CokretHttpClient> {
     if let Some(key_ref) = &account.key_ref {
         let vm = account
             .verification_method
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
         let audience = account
-            .contrix_server_did
+            .cokret_server_did
             .clone()
             .or_else(|| channel.service_did.clone())
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "contrix account '{}' has key_ref but no contrix_server_did or \
+                    "cokret account '{}' has key_ref but no cokret_server_did or \
                      channel.service_did for login audience",
                     account.id
                 )
@@ -363,7 +389,7 @@ async fn construct_account_client(
             .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
         let device = DeviceId::new(account.device_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid device_id: {err}"))?;
-        let (client, _session) = ContrixHttpClient::login(
+        let (client, _session) = CokretHttpClient::login(
             &channel.base_url,
             &signer,
             principal,
@@ -373,37 +399,37 @@ async fn construct_account_client(
         )
         .await?;
         info!(
-            "contrix: account '{}' logged in via DID-proof; audience='{}'",
+            "cokret: account '{}' logged in via DID-proof; audience='{}'",
             account.id, audience
         );
         Ok(client)
     } else {
-        ContrixHttpClient::new(&channel.base_url, &account.access_token)
+        CokretHttpClient::new(&channel.base_url, &account.access_token)
     }
 }
 
-/// Send a `cx.message.create` event as one of the channel's configured
+/// Send a `ck.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
 /// `realm_id` selects the account via
-/// [`ContrixChannelConfig::select_send_account`]. `flow_id` falls back to the
+/// [`CokretChannelConfig::select_send_account`]. `flow_id` falls back to the
 /// account's `default_flow_id` if `None`.
-pub(crate) async fn send_to_contrix_account(
+pub(crate) async fn send_to_cokret_account(
     savfox_home: &std::path::PathBuf,
     realm_id: &str,
     flow_id: Option<&str>,
     body: &str,
 ) -> anyhow::Result<()> {
-    let Some((channel, account)) = resolve_contrix_outbound_account(savfox_home, realm_id).await?
+    let Some((channel, account)) = resolve_cokret_outbound_account(savfox_home, realm_id).await?
     else {
-        anyhow::bail!("no Contrix channel configured for realm {realm_id}");
+        anyhow::bail!("no Cokret channel configured for realm {realm_id}");
     };
     let flow = flow_id
         .map(str::to_owned)
         .or_else(|| account.default_flow_id.clone())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Contrix account '{}' has no default_flow_id and caller did not supply one",
+                "Cokret account '{}' has no default_flow_id and caller did not supply one",
                 account.id
             )
         })?;
@@ -423,7 +449,7 @@ pub(crate) async fn send_to_contrix_account(
 
     // Phase 8 (T8.E): attach capability grant event_id when configured.
     if let Some(grant_path) = &account.grant_event_path {
-        let grant = savfox_channels::contrix::load_and_verify_grant(
+        let grant = savfox_channels::cokret::load_and_verify_grant(
             grant_path,
             &account.principal_id,
             account.default_realm_id.as_deref(),
@@ -431,14 +457,14 @@ pub(crate) async fn send_to_contrix_account(
         .await
         .with_context(|| {
             format!(
-                "Contrix account '{}' failed to load capability grant {}",
+                "Cokret account '{}' failed to load capability grant {}",
                 account.id,
                 grant_path.display()
             )
         })?;
-        if !grant.covers_action("cx.message.create") {
+        if !grant.covers_action("ck.message.create") {
             anyhow::bail!(
-                "Contrix account '{}' capability grant {} does not cover cx.message.create",
+                "Cokret account '{}' capability grant {} does not cover ck.message.create",
                 account.id,
                 grant_path.display()
             );
@@ -453,16 +479,33 @@ pub(crate) async fn send_to_contrix_account(
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
         let signer =
-            savfox_channels::contrix::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
-        savfox_channels::contrix::sign_outbound_event(&mut event, &signer, &vm)?;
+            savfox_channels::cokret::load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
+        savfox_channels::cokret::sign_outbound_event(&mut event, &signer, &vm)?;
     }
 
     let response = client.submit_event(&event).await?;
+    // A transport-level 200 does not mean the event was accepted: the server
+    // may reject it at the business layer (e.g. missing proofs, unsigned).
+    // Surface that as an error so the caller can retry/alert instead of
+    // silently treating a dropped event as delivered.
+    if !response.rejected.is_empty() {
+        anyhow::bail!(
+            "cokret: server rejected event for realm '{realm_id}': {:?}",
+            response.rejected
+        );
+    }
+    if response.accepted.is_empty() && response.duplicate.is_empty() {
+        anyhow::bail!(
+            "cokret: server accepted no events for realm '{realm_id}' (status={:?})",
+            response.status
+        );
+    }
     debug!(
-        "contrix: submitted event to '{}': status={:?} accepted={}",
+        "cokret: submitted event to '{}': status={:?} accepted={} duplicate={}",
         realm_id,
         response.status,
-        response.accepted.len()
+        response.accepted.len(),
+        response.duplicate.len()
     );
     Ok(())
 }
@@ -474,7 +517,7 @@ pub(crate) async fn handle_outbound_action(
     action: ChannelAction,
 ) -> anyhow::Result<()> {
     if let ChannelAction::SendToThread { thread_id, message } = action {
-        send_to_contrix_account(savfox_home, &thread_id, None, &message).await
+        send_to_cokret_account(savfox_home, &thread_id, None, &message).await
     } else {
         Ok(())
     }

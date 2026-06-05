@@ -70,9 +70,15 @@ pub fn Logs() -> Element {
         }
     });
 
-    // Scroll listener for show_jump button
+    // Scroll listener for the show_jump button. Bind exactly once: the callback
+    // never reads `auto_follow`, so re-binding it on every toggle only leaked a
+    // forgotten closure and stacked duplicate listeners. The flag guards against
+    // the effect re-running for any reason.
+    let mut scroll_listener_bound = use_signal(|| false);
     use_effect(move || {
-        let _af = auto_follow();
+        if *scroll_listener_bound.peek() {
+            return;
+        }
         let cb = Closure::wrap(Box::new(move |_: web_sys::Event| {
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 if let Some(el) = doc.get_element_by_id("log-list") {
@@ -84,51 +90,66 @@ pub fn Logs() -> Element {
         if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
             if let Some(el) = doc.get_element_by_id("log-list") {
                 let _ = el.add_event_listener_with_callback("scroll", cb.as_ref().unchecked_ref());
+                scroll_listener_bound.set(true);
             }
         }
         cb.forget();
     });
 
-    let query = search.value().to_lowercase();
-    let filtered: Vec<&LogEntry> = entries
-        .iter()
-        .filter(|e| {
-            // Level multi-select filter
-            let level = e.level.as_deref().unwrap_or("info").to_lowercase();
-            let level_ok = match level.as_str() {
-                "info" => level_info(),
-                "warn" | "warning" => level_warn(),
-                "error" => level_error(),
-                "debug" => level_debug(),
-                "trace" => level_trace(),
-                _ => true,
-            };
-            if !level_ok {
-                return false;
-            }
-            // Search filter
-            if query.is_empty() {
-                return true;
-            }
-            e.message.to_lowercase().contains(&query)
-                || e.source
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_lowercase()
-                    .contains(&query)
-        })
-        .collect();
+    // Cache the filtered + capped display order as indices into `entries`.
+    // `LogEntry` is not `PartialEq`, so we memoize the comparable index list
+    // instead of cloned entries. Recomputes only when the log data, search
+    // query, level toggles, or cap change.
+    let display_order = use_memo(move || {
+        let entries = logs_data.read().as_ref().cloned().unwrap_or_default();
+        let query = search.value().to_lowercase();
+        let filtered: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                // Level multi-select filter
+                let level = e.level.as_deref().unwrap_or("info").to_lowercase();
+                let level_ok = match level.as_str() {
+                    "info" => level_info(),
+                    "warn" | "warning" => level_warn(),
+                    "error" => level_error(),
+                    "debug" => level_debug(),
+                    "trace" => level_trace(),
+                    _ => true,
+                };
+                if !level_ok {
+                    return false;
+                }
+                // Search filter
+                if query.is_empty() {
+                    return true;
+                }
+                e.message.to_lowercase().contains(&query)
+                    || e.source
+                        .as_deref()
+                        .unwrap_or("")
+                        .to_lowercase()
+                        .contains(&query)
+            })
+            .map(|(i, _)| i)
+            .collect();
 
-    let total_filtered = filtered.len();
+        let total_filtered = filtered.len();
+        let max = max_entries();
+        let display: Vec<usize> = if total_filtered > max {
+            filtered.into_iter().skip(total_filtered - max).collect()
+        } else {
+            filtered
+        };
+        (display, total_filtered)
+    });
+    let display_guard = display_order.read();
+    let display_indices = &display_guard.0;
+    let total_filtered = display_guard.1;
+    let entry_count = display_indices.len();
+    let total_count = entries.len();
     let max = max_entries();
     let capped = total_filtered > max;
-    let display_entries: Vec<&LogEntry> = if capped {
-        filtered.into_iter().skip(total_filtered - max).collect()
-    } else {
-        filtered
-    };
-    let entry_count = display_entries.len();
-    let total_count = entries.len();
 
     rsx! {
         div { class: "logs-page",
@@ -156,7 +177,10 @@ pub fn Logs() -> Element {
                             class: "logs-btn",
                             title: "Export filtered logs as JSON",
                             onclick: {
-                                let filtered_for_export: Vec<LogEntry> = display_entries.iter().cloned().cloned().collect();
+                                let filtered_for_export: Vec<LogEntry> = display_indices
+                                    .iter()
+                                    .map(|&i| entries[i].clone())
+                                    .collect();
                                 move |_| export_logs_json(&filtered_for_export)
                             },
                             "Export"
@@ -220,14 +244,15 @@ pub fn Logs() -> Element {
                     div { class: "logs-empty",
                         SkeletonLines { count: 5 }
                     }
-                } else if display_entries.is_empty() {
+                } else if display_indices.is_empty() {
                     EmptyState {
                         icon: rsx! { ScrollText { size: 20 } },
                         message: "No log entries match the current filters".to_string(),
                     }
                 } else {
-                    for (i, entry) in display_entries.iter().enumerate() {
+                    for (i, idx) in display_indices.iter().copied().enumerate() {
                         {
+                            let entry = &entries[idx];
                             let level = entry.level.as_deref().unwrap_or("info");
                             let level_lower = level.to_lowercase();
                             let is_expanded = expanded_entry() == Some(i);

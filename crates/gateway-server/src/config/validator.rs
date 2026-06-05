@@ -6,6 +6,19 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+const MIN_STATIC_GATEWAY_TOKEN_CHARS: usize = 32;
+const WEAK_GATEWAY_TOKENS: &[&str] = &[
+    "test",
+    "test123",
+    "token",
+    "secret",
+    "secret123",
+    "password",
+    "changeme",
+    "change-me",
+    "dev-token",
+];
+
 /// A validation error with field path
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationError {
@@ -105,15 +118,61 @@ fn validate_gateway_section(gateway: &Value, errors: &mut Vec<ValidationError>) 
         // Token validation
         if let Some(token) = map.get("token")
             && let Some(t) = token.as_str()
-            && t.len() < 8
         {
-            errors.push(ValidationError {
-                field: "gateway.token".to_owned(),
-                message: "Token should be at least 8 characters for security".to_owned(),
-                severity: Severity::Warning,
-            });
+            validate_gateway_token(t, errors);
         }
     }
+}
+
+fn validate_gateway_token(token: &str, errors: &mut Vec<ValidationError>) {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        errors.push(ValidationError {
+            field: "gateway.token".to_owned(),
+            message: "Token cannot be empty or whitespace".to_owned(),
+            severity: Severity::Error,
+        });
+        return;
+    }
+
+    if looks_like_env_reference(trimmed) {
+        return;
+    }
+
+    if trimmed.len() != token.len() {
+        errors.push(ValidationError {
+            field: "gateway.token".to_owned(),
+            message: "Token must not contain leading or trailing whitespace".to_owned(),
+            severity: Severity::Error,
+        });
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    if WEAK_GATEWAY_TOKENS.contains(&normalized.as_str()) {
+        errors.push(ValidationError {
+            field: "gateway.token".to_owned(),
+            message: "Token is a known weak development value".to_owned(),
+            severity: Severity::Error,
+        });
+    }
+
+    if trimmed.len() < MIN_STATIC_GATEWAY_TOKEN_CHARS {
+        errors.push(ValidationError {
+            field: "gateway.token".to_owned(),
+            message: format!(
+                "Static gateway tokens must be at least {MIN_STATIC_GATEWAY_TOKEN_CHARS} characters"
+            ),
+            severity: Severity::Error,
+        });
+    }
+}
+
+fn looks_like_env_reference(value: &str) -> bool {
+    value.starts_with("${")
+        && value.ends_with('}')
+        && value[2..value.len() - 1]
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
 }
 
 fn validate_agents_section(agents: &Value, errors: &mut Vec<ValidationError>) {
@@ -423,5 +482,51 @@ mod tests {
                 && err.severity == Severity::Warning
                 && err.message.contains("outside safe roots")
         }));
+    }
+
+    #[test]
+    fn rejects_short_gateway_token_as_error() {
+        let config = json!({
+            "gateway": {
+                "token": "short-token"
+            }
+        });
+
+        let result = validate_config(&config);
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|err| {
+            err.field == "gateway.token"
+                && err.severity == Severity::Error
+                && err.message.contains("at least 32")
+        }));
+    }
+
+    #[test]
+    fn rejects_known_weak_gateway_token() {
+        let config = json!({
+            "gateway": {
+                "token": "test123"
+            }
+        });
+
+        let result = validate_config(&config);
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|err| {
+            err.field == "gateway.token"
+                && err.severity == Severity::Error
+                && err.message.contains("known weak")
+        }));
+    }
+
+    #[test]
+    fn allows_gateway_token_env_reference() {
+        let config = json!({
+            "gateway": {
+                "token": "${SAVFOX_GATEWAY_TOKEN}"
+            }
+        });
+
+        let result = validate_config(&config);
+        assert!(!result.errors.iter().any(|err| err.field == "gateway.token"));
     }
 }

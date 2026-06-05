@@ -1,14 +1,14 @@
 //! Inbound transaction parsing.
 //!
-//! When the Contrix server pushes events via
-//! `POST /api/v1/applet/transactions`, the body is an
+//! When the Cokret server pushes events via
+//! `POST /_cokret/edge/applet/transactions`, the body is an
 //! [`AppletTransactionReqBody`] (SDK type). This module converts each
 //! contained Event into a savfox-side [`AppletInboundCommand`] when it
 //! matches the configured namespaces and looks dispatchable.
 
-use contrix_core::Event;
+use cokret_core::Event;
 
-use super::config::ContrixAppletConfig;
+use super::config::CokretAppletConfig;
 
 /// One dispatchable command extracted from an inbound applet transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,10 +21,10 @@ pub struct AppletInboundCommand {
     pub flow_id: Option<String>,
     /// Sender DID (native human, native bot, or ghost actor — caller
     /// decides what to do; for an applet this will usually be a *native*
-    /// user, since the Contrix server pushes traffic destined for the
+    /// user, since the Cokret server pushes traffic destined for the
     /// applet's namespaces).
     pub sender_did: String,
-    /// Extracted text body (currently only `cx.content.text` is handled).
+    /// Extracted text body (currently only `ck.content.text` is handled).
     pub body: String,
     /// Optional thread root.
     pub thread_root_id: Option<String>,
@@ -43,10 +43,10 @@ pub enum AppletDispatchSkip {
     ActorNotInNamespace,
     /// `realm_id` did not match the configured `namespaces.realms`.
     RealmNotInNamespace,
-    /// The event's `kind` is not `cx.message.create` (we only dispatch text
+    /// The event's `kind` is not `ck.message.create` (we only dispatch text
     /// messages in Phase 6).
     KindNotMessageCreate,
-    /// `content.kind` is not `cx.content.text`.
+    /// `content.kind` is not `ck.content.text`.
     ContentKindUnsupported,
     /// `content.body` is missing or empty.
     EmptyBody,
@@ -64,7 +64,7 @@ pub enum AppletEventOutcome {
 
 /// Decide what to do with one Event from an inbound applet transaction.
 #[must_use]
-pub fn classify_inbound_event(cfg: &ContrixAppletConfig, event: &Event) -> AppletEventOutcome {
+pub fn classify_inbound_event(cfg: &CokretAppletConfig, event: &Event) -> AppletEventOutcome {
     // Loopback: an event signed by our own bot or one of our ghost actors
     // should not be dispatched back to the agent pipeline.
     let actor = event.actor_id.as_str();
@@ -72,7 +72,7 @@ pub fn classify_inbound_event(cfg: &ContrixAppletConfig, event: &Event) -> Apple
         return AppletEventOutcome::Skip(AppletDispatchSkip::LoopbackFromApplet);
     }
 
-    if event.kind != "cx.message.create" {
+    if event.kind != "ck.message.create" {
         return AppletEventOutcome::Skip(AppletDispatchSkip::KindNotMessageCreate);
     }
 
@@ -87,7 +87,7 @@ pub fn classify_inbound_event(cfg: &ContrixAppletConfig, event: &Event) -> Apple
         .get("content")
         .and_then(|c| c.get("kind"))
         .and_then(|k| k.as_str());
-    if content_kind != Some("cx.content.text") {
+    if content_kind != Some("ck.content.text") {
         return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
     }
     let body = content
@@ -122,40 +122,42 @@ pub fn classify_inbound_event(cfg: &ContrixAppletConfig, event: &Event) -> Apple
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::contrix::applet::namespace::{AppletNamespaces, NamespacePattern};
-    use contrix_identifiers::{Did, Hlc, RealmId, new_prefixed_uuid7};
+    use cokret_identifiers::{Did, Hlc, RealmId, new_prefixed_uuid7};
     use serde_json::json;
 
-    fn cfg() -> ContrixAppletConfig {
-        ContrixAppletConfig {
+    use super::*;
+    use crate::cokret::applet::namespace::{AppletNamespaces, NamespacePattern};
+
+    fn cfg() -> CokretAppletConfig {
+        CokretAppletConfig {
             id: "applet-1".into(),
-            applet_id: "cx:applet:1".into(),
+            applet_id: "ck:applet:1".into(),
             service_did: "did:web:bridge.example".into(),
             controller_did: "did:webvh:acme:admin".into(),
             base_url: "https://savfox.example/applet".into(),
-            bot_actor_id: "did:web:bridge.example#bot".into(),
-            contrix_server_url: "https://contrix.example.org".into(),
-            contrix_bearer_token: None,
+            bot_actor_id: "did:web:bridge.example:bot".into(),
+            cokret_server_url: "https://cokret.example.org".into(),
+            cokret_bearer_token: None,
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::new(
-                    "did:web:bridge.example#ghost-*",
+                    "did:web:bridge.example:ghost:*",
                     true,
                 )],
-                // In production Contrix, the Applet maps external aliases
+                // In production Cokret, the Applet maps external aliases
                 // (e.g. `slack:team:T123:channel:C456`) to internal
-                // `cx:realm:<uuid>` ids and filters inbound on the internal id.
+                // `ck:realm:<uuid>` ids and filters inbound on the internal id.
                 // For test setup we match a known uuid prefix family.
-                realms: vec![NamespacePattern::new("cx:realm:01904100-**", true)],
+                realms: vec![NamespacePattern::new("ck:realm:01904100-**", true)],
                 handles: vec![],
             },
             protocols: vec!["slack".into()],
-            ghost_did_prefix: "ghost-".into(),
+            ghost_did_prefix: "ghost:".into(),
             requested_scopes: vec![],
             receive_events: true,
             receive_ephemeral: false,
             rate_limited: true,
             authorization_grant_id: None,
+            registration_epoch: None,
             key_ref: None,
             verification_method: None,
             grant_event_path: None,
@@ -166,7 +168,7 @@ mod tests {
         RealmId::new(id.to_owned()).expect("realm id")
     }
     fn hlc() -> Hlc {
-        Hlc::new("000000000000-0000-00000000").unwrap()
+        Hlc::new("000000000000-0000-00000000").expect("test HLC should parse")
     }
     fn did(s: &str) -> Did {
         Did::new(s.to_owned()).expect("did")
@@ -176,17 +178,17 @@ mod tests {
         let mut ev =
             Event::new(kind, realm(realm_id), did(actor), 1, hlc(), content).expect("event new");
         // Replace event_id with a predictable one for tests by minting a fresh uuidv7.
-        let ev_id_s = new_prefixed_uuid7("cx:event:");
-        ev.event_id = contrix_identifiers::EventId::new(ev_id_s).expect("event id");
+        let ev_id_s = new_prefixed_uuid7("ck:event:");
+        ev.event_id = cokret_identifiers::EventId::new(ev_id_s).expect("event id");
         ev
     }
 
     fn text_content(body: &str) -> serde_json::Value {
         json!({
-            "message_id": new_prefixed_uuid7("cx:message:"),
-            "flow_id": "cx:flow:01904100-0000-7000-8000-000000000001",
+            "message_id": new_prefixed_uuid7("ck:message:"),
+            "flow_id": "ck:flow:01904100-0000-7000-8000-000000000001",
             "track": "discussion",
-            "content": { "kind": "cx.content.text", "body": body },
+            "content": { "kind": "ck.content.text", "body": body },
         })
     }
 
@@ -194,8 +196,8 @@ mod tests {
     fn dispatches_text_message_in_realm_namespace() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "cx:realm:01904100-0000-7000-8000-000000000123",
-            "cx.message.create",
+            "ck:realm:01904100-0000-7000-8000-000000000123",
+            "ck.message.create",
             text_content("hello"),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -203,14 +205,14 @@ mod tests {
             AppletEventOutcome::Dispatch(cmd) => {
                 assert_eq!(
                     cmd.realm_id,
-                    "cx:realm:01904100-0000-7000-8000-000000000123"
+                    "ck:realm:01904100-0000-7000-8000-000000000123"
                 );
                 assert!(matches!(cmd.body.as_str(), "hello"));
                 assert_eq!(cmd.sender_did, "did:webvh:acme:alice");
                 assert_eq!(cmd.body, "hello");
                 assert_eq!(
                     cmd.flow_id.as_deref(),
-                    Some("cx:flow:01904100-0000-7000-8000-000000000001")
+                    Some("ck:flow:01904100-0000-7000-8000-000000000001")
                 );
             }
             other => panic!("expected Dispatch, got {other:?}"),
@@ -221,8 +223,8 @@ mod tests {
     fn skips_events_outside_realm_namespace() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "cx:realm:99999999-0000-7000-8000-000000000abc",
-            "cx.message.create",
+            "ck:realm:99999999-0000-7000-8000-000000000abc",
+            "ck.message.create",
             text_content("hi"),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -235,9 +237,9 @@ mod tests {
     #[test]
     fn skips_loopback_from_ghost_actor() {
         let ev = make_event(
-            "did:web:bridge.example#ghost-u1",
-            "cx:realm:01904100-0000-7000-8000-000000000456",
-            "cx.message.create",
+            "did:web:bridge.example:ghost:u1",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
             text_content("loopback"),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -250,9 +252,9 @@ mod tests {
     #[test]
     fn skips_loopback_from_bot() {
         let ev = make_event(
-            "did:web:bridge.example#bot",
-            "cx:realm:01904100-0000-7000-8000-000000000456",
-            "cx.message.create",
+            "did:web:bridge.example:bot",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
             text_content("loopback"),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -266,13 +268,13 @@ mod tests {
     fn skips_non_text_content() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "cx:realm:01904100-0000-7000-8000-000000000456",
-            "cx.message.create",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
             json!({
-                "message_id": new_prefixed_uuid7("cx:message:"),
-                "flow_id": "cx:flow:1",
+                "message_id": new_prefixed_uuid7("ck:message:"),
+                "flow_id": "ck:flow:1",
                 "track": "discussion",
-                "content": { "kind": "cx.content.image", "ref": "cx:blob:..." }
+                "content": { "kind": "ck.content.image", "ref": "ck:blob:..." }
             }),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -286,8 +288,8 @@ mod tests {
     fn skips_empty_body() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "cx:realm:01904100-0000-7000-8000-000000000456",
-            "cx.message.create",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
             text_content("   "),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);
@@ -301,8 +303,8 @@ mod tests {
     fn skips_non_message_kind() {
         let ev = make_event(
             "did:webvh:acme:alice",
-            "cx:realm:01904100-0000-7000-8000-000000000456",
-            "cx.flow.create",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.flow.create",
             json!({"title": "irrelevant"}),
         );
         let outcome = classify_inbound_event(&cfg(), &ev);

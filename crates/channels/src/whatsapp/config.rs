@@ -1,17 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use serde_json::Map;
 
-fn non_empty(map: &Map<String, serde_json::Value>, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        map.get(*key)
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    })
-}
+use crate::base::non_empty;
 
 #[derive(Debug, Clone)]
 pub struct WhatsAppSavedConfig {

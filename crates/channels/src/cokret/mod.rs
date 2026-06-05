@@ -1,0 +1,61 @@
+//! Cokret v1 channel adapter.
+//!
+//! Supports two modes:
+//! * **account** — login as already-existing controlled accounts and exchange
+//!   messages with the savfox agent.
+//! * **applet** — register this node as a Cokret Applet (the Matrix-AppService
+//!   equivalent), with Ghost Actor minting and Ed25519 event signing (see the
+//!   [`applet`] and [`signer`] submodules).
+//!
+//! Still out of scope: provisioning new Cokret principals, A2A/ACP agent
+//! protocol session upgrade, MLS E2EE.
+//!
+//! Layered like the other channel modules:
+//!
+//! * [`config`] — typed wrapper for the saved `ChannelConfig` JSON, plus
+//!   `load_cokret_channel_configs` + `resolve_cokret_outbound_account`.
+//! * [`parse`] — convert one `ck.message.create` Event Envelope (typically produced by
+//!   `AccountSubscribeFrame::Delta` traversal) into a savfox `CokretInboundEvent` ready for the
+//!   agent pipeline. Frame parsing itself lives in the Cokret SDK
+//!   (`AccountSubscribeFrame::from_ndjson_line`).
+//! * [`client`] — thin wrapper around [`cokret_http_client::Client`] with the bearer token
+//!   attached.
+//! * [`outbound`] — build a `ck.message.create` Event from `(realm_id, flow_id, body, actor)`.
+//!   When the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`];
+//!   otherwise the bearer `ck.session.grant` is the auth credential.
+//! * [`signer`] — load an Ed25519 signing key and attach detached-JWS proofs to outbound events.
+
+pub mod applet;
+mod client;
+mod config;
+mod grant;
+mod outbound;
+mod parse;
+mod seq_store;
+mod session;
+mod signer;
+
+#[allow(deprecated)]
+pub use applet::build_ghost_profile;
+pub use applet::{
+    AppletDispatchSkip, AppletEventOutcome, AppletInboundCommand, AppletMessageRequest,
+    AppletNamespaces, CokretAppletConfig, NamespacePattern, SavfoxAppletResolver,
+    applet_runtime_config, build_applet_message_event, build_external_ref,
+    build_ghost_profile_event, build_outbound_edge, build_registration_json,
+    build_registration_payload, classify_inbound_event, load_cokret_applet_configs, mint_ghost_did,
+    namespace_pattern_matches,
+};
+pub use client::{CokretFrameStream, CokretHttpClient};
+pub use config::{
+    CokretAccountConfig, CokretChannelConfig, load_cokret_channel_configs,
+    resolve_cokret_outbound_account,
+};
+pub use grant::{CokretGrant, load_and_verify_grant};
+pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
+pub use parse::{
+    CokretInboundEvent, CokretInboundParseResult, extract_message_event,
+    parse_delta_frame_for_account, should_dispatch_event,
+};
+pub use seq_store::FileSeqStore;
+pub use session::{CokretSession, login_with_signer};
+pub use signer::{CokretKeyRef, load_ed25519_signer};

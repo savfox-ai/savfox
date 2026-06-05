@@ -1,19 +1,19 @@
 //! DID-proof login + session refresh.
 //!
 //! Phase 8 (T8.B): wraps SDK `AuthManager::login_did_proof` (S-2) so the
-//! gateway runtime can boot a Contrix account / applet bot from a signer
-//! instead of a static `access_token`. Returns a [`ContrixSession`] that
+//! gateway runtime can boot a Cokret account / applet bot from a signer
+//! instead of a static `access_token`. Returns a [`CokretSession`] that
 //! tracks `expires_at` so callers can decide when to refresh.
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use contrix::{AuthManager, Ed25519MoveSigner};
-use contrix_http_client::Client;
-use contrix_identifiers::{DeviceId, Did};
+use cokret::{AuthManager, Ed25519MoveSigner};
+use cokret_http_client::Client;
+use cokret_identifiers::{DeviceId, Did};
 
 /// One-shot session state produced by [`login_with_signer`].
 #[derive(Debug, Clone)]
-pub struct ContrixSession {
+pub struct CokretSession {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
@@ -21,9 +21,10 @@ pub struct ContrixSession {
     pub device_id: DeviceId,
 }
 
-impl ContrixSession {
+impl CokretSession {
     /// True if the session has expired (or is within `skew` seconds of
     /// expiring). Callers MUST re-login before the window closes.
+    #[must_use]
     pub fn is_near_expiry(&self, skew_secs: i64) -> bool {
         let now = Utc::now();
         let threshold = self.expires_at - chrono::Duration::seconds(skew_secs);
@@ -33,8 +34,8 @@ impl ContrixSession {
 
 /// Run `AuthManager::login_did_proof` against the given HTTP client.
 ///
-/// `audience` is the Contrix server's service DID. Typically the same
-/// value as `ContrixChannelConfig::contrix_server_did` (or, when missing,
+/// `audience` is the Cokret server's service DID. Typically the same
+/// value as `CokretChannelConfig::cokret_server_did` (or, when missing,
 /// derived from `service_did` / `base_url`).
 pub async fn login_with_signer(
     http: &Client,
@@ -43,7 +44,7 @@ pub async fn login_with_signer(
     device_id: DeviceId,
     verification_method: &str,
     audience: &str,
-) -> anyhow::Result<ContrixSession> {
+) -> anyhow::Result<CokretSession> {
     let mut auth = AuthManager::default();
     let session = auth
         .login_did_proof(
@@ -58,12 +59,12 @@ pub async fn login_with_signer(
         .map_err(|err| anyhow::anyhow!("login_did_proof failed: {err}"))
         .with_context(|| {
             format!(
-                "contrix login_did_proof: principal={} audience={}",
+                "cokret login_did_proof: principal={} audience={}",
                 principal_did.as_str(),
                 audience
             )
         })?;
-    Ok(ContrixSession {
+    Ok(CokretSession {
         access_token: session.access_token,
         refresh_token: session.refresh_token,
         expires_at: session.expires_at,
@@ -78,13 +79,14 @@ mod tests {
 
     #[test]
     fn near_expiry_returns_true_when_past_threshold() {
-        let s = ContrixSession {
+        let s = CokretSession {
             access_token: "t".into(),
             refresh_token: "r".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned()).unwrap(),
-            device_id: DeviceId::new("cx:device:01904100-0000-7000-8000-000000000001".to_owned())
-                .unwrap(),
+            principal_did: Did::new("did:web:alice.example".to_owned())
+                .expect("test DID should parse"),
+            device_id: DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                .expect("test device id should parse"),
         };
         // 10s until expiry; with 60s skew, "near expiry" is true.
         assert!(s.is_near_expiry(60));
@@ -94,13 +96,14 @@ mod tests {
 
     #[test]
     fn near_expiry_handles_already_expired() {
-        let s = ContrixSession {
+        let s = CokretSession {
             access_token: "t".into(),
             refresh_token: "r".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
-            principal_did: Did::new("did:web:alice.example".to_owned()).unwrap(),
-            device_id: DeviceId::new("cx:device:01904100-0000-7000-8000-000000000001".to_owned())
-                .unwrap(),
+            principal_did: Did::new("did:web:alice.example".to_owned())
+                .expect("test DID should parse"),
+            device_id: DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                .expect("test device id should parse"),
         };
         assert!(s.is_near_expiry(0));
         assert!(s.is_near_expiry(60));

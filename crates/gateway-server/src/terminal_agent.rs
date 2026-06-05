@@ -124,28 +124,25 @@ pub(crate) enum TerminalExitReason {
 impl TerminalExitReason {
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
-            TerminalExitReason::Completed => "completed",
-            TerminalExitReason::NonZero => "non_zero",
-            TerminalExitReason::Timeout => "timeout",
-            TerminalExitReason::SpawnError => "spawn_error",
-            TerminalExitReason::InvalidCwd => "invalid_cwd",
-            TerminalExitReason::IoError => "io_error",
+            Self::Completed => "completed",
+            Self::NonZero => "non_zero",
+            Self::Timeout => "timeout",
+            Self::SpawnError => "spawn_error",
+            Self::InvalidCwd => "invalid_cwd",
+            Self::IoError => "io_error",
         }
     }
 
     pub(crate) fn metadata_status(&self) -> &'static str {
         match self {
-            TerminalExitReason::Completed => "completed",
-            TerminalExitReason::Timeout => "timeout",
-            TerminalExitReason::NonZero
-            | TerminalExitReason::SpawnError
-            | TerminalExitReason::InvalidCwd
-            | TerminalExitReason::IoError => "error",
+            Self::Completed => "completed",
+            Self::Timeout => "timeout",
+            Self::NonZero | Self::SpawnError | Self::InvalidCwd | Self::IoError => "error",
         }
     }
 
     pub(crate) fn is_success(&self) -> bool {
-        matches!(self, TerminalExitReason::Completed)
+        matches!(self, Self::Completed)
     }
 }
 
@@ -296,9 +293,11 @@ pub(crate) fn record_terminal_runtime_metrics(
 ) {
     let reason = exit_reason.as_str().to_owned();
     let duration_ms = duration.as_millis().min(u128::from(u64::MAX)) as u64;
+    // Metrics are a non-critical side path: never let a poisoned lock (a panic
+    // in another thread) cascade into panicking every subsequent request.
     let mut metrics = terminal_runtime_metrics_store()
         .lock()
-        .expect("terminal runtime metrics lock poisoned");
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     metrics.spawn_count = metrics.spawn_count.saturating_add(1);
     metrics.total_duration_ms = metrics.total_duration_ms.saturating_add(duration_ms);
     metrics.last_duration_ms = Some(duration_ms);
@@ -324,7 +323,7 @@ pub(crate) fn record_terminal_runtime_metrics(
 pub(crate) fn terminal_runtime_metrics_snapshot() -> TerminalRuntimeMetrics {
     terminal_runtime_metrics_store()
         .lock()
-        .expect("terminal runtime metrics lock poisoned")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
 }
 
@@ -780,10 +779,7 @@ async fn run_git(cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
             .code()
             .map(|code| code.to_string())
             .unwrap_or_else(|| "signal".to_owned());
-        return Err(anyhow::anyhow!(
-            "git {:?} exited with {code}: {detail}",
-            args
-        ));
+        return Err(anyhow::anyhow!("git {args:?} exited with {code}: {detail}"));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }

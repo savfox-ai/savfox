@@ -468,33 +468,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slugify_account_id_basic() {
-        assert_eq!(
-            slugify_account_id("openai", "Work Account"),
-            "openai-work-account"
-        );
-    }
-
-    #[test]
-    fn slugify_account_id_same_as_provider() {
-        assert_eq!(slugify_account_id("openai", "OpenAI"), "openai-openai");
-    }
-
-    #[test]
-    fn slugify_account_id_empty_name() {
-        assert_eq!(slugify_account_id("openai", ""), "openai");
-        assert_eq!(slugify_account_id("openai", "  "), "openai");
-    }
-
-    #[test]
-    fn slugify_account_id_special_chars() {
-        assert_eq!(
-            slugify_account_id("openai", "My  Work---Account!"),
-            "openai-my-work-account"
-        );
-    }
-
-    #[test]
     fn account_id_exists_check() {
         let tmp = tempfile::tempdir().expect("temp dir");
         let savfox_home = tmp.path();

@@ -1,7 +1,6 @@
 use base64::Engine as _;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
-use tracing::warn;
 
 /// Send a reply message via the LINE Messaging API.
 ///
@@ -29,14 +28,7 @@ pub async fn reply_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "LINE API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "LINE API error").await;
     Ok(())
 }
 
@@ -64,14 +56,7 @@ pub async fn push_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "LINE Push API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "LINE Push API error").await;
     Ok(())
 }
 
@@ -92,7 +77,8 @@ mod tests {
     use super::*;
 
     fn compute(secret: &str, body: &[u8]) -> String {
-        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key size");
         mac.update(body);
         base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
     }

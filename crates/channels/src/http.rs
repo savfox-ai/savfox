@@ -56,7 +56,8 @@ mod tests {
     fn compute_expected(body: &[u8]) -> String {
         use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
-        let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).expect("HMAC accepts any key size");
         mac.update(body);
         hex::encode(mac.finalize().into_bytes())
     }

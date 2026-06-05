@@ -149,9 +149,6 @@ pub fn Overview() -> Element {
     let ws_connected = use_context::<Signal<bool>>();
     let mut refresh_tick = use_signal(|| 0u32);
 
-    // Live uptime counter (seconds added client-side)
-    let mut uptime_offset_secs = use_signal(|| 0u64);
-
     // Collapsible state for recent errors
     let mut errors_expanded = use_signal(|| Option::<usize>::None);
 
@@ -256,31 +253,6 @@ pub fn Overview() -> Element {
         async move { ws.call::<LogsResponse>("logs.tail", None).await.ok() }
     });
 
-    // --- Uptime auto-increment timer (1s interval) ---
-    // We use a simple spawn-loop instead of setInterval to avoid leaked
-    // closures that survive signal disposal and cause WASM panics.
-    {
-        use_effect(move || {
-            let _snap = snapshot.read(); // re-run when snapshot changes
-            uptime_offset_secs.set(0);
-
-            spawn(async move {
-                loop {
-                    // sleep 1 second
-                    let promise = js_sys::Promise::new(&mut |resolve, _| {
-                        if let Some(win) = web_sys::window() {
-                            let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
-                                &resolve, 1000,
-                            );
-                        }
-                    });
-                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-                    uptime_offset_secs += 1;
-                }
-            });
-        });
-    }
-
     // --- Read all resources ---
     let config_read = config.read();
     let status_read = status.read();
@@ -290,7 +262,6 @@ pub fn Overview() -> Element {
     let health_read = health.read();
     let sessions_read = sessions.read();
     let channels_read = channels_data.read();
-    let logs_read = logs_data.read();
     let agents_read = agents.read();
 
     // --- First-use / onboarding detection ---
@@ -340,20 +311,26 @@ pub fn Overview() -> Element {
         .unwrap_or_default();
     let active_sessions = session_entries.len();
 
-    // Models list (sorted for stable display order)
-    let mut model_list: Vec<AvailableModel> = models_read
-        .as_ref()
-        .and_then(|m| m.as_ref())
-        .map(|m| m.models.clone())
-        .unwrap_or_default();
-    model_list.sort_by(|a, b| {
-        let provider_a = a.provider.as_deref().unwrap_or("");
-        let provider_b = b.provider.as_deref().unwrap_or("");
-        match provider_a.cmp(provider_b) {
-            std::cmp::Ordering::Equal => a.id.cmp(&b.id),
-            other => other,
-        }
-    });
+    // Models list (sorted for stable display order).
+    // NOTE: `AvailableModel` has no `PartialEq`, so this cannot be a `use_memo`
+    // (Memo requires `T: PartialEq`); computed inline each render instead.
+    let model_list: Vec<AvailableModel> = {
+        let mut list: Vec<AvailableModel> = models
+            .read()
+            .as_ref()
+            .and_then(|m| m.as_ref())
+            .map(|m| m.models.clone())
+            .unwrap_or_default();
+        list.sort_by(|a, b| {
+            let provider_a = a.provider.as_deref().unwrap_or("");
+            let provider_b = b.provider.as_deref().unwrap_or("");
+            match provider_a.cmp(provider_b) {
+                std::cmp::Ordering::Equal => a.id.cmp(&b.id),
+                other => other,
+            }
+        });
+        list
+    };
     let model_count = model_list.len();
 
     let total_tokens = usage_read
@@ -369,18 +346,12 @@ pub fn Overview() -> Element {
         .map(|c| format!("${c:.4}"))
         .unwrap_or_else(|| "-".into());
 
-    // Uptime with live counter
+    // Uptime base (the live per-second counter lives in UptimeCounter).
     let base_uptime_ms = snapshot_read
         .as_ref()
         .and_then(|s| s.as_ref())
         .and_then(|s| s.uptime_ms)
         .unwrap_or(0);
-    let live_uptime_ms = base_uptime_ms + (uptime_offset_secs() * 1000);
-    let uptime_str = if base_uptime_ms > 0 {
-        format_duration_precise(live_uptime_ms)
-    } else {
-        "n/a".into()
-    };
 
     let tick_interval = snapshot_read
         .as_ref()
@@ -461,23 +432,28 @@ pub fn Overview() -> Element {
         )
     };
 
-    // Recent errors (last 5 error-level entries)
-    let all_logs: Vec<LogEntry> = logs_read
-        .as_ref()
-        .and_then(|l| l.as_ref())
-        .map(|l| l.entries.clone())
-        .unwrap_or_default();
-    let recent_errors: Vec<&LogEntry> = all_logs
-        .iter()
-        .filter(|e| {
-            e.level
-                .as_deref()
-                .unwrap_or("")
-                .eq_ignore_ascii_case("error")
-        })
-        .rev()
-        .take(5)
-        .collect();
+    // Most recent 5 error-level entries (filter before cloning so we never
+    // clone the whole log buffer).
+    // NOTE: `LogEntry` has no `PartialEq`, so this cannot be a `use_memo`.
+    let recent_errors: Vec<LogEntry> = {
+        let guard = logs_data.read();
+        let entries = guard.as_ref().and_then(|l| l.as_ref()).map(|l| &l.entries);
+        match entries {
+            Some(entries) => entries
+                .iter()
+                .filter(|e| {
+                    e.level
+                        .as_deref()
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case("error")
+                })
+                .rev()
+                .take(5)
+                .cloned()
+                .collect::<Vec<LogEntry>>(),
+            None => Vec::new(),
+        }
+    };
 
     // Quick action: clear cache handler
     let ws_clear = ws.clone();
@@ -699,10 +675,7 @@ pub fn Overview() -> Element {
 
             // ── Uptime (live counter) + Tick + Cron ──────────────
             div { class: "ov-trio-grid",
-                div { class: "stat-card ov-uptime-card",
-                    div { class: "stat-label", "Uptime" }
-                    div { class: "stat-value ov-uptime-value", "{uptime_str}" }
-                }
+                UptimeCounter { base_uptime_ms }
                 { stat_card("Tick Interval", &tick_interval) }
                 div { class: "stat-card",
                     div { class: "stat-label", "Cron Jobs" }
@@ -889,6 +862,51 @@ pub fn Overview() -> Element {
             }
         }
         style { {STYLE} }
+    }
+}
+
+/// Live uptime stat card. Owns its own 1s tick so that the per-second
+/// re-render is isolated to this small subtree instead of the whole Overview.
+#[component]
+fn UptimeCounter(base_uptime_ms: ReadOnlySignal<u64>) -> Element {
+    // Live uptime counter (seconds added client-side)
+    let mut uptime_offset_secs = use_signal(|| 0u64);
+
+    // --- Uptime auto-increment timer (1s interval) ---
+    // We use a simple spawn-loop instead of setInterval to avoid leaked
+    // closures that survive signal disposal and cause WASM panics.
+    use_effect(move || {
+        let _base = base_uptime_ms(); // re-run (reset) when the base changes
+        uptime_offset_secs.set(0);
+
+        spawn(async move {
+            loop {
+                // sleep 1 second
+                let promise = js_sys::Promise::new(&mut |resolve, _| {
+                    if let Some(win) = web_sys::window() {
+                        let _ = win
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 1000);
+                    }
+                });
+                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                uptime_offset_secs += 1;
+            }
+        });
+    });
+
+    let base = base_uptime_ms();
+    let live_uptime_ms = base + (uptime_offset_secs() * 1000);
+    let uptime_str = if base > 0 {
+        format_duration_precise(live_uptime_ms)
+    } else {
+        "n/a".to_string()
+    };
+
+    rsx! {
+        div { class: "stat-card ov-uptime-card",
+            div { class: "stat-label", "Uptime" }
+            div { class: "stat-value ov-uptime-value", "{uptime_str}" }
+        }
     }
 }
 

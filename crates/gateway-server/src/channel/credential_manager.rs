@@ -1215,19 +1215,19 @@ impl GatewayChannel {
                     warn!("Zalo OA access token not configured");
                 }
             }
-            #[cfg(feature = "contrix")]
-            "contrix" => {
+            #[cfg(feature = "cokret")]
+            "cokret" => {
                 let flow_id = non_empty_trimmed(reply_target).or_else(|| {
-                    non_empty_trimmed(session_id).filter(|value| value.starts_with("cx:flow:"))
+                    non_empty_trimmed(session_id).filter(|value| value.starts_with("ck:flow:"))
                 });
-                if crate::channels::contrix_applet::send_to_contrix_applet_for_realm(
+                if crate::channels::cokret_applet::send_to_cokret_applet_for_realm(
                     channel_id, flow_id, text,
                 )
                 .await?
                 {
                     return Ok(());
                 }
-                crate::channels::contrix::send_to_contrix_account(
+                crate::channels::cokret::send_to_cokret_account(
                     savfox_home,
                     channel_id,
                     flow_id,
@@ -1235,9 +1235,9 @@ impl GatewayChannel {
                 )
                 .await?;
             }
-            #[cfg(not(feature = "contrix"))]
-            "contrix" => {
-                warn!("Contrix support is not enabled for channel: {channel}");
+            #[cfg(not(feature = "cokret"))]
+            "cokret" => {
+                warn!("Cokret support is not enabled for channel: {channel}");
             }
             _ => {
                 warn!("unknown platform for channel: {channel}");

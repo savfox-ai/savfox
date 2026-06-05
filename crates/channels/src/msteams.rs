@@ -1,5 +1,3 @@
-use tracing::warn;
-
 /// Send a message via a Microsoft Teams webhook URL.
 pub async fn send_webhook_message(
     client: &reqwest::Client,
@@ -18,13 +16,6 @@ pub async fn send_webhook_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "Teams API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "Teams API error").await;
     Ok(())
 }

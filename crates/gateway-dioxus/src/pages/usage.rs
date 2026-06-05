@@ -39,6 +39,7 @@ impl DateRange {
 
 // ── Model breakdown aggregation ─────────────────────────────────────────────
 
+#[derive(Clone, PartialEq)]
 struct ModelBreakdown {
     model: String,
     input_tokens: u64,
@@ -299,33 +300,48 @@ pub fn Usage() -> Element {
         .unwrap_or_else(|| "-".into());
 
     // ── Model breakdown ─────────────────────────────────────────────
+    // Cached aggregations driven by the `cost_data` resource so they only
+    // recompute when the underlying cost entries change.
 
-    let model_breakdown = compute_model_breakdown(&cost_entries);
+    let model_breakdown_memo =
+        use_memo(move || compute_model_breakdown(&cost_data.read().as_ref().cloned().unwrap_or_default()));
+    let model_breakdown = model_breakdown_memo.read();
 
     // ── Cost calculations ───────────────────────────────────────────
 
-    // Estimated cost using input/output split pricing when available.
-    let estimated_cost: f64 = cost_entries
-        .iter()
-        .filter(|e| e.cost.is_none())
-        .map(|e| {
-            let model = e.model.as_deref().unwrap_or("");
-            let inp = e.input_tokens.unwrap_or(0);
-            let out = e.output_tokens.unwrap_or(0);
-            if inp > 0 || out > 0 {
-                estimate_session_cost(model, inp, out)
-            } else {
-                let total = e.tokens.unwrap_or(0) as f64;
-                total / 1000.0 * estimate_cost_per_1k(model)
-            }
-        })
-        .sum();
-    let actual_cost: f64 = cost_entries.iter().filter_map(|e| e.cost).sum();
-    let grand_total_cost = actual_cost + estimated_cost;
-
-    // Total input/output tokens across all entries.
-    let total_input_tokens: u64 = cost_entries.iter().filter_map(|e| e.input_tokens).sum();
-    let total_output_tokens: u64 = cost_entries.iter().filter_map(|e| e.output_tokens).sum();
+    // (estimated_cost, actual_cost, grand_total_cost, total_input, total_output)
+    let cost_totals = use_memo(move || {
+        let entries = cost_data.read().as_ref().cloned().unwrap_or_default();
+        // Estimated cost using input/output split pricing when available.
+        let estimated_cost: f64 = entries
+            .iter()
+            .filter(|e| e.cost.is_none())
+            .map(|e| {
+                let model = e.model.as_deref().unwrap_or("");
+                let inp = e.input_tokens.unwrap_or(0);
+                let out = e.output_tokens.unwrap_or(0);
+                if inp > 0 || out > 0 {
+                    estimate_session_cost(model, inp, out)
+                } else {
+                    let total = e.tokens.unwrap_or(0) as f64;
+                    total / 1000.0 * estimate_cost_per_1k(model)
+                }
+            })
+            .sum();
+        let actual_cost: f64 = entries.iter().filter_map(|e| e.cost).sum();
+        let grand_total_cost = actual_cost + estimated_cost;
+        let total_input_tokens: u64 = entries.iter().filter_map(|e| e.input_tokens).sum();
+        let total_output_tokens: u64 = entries.iter().filter_map(|e| e.output_tokens).sum();
+        (
+            estimated_cost,
+            actual_cost,
+            grand_total_cost,
+            total_input_tokens,
+            total_output_tokens,
+        )
+    });
+    let (_estimated_cost, actual_cost, grand_total_cost, total_input_tokens, total_output_tokens) =
+        cost_totals();
 
     // Hourly distribution
     let hourly = detail
@@ -352,10 +368,22 @@ pub fn Usage() -> Element {
         })
         .unwrap_or_default();
 
-    // Per-session sorted entries
-    let mut sorted_sessions = cost_entries.clone();
-    sorted_sessions.sort_by(|a, b| {
-        let cmp = match session_sort_col() {
+    // Per-session sorted order (indices into the entry list). Cached and only
+    // computed when the session table is actually shown; returns an empty order
+    // otherwise. `UsageCostEntry` is not `PartialEq`, so we memoize the cheap,
+    // comparable index permutation instead of cloned entries.
+    let sorted_order = use_memo(move || {
+        if !show_session_table() {
+            return Vec::<usize>::new();
+        }
+        let entries = cost_data.read().as_ref().cloned().unwrap_or_default();
+        let mut order: Vec<usize> = (0..entries.len()).collect();
+        let col = session_sort_col();
+        let asc = session_sort_asc();
+        order.sort_by(|&ia, &ib| {
+            let a = &entries[ia];
+            let b = &entries[ib];
+            let cmp = match col {
             SessionSortCol::Session => a.session_id.cmp(&b.session_id),
             SessionSortCol::Model => {
                 let am = a.model.as_deref().unwrap_or("");
@@ -383,11 +411,13 @@ pub fn Usage() -> Element {
                 ac.partial_cmp(&bc).unwrap_or(std::cmp::Ordering::Equal)
             }
         };
-        if session_sort_asc() {
+        if asc {
             cmp
         } else {
             cmp.reverse()
         }
+        });
+        order
     });
 
     let ranges = [
@@ -592,11 +622,11 @@ pub fn Usage() -> Element {
                     onclick: move |_| show_session_table.toggle(),
                     h3 { class: "usage-card__title usage-card__title--inline", "Per-Session Cost Tracking" }
                     span { class: "usage-card__toggle-hint",
-                        if show_session_table() { "Hide" } else { "Show ({sorted_sessions.len()} sessions)" }
+                        if show_session_table() { "Hide" } else { "Show ({cost_entries.len()} sessions)" }
                     }
                 }
                 if show_session_table() {
-                    if sorted_sessions.is_empty() {
+                    if sorted_order.read().is_empty() {
                         p { class: "usage-empty", "No session usage data available for this period" }
                     } else {
                         div { class: "usage-table-wrap",
@@ -612,8 +642,9 @@ pub fn Usage() -> Element {
                                     }
                                 }
                                 tbody {
-                                    for (i, entry) in sorted_sessions.iter().enumerate() {
+                                    for idx in sorted_order.read().iter().copied() {
                                         {
+                                            let entry = &cost_entries[idx];
                                             let short_id = truncate_session_id(&entry.session_id);
                                             let model = entry.model.as_deref().unwrap_or("-").to_string();
                                             let inp = entry.input_tokens.map(format_number).unwrap_or_else(|| "-".into());
@@ -621,7 +652,7 @@ pub fn Usage() -> Element {
                                             let total = entry.tokens.map(format_number).unwrap_or_else(|| "-".into());
                                             let cost = format_cost_entry(entry);
                                             rsx! {
-                                                tr { key: "{i}", class: "usage-tr",
+                                                tr { key: "{entry.session_id}", class: "usage-tr",
                                                     td { class: "usage-td", title: "{entry.session_id}",
                                                         code { class: "usage-session-code", "{short_id}" }
                                                     }

@@ -1,5 +1,3 @@
-use tracing::warn;
-
 /// Send a message via an IRC bridge HTTP API.
 ///
 /// IRC does not have a native HTTP API; this calls a local IRC bridge service
@@ -23,13 +21,6 @@ pub async fn send_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "IRC bridge error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "IRC bridge error").await;
     Ok(())
 }

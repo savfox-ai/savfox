@@ -205,19 +205,36 @@ fn cron_inner(deep_link: CronDeepLink) -> Element {
     let mut show_create = use_signal(move || initial_create);
     let mut show_detail = use_signal(move || initial_show_detail);
 
-    // Sync URL with current view state for deep linking
+    // Sync URL with current view state for deep linking. Guard on the resolved
+    // target so we only touch history when it actually changes (avoids
+    // redundant replaceState / navigator calls on unrelated re-renders).
+    // Target is (use_navigator, url): `true` => nav.replace(Route::Cron), else
+    // replace_url(url).
+    let mut last_synced_url = use_signal(|| Option::<(bool, String)>::None);
     use_effect(move || {
         let selected = selected_job();
         let creating = show_create();
 
-        if let Some(ref id) = selected {
-            replace_url(&format!("/cron/{id}"));
+        let target: (bool, String) = if let Some(ref id) = selected {
+            (false, format!("/cron/{id}"))
         } else if creating {
-            replace_url("/cron/new");
+            (false, "/cron/new".to_string())
         } else if is_routed {
+            (true, "/cron".to_string())
+        } else {
+            (false, "/cron".to_string())
+        };
+
+        if last_synced_url.peek().as_ref() == Some(&target) {
+            return;
+        }
+        last_synced_url.set(Some(target.clone()));
+
+        let (use_nav, url) = target;
+        if use_nav {
             nav.replace(crate::route::Route::Cron {});
         } else {
-            replace_url("/cron");
+            replace_url(&url);
         }
     });
 

@@ -385,7 +385,7 @@ impl ModelInfo {
             return explicit;
         }
         match self.context_window {
-            Some(cw) if cw > 0 => (cw / 2).min(MAX_REASONABLE_OUTPUT).max(FALLBACK),
+            Some(cw) if cw > 0 => (cw / 2).clamp(FALLBACK, MAX_REASONABLE_OUTPUT),
             _ => FALLBACK,
         }
     }

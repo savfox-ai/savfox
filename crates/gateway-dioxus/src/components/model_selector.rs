@@ -67,6 +67,7 @@ fn load_saved_default_model_id() -> Option<String> {
 
 #[component]
 pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element {
+    inject_model_selector_styles_once();
     let (_locale_sig, t) = use_i18n();
     let ws = use_context::<WsRpc>();
     let ws_connected = use_context::<Signal<bool>>();
@@ -112,8 +113,20 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
         .and_then(|result| result.as_ref())
         .cloned()
         .unwrap_or_default();
+    drop(models_read);
 
-    let catalog = build_provider_catalog(&models_snapshot);
+    // Build the provider catalog only when the underlying model list changes.
+    // `ProviderCatalog` derives `PartialEq`, so the memo can cache it directly.
+    let catalog_memo = use_memo(move || {
+        let snapshot = models
+            .read()
+            .as_ref()
+            .and_then(|result| result.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        build_provider_catalog(&snapshot)
+    });
+    let catalog = catalog_memo();
     let default_full_id = first_default_full_id(&catalog);
     let saved_default_full_id = load_saved_default_model_id();
     let default_model_name = default_full_id
@@ -151,32 +164,45 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
     };
 
     let query = search().trim().to_lowercase();
-    let mut grouped_models: Vec<(String, Vec<(String, ModelKey, String, String)>)> = vec![];
-    for provider in catalog.all.iter() {
-        let mut filtered = vec![];
-        for model in provider.models.values() {
-            let key = ModelKey::new(provider.id.clone(), model.model_id.clone());
-            if !is_model_visible(&model_prefs(), &key) && value != model.full_id {
-                continue;
+    // Filtering + sorting the visible model groups is recomputed only when the
+    // search query, visibility preferences, catalog, or selected `value` change.
+    // Every element type in the output is `PartialEq`, so the memo caches it.
+    let grouped_memo: Memo<Vec<(String, Vec<(String, ModelKey, String, String)>)>> =
+        use_memo(use_reactive((&value,), move |(value,)| {
+            let catalog = catalog_memo();
+            let query = search().trim().to_lowercase();
+            let prefs = model_prefs();
+            let mut grouped: Vec<(String, Vec<(String, ModelKey, String, String)>)> = vec![];
+            for provider in catalog.all.iter() {
+                let mut filtered = vec![];
+                for model in provider.models.values() {
+                    let key = ModelKey::new(provider.id.clone(), model.model_id.clone());
+                    if !is_model_visible(&prefs, &key) && value != model.full_id {
+                        continue;
+                    }
+                    let display = model_display_name(model);
+                    if !query.is_empty() {
+                        let search_blob = format!(
+                            "{} {} {} {}",
+                            provider.id.to_lowercase(),
+                            provider.name.to_lowercase(),
+                            model.model_id.to_lowercase(),
+                            display.to_lowercase(),
+                        );
+                        if !search_blob.contains(&query) {
+                            continue;
+                        }
+                    }
+                    filtered.push((model.full_id.clone(), key, display, model.model_id.clone()));
+                }
+                filtered.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
+                if !filtered.is_empty() {
+                    grouped.push((provider.name.clone(), filtered));
+                }
             }
-            let display = model_display_name(model);
-            let search_blob = format!(
-                "{} {} {} {}",
-                provider.id.to_lowercase(),
-                provider.name.to_lowercase(),
-                model.model_id.to_lowercase(),
-                display.to_lowercase(),
-            );
-            if !query.is_empty() && !search_blob.contains(&query) {
-                continue;
-            }
-            filtered.push((model.full_id.clone(), key, display, model.model_id.clone()));
-        }
-        filtered.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
-        if !filtered.is_empty() {
-            grouped_models.push((provider.name.clone(), filtered));
-        }
-    }
+            grouped
+        }));
+    let grouped_models = grouped_memo();
 
     let default_search_blob = format!("default {}", default_model_label.to_lowercase());
     let default_row_visible = query.is_empty() || default_search_blob.contains(&query);
@@ -354,8 +380,23 @@ pub fn ModelSelector(value: String, on_change: EventHandler<String>) -> Element 
                 }
             }
         }
-        style { {MODEL_SELECTOR_STYLES} }
     }
+}
+
+/// Injects the model-selector stylesheet into the document head exactly once,
+/// instead of emitting an inline `<style>` block on every render.
+fn inject_model_selector_styles_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(MODEL_SELECTOR_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
+    });
 }
 
 const MODEL_SELECTOR_STYLES: &str = r#"

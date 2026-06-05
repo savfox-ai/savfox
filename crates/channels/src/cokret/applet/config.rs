@@ -1,82 +1,90 @@
 //! Applet mode configuration.
 //!
-//! A Contrix channel saved with `mode = "applet"` declares this savfox node
-//! as a registered Applet (the Matrix-AppService equivalent in the Contrix
+//! A Cokret channel saved with `mode = "applet"` declares this savfox node
+//! as a registered Applet (the Matrix-AppService equivalent in the Cokret
 //! universe). The config carries: applet identity, service URL where this
-//! node receives `POST /api/v1/applet/transactions`, the Contrix server we
+//! node receives `POST /_cokret/edge/applet/transactions`, the Cokret server we
 //! write events back to, namespace declarations, and a ghost-DID
 //! generation rule.
 
 use std::path::PathBuf;
 
 use anyhow::Context;
+use cokret_identifiers::Did;
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
-use crate::contrix::signer::ContrixKeyRef;
+use crate::cokret::signer::CokretKeyRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContrixAppletConfig {
+pub struct CokretAppletConfig {
     /// Stable identifier in savfox's local channel store.
     pub id: String,
-    /// `cx:applet:<uuidv7>` — stable across registrations.
+    /// `ck:applet:<uuidv7>` — stable across registrations.
     pub applet_id: String,
     /// Applet service DID (e.g. `did:web:slack-bridge.example`).
     pub service_did: String,
     /// Controller DID that signs the registration (typically `did:webvh:...`).
     pub controller_did: String,
     /// Public URL where this savfox node accepts inbound transactions
-    /// (mounted under `/appservices/contrix/{id}/api/v1/applet`).
+    /// (mounted under `/appservices/cokret/{id}/_cokret/edge/applet`).
     pub base_url: String,
     /// Bot actor DID — the visible identity of the applet in Realms it joins
-    /// (usually `<service_did>#bot`).
+    /// (usually `<service_did>:bot`).
     pub bot_actor_id: String,
-    /// Contrix server base URL where outbound events are POSTed.
-    pub contrix_server_url: String,
+    /// Cokret server base URL where outbound events are POSTed.
+    pub cokret_server_url: String,
     /// Optional bearer for outbound `events_submit` calls. In a fully
     /// signed flow this is replaced by the ghost actor's detached JWS.
-    pub contrix_bearer_token: Option<String>,
+    pub cokret_bearer_token: Option<String>,
     /// Namespaces declared in the registration. Used for inbound transaction
     /// filtering and for actor / realm lookup endpoints.
     pub namespaces: AppletNamespaces,
     /// External protocols this Applet bridges (`["slack"]`, `["discord"]`, ...).
     pub protocols: Vec<String>,
-    /// Prefix to prepend when minting ghost DIDs:
-    /// `{service_did}#{ghost_did_prefix}{external_id_slug}`.
-    /// Default `"ghost-"`.
+    /// Prefix to prepend when minting ghost DIDs (colon path-segment form):
+    /// `{service_did}:{ghost_did_prefix}{external_id_slug}`.
+    /// Default `"ghost:"` → `did:web:host:ghost:<slug>`.
     pub ghost_did_prefix: String,
     /// `requested_scopes[]` — informational; reducer ignores this and only
-    /// honors actual `cx.capability.grant` events.
+    /// honors actual `ck.capability.grant` events.
     pub requested_scopes: Vec<String>,
-    /// Whether the Contrix server is expected to push event transactions
+    /// Whether the Cokret server is expected to push event transactions
     /// (`receive_events: true`). Default `true`.
     pub receive_events: bool,
     /// Whether to receive ephemeral (typing/presence) events. Default `false`.
     pub receive_ephemeral: bool,
     /// Whether the server is permitted to rate-limit transaction pushes.
     pub rate_limited: bool,
-    /// Optional `cx.capability.grant` event id this applet currently holds.
+    /// Optional `ck.capability.grant` event id this applet currently holds.
     /// When set, outbound events include it as `authorization_ref`.
     pub authorization_grant_id: Option<String>,
+    /// Operator-supplied security epoch hash (`sha256:<hex>`) over the
+    /// registration evidence (DID Document + signing key + endpoint + auth),
+    /// per `applet-schema.md` §1. savfox cannot synthesize it locally; when
+    /// absent, [`build_registration_payload`](super::build_registration_payload)
+    /// emits a zero placeholder suitable only for an unsigned draft destined
+    /// for offline controller signing.
+    pub registration_epoch: Option<String>,
     /// Phase 8 (T8.A): ed25519 key for DID-proof login + event signing.
-    /// When set, `start_contrix_applet_channel` runs login_did_proof to
+    /// When set, `start_cokret_applet_channel` runs login_did_proof to
     /// obtain the bearer rather than relying on a static `accessToken`.
-    pub key_ref: Option<ContrixKeyRef>,
+    pub key_ref: Option<CokretKeyRef>,
     /// Phase 8: verification method id used by the signer. Defaults to
     /// `{bot_actor_id}#key-1` when missing.
     pub verification_method: Option<String>,
-    /// Phase 8: path to a pre-signed `cx.capability.grant` Event JSON.
+    /// Phase 8: path to a pre-signed `ck.capability.grant` Event JSON.
     pub grant_event_path: Option<PathBuf>,
 }
 
-impl ContrixAppletConfig {
-    /// Parse a savfox channel config as an Applet-mode Contrix channel.
+impl CokretAppletConfig {
+    /// Parse a savfox channel config as an Applet-mode Cokret channel.
     /// Returns `None` if the channel is disabled, of the wrong kind, or
     /// missing the `mode == "applet"` discriminator.
     pub fn from_channel_config(
         config: &savfox_core::config::channel_store::ChannelConfig,
     ) -> Option<Self> {
-        if !config.enabled || !config.kind.eq_ignore_ascii_case("contrix") {
+        if !config.enabled || !config.kind.eq_ignore_ascii_case("cokret") {
             return None;
         }
         let raw = config.config.as_object()?;
@@ -94,21 +102,19 @@ impl ContrixAppletConfig {
         let controller_did = first_non_empty(raw, &["controllerDid", "controller_did"])?;
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
         let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
-            .unwrap_or_else(|| format!("{service_did}#bot"));
-        let contrix_server_url = first_non_empty(
-            raw,
-            &["contrixServerUrl", "contrix_server_url", "homeserver"],
-        )
-        .unwrap_or_else(|| base_url.clone());
-        let contrix_bearer_token =
-            first_non_empty(raw, &["accessToken", "access_token", "contrixBearerToken"]);
+            .unwrap_or_else(|| format!("{service_did}:bot"));
+        let cokret_server_url =
+            first_non_empty(raw, &["cokretServerUrl", "cokret_server_url", "homeserver"])
+                .unwrap_or_else(|| base_url.clone());
+        let cokret_bearer_token =
+            first_non_empty(raw, &["accessToken", "access_token", "cokretBearerToken"]);
 
         let namespaces = parse_namespaces(raw.get("namespaces"));
         let protocols = parse_string_list(raw.get("protocols"));
         let requested_scopes =
             parse_string_list(raw.get("requestedScopes").or(raw.get("requested_scopes")));
         let ghost_did_prefix = first_non_empty(raw, &["ghostDidPrefix", "ghost_did_prefix"])
-            .unwrap_or_else(|| "ghost-".to_owned());
+            .unwrap_or_else(|| "ghost:".to_owned());
 
         let receive_events = raw
             .get("receiveEvents")
@@ -129,10 +135,11 @@ impl ContrixAppletConfig {
             raw,
             &["authorizationGrantId", "authorization_grant_id", "grantId"],
         );
+        let registration_epoch = first_non_empty(raw, &["registrationEpoch", "registration_epoch"]);
         let key_ref = raw
             .get("keyRef")
             .or_else(|| raw.get("key_ref"))
-            .and_then(ContrixKeyRef::from_value);
+            .and_then(CokretKeyRef::from_value);
         let verification_method = first_non_empty(
             raw,
             &[
@@ -151,8 +158,8 @@ impl ContrixAppletConfig {
             controller_did,
             base_url,
             bot_actor_id,
-            contrix_server_url,
-            contrix_bearer_token,
+            cokret_server_url,
+            cokret_bearer_token,
             namespaces,
             protocols,
             ghost_did_prefix,
@@ -161,6 +168,7 @@ impl ContrixAppletConfig {
             receive_ephemeral,
             rate_limited,
             authorization_grant_id,
+            registration_epoch,
             key_ref,
             verification_method,
             grant_event_path,
@@ -175,50 +183,53 @@ impl ContrixAppletConfig {
             ("controller_did", &self.controller_did),
             ("base_url", &self.base_url),
             ("bot_actor_id", &self.bot_actor_id),
-            ("contrix_server_url", &self.contrix_server_url),
+            ("cokret_server_url", &self.cokret_server_url),
         ] {
             if value.trim().is_empty() {
-                anyhow::bail!("Contrix applet channel '{}' missing {label}", self.id);
+                anyhow::bail!("Cokret applet channel '{}' missing {label}", self.id);
             }
         }
-        if !self.service_did.starts_with("did:") {
-            anyhow::bail!(
-                "Contrix applet channel '{}' service_did must be a DID URI, got '{}'",
-                self.id,
-                self.service_did
-            );
-        }
-        if !self.controller_did.starts_with("did:") {
-            anyhow::bail!(
-                "Contrix applet channel '{}' controller_did must be a DID URI, got '{}'",
-                self.id,
-                self.controller_did
-            );
+        // Strictly parse the DID-typed fields with the SDK parser (not a loose
+        // `starts_with("did:")`). This guarantees the invariant relied on by
+        // `build_registration_payload`, whose `Did::new(...).expect(...)` would
+        // otherwise panic on an input that passed the lenient prefix check.
+        for (label, value) in [
+            ("service_did", &self.service_did),
+            ("controller_did", &self.controller_did),
+            ("bot_actor_id", &self.bot_actor_id),
+        ] {
+            Did::new(value.clone()).map_err(|err| {
+                anyhow::anyhow!(
+                    "Cokret applet channel '{}' {label} must be a valid DID URI, got '{}': {err}",
+                    self.id,
+                    value
+                )
+            })?;
         }
         if self.namespaces.actors.is_empty()
             && self.namespaces.realms.is_empty()
             && self.namespaces.handles.is_empty()
         {
             anyhow::bail!(
-                "Contrix applet channel '{}' declares no namespaces; at least one of \
+                "Cokret applet channel '{}' declares no namespaces; at least one of \
                  actors/realms/handles is required",
                 self.id
             );
         }
         if self.protocols.is_empty() {
             anyhow::bail!(
-                "Contrix applet channel '{}' declares no protocols (e.g. [\"slack\"])",
+                "Cokret applet channel '{}' declares no protocols (e.g. [\"slack\"])",
                 self.id
             );
         }
         if self
-            .contrix_bearer_token
+            .cokret_bearer_token
             .as_deref()
             .map(str::trim)
             .is_none_or(str::is_empty)
         {
             anyhow::bail!(
-                "Contrix applet channel '{}' missing access_token / contrixBearerToken for inbound applet authentication",
+                "Cokret applet channel '{}' missing access_token / cokretBearerToken for inbound applet authentication",
                 self.id
             );
         }
@@ -293,29 +304,30 @@ fn parse_string_list(value: Option<&Value>) -> Vec<String> {
     }
 }
 
-/// Load all configured Contrix applet channels.
-pub async fn load_contrix_applet_configs(
+/// Load all configured Cokret applet channels.
+pub async fn load_cokret_applet_configs(
     savfox_home: &std::path::PathBuf,
-) -> anyhow::Result<Vec<ContrixAppletConfig>> {
+) -> anyhow::Result<Vec<CokretAppletConfig>> {
     let all_configs = savfox_core::config::channel_store::list_channel_configs(savfox_home)
         .await
-        .context("failed to load channel configs for contrix applet")?;
+        .context("failed to load channel configs for cokret applet")?;
     Ok(all_configs
         .iter()
-        .filter_map(ContrixAppletConfig::from_channel_config)
+        .filter_map(CokretAppletConfig::from_channel_config)
         .collect())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use savfox_core::config::channel_store::ChannelConfig;
     use serde_json::json;
 
+    use super::*;
+
     fn make_channel_config(body: Value) -> ChannelConfig {
         ChannelConfig {
-            id: "contrix-applet-test".into(),
-            kind: "contrix".into(),
+            id: "cokret-applet-test".into(),
+            kind: "cokret".into(),
             slug: "applet".into(),
             name: "Applet".into(),
             enabled: true,
@@ -331,17 +343,17 @@ mod tests {
     fn valid_body() -> Value {
         json!({
             "mode": "applet",
-            "appletId": "cx:applet:21532600-0000-7000-8000-000000000000",
+            "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
             "serviceDid": "did:web:slack-bridge.example",
             "controllerDid": "did:webvh:example.com:admin",
-            "baseUrl": "https://savfox.example/appservices/contrix/contrix-applet-test/api/v1/applet",
-            "botActorId": "did:web:slack-bridge.example#bot",
-            "contrixServerUrl": "https://contrix.example.org",
+            "baseUrl": "https://savfox.example/appservices/cokret/cokret-applet-test",
+            "botActorId": "did:web:slack-bridge.example:bot",
+            "cokretServerUrl": "https://cokret.example.org",
             "accessToken": "applet-bearer-1",
             "protocols": ["slack"],
             "namespaces": {
                 "actors": [
-                    { "pattern": "did:web:slack-bridge.example#ghost-*", "exclusive": true }
+                    { "pattern": "did:web:slack-bridge.example:ghost:*", "exclusive": true }
                 ],
                 "realms": [
                     { "pattern": "slack:team:*:channel:*", "exclusive": true }
@@ -350,22 +362,22 @@ mod tests {
                     { "pattern": "slack.acme.example/*", "exclusive": false }
                 ]
             },
-            "requestedScopes": ["cx.flow.create", "cx.message.create"]
+            "requestedScopes": ["ck.flow.create", "ck.message.create"]
         })
     }
 
     #[test]
     fn parses_full_applet_config() {
         let cfg = make_channel_config(valid_body());
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(
             parsed.applet_id,
-            "cx:applet:21532600-0000-7000-8000-000000000000"
+            "ck:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(parsed.protocols, vec!["slack"]);
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
-        assert_eq!(parsed.ghost_did_prefix, "ghost-");
+        assert_eq!(parsed.ghost_did_prefix, "ghost:");
         parsed.validate().expect("validate");
     }
 
@@ -374,30 +386,34 @@ mod tests {
         let mut body = valid_body();
         body["mode"] = json!("account");
         let cfg = make_channel_config(body);
-        assert!(ContrixAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
     fn missing_mode_returns_none() {
         let mut body = valid_body();
-        body.as_object_mut().unwrap().remove("mode");
+        body.as_object_mut()
+            .expect("valid body should be an object")
+            .remove("mode");
         let cfg = make_channel_config(body);
-        assert!(ContrixAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
     fn disabled_returns_none() {
         let mut cfg = make_channel_config(valid_body());
         cfg.enabled = false;
-        assert!(ContrixAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
     fn missing_applet_id_returns_none() {
         let mut body = valid_body();
-        body.as_object_mut().unwrap().remove("appletId");
+        body.as_object_mut()
+            .expect("valid body should be an object")
+            .remove("appletId");
         let cfg = make_channel_config(body);
-        assert!(ContrixAppletConfig::from_channel_config(&cfg).is_none());
+        assert!(CokretAppletConfig::from_channel_config(&cfg).is_none());
     }
 
     #[test]
@@ -405,8 +421,8 @@ mod tests {
         let mut body = valid_body();
         body["namespaces"] = json!({"actors": [], "realms": [], "handles": []});
         let cfg = make_channel_config(body);
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed.validate().unwrap_err();
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed.validate().expect_err("empty namespaces should fail");
         assert!(err.to_string().contains("namespaces"));
     }
 
@@ -415,8 +431,8 @@ mod tests {
         let mut body = valid_body();
         body["protocols"] = json!([]);
         let cfg = make_channel_config(body);
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed.validate().unwrap_err();
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed.validate().expect_err("empty protocols should fail");
         assert!(err.to_string().contains("protocols"));
     }
 
@@ -425,24 +441,28 @@ mod tests {
         let mut body = valid_body();
         body["serviceDid"] = json!("not-a-did");
         let cfg = make_channel_config(body);
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert!(parsed.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_missing_inbound_bearer_token() {
         let mut body = valid_body();
-        body.as_object_mut().unwrap().remove("accessToken");
+        body.as_object_mut()
+            .expect("valid body should be an object")
+            .remove("accessToken");
         let cfg = make_channel_config(body);
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed.validate().unwrap_err();
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed
+            .validate()
+            .expect_err("missing inbound bearer token should fail");
         assert!(err.to_string().contains("inbound applet authentication"));
     }
 
     #[test]
     fn defaults_receive_flags() {
         let cfg = make_channel_config(valid_body());
-        let parsed = ContrixAppletConfig::from_channel_config(&cfg).expect("parse");
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
         assert!(parsed.receive_events);
         assert!(!parsed.receive_ephemeral);
         assert!(parsed.rate_limited);

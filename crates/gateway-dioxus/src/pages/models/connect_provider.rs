@@ -144,7 +144,9 @@ pub fn ConnectProvider() -> Element {
     let mut applying = use_signal(|| false);
     let mut apply_result = use_signal(|| Option::<(bool, String)>::None);
 
-    let providers = list_wizard_providers();
+    // The wizard provider list is static; compute it once and reuse.
+    let providers_memo = use_memo(move || list_wizard_providers());
+    let providers = providers_memo();
 
     // Provider helper
     let provider =

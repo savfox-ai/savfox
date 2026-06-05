@@ -1,5 +1,3 @@
-use tracing::warn;
-
 /// Send a message via the Zalo OA Customer Service API.
 pub async fn send_message(
     client: &reqwest::Client,
@@ -25,13 +23,6 @@ pub async fn send_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "Zalo OA API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "Zalo OA API error").await;
     Ok(())
 }

@@ -1,32 +1,36 @@
 //! Ghost actor helpers — DID minting, profile event content, external_ref.
 //!
-//! A Ghost Actor is the Contrix mirror of an external network user (Slack
+//! A Ghost Actor is the Cokret mirror of an external network user (Slack
 //! `U123`, Discord user id, GitHub login, ...). Spec
-//! [`applet-integration.md` §9](../../../../../../contrix-dev/contrix-spec/spec/v1/zh/extensions/applet-integration.md)
+//! [`applet-integration.md`
+//! §9](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-integration.md)
 //! requires:
 //!
-//! * Ghost DID MUST be distinguishable from native human DIDs at the
-//!   protocol layer. We use the fragment form `{service_did}#{prefix}{slug}`
-//!   so the parent DID Document namespace makes the controlling Applet
-//!   visible.
-//! * Profile MUST carry `actor_kind = "ghost"`, `managed_by_applet`,
-//!   `external_ref`, and `accountability { mode, responsible_actor_id,
-//!   operator_actor_ids[] }`.
+//! * Ghost DID MUST be distinguishable from native human DIDs at the protocol layer. We use the
+//!   colon path-segment form `{service_did}:{prefix}{slug}` (e.g.
+//!   `did:web:slack-bridge.example:ghost:u123`) so the controlling Applet's DID namespace is
+//!   visible. Per spec applet-integration.md §3.4 a `#fragment` MUST NOT appear in an `actor_id` —
+//!   fragments are reserved for DID-URL verification methods (`…:ghost:u123#key-1`).
+//! * Profile MUST carry `actor_kind = "ghost"`, `managed_by_applet`, `external_ref`, and
+//!   `accountability { mode, responsible_actor_id, operator_actor_ids[] }`.
 
 use anyhow::Context as _;
-use contrix::ProfileCreateBuilder;
-use contrix_core::Event;
-use contrix_identifiers::{Did, Hlc, RealmId};
+use cokret::ProfileCreateBuilder;
+use cokret_core::Event;
+use cokret_identifiers::{Did, Hlc, RealmId};
 use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.
 ///
-/// Format: `{service_did}#{ghost_did_prefix}{slug(external_user_id)}`.
-/// The slug step lowercases the external id, replaces non-alphanumeric
-/// runs with `-`, and trims surrounding hyphens. If slugging yields an
-/// empty string (extremely short / fully symbolic ids), the raw
-/// `external_user_id` is used verbatim (URL-percent-encoded) so we never
-/// emit a DID whose fragment is just the prefix.
+/// Format: `{service_did}:{ghost_did_prefix}{slug(external_user_id)}` —
+/// colon path-segment form (e.g. `did:web:slack-bridge.example:ghost:u123`),
+/// NOT a `#fragment` (which the spec reserves for verification methods and
+/// the identifiers crate rejects in an `actor_id`). The slug step lowercases
+/// the external id, replaces non-alphanumeric runs with `-`, and trims
+/// surrounding hyphens. If slugging yields an empty string (extremely short /
+/// fully symbolic ids), the raw `external_user_id` is used verbatim
+/// (URL-percent-encoded) so we never emit a DID whose last segment is just
+/// the prefix.
 #[must_use]
 pub fn mint_ghost_did(
     applet_service_did: &str,
@@ -36,21 +40,21 @@ pub fn mint_ghost_did(
     let slug = slugify(external_user_id);
     let suffix = if slug.is_empty() {
         // Worst case: keep the raw id, but percent-encode anything outside
-        // [A-Za-z0-9_-]. DID fragments allow these chars natively.
+        // [A-Za-z0-9_-] so the DID segment stays well-formed.
         percent_encode_minimal(external_user_id)
     } else {
         slug
     };
-    format!("{applet_service_did}#{ghost_did_prefix}{suffix}")
+    format!("{applet_service_did}:{ghost_did_prefix}{suffix}")
 }
 
-/// Build a `cx.profile.create` Event Envelope for a Ghost Actor.
+/// Build a `ck.profile.create` Event Envelope for a Ghost Actor.
 ///
 /// Uses the SDK's [`ProfileCreateBuilder`] (S-9 in SDK commit `bf29056`)
 /// to stamp `actor_kind = "ghost"`, `managed_by_applet`, and the
 /// `accountability` block per spec applet-integration.md §9. The returned
 /// Event is unsigned (`proofs: []`) — caller attaches a `Proof` via
-/// `contrix_signatures::sign_event` when an Ed25519 signer is plumbed in
+/// `cokret_signatures::sign_event` when an Ed25519 signer is plumbed in
 /// (Phase 8).
 ///
 /// `realm_id` is the Realm where the profile is published (typically the
@@ -72,12 +76,15 @@ pub fn build_ghost_profile_event(
     let controller = Did::new(controller_did.to_owned())
         .with_context(|| format!("invalid controller DID: {controller_did}"))?;
     let hlc = current_hlc();
-    let event = ProfileCreateBuilder::new(realm, ghost)
+    let mut event = ProfileCreateBuilder::new(realm, ghost)
         .with_display_name(display_name)
         .with_ghost_kind(applet_id.to_owned(), controller)
         .with_external_ref(external_ref)
         .build(actor_seq, hlc)
         .map_err(|err| anyhow::anyhow!("ProfileCreateBuilder build failed: {err}"))?;
+    event.content["actor_kind"] = json!("ghost");
+    event.content["accountability"]["mode"] = json!("applet_managed");
+    event.content["accountability"]["responsible_actor_id"] = json!(controller_did);
     Ok(event)
 }
 
@@ -169,27 +176,27 @@ mod tests {
 
     #[test]
     fn mint_ghost_did_basic() {
-        let did = mint_ghost_did("did:web:slack-bridge.example", "ghost-", "U123");
-        assert_eq!(did, "did:web:slack-bridge.example#ghost-u123");
+        let did = mint_ghost_did("did:web:slack-bridge.example", "ghost:", "U123");
+        assert_eq!(did, "did:web:slack-bridge.example:ghost:u123");
     }
 
     #[test]
     fn mint_ghost_did_with_spaces_and_punctuation() {
         let did = mint_ghost_did("did:web:bridge.example", "g_", "Alice Smith!");
-        assert_eq!(did, "did:web:bridge.example#g_alice-smith");
+        assert_eq!(did, "did:web:bridge.example:g_alice-smith");
     }
 
     #[test]
     fn mint_ghost_did_stability_for_same_input() {
-        let a = mint_ghost_did("did:web:b.example", "ghost-", "U999");
-        let b = mint_ghost_did("did:web:b.example", "ghost-", "U999");
+        let a = mint_ghost_did("did:web:b.example", "ghost:", "U999");
+        let b = mint_ghost_did("did:web:b.example", "ghost:", "U999");
         assert_eq!(a, b);
     }
 
     #[test]
     fn mint_ghost_did_percent_encodes_when_slug_empty() {
-        let did = mint_ghost_did("did:web:b.example", "ghost-", "@@@");
-        assert!(did.starts_with("did:web:b.example#ghost-"));
+        let did = mint_ghost_did("did:web:b.example", "ghost:", "@@@");
+        assert!(did.starts_with("did:web:b.example:ghost:"));
         // The `@` chars should be percent-encoded.
         assert!(did.contains("%40"));
     }
@@ -197,24 +204,24 @@ mod tests {
     #[test]
     fn ghost_profile_event_uses_sdk_builder() {
         let event = build_ghost_profile_event(
-            "cx:realm:01904100-0000-7000-8000-000000000001",
-            "did:web:bridge.example#ghost-u1",
+            "ck:realm:01904100-0000-7000-8000-000000000001",
+            "did:web:bridge.example:ghost:u1",
             "Alice on Slack",
-            "cx:applet:21532600-0000-7000-8000-000000000000",
+            "ck:applet:21532600-0000-7000-8000-000000000000",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
             5,
         )
         .expect("build");
-        assert_eq!(event.kind, "cx.profile.create");
-        assert_eq!(event.actor_id.as_str(), "did:web:bridge.example#ghost-u1");
+        assert_eq!(event.kind, "ck.profile.create");
+        assert_eq!(event.actor_id.as_str(), "did:web:bridge.example:ghost:u1");
         assert_eq!(event.content["actor_kind"], "ghost");
         assert_eq!(
             event.content["managed_by_applet"],
-            "cx:applet:21532600-0000-7000-8000-000000000000"
+            "ck:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(
-            event.content["accountability"]["accountable_to"],
+            event.content["accountability"]["responsible_actor_id"],
             "did:webvh:acme:admin"
         );
         // S-7: external_ref lives at top level, not in content.
@@ -225,10 +232,10 @@ mod tests {
     #[test]
     fn ghost_profile_event_rejects_invalid_did() {
         let result = build_ghost_profile_event(
-            "cx:realm:01904100-0000-7000-8000-000000000001",
+            "ck:realm:01904100-0000-7000-8000-000000000001",
             "not-a-did",
             "Alice",
-            "cx:applet:1",
+            "ck:applet:1",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
             1,
@@ -240,15 +247,15 @@ mod tests {
     #[allow(deprecated)]
     fn ghost_profile_marks_actor_kind_and_accountability() {
         let profile = build_ghost_profile(
-            "did:web:bridge.example#ghost-u1",
+            "did:web:bridge.example:ghost:u1",
             "Alice on Slack",
-            "cx:applet:1",
+            "ck:applet:1",
             "did:web:bridge.example",
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
         );
         assert_eq!(profile["actor_kind"], "ghost");
-        assert_eq!(profile["managed_by_applet"], "cx:applet:1");
+        assert_eq!(profile["managed_by_applet"], "ck:applet:1");
         assert_eq!(profile["accountability"]["mode"], "applet_managed");
         assert_eq!(
             profile["accountability"]["responsible_actor_id"],

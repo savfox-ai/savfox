@@ -37,6 +37,68 @@ impl NavGroup {
     }
 }
 
+/// Memoizable bundle of every navigation label rendered by the sidebar, rail,
+/// "More" sheet and footer. Computed once per locale (via `use_memo`) instead
+/// of running ~25 `HashMap` lookups + `String` clones on every re-render.
+/// `String` is `PartialEq`, so the derived `PartialEq` makes the memo valid and
+/// it only re-fires when the locale actually changes.
+#[derive(Clone, PartialEq)]
+struct NavLabels {
+    overview: String,
+    sessions: String,
+    agents: String,
+    models: String,
+    channels: String,
+    cron_jobs: String,
+    skills: String,
+    tts: String,
+    voice: String,
+    config: String,
+    instances: String,
+    logs: String,
+    usage: String,
+    approvals: String,
+    nodes: String,
+    debug: String,
+    connect_provider: String,
+    dashboard: String,
+    manage: String,
+    media: String,
+    system: String,
+    command_palette: String,
+    navigation: String,
+}
+
+impl NavLabels {
+    fn build(locale: Locale) -> Self {
+        Self {
+            overview: i18n::t(locale, "nav.overview"),
+            sessions: i18n::t(locale, "nav.sessions"),
+            agents: i18n::t(locale, "nav.agents"),
+            models: i18n::t(locale, "nav.models"),
+            channels: i18n::t(locale, "nav.channels"),
+            cron_jobs: i18n::t(locale, "nav.cron_jobs"),
+            skills: i18n::t(locale, "nav.skills"),
+            tts: i18n::t(locale, "nav.tts"),
+            voice: i18n::t(locale, "nav.voice"),
+            config: i18n::t(locale, "nav.config"),
+            instances: i18n::t(locale, "nav.instances"),
+            logs: i18n::t(locale, "nav.logs"),
+            usage: i18n::t(locale, "nav.usage"),
+            approvals: i18n::t(locale, "nav.approvals"),
+            nodes: i18n::t(locale, "nav.nodes"),
+            debug: i18n::t(locale, "nav.debug"),
+            connect_provider: i18n::t(locale, "nav.connect_provider"),
+            dashboard: i18n::t(locale, "nav.dashboard"),
+            manage: i18n::t(locale, "nav.manage"),
+            media: i18n::t(locale, "nav.media"),
+            system: i18n::t(locale, "nav.system"),
+            command_palette: i18n::t(locale, "nav.command_palette"),
+            navigation: i18n::t(locale, "nav.navigation"),
+        }
+    }
+}
+
 /// Read the saved theme preference from localStorage, defaulting to "system".
 fn read_saved_theme() -> String {
     web_sys::window()
@@ -272,15 +334,18 @@ pub fn Layout() -> Element {
         apply_theme(&current);
     });
 
-    // Install swipe-to-open/close sidebar (touch events) once
-    use_effect(move || {
-        let _s = sidebar_open();
+    // Install swipe-to-open/close sidebar (touch events) exactly once on mount.
+    // The swipe closures read `sidebar_open` live, so re-registration on every
+    // signal change is unnecessary (it would only leak listeners).
+    use_hook(move || {
         install_swipe_handler(sidebar_open);
     });
 
-    // Global keyboard shortcuts
-    use_effect(move || {
-        let _open = palette_open();
+    // Global keyboard shortcuts — registered exactly once on mount. The handler
+    // reads `palette_open`/`more_open`/`sidebar_open` live, so it never needs
+    // re-registration (which previously leaked a `keydown` listener each time
+    // `palette_open` toggled).
+    use_hook(move || {
         let cb = Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
             let ctrl = e.ctrl_key() || e.meta_key();
 
@@ -397,11 +462,23 @@ pub fn Layout() -> Element {
         }
     });
 
-    // Update pending_approvals when data changes
+    // Update pending_approvals when data changes. The full Vec<ExecApprovalFull>
+    // is required by ExecApprovalModal, so we keep mirroring it into the signal.
     use_effect(move || {
         if let Some(data) = approvals_data.read().as_ref() {
             pending_approvals.set(data.clone());
         }
+    });
+
+    // Derive the pending-approval count directly from the resource. `usize` is
+    // `PartialEq`, so this memo is cheap and only re-fires when the count
+    // actually changes (avoiding work when other signals update).
+    let approvals_count_memo = use_memo(move || {
+        approvals_data
+            .read()
+            .as_ref()
+            .map(|d| d.len())
+            .unwrap_or(0)
     });
 
     // Listen for new exec approval events from WebSocket.
@@ -410,15 +487,20 @@ pub fn Layout() -> Element {
     // background.
     {
         let ws_for_notif = ws_approvals_notif.clone();
-        use_effect(move || {
-            let _connected = ws_connected();
-            let ws_ref = ws_for_notif.clone();
-            ws_ref.on_notification_mut("approvals.new", move |_params| {
+        let locale_sig_for_notif = locale_sig;
+        // Register the `approvals.new` handler exactly once on mount. The
+        // notification-handler map lives on the shared `WsRpcInner` (behind an
+        // `Rc`) and survives reconnects, so re-registering on every
+        // `ws_connected` change only piled up duplicate handlers. The handler
+        // reads the locale live so notification text follows language changes.
+        use_hook(move || {
+            ws_for_notif.on_notification_mut("approvals.new", move |_params| {
                 // Refresh the approval list
                 approval_tick += 1;
                 // Auto-show the approval modal
                 show_approval_modal.set(true);
-                // Fire a browser notification
+                // Fire a browser notification (read current locale live)
+                let locale = locale_sig_for_notif.peek().to_owned();
                 notifications::send_notification(
                     &i18n::t(locale, "notifications.exec_approval_required"),
                     &i18n::t(locale, "notifications.new_command_approval"),
@@ -464,7 +546,14 @@ pub fn Layout() -> Element {
         "sidebar-overlay"
     };
 
-    let approvals_count = pending_approvals().len();
+    // Read the memoized count into a plain `usize` for use throughout the view.
+    let approvals_count = approvals_count_memo();
+
+    // Memoize all nav labels by locale (read `locale_sig` inside so the memo
+    // recomputes on language change). Avoids re-translating ~25 keys on every
+    // re-render triggered by unrelated signal updates.
+    let nav_labels_memo = use_memo(move || NavLabels::build(locale_sig()));
+    let labels = nav_labels_memo();
 
     // Determine which bottom tab is active
     let tab_overview_active = current_route == Route::Overview {};
@@ -663,59 +752,59 @@ pub fn Layout() -> Element {
 
                     // Icon rail (visible when sidebar is collapsed on desktop)
                     div { class: "sidebar-rail",
-                        { rail_icon_link(&current_route, Route::Overview {}, &t("nav.overview"), rsx! { LayoutDashboard { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Sessions {}, &t("nav.sessions"), rsx! { MessageSquareText { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Overview {}, &labels.overview, rsx! { LayoutDashboard { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Sessions {}, &labels.sessions, rsx! { MessageSquareText { size: 18 } }) }
                         div { class: "sidebar-rail__divider" }
-                        { rail_icon_link(&current_route, Route::Agents {}, &t("nav.agents"), rsx! { Bot { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Models {}, &t("nav.models"), rsx! { Brain { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Agents {}, &labels.agents, rsx! { Bot { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Models {}, &labels.models, rsx! { Brain { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Channels {}, &labels.channels, rsx! { Radio { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Cron {}, &labels.cron_jobs, rsx! { Clock { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Skills {}, &labels.skills, rsx! { Star { size: 18 } }) }
                         div { class: "sidebar-rail__divider" }
-                        { rail_icon_link(&current_route, Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Tts {}, &labels.tts, rsx! { Volume2 { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Voice {}, &labels.voice, rsx! { Mic { size: 18 } }) }
                         div { class: "sidebar-rail__divider" }
-                        { rail_icon_link(&current_route, Route::Config {}, &t("nav.config"), rsx! { Settings { size: 18 } }) }
-                        { rail_icon_link(&current_route, Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 18 } }) }
-                        { rail_icon_link_with_badge(&current_route, Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 18 } }, approvals_count) }
+                        { rail_icon_link(&current_route, Route::Config {}, &labels.config, rsx! { Settings { size: 18 } }) }
+                        { rail_icon_link(&current_route, Route::Logs {}, &labels.logs, rsx! { ScrollText { size: 18 } }) }
+                        { rail_icon_link_with_badge(&current_route, Route::Approvals {}, &labels.approvals, rsx! { ShieldCheck { size: 18 } }, approvals_count) }
                     }
 
                     // Nav links (visible when sidebar is expanded)
                     div { class: "sidebar-nav",
                     // Dashboard group
-                    { nav_group_header(&t("nav.dashboard"), expanded_main(), move |_| expanded_main.toggle()) }
+                    { nav_group_header(&labels.dashboard, expanded_main(), move |_| expanded_main.toggle()) }
                     if expanded_main() {
-                        { nav_link(&current_route,Route::Overview {}, &t("nav.overview"), rsx! { LayoutDashboard { size: 16 } }) }
-                        { nav_link(&current_route,Route::Sessions {}, &t("nav.sessions"), rsx! { MessageSquareText { size: 16 } }) }
+                        { nav_link(&current_route,Route::Overview {}, &labels.overview, rsx! { LayoutDashboard { size: 16 } }) }
+                        { nav_link(&current_route,Route::Sessions {}, &labels.sessions, rsx! { MessageSquareText { size: 16 } }) }
                     }
 
                     // Manage group
-                    { nav_group_header(&t("nav.manage"), expanded_manage(), move |_| expanded_manage.toggle()) }
+                    { nav_group_header(&labels.manage, expanded_manage(), move |_| expanded_manage.toggle()) }
                     if expanded_manage() {
-                        { nav_link(&current_route,Route::Agents {}, &t("nav.agents"), rsx! { Bot { size: 16 } }) }
-                        { nav_link(&current_route,Route::Models {}, &t("nav.models"), rsx! { Brain { size: 16 } }) }
-                        { nav_link(&current_route,Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 16 } }) }
-                        { nav_link(&current_route,Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 16 } }) }
-                        { nav_link(&current_route,Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 16 } }) }
+                        { nav_link(&current_route,Route::Agents {}, &labels.agents, rsx! { Bot { size: 16 } }) }
+                        { nav_link(&current_route,Route::Models {}, &labels.models, rsx! { Brain { size: 16 } }) }
+                        { nav_link(&current_route,Route::Channels {}, &labels.channels, rsx! { Radio { size: 16 } }) }
+                        { nav_link(&current_route,Route::Cron {}, &labels.cron_jobs, rsx! { Clock { size: 16 } }) }
+                        { nav_link(&current_route,Route::Skills {}, &labels.skills, rsx! { Star { size: 16 } }) }
                     }
 
                     // Media group
-                    { nav_group_header(&t("nav.media"), expanded_media(), move |_| expanded_media.toggle()) }
+                    { nav_group_header(&labels.media, expanded_media(), move |_| expanded_media.toggle()) }
                     if expanded_media() {
-                        { nav_link(&current_route,Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 16 } }) }
-                        { nav_link(&current_route,Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 16 } }) }
+                        { nav_link(&current_route,Route::Tts {}, &labels.tts, rsx! { Volume2 { size: 16 } }) }
+                        { nav_link(&current_route,Route::Voice {}, &labels.voice, rsx! { Mic { size: 16 } }) }
                     }
 
                     // System group
-                    { nav_group_header(&t("nav.system"), expanded_system(), move |_| expanded_system.toggle()) }
+                    { nav_group_header(&labels.system, expanded_system(), move |_| expanded_system.toggle()) }
                     if expanded_system() {
-                        { nav_link(&current_route,Route::Config {}, &t("nav.config"), rsx! { Settings { size: 16 } }) }
-                        { nav_link(&current_route,Route::Instances {}, &t("nav.instances"), rsx! { Server { size: 16 } }) }
-                        { nav_link(&current_route,Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 16 } }) }
-                        { nav_link(&current_route,Route::Usage {}, &t("nav.usage"), rsx! { ChartBar { size: 16 } }) }
-                        { nav_link_with_badge(&current_route,Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 16 } }, approvals_count) }
-                        { nav_link(&current_route,Route::Nodes {}, &t("nav.nodes"), rsx! { Network { size: 16 } }) }
-                        { nav_link(&current_route,Route::Debug {}, &t("nav.debug"), rsx! { Bug { size: 16 } }) }
+                        { nav_link(&current_route,Route::Config {}, &labels.config, rsx! { Settings { size: 16 } }) }
+                        { nav_link(&current_route,Route::Instances {}, &labels.instances, rsx! { Server { size: 16 } }) }
+                        { nav_link(&current_route,Route::Logs {}, &labels.logs, rsx! { ScrollText { size: 16 } }) }
+                        { nav_link(&current_route,Route::Usage {}, &labels.usage, rsx! { ChartBar { size: 16 } }) }
+                        { nav_link_with_badge(&current_route,Route::Approvals {}, &labels.approvals, rsx! { ShieldCheck { size: 16 } }, approvals_count) }
+                        { nav_link(&current_route,Route::Nodes {}, &labels.nodes, rsx! { Network { size: 16 } }) }
+                        { nav_link(&current_route,Route::Debug {}, &labels.debug, rsx! { Bug { size: 16 } }) }
                     }
                 }
 
@@ -724,7 +813,7 @@ pub fn Layout() -> Element {
                     button {
                         class: "sidebar-palette-btn",
                         onclick: move |_| palette_open.set(true),
-                        span { class: "sidebar-palette-label", {t("nav.command_palette")} }
+                        span { class: "sidebar-palette-label", {labels.command_palette.clone()} }
                         span { class: "sidebar-palette-shortcut", "Ctrl+K" }
                     }
                 }
@@ -831,22 +920,22 @@ pub fn Layout() -> Element {
             // ---- "More" bottom sheet with remaining nav items ----
             div { class: "{more_sheet_class}",
                 div { class: "more-sheet__handle" }
-                div { class: "more-sheet__title", {t("nav.navigation")} }
+                div { class: "more-sheet__title", {labels.navigation.clone()} }
                 div { class: "more-sheet__nav",
-                    { more_sheet_link(&current_route, more_open, Route::Models {}, &t("nav.models"), rsx! { Brain { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Channels {}, &t("nav.channels"), rsx! { Radio { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Cron {}, &t("nav.cron_jobs"), rsx! { Clock { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Config {}, &t("nav.config"), rsx! { Settings { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Instances {}, &t("nav.instances"), rsx! { Server { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Logs {}, &t("nav.logs"), rsx! { ScrollText { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Usage {}, &t("nav.usage"), rsx! { ChartBar { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, &t("nav.approvals"), rsx! { ShieldCheck { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, &t("nav.nodes"), rsx! { Network { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Skills {}, &t("nav.skills"), rsx! { Star { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Tts {}, &t("nav.tts"), rsx! { Volume2 { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Voice {}, &t("nav.voice"), rsx! { Mic { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, &t("nav.connect_provider"), rsx! { PlugZap { size: 16 } }) }
-                    { more_sheet_link(&current_route, more_open, Route::Debug {}, &t("nav.debug"), rsx! { Bug { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Models {}, &labels.models, rsx! { Brain { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Channels {}, &labels.channels, rsx! { Radio { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Cron {}, &labels.cron_jobs, rsx! { Clock { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Config {}, &labels.config, rsx! { Settings { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Instances {}, &labels.instances, rsx! { Server { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Logs {}, &labels.logs, rsx! { ScrollText { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Usage {}, &labels.usage, rsx! { ChartBar { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Approvals {}, &labels.approvals, rsx! { ShieldCheck { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Nodes {}, &labels.nodes, rsx! { Network { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Skills {}, &labels.skills, rsx! { Star { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Tts {}, &labels.tts, rsx! { Volume2 { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Voice {}, &labels.voice, rsx! { Mic { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::ConnectProvider {}, &labels.connect_provider, rsx! { PlugZap { size: 16 } }) }
+                    { more_sheet_link(&current_route, more_open, Route::Debug {}, &labels.debug, rsx! { Bug { size: 16 } }) }
                 }
             }
 

@@ -13,13 +13,14 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["contrix"]
-contrix = [
-    "savfox-channels/contrix",
-    "dep:contrix-http-client",
-    "dep:contrix-core",
-    "dep:contrix-identifiers",
-    "dep:contrix",
+default = ["cokret"]
+cokret = [
+    "savfox-channels/cokret",
+    "dep:cokret-http-client",
+    "dep:cokret-core",
+    "dep:cokret-identifiers",
+    "dep:cokret",
+    "dep:cokret-bridge-runtime",
 ]
 
 [dependencies]
@@ -42,10 +43,11 @@ savfox-memory = { workspace = true }
 savfox-model = { workspace = true }
 savfox-channels = { workspace = true }
 feishu-sdk = { workspace = true }
-contrix-http-client = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/http-client", optional = true, default-features = false }
-contrix-core = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/core", optional = true, default-features = false, features = ["client"] }
-contrix-identifiers = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/identifiers", optional = true, default-features = false }
-contrix = { path = "../../../../contrix-dev/contrix-rust-sdk/crates/sdk", optional = true, default-features = false, features = ["client", "applet-runtime", "full-surface", "signer"] }
+cokret-http-client = { path = "../../../../cokret/cokret-rust-sdk/crates/http-client", optional = true, default-features = false }
+cokret-core = { path = "../../../../cokret/cokret-rust-sdk/crates/core", optional = true, default-features = false, features = ["client"] }
+cokret-identifiers = { path = "../../../../cokret/cokret-rust-sdk/crates/identifiers", optional = true, default-features = false }
+cokret = { path = "../../../../cokret/cokret-rust-sdk/crates/sdk", optional = true, default-features = false, features = ["client", "applet-runtime", "full-surface", "signer"] }
+cokret-bridge-runtime = { path = "../../../../cokret/bridges/crates/runtime", optional = true, default-features = false, features = ["edge"] }
 chrono = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }

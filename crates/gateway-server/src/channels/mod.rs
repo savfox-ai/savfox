@@ -1,8 +1,8 @@
 pub(crate) mod channel_stream;
-#[cfg(feature = "contrix")]
-pub(crate) mod contrix;
-#[cfg(feature = "contrix")]
-pub(crate) mod contrix_applet;
+#[cfg(feature = "cokret")]
+pub(crate) mod cokret;
+#[cfg(feature = "cokret")]
+pub(crate) mod cokret_applet;
 pub(crate) mod dingtalk;
 pub(crate) mod discord;
 pub(crate) mod feishu;
@@ -218,8 +218,8 @@ pub(crate) async fn initialize_and_start_channels(
 
         let result = match kind.as_str() {
             "matrix" => start_matrix_channel(&config, &registry, channel, session_store).await,
-            #[cfg(feature = "contrix")]
-            "contrix" => {
+            #[cfg(feature = "cokret")]
+            "cokret" => {
                 // Branch on the inner `mode` discriminator: `"applet"` runs as
                 // a registered Applet (≈ Matrix Appservice), anything else
                 // (default `"account"`) runs as a controlled-account client.
@@ -230,14 +230,14 @@ pub(crate) async fn initialize_and_start_channels(
                     .map(|m| m.to_ascii_lowercase())
                     .unwrap_or_else(|| "account".to_owned());
                 if mode == "applet" {
-                    crate::channels::contrix_applet::start_contrix_applet_channel(
+                    crate::channels::cokret_applet::start_cokret_applet_channel(
                         &config,
                         channel,
                         session_store,
                     )
                     .await
                 } else {
-                    crate::channels::contrix::start_contrix_channel(
+                    crate::channels::cokret::start_cokret_channel(
                         &config,
                         &registry,
                         channel,

@@ -24,7 +24,6 @@ pub mod resizable_divider;
 pub mod search_input;
 pub mod skeleton;
 pub mod tab_bar;
-pub mod theme_toggle;
 pub mod toast;
 pub mod toggle_switch;
 pub mod tool_stream;

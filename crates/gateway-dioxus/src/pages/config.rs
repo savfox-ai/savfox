@@ -16,7 +16,7 @@ use crate::components::tooltip::HelpTip;
 
 // ============== Diff Types ==============
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct DiffEntry {
     path: String,
     kind: DiffKind,
@@ -581,16 +581,20 @@ fn config_inner(active_section: Option<String>) -> Element {
     // Always show all sections — schema data enhances but doesn't gate display
     let available_sections: Vec<SectionMeta> = SECTIONS.to_vec();
 
-    let get_diff_entries = || -> Vec<DiffEntry> {
+    // Deep diff is expensive (recursive over the whole config tree); only
+    // recompute when the form or original snapshot actually changes.
+    let diff_entries_memo = use_memo(move || {
         let current = form_value.read();
         let original = original_value.read();
         compute_deep_diff(&original, &current)
-    };
-
-    let diff_entries = get_diff_entries();
+    });
+    let diff_entries = diff_entries_memo();
     let has_changes = !diff_entries.is_empty();
 
-    let validity = validate_config(&form_value.read(), &schema_props.read());
+    // Validation walks the full schema; only recompute when the form value or
+    // schema properties change.
+    let validity_memo = use_memo(move || validate_config(&form_value.read(), &schema_props.read()));
+    let validity = validity_memo();
 
     rsx! {
         style { {CONFIG_PAGE_STYLES} }
@@ -679,17 +683,6 @@ fn config_inner(active_section: Option<String>) -> Element {
 
             // Main content
             main { class: "config-main",
-                // Search bar at top of config page
-                div { style: "padding:12px 16px 0;",
-                    input {
-                        r#type: "text",
-                        placeholder: "Search configuration...",
-                        value: "{search_query}",
-                        oninput: move |e| search_query.set(e.value()),
-                        style: "width:100%;padding:10px 14px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);outline:none;font-size:14px;",
-                    }
-                }
-
                 // Action bar
                 div { class: "config-actions",
                     div { class: "config-actions__left",

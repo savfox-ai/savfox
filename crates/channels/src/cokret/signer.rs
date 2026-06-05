@@ -1,18 +1,17 @@
-//! Load an Ed25519 signer for a Contrix principal / applet bot.
+//! Load an Ed25519 signer for a Cokret principal / applet bot.
 //!
 //! Phase 8 (T8.A): replace the static `access_token` of Phase 1-7 with a
 //! real cryptographic identity. The 32-byte ed25519 seed is loaded from a
-//! [`ContrixKeyRef`] location (env var, file, or — debug only —
-//! inline base64). The resulting [`contrix::Ed25519MoveSigner`] then
+//! [`CokretKeyRef`] location (env var, file, or — debug only —
+//! inline base64). The resulting [`cokret::Ed25519MoveSigner`] then
 //! drives both:
 //!
-//! * **DID-proof login** (`AuthManager::login_did_proof`) at startup to
-//!   obtain a `cx.session.grant`.
-//! * **Event signing** (`contrix_signatures::sign_event`) before every
-//!   outbound submit.
+//! * **DID-proof login** (`AuthManager::login_did_proof`) at startup to obtain a
+//!   `ck.session.grant`.
+//! * **Event signing** (`cokret_signatures::sign_event`) before every outbound submit.
 //!
 //! Security: seed material is wiped with `zeroize` after the signer is
-//! constructed. Logging callers MUST NOT include `ContrixKeyRef`
+//! constructed. Logging callers MUST NOT include `CokretKeyRef`
 //! variants directly — those contain or point at secret material.
 
 use std::fs;
@@ -21,22 +20,22 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
-use contrix::Ed25519MoveSigner;
-use contrix_identifiers::Did;
+use cokret::Ed25519MoveSigner;
+use cokret_identifiers::Did;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-/// How to find the ed25519 seed for a Contrix principal / applet bot.
+/// How to find the ed25519 seed for a Cokret principal / applet bot.
 ///
 /// Tagged on `kind` so the JSON config form is:
 /// ```jsonc
-/// { "kind": "env", "var": "SAVFOX_CONTRIX_BOT_KEY" }
-/// { "kind": "file", "path": "/var/secrets/savfox/contrix.seed" }
+/// { "kind": "env", "var": "SAVFOX_COKRET_BOT_KEY" }
+/// { "kind": "file", "path": "/var/secrets/savfox/cokret.seed" }
 /// { "kind": "inline_seed_base64", "value": "..." }   // debug only
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ContrixKeyRef {
+pub enum CokretKeyRef {
     /// Read base64-no-pad-encoded 32-byte ed25519 seed from named env var.
     Env { var: String },
     /// Read 32-byte ed25519 seed from file. Accepts:
@@ -48,14 +47,15 @@ pub enum ContrixKeyRef {
     InlineSeedBase64 { value: String },
 }
 
-impl ContrixKeyRef {
+impl CokretKeyRef {
     /// Parse from JSON value (used by config parsers).
+    #[must_use]
     pub fn from_value(value: &serde_json::Value) -> Option<Self> {
         serde_json::from_value(value.clone()).ok()
     }
 }
 
-/// Load a [`Ed25519MoveSigner`] from a [`ContrixKeyRef`].
+/// Load a [`Ed25519MoveSigner`] from a [`CokretKeyRef`].
 ///
 /// Returns `Err` on:
 /// * missing env var
@@ -65,7 +65,7 @@ impl ContrixKeyRef {
 /// * invalid DID URI
 /// * release build + `InlineSeedBase64` (refused regardless of value)
 pub fn load_ed25519_signer(
-    key_ref: &ContrixKeyRef,
+    key_ref: &CokretKeyRef,
     did: &str,
     verification_method: &str,
 ) -> anyhow::Result<Ed25519MoveSigner> {
@@ -73,7 +73,7 @@ pub fn load_ed25519_signer(
     if seed_bytes.len() != 32 {
         seed_bytes.zeroize();
         anyhow::bail!(
-            "contrix signer: seed must be 32 bytes, got {}",
+            "cokret signer: seed must be 32 bytes, got {}",
             seed_bytes.len()
         );
     }
@@ -82,27 +82,27 @@ pub fn load_ed25519_signer(
     seed_bytes.zeroize();
 
     let did =
-        Did::new(did.to_owned()).with_context(|| format!("contrix signer: invalid DID '{did}'"))?;
+        Did::new(did.to_owned()).with_context(|| format!("cokret signer: invalid DID '{did}'"))?;
     let signer = Ed25519MoveSigner::from_did_key_seed(seed_arr, did, verification_method);
     // `from_did_key_seed` copies the seed into a SigningKey; wipe ours.
     seed_arr.zeroize();
     Ok(signer)
 }
 
-fn load_seed_bytes(key_ref: &ContrixKeyRef) -> anyhow::Result<Vec<u8>> {
+fn load_seed_bytes(key_ref: &CokretKeyRef) -> anyhow::Result<Vec<u8>> {
     match key_ref {
-        ContrixKeyRef::Env { var } => {
+        CokretKeyRef::Env { var } => {
             let value = std::env::var(var)
-                .with_context(|| format!("contrix signer: env var {var} not set"))?;
+                .with_context(|| format!("cokret signer: env var {var} not set"))?;
             decode_base64_no_pad(&value, "env value")
         }
-        ContrixKeyRef::File { path } => load_file_seed(path),
-        ContrixKeyRef::InlineSeedBase64 { value } => {
+        CokretKeyRef::File { path } => load_file_seed(path),
+        CokretKeyRef::InlineSeedBase64 { value } => {
             #[cfg(not(debug_assertions))]
             {
                 let _ = value;
                 anyhow::bail!(
-                    "contrix signer: inline_seed_base64 is not permitted in release builds"
+                    "cokret signer: inline_seed_base64 is not permitted in release builds"
                 );
             }
             #[cfg(debug_assertions)]
@@ -113,7 +113,7 @@ fn load_seed_bytes(key_ref: &ContrixKeyRef) -> anyhow::Result<Vec<u8>> {
 
 fn load_file_seed(path: &Path) -> anyhow::Result<Vec<u8>> {
     let raw = fs::read(path)
-        .with_context(|| format!("contrix signer: read seed file {}", path.display()))?;
+        .with_context(|| format!("cokret signer: read seed file {}", path.display()))?;
     if raw.len() == 32 {
         // Binary seed, exactly 32 bytes.
         return Ok(raw);
@@ -121,7 +121,7 @@ fn load_file_seed(path: &Path) -> anyhow::Result<Vec<u8>> {
     // Otherwise treat as text → base64-no-pad, trimming whitespace.
     let text = std::str::from_utf8(&raw).with_context(|| {
         format!(
-            "contrix signer: seed file {} is neither 32 raw bytes nor UTF-8 base64",
+            "cokret signer: seed file {} is neither 32 raw bytes nor UTF-8 base64",
             path.display()
         )
     })?;
@@ -129,16 +129,21 @@ fn load_file_seed(path: &Path) -> anyhow::Result<Vec<u8>> {
 }
 
 fn decode_base64_no_pad(text: &str, source: &str) -> anyhow::Result<Vec<u8>> {
+    // Trim surrounding whitespace/newlines first (e.g. an env var set via
+    // `export KEY=$(cat seed.b64)` carries a trailing newline), then strip any
+    // base64 padding before decoding with the no-pad engine.
+    let cleaned = text.trim().trim_end_matches('=');
     STANDARD_NO_PAD
-        .decode(text.trim_end_matches('='))
-        .with_context(|| format!("contrix signer: base64 decode failed ({source})"))
+        .decode(cleaned)
+        .with_context(|| format!("cokret signer: base64 decode failed ({source})"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
-    use contrix::MoveSigner;
+    use cokret::MoveSigner;
+
+    use super::*;
 
     const TEST_DID: &str = "did:webvh:example.org:agents:support";
     const TEST_VM: &str = "did:webvh:example.org:agents:support#key-1";
@@ -172,8 +177,8 @@ mod tests {
     #[test]
     fn env_missing_returns_typed_error() {
         // Read-only is fine and safe; pick a clearly-nonexistent name.
-        let var = format!("SAVFOX_CONTRIX_DEFINITELY_NOT_SET_{}", unique_id("MISS"));
-        let key_ref = ContrixKeyRef::Env { var };
+        let var = format!("SAVFOX_COKRET_DEFINITELY_NOT_SET_{}", unique_id("MISS"));
+        let key_ref = CokretKeyRef::Env { var };
         let err = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM)
             .err()
             .expect("expected error");
@@ -184,11 +189,11 @@ mod tests {
     fn file_text_load_succeeds() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "savfox-contrix-test-seed-{}.txt",
+            "savfox-cokret-test-seed-{}.txt",
             unique_id("FILE_OK")
         ));
         std::fs::write(&path, seed_b64()).expect("write");
-        let key_ref = ContrixKeyRef::File { path: path.clone() };
+        let key_ref = CokretKeyRef::File { path: path.clone() };
         let signer = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM).expect("load");
         assert_eq!(signer.verification_method_id(), TEST_VM);
         let _ = std::fs::remove_file(&path);
@@ -198,11 +203,11 @@ mod tests {
     fn file_binary_load_succeeds() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "savfox-contrix-test-seed-{}.bin",
+            "savfox-cokret-test-seed-{}.bin",
             unique_id("FILE_BIN")
         ));
         std::fs::write(&path, TEST_SEED).expect("write");
-        let key_ref = ContrixKeyRef::File { path: path.clone() };
+        let key_ref = CokretKeyRef::File { path: path.clone() };
         let signer = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM).expect("load");
         assert_eq!(signer.verification_method_id(), TEST_VM);
         let _ = std::fs::remove_file(&path);
@@ -212,14 +217,14 @@ mod tests {
     fn wrong_seed_length_rejects() {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "savfox-contrix-test-short-{}.txt",
+            "savfox-cokret-test-short-{}.txt",
             unique_id("FILE_SHORT")
         ));
         // Write text base64 of a 16-byte buffer — decode succeeds but the
         // length check after decode catches the mismatch.
         let short_b64 = STANDARD_NO_PAD.encode([0u8; 16]);
         std::fs::write(&path, short_b64).expect("write");
-        let key_ref = ContrixKeyRef::File { path: path.clone() };
+        let key_ref = CokretKeyRef::File { path: path.clone() };
         let err = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM)
             .err()
             .expect("expected error");
@@ -236,11 +241,11 @@ mod tests {
         // Use file-based key_ref to avoid env mutation.
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
-            "savfox-contrix-test-bad-did-{}.bin",
+            "savfox-cokret-test-bad-did-{}.bin",
             unique_id("FILE_BAD_DID")
         ));
         std::fs::write(&path, TEST_SEED).expect("write");
-        let key_ref = ContrixKeyRef::File { path: path.clone() };
+        let key_ref = CokretKeyRef::File { path: path.clone() };
         let err = load_ed25519_signer(&key_ref, "not-a-did", TEST_VM)
             .err()
             .expect("expected error");
@@ -251,31 +256,31 @@ mod tests {
     #[cfg(debug_assertions)]
     #[test]
     fn inline_seed_works_in_debug() {
-        let key_ref = ContrixKeyRef::InlineSeedBase64 { value: seed_b64() };
+        let key_ref = CokretKeyRef::InlineSeedBase64 { value: seed_b64() };
         let signer = load_ed25519_signer(&key_ref, TEST_DID, TEST_VM).expect("load");
         assert_eq!(signer.verification_method_id(), TEST_VM);
     }
 
     #[test]
     fn json_round_trip_env() {
-        let key_ref = ContrixKeyRef::Env {
+        let key_ref = CokretKeyRef::Env {
             var: "EXAMPLE".to_owned(),
         };
         let json = serde_json::to_value(&key_ref).expect("ser");
         assert_eq!(json["kind"], "env");
         assert_eq!(json["var"], "EXAMPLE");
-        let back: ContrixKeyRef = serde_json::from_value(json).expect("de");
+        let back: CokretKeyRef = serde_json::from_value(json).expect("de");
         assert_eq!(back, key_ref);
     }
 
     #[test]
     fn json_round_trip_file() {
-        let key_ref = ContrixKeyRef::File {
+        let key_ref = CokretKeyRef::File {
             path: PathBuf::from("/var/secrets/x"),
         };
         let json = serde_json::to_value(&key_ref).expect("ser");
         assert_eq!(json["kind"], "file");
-        let back: ContrixKeyRef = serde_json::from_value(json).expect("de");
+        let back: CokretKeyRef = serde_json::from_value(json).expect("de");
         assert_eq!(back, key_ref);
     }
 }

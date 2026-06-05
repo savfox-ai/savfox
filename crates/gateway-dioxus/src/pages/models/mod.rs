@@ -125,7 +125,18 @@ pub fn Models() -> Element {
         .cloned()
         .unwrap_or_default();
 
-    let catalog = build_provider_catalog(&models_snapshot);
+    // Cache the provider catalog: rebuilding it from the model snapshot is the
+    // expensive part of this render, so memoize against the `models_data`
+    // resource (re-runs only when the model list actually changes).
+    let catalog_memo = use_memo(move || {
+        let snapshot = models_data
+            .read()
+            .as_ref()
+            .and_then(|models| models.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        build_provider_catalog(&snapshot)
+    });
 
     // Build lookup from full_id -> AvailableModel for expanded details
     let model_info_map: std::collections::HashMap<String, &AvailableModel> =
@@ -146,70 +157,100 @@ pub fn Models() -> Element {
         .and_then(|id| model_info_map.get(id).copied());
 
     let query = search().trim().to_lowercase();
-    let prefs_snapshot = model_prefs();
 
-    // (ModelKey, full_id, display_name, model_id, is_visible, is_default)
-    let mut grouped_models: Vec<(
-        String,
-        String,
-        String,
-        Vec<(ModelKey, String, String, String, bool, bool)>,
-    )> = vec![];
-    let mut total_models = 0usize;
+    // Cache the grouped/filtered model list. Recomputes only when the catalog,
+    // search query, visibility prefs, or default-model inputs change.
+    let grouped_memo = use_memo(move || {
+        let catalog = catalog_memo.read();
+        let prefs_snapshot = model_prefs();
+        let query = search().trim().to_lowercase();
 
-    for provider in catalog.all.iter() {
-        let mut provider_rows = vec![];
-        for model in provider.models.values() {
-            total_models += 1;
-            let key = ModelKey::new(provider.id.clone(), model.model_id.clone());
-            let is_visible = is_model_visible(&prefs_snapshot, &key);
+        // Recompute the effective default id from the same reactive sources.
+        let config_default_id: Option<String> =
+            config_default.read().as_ref().and_then(|v| v.clone());
+        let snapshot = models_data
+            .read()
+            .as_ref()
+            .and_then(|models| models.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        let effective_default_id: Option<String> =
+            default_model_override().or(config_default_id).or_else(|| {
+                snapshot
+                    .iter()
+                    .find(|m| m.is_default == Some(true))
+                    .map(|m| m.id.clone())
+            });
 
-            let display = model_display_name(model);
-            let search_blob = format!(
-                "{} {} {} {}",
-                provider.id.to_lowercase(),
-                provider.name.to_lowercase(),
-                model.model_id.to_lowercase(),
-                display.to_lowercase(),
-            );
-            if !query.is_empty() && !search_blob.contains(&query) {
-                continue;
+        // (ModelKey, full_id, display_name, model_id, is_visible, is_default)
+        let mut grouped_models: Vec<(
+            String,
+            String,
+            String,
+            Vec<(ModelKey, String, String, String, bool, bool)>,
+        )> = vec![];
+        let mut total_models = 0usize;
+
+        for provider in catalog.all.iter() {
+            let mut provider_rows = vec![];
+            for model in provider.models.values() {
+                total_models += 1;
+                let key = ModelKey::new(provider.id.clone(), model.model_id.clone());
+                let is_visible = is_model_visible(&prefs_snapshot, &key);
+
+                let display = model_display_name(model);
+                if !query.is_empty() {
+                    let search_blob = format!(
+                        "{} {} {} {}",
+                        provider.id.to_lowercase(),
+                        provider.name.to_lowercase(),
+                        model.model_id.to_lowercase(),
+                        display.to_lowercase(),
+                    );
+                    if !search_blob.contains(&query) {
+                        continue;
+                    }
+                }
+
+                let is_default = effective_default_id.as_deref() == Some(&model.full_id);
+
+                provider_rows.push((
+                    key,
+                    model.full_id.clone(),
+                    display,
+                    model.model_id.clone(),
+                    is_visible,
+                    is_default,
+                ));
             }
 
-            let is_default = effective_default_id.as_deref() == Some(&model.full_id);
-
-            provider_rows.push((
-                key,
-                model.full_id.clone(),
-                display,
-                model.model_id.clone(),
-                is_visible,
-                is_default,
-            ));
+            provider_rows.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.1.cmp(&b.1)));
+            if !provider_rows.is_empty() {
+                // When account_slug is present, show just the base provider name
+                // (e.g. "OpenAI") since the account label is rendered separately.
+                let title = if !provider.account_slug.is_empty() {
+                    provider
+                        .name
+                        .split(" / ")
+                        .next()
+                        .unwrap_or(&provider.name)
+                        .to_string()
+                } else {
+                    provider.name.clone()
+                };
+                grouped_models.push((
+                    provider.id.clone(),
+                    title,
+                    provider.account_slug.clone(),
+                    provider_rows,
+                ));
+            }
         }
 
-        provider_rows.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.1.cmp(&b.1)));
-        if !provider_rows.is_empty() {
-            // When account_slug is present, show just the base provider name
-            // (e.g. "OpenAI") since the account label is rendered separately.
-            let title = if !provider.account_slug.is_empty() {
-                provider
-                    .name
-                    .split(" / ")
-                    .next()
-                    .unwrap_or(&provider.name)
-                    .to_string()
-            } else {
-                provider.name.clone()
-            };
-            grouped_models.push((
-                provider.id.clone(),
-                title,
-                provider.account_slug.clone(),
-                provider_rows,
-            ));
-        }
-    }
+        (grouped_models, total_models)
+    });
+    let grouped_guard = grouped_memo.read();
+    let (grouped_models, total_models) = (&grouped_guard.0, grouped_guard.1);
 
     rsx! {
         div { class: "page-content models-page",

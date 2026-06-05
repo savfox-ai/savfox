@@ -1,18 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use serde_json::Map;
-use tracing::warn;
 
-fn non_empty(map: &Map<String, serde_json::Value>, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        map.get(*key)
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    })
-}
+use crate::base::non_empty;
 
 #[derive(Debug, Clone)]
 pub struct GoogleChatChannelConfig {
@@ -119,13 +109,6 @@ pub async fn send_webhook_message(
         .send()
         .await?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.bytes().await.unwrap_or_default();
-        warn!(
-            "Google Chat API error: HTTP {status}: {}",
-            String::from_utf8_lossy(&body)
-        );
-    }
+    crate::http::warn_on_error(response, "Google Chat API error").await;
     Ok(())
 }

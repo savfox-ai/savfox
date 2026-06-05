@@ -42,12 +42,18 @@ mod tests {
     fn presets_json_deserializes() {
         // Forces the Lazy init to run; panics here surface a malformed catalog.
         let presets = &*PRESETS;
-        assert!(!presets.is_empty(), "bundled catalog must have at least one preset");
+        assert!(
+            !presets.is_empty(),
+            "bundled catalog must have at least one preset"
+        );
     }
 
     #[test]
     fn only_one_default_model_is_configured() {
         let default_models = PRESETS.iter().filter(|preset| preset.is_default).count();
-        assert_eq!(default_models, 1, "exactly one preset must be is_default=true");
+        assert_eq!(
+            default_models, 1,
+            "exactly one preset must be is_default=true"
+        );
     }
 }

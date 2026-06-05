@@ -1,3 +1,7 @@
+/* TODO(perf, cross-file): the Google Fonts @import below blocks render. Consider
+   moving font loading to a <link rel="preload"/stylesheet> (or self-hosting) in the
+   index template, and running a CSS purge step. Left untouched here on purpose —
+   that change spans the index template, not this stylesheet. */
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap");
 
 /* ============== Theme Variables ============== */
@@ -3337,6 +3341,12 @@ select:focus-visible {
 
 /* ============== Page Header ============== */
 
+/* (audit) Authoritative .page-header / .page-header__title definitions live here.
+   The theme-polish section near the end of this file layers ADDITIONAL properties
+   onto these selectors (grouped with other panels): border-color + gradient
+   background + margin-bottom for .page-header, and font-family + letter-spacing for
+   .page-header__title. Those are intentional skin overrides, not duplicates of the
+   base box-model rules below, so they are kept separate on purpose. */
 .page-header {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -5364,13 +5374,10 @@ body[data-theme="dark"]::after {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
 }
 
-body[data-theme="dark"] .tab-bar__item.active,
-body[data-theme="dark"] .config-mode-toggle__btn.active,
-body[data-theme="dark"] .cfg-segmented__btn.active {
-  background: var(--button-primary-surface);
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-primary-shadow);
-}
+/* (audit) Removed a redundant `body[data-theme="dark"] .tab-bar__item.active, ...`
+   override here: it set background/color/box-shadow to the exact same values the
+   theme-agnostic `.tab-bar__item.active` rule above already applies (and did not
+   touch border-color), so it was a no-op in dark mode. No visual change. */
 
 :is(
   .cfg-input,
@@ -5887,4 +5894,110 @@ summary:focus-visible {
     border-radius: 8px;
     font-size: 11px;
   }
+}
+
+/* ===== Shared utility classes (audit) ===== */
+
+/* Generic list/panel header. Mirrors the box-model of .page-header (above) but is a
+   distinct class intended for use inside cards/list panels. @keyframes spin already
+   defined earlier in this file (see "@keyframes spin"). */
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Small inline loading spinner (reuses the existing @keyframes spin). */
+.channels-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.6s linear infinite;
+}
+
+/* Connection/credential test result states. */
+.channels-test-result--ok {
+  color: var(--success);
+}
+
+.channels-test-result--err {
+  color: var(--danger);
+}
+
+/* Generic modal overlay + dialog. Modeled on .confirm-backdrop / .confirm-dialog. */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  animation: confirm-fade-in var(--transition-fast) ease;
+}
+
+.modal-dialog {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 440px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: confirm-slide-in var(--transition-normal) ease;
+}
+
+/* Button variants (BEM-style). Base .btn (defined earlier) supplies sizing/border;
+   these set the semantic surface/colour. Modeled on .confirm-dialog__btn--*. */
+.btn--primary {
+  background: var(--button-cta-surface);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--button-cta-surface-hover);
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
+}
+
+.btn--secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+  border: 1px solid var(--danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn--success {
+  background: var(--button-success-surface);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-success-shadow);
+}
+
+.btn--success:hover:not(:disabled) {
+  background: var(--button-success-surface-hover);
+  border-color: transparent;
 }

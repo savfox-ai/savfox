@@ -1,3 +1,5 @@
+use std::sync::{LazyLock, Once};
+
 use dioxus::prelude::*;
 
 use crate::route::Route;
@@ -10,7 +12,9 @@ struct PaletteCommand {
     route: Option<Route>,
 }
 
-fn all_commands() -> Vec<PaletteCommand> {
+/// All palette commands, built once. Every field is `'static`, so the list can
+/// live in a `LazyLock` instead of being rebuilt on every render.
+static COMMANDS: LazyLock<Vec<PaletteCommand>> = LazyLock::new(|| {
     vec![
         PaletteCommand {
             label: "Go to Overview",
@@ -88,36 +92,38 @@ fn all_commands() -> Vec<PaletteCommand> {
             route: Some(Route::CronNew {}),
         },
     ]
-}
+});
 
 #[component]
 pub fn CommandPalette(open: bool, on_close: EventHandler<()>) -> Element {
+    inject_palette_styles_once();
     let mut query = use_signal(String::new);
     let mut selected = use_signal(|| 0usize);
     let nav = use_navigator();
+
+    // Indices into the static `COMMANDS` list that match the current query.
+    // Memoizing the `Vec<usize>` (which is `PartialEq`) avoids re-filtering all
+    // commands on every render and sidesteps needing `PartialEq` on the command.
+    let filtered: Memo<Vec<usize>> = use_memo(move || {
+        let q = query().to_lowercase();
+        COMMANDS
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| q.is_empty() || c.label.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect()
+    });
 
     if !open {
         return rsx! {};
     }
 
-    let q = query().to_lowercase();
-    let commands: Vec<PaletteCommand> = all_commands()
-        .into_iter()
-        .filter(|c| q.is_empty() || c.label.to_lowercase().contains(&q))
-        .collect();
+    let indices = filtered();
+    let count = indices.len();
 
-    let count = commands.len();
-
-    let mut select_and_close = move |idx: usize| {
-        let cmds = all_commands()
-            .into_iter()
-            .filter(|c| {
-                let q = query().to_lowercase();
-                q.is_empty() || c.label.to_lowercase().contains(&q)
-            })
-            .collect::<Vec<_>>();
-        if let Some(cmd) = cmds.get(idx) {
-            if let Some(ref route) = cmd.route {
+    let mut select_and_close = move |list_idx: usize| {
+        if let Some(&cmd_idx) = filtered().get(list_idx) {
+            if let Some(ref route) = COMMANDS[cmd_idx].route {
                 nav.push(route.clone());
             }
         }
@@ -176,11 +182,12 @@ pub fn CommandPalette(open: bool, on_close: EventHandler<()>) -> Element {
                     },
                 }
                 div { id: "palette-results-list", class: "palette-results", role: "listbox",
-                    if commands.is_empty() {
+                    if indices.is_empty() {
                         div { class: "palette-empty", "No matching commands" }
                     }
-                    for (i, cmd) in commands.iter().enumerate() {
+                    for (i, &cmd_idx) in indices.iter().enumerate() {
                         {
+                            let cmd = &COMMANDS[cmd_idx];
                             let is_selected = i == selected();
                             let cls = if is_selected { "palette-item palette-item--selected" } else { "palette-item" };
                             let shortcut = cmd.shortcut;
@@ -202,8 +209,23 @@ pub fn CommandPalette(open: bool, on_close: EventHandler<()>) -> Element {
                 }
             }
         }
-        style { {PALETTE_STYLES} }
     }
+}
+
+/// Injects the command-palette stylesheet into the document head exactly once,
+/// instead of emitting an inline `<style>` block on every render.
+fn inject_palette_styles_once() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(PALETTE_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
+    });
 }
 
 const PALETTE_STYLES: &str = r#"

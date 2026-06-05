@@ -275,7 +275,8 @@ mod tests {
 
     #[test]
     fn normalize_collapses_whitespace_runs() {
-        let label = normalize_session_label("  hello\t \n   world  ").unwrap();
+        let label = normalize_session_label("  hello\t \n   world  ")
+            .expect("non-empty label should normalize");
         assert_eq!(label, "hello world");
     }
 
@@ -283,7 +284,7 @@ mod tests {
     fn normalize_clamps_at_max_chars_with_ellipsis() {
         use super::SESSION_LABEL_MAX_CHARS;
         let s = "a".repeat(SESSION_LABEL_MAX_CHARS + 5);
-        let label = normalize_session_label(&s).unwrap();
+        let label = normalize_session_label(&s).expect("non-empty label should normalize");
         // Truncated body + literal "..." appended.
         assert_eq!(label, format!("{}...", "a".repeat(SESSION_LABEL_MAX_CHARS)));
     }
@@ -292,7 +293,10 @@ mod tests {
     fn normalize_keeps_label_at_exactly_max_chars_unchanged() {
         use super::SESSION_LABEL_MAX_CHARS;
         let s = "a".repeat(SESSION_LABEL_MAX_CHARS);
-        assert_eq!(normalize_session_label(&s).unwrap(), s);
+        assert_eq!(
+            normalize_session_label(&s).expect("max-length label should normalize"),
+            s
+        );
     }
 
     #[test]

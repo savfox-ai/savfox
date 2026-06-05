@@ -4,6 +4,7 @@ use std::sync::Arc;
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use tokio::sync::RwLock;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -141,7 +142,9 @@ impl GatewayAuth {
             };
             mac.update(nonce.as_bytes());
             let expected = hex::encode(mac.finalize().into_bytes());
-            if expected == signature_hex {
+            // Constant-time comparison to avoid leaking the valid HMAC via a
+            // timing side-channel on the byte-by-byte `String ==` path.
+            if expected.as_bytes().ct_eq(signature_hex.as_bytes()).into() {
                 return Some(info.clone());
             }
         }
@@ -175,11 +178,18 @@ impl GatewayAuth {
                 // Legacy SHA-256 path — verify then auto-upgrade to bcrypt.
                 use sha2::Digest;
                 let sha_hash = hex::encode(sha2::Sha256::digest(password.as_bytes()));
-                if sha_hash == entry.password_hash {
+                if sha_hash
+                    .as_bytes()
+                    .ct_eq(entry.password_hash.as_bytes())
+                    .into()
+                {
                     let info = entry.token_info.clone();
                     drop(passwords);
-                    // Auto-upgrade to bcrypt.
-                    self.set_password(username, password, info.clone()).await;
+                    // Auto-upgrade to bcrypt (best-effort; login still succeeds
+                    // on the verified legacy hash even if the upgrade fails).
+                    if let Err(err) = self.set_password(username, password, info.clone()).await {
+                        tracing::warn!("failed to upgrade legacy password hash to bcrypt: {err}");
+                    }
                     return Some(info);
                 }
             }
@@ -188,12 +198,18 @@ impl GatewayAuth {
     }
 
     /// Register a username with a password (stored as bcrypt hash, cost 12).
-    pub async fn set_password(&self, username: &str, password: &str, info: TokenInfo) {
-        let hash = bcrypt::hash(password, 12).unwrap_or_else(|_| {
-            // Fallback to SHA-256 if bcrypt fails (should not happen).
-            use sha2::Digest;
-            hex::encode(sha2::Sha256::digest(password.as_bytes()))
-        });
+    ///
+    /// Returns `Err` if hashing fails. We deliberately do **not** fall back to
+    /// an unsalted SHA-256 hash on failure: storing a weaker hash silently
+    /// would degrade every affected credential to a brute-forceable form. A
+    /// hashing failure must fail closed (no password set) rather than open.
+    pub async fn set_password(
+        &self,
+        username: &str,
+        password: &str,
+        info: TokenInfo,
+    ) -> Result<(), bcrypt::BcryptError> {
+        let hash = bcrypt::hash(password, 12)?;
         let mut passwords = password_store().lock().await;
         passwords.insert(
             username.to_owned(),
@@ -202,6 +218,7 @@ impl GatewayAuth {
                 token_info: info,
             },
         );
+        Ok(())
     }
 
     /// Remove a password-based user.

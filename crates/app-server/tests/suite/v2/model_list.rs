@@ -47,10 +47,8 @@ fn model_from_preset(preset: &ModelPreset) -> Model {
 /// cache + non-ChatGPT auth, drawn directly from the bundled catalog so that
 /// adding or rebranding a preset does not require touching this test.
 fn expected_visible_models() -> Vec<Model> {
-    let presets = ModelPreset::filter_by_auth(
-        all_model_presets().clone(),
-        /* chatgpt_mode */ false,
-    );
+    let presets =
+        ModelPreset::filter_by_auth(all_model_presets().clone(), /* chatgpt_mode */ false);
     presets
         .iter()
         .filter(|preset| preset.show_in_picker)

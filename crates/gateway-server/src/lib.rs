@@ -278,6 +278,22 @@ pub async fn run_main(
                         "rate limiter: pruned stale buckets"
                     );
                 }
+                // Reap managed PTY sessions idle past their timeout. The
+                // RPC-driven `agent.terminal.pty.close_idle` only runs when a
+                // client happens to call it, so without this sweep abandoned
+                // terminal subprocesses would accumulate indefinitely.
+                match crate::terminal_pty::terminal_pty_manager()
+                    .close_idle()
+                    .await
+                {
+                    Ok(closed) if closed > 0 => {
+                        info!(closed, "terminal pty maintenance: closed idle sessions");
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        warn!(error = %err, "terminal pty maintenance: close_idle failed");
+                    }
+                }
             }
         });
     }
@@ -365,7 +381,7 @@ pub async fn run_main(
     }
 
     // Start the HTTP/WebSocket server (blocks until shutdown).
-    server::start_server(
+    let serve_result = server::start_server(
         &gateway_config,
         auth,
         session_mgr,
@@ -374,7 +390,24 @@ pub async fn run_main(
         cron_service,
         config.savfox_home.clone(),
     )
-    .await
+    .await;
+
+    // On graceful shutdown, reap any managed PTY subprocesses so they are not
+    // left orphaned. Best-effort: log and continue regardless of outcome.
+    match crate::terminal_pty::terminal_pty_manager()
+        .close_all(crate::terminal_pty::TerminalPtyCloseReason::GatewayShutdown)
+        .await
+    {
+        Ok(closed) if closed > 0 => {
+            info!(closed, "gateway shutdown: closed managed PTY sessions");
+        }
+        Ok(_) => {}
+        Err(err) => {
+            warn!(error = %err, "gateway shutdown: failed to close managed PTY sessions");
+        }
+    }
+
+    serve_result
 }
 
 /// Returns the first 8 hex characters of the SHA-256 of `token`.

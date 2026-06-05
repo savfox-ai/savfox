@@ -890,5 +890,4 @@ mod tests {
 
         let _ = tokio::fs::remove_dir_all(&home).await;
     }
-
 }

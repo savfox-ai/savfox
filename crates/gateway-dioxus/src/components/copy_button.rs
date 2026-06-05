@@ -1,5 +1,4 @@
 use dioxus::prelude::*;
-use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 #[component]
@@ -41,7 +40,7 @@ pub fn CopyButton(text: String) -> Element {
                         }
                         copied.set(true);
                         // Reset after 2s
-                        gloo_timers_sleep(2000).await;
+                        crate::utils::sleep_ms(2000).await;
                         copied.set(false);
                     });
                 }
@@ -49,19 +48,4 @@ pub fn CopyButton(text: String) -> Element {
             if copied() { "Copied!" } else { "Copy" }
         }
     }
-}
-
-async fn gloo_timers_sleep(ms: u32) {
-    let (tx, rx) = futures::channel::oneshot::channel::<()>();
-    let cb = wasm_bindgen::prelude::Closure::once(move || {
-        let _ = tx.send(());
-    });
-    if let Some(w) = web_sys::window() {
-        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            ms as i32,
-        );
-    }
-    cb.forget();
-    let _ = rx.await;
 }

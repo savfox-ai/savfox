@@ -23,7 +23,6 @@ use savfox_core::config::{Config, ConfigBuilder, ConfigOverrides};
 use savfox_core::config_loader::ConfigLayerStackOrdering;
 use savfox_core::features::Feature;
 use savfox_core::models_manager::manager::RefreshStrategy;
-// Model migration constants moved to model_migration.rs
 use savfox_core::protocol::{
     AskForApproval, DeprecationNoticeEvent, Event, EventMsg, FinalOutput, ListSkillsResponseEvent,
     Op, SandboxPolicy, SessionSource, SkillErrorInfo, TokenUsage,

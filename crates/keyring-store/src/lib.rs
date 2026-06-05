@@ -273,9 +273,14 @@ mod unit_tests {
     #[test]
     fn save_then_load_round_trip() {
         let store = MockKeyringStore::default();
-        store.save(SERVICE, "alice", "secret-1").unwrap();
+        store
+            .save(SERVICE, "alice", "secret-1")
+            .expect("mock store should save credential");
         assert_eq!(
-            store.load(SERVICE, "alice").unwrap().as_deref(),
+            store
+                .load(SERVICE, "alice")
+                .expect("mock store should load credential")
+                .as_deref(),
             Some("secret-1")
         );
     }
@@ -283,30 +288,60 @@ mod unit_tests {
     #[test]
     fn load_returns_none_for_missing_account() {
         let store = MockKeyringStore::default();
-        assert!(store.load(SERVICE, "ghost").unwrap().is_none());
+        assert!(
+            store
+                .load(SERVICE, "ghost")
+                .expect("mock store should handle missing account")
+                .is_none()
+        );
     }
 
     #[test]
     fn save_overwrites_existing_value() {
         let store = MockKeyringStore::default();
-        store.save(SERVICE, "alice", "v1").unwrap();
-        store.save(SERVICE, "alice", "v2").unwrap();
-        assert_eq!(store.load(SERVICE, "alice").unwrap().as_deref(), Some("v2"));
+        store
+            .save(SERVICE, "alice", "v1")
+            .expect("mock store should save first credential");
+        store
+            .save(SERVICE, "alice", "v2")
+            .expect("mock store should overwrite credential");
+        assert_eq!(
+            store
+                .load(SERVICE, "alice")
+                .expect("mock store should load overwritten credential")
+                .as_deref(),
+            Some("v2")
+        );
     }
 
     #[test]
     fn delete_removes_existing_entry_and_reports_true() {
         let store = MockKeyringStore::default();
-        store.save(SERVICE, "alice", "secret").unwrap();
-        assert!(store.delete(SERVICE, "alice").unwrap());
-        assert!(store.load(SERVICE, "alice").unwrap().is_none());
+        store
+            .save(SERVICE, "alice", "secret")
+            .expect("mock store should save credential before delete");
+        assert!(
+            store
+                .delete(SERVICE, "alice")
+                .expect("mock store should delete credential")
+        );
+        assert!(
+            store
+                .load(SERVICE, "alice")
+                .expect("mock store should load after delete")
+                .is_none()
+        );
         assert!(!store.contains("alice"));
     }
 
     #[test]
     fn delete_missing_entry_returns_false() {
         let store = MockKeyringStore::default();
-        assert!(!store.delete(SERVICE, "nope").unwrap());
+        assert!(
+            !store
+                .delete(SERVICE, "nope")
+                .expect("mock store should report missing delete")
+        );
     }
 
     #[test]

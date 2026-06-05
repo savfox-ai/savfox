@@ -738,13 +738,11 @@ fn terminal_launch_config_summary(
     env_raw: &str,
 ) -> (String, String, String) {
     let command = interactive_command_raw
-        .trim()
         .split_whitespace()
         .next()
         .filter(|value| !value.is_empty())
         .or_else(|| {
             command_raw
-                .trim()
                 .split_whitespace()
                 .next()
                 .filter(|value| !value.is_empty())
@@ -1263,7 +1261,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
         div { class: "split-view {detail_class}",
             // ── Left sidebar: agent list (~30%) ──
             div { class: "split-view__list",
-                div { style: "padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;",
+                div { class: "panel-header",
                     h2 { style: "font-size:16px;font-weight:600;", "Agents" }
                     div { style: "display:flex;gap:6px;",
                         button {
@@ -1546,7 +1544,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                                 }
                                                             }
                                                         }
-                                                        span { style: "font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "{agent.name}" }
+                                                        span { class: "list-item__title", "{agent.name}" }
                                                         if is_builtin_default_agent(agent) {
                                                             span {
                                                                 class: "agent-default-badge",
@@ -1787,11 +1785,11 @@ fn AgentCreateForm(
                 .unwrap_or_default()
         }
     });
-    let models: Vec<AvailableModel> = models_data.read().as_ref().cloned().unwrap_or_default();
-    let (providers, provider_models): (
-        Vec<String>,
-        std::collections::BTreeMap<String, Vec<(String, String)>>,
-    ) = {
+    // Derive available providers + per-provider model options. Recomputed
+    // only when the configured models resource changes.
+    let provider_data = use_memo(move || {
+        let models: Vec<AvailableModel> =
+            models_data.read().as_ref().cloned().unwrap_or_default();
         let mut set = std::collections::BTreeSet::new();
         let mut model_map =
             std::collections::BTreeMap::<String, std::collections::BTreeMap<String, String>>::new();
@@ -1841,10 +1839,14 @@ fn AgentCreateForm(
             normalized.insert(provider_id, options);
         }
 
-        (set.into_iter().collect(), normalized)
-    };
+        let providers: Vec<String> = set.into_iter().collect();
+        (providers, normalized)
+    });
+    let providers = provider_data.read().0.clone();
     let selected_provider = new_provider();
-    let model_options = provider_models
+    let model_options = provider_data
+        .read()
+        .1
         .get(selected_provider.as_str())
         .cloned()
         .unwrap_or_default();
@@ -4685,7 +4687,9 @@ struct ToolDefinition {
     description: &'static str,
 }
 
-fn tool_categories() -> Vec<ToolCategory> {
+/// Static tool catalog. Built once (the literal contains no runtime data) and
+/// cloned per call so callers keep their owned `Vec<ToolCategory>`.
+static TOOL_CATEGORIES: std::sync::LazyLock<Vec<ToolCategory>> = std::sync::LazyLock::new(|| {
     vec![
         ToolCategory {
             name: "Files",
@@ -4759,6 +4763,10 @@ fn tool_categories() -> Vec<ToolCategory> {
             }],
         },
     ]
+});
+
+fn tool_categories() -> Vec<ToolCategory> {
+    TOOL_CATEGORIES.clone()
 }
 
 fn empty_tool_states(categories: &[ToolCategory]) -> std::collections::HashMap<String, bool> {
@@ -5413,12 +5421,13 @@ const TD: &str = "td-cell";
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::{
         json_terminal_permission_fields, json_terminal_workspace_fields, model_option_label,
         model_select_value, terminal_delegate_payload,
     };
     use crate::api::types::AvailableModel;
-    use serde_json::json;
 
     fn test_model(id: &str, name: Option<&str>, model_slug: Option<&str>) -> AvailableModel {
         AvailableModel {

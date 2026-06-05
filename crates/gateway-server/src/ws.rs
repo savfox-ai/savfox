@@ -163,40 +163,6 @@ fn looks_like_jsonrpc(text: &str) -> bool {
     head[..probe_len].contains("\"jsonrpc\"")
 }
 
-#[cfg(test)]
-mod discriminator_tests {
-    use super::looks_like_jsonrpc;
-
-    #[test]
-    fn detects_jsonrpc_at_start() {
-        assert!(looks_like_jsonrpc(
-            r#"{"jsonrpc":"2.0","id":1,"method":"status"}"#
-        ));
-    }
-
-    #[test]
-    fn detects_jsonrpc_after_whitespace() {
-        assert!(looks_like_jsonrpc(
-            r#"   { "jsonrpc": "2.0", "id": 1, "method": "status" }"#
-        ));
-    }
-
-    #[test]
-    fn rejects_gateway_message() {
-        assert!(!looks_like_jsonrpc(r#"{"type":"connect","token":"x"}"#));
-    }
-
-    #[test]
-    fn rejects_message_with_jsonrpc_only_in_payload() {
-        // The discriminator `"jsonrpc"` appearing far inside the body
-        // (e.g. inside a quoted user message) must not be treated as a
-        // JSON-RPC frame.
-        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
-        // The first 64 bytes do not contain "jsonrpc".
-        assert!(!looks_like_jsonrpc(&payload));
-    }
-}
-
 /// RAII guard that releases the per-IP connection slot reserved by
 /// `try_add_connection` when the WS connection ends — regardless of how
 /// the handler exits. `client_ip` is `None` for Unix-socket clients which
@@ -509,4 +475,38 @@ async fn send_message(ws: &mut WebSocket, msg: &GatewayMessage) -> Result<(), ()
     ws.send(Message::text(text)).await.map_err(|err| {
         warn!("WebSocket send error: {err}");
     })
+}
+
+#[cfg(test)]
+mod discriminator_tests {
+    use super::looks_like_jsonrpc;
+
+    #[test]
+    fn detects_jsonrpc_at_start() {
+        assert!(looks_like_jsonrpc(
+            r#"{"jsonrpc":"2.0","id":1,"method":"status"}"#
+        ));
+    }
+
+    #[test]
+    fn detects_jsonrpc_after_whitespace() {
+        assert!(looks_like_jsonrpc(
+            r#"   { "jsonrpc": "2.0", "id": 1, "method": "status" }"#
+        ));
+    }
+
+    #[test]
+    fn rejects_gateway_message() {
+        assert!(!looks_like_jsonrpc(r#"{"type":"connect","token":"x"}"#));
+    }
+
+    #[test]
+    fn rejects_message_with_jsonrpc_only_in_payload() {
+        // The discriminator `"jsonrpc"` appearing far inside the body
+        // (e.g. inside a quoted user message) must not be treated as a
+        // JSON-RPC frame.
+        let payload = format!(r#"{{"type":"chat","text":"{}"}}"#, "x".repeat(200));
+        // The first 64 bytes do not contain "jsonrpc".
+        assert!(!looks_like_jsonrpc(&payload));
+    }
 }

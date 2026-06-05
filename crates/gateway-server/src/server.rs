@@ -141,13 +141,12 @@ async fn authenticate_with_info(
         return None;
     };
 
-    match auth.validate(token).await {
-        Some(info) => Some(info),
-        None => {
-            res.status_code(StatusCode::UNAUTHORIZED);
-            res.render(Text::Json(json!({"error": "invalid token"}).to_string()));
-            None
-        }
+    if let Some(info) = auth.validate(token).await {
+        Some(info)
+    } else {
+        res.status_code(StatusCode::UNAUTHORIZED);
+        res.render(Text::Json(json!({"error": "invalid token"}).to_string()));
+        None
     }
 }
 
@@ -501,10 +500,10 @@ pub(crate) fn build_router(
     router = router.push(channels::matrix::matrix_appservice_router());
     router = router.push(channels::matrix::appservice_router());
 
-    #[cfg(feature = "contrix")]
+    #[cfg(feature = "cokret")]
     {
-        router = router.push(channels::contrix_applet::contrix_applet_router());
-        router = router.push(channels::contrix_applet::contrix_appservices_router());
+        router = router.push(channels::cokret_applet::cokret_applet_router());
+        router = router.push(channels::cokret_applet::cokret_appservices_router());
     }
 
     // Hook mapping endpoints (Phase 8).

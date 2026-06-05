@@ -264,7 +264,13 @@ impl WsRpc {
                     let handlers = inner.notification_handlers.borrow();
                     if let Some(list) = handlers.get(&notif.method) {
                         let params = notif.params.unwrap_or(Value::Null);
-                        for handler in list {
+                        let last = list.len().saturating_sub(1);
+                        for (i, handler) in list.iter().enumerate() {
+                            if i == last {
+                                // Last handler takes ownership, avoiding a final clone.
+                                handler(params);
+                                break;
+                            }
                             handler(params.clone());
                         }
                     }

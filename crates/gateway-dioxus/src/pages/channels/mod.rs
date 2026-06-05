@@ -69,7 +69,17 @@ enum FieldType {
     Select(Vec<String>),
 }
 
-fn get_channel_types() -> Vec<ChannelTypeInfo> {
+/// Cached channel metadata. The full set of 21 channel descriptors is fully
+/// `'static` (only `String` / `&'static str` fields), so we build it once via
+/// `LazyLock` instead of rebuilding+cloning it on every render.
+static CHANNEL_TYPES: std::sync::LazyLock<Vec<ChannelTypeInfo>> =
+    std::sync::LazyLock::new(build_channel_types);
+
+fn get_channel_types() -> &'static [ChannelTypeInfo] {
+    &CHANNEL_TYPES
+}
+
+fn build_channel_types() -> Vec<ChannelTypeInfo> {
     vec![
         ChannelTypeInfo {
             id: "discord".into(),
@@ -1549,6 +1559,7 @@ pub fn ChannelsHealth(channel_id: String) -> Element {
 }
 
 fn channels_inner(deep_link: ChannelDeepLink) -> Element {
+    inject_channels_styles_once();
     let is_routed = !matches!(deep_link, ChannelDeepLink::None);
     let nav = use_navigator();
 
@@ -1977,7 +1988,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
         // ---- Add Channel Modal ----
         if show_add_modal() {
             { render_add_modal(
-                &channel_types,
+                channel_types,
                 selected_channel,
                 config_values,
                 saving,
@@ -2013,8 +2024,6 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                 }
             }
         }
-
-        style { {CHANNELS_STYLES} }
     }
 }
 
@@ -3507,6 +3516,23 @@ fn render_add_modal(
             }
         }
     }
+}
+
+/// Injects the channels stylesheet into the document head exactly once,
+/// instead of re-emitting an inline `<style>` block on every render/refresh.
+fn inject_channels_styles_once() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Ok(el) = doc.create_element("style") {
+                el.set_inner_html(CHANNELS_STYLES);
+                if let Some(head) = doc.head() {
+                    let _ = head.append_child(&el);
+                }
+            }
+        }
+    });
 }
 
 const CHANNELS_STYLES: &str = r#"

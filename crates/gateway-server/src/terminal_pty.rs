@@ -727,9 +727,11 @@ fn spawn_reader(
                     session.append_output(stream, text).await;
                 }
                 Err(err) => {
+                    // Attribute the error to the stream it actually came from
+                    // (was hardcoded "stderr", which mislabeled stdout errors).
                     session
                         .append_output(
-                            "stderr",
+                            stream,
                             format!("managed terminal {stream} read failed: {err}"),
                         )
                         .await;
@@ -750,13 +752,14 @@ fn now_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use super::{
         TerminalPtyCloseReason, TerminalPtyCompletion, TerminalPtyManager, TerminalPtySessionKey,
         TerminalPtySize, TerminalPtySpawnSpec, TerminalPtyWrite,
     };
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
-    use std::time::Duration;
 
     fn fake_repl_spec(cwd: std::path::PathBuf) -> TerminalPtySpawnSpec {
         #[cfg(windows)]

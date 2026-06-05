@@ -5,9 +5,10 @@
 # Use PowerShell on Windows
 set windows-shell := ["pwsh", "-NoProfile", "-Command"]
 
-# Default values — override with: just port=9000 token=mytoken gateway
+# Default values - override ports with: just port=9000 gateway
+# Optional gateway token: set SAVFOX_GATEWAY_TOKEN. If unset, the gateway
+# generates and persists a token at startup.
 port  := "18881"
-token := "test123"
 dev_backend_port := "18881"
 frontend_port := "18080"
 
@@ -16,20 +17,20 @@ frontend_port := "18080"
 # Build web frontend if needed + run gateway server (debug)
 gateway:
     pwsh -NoProfile -File scripts/build-web.ps1
-    cargo run --bin savfox -- gateway --port {{port}} --token {{token}}
+    $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
 # Build web frontend if needed + run gateway server (release)
 gateway-release:
     pwsh -NoProfile -File scripts/build-web.ps1 -Release
-    cargo run --release --bin savfox -- gateway --port {{port}} --token {{token}}
+    $gatewayArgs = @('run', '--release', '--bin', 'savfox', '--', 'gateway', '--port', '{{port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
 # Run gateway server without rebuilding the web frontend
 gateway-skip-web:
-    cargo run --bin savfox -- gateway --port {{port}} --token {{token}}
+    $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
 # Run the gateway backend only, on the fixed dev port expected by the Dioxus proxy config
 gateway-backend:
-    cargo run --bin savfox -- gateway --port {{dev_backend_port}} --token {{token}}
+    $gatewayArgs = @('run', '--bin', 'savfox', '--', 'gateway', '--port', '{{dev_backend_port}}'); if ($env:SAVFOX_GATEWAY_TOKEN) { $gatewayArgs += @('--token', $env:SAVFOX_GATEWAY_TOKEN) }; cargo @gatewayArgs
 
 # ── Web frontend ─────────────────────────────────────────────────────────────
 
@@ -57,11 +58,15 @@ check:
 
 # Clippy entire workspace
 lint:
-    cargo clippy --workspace
+    cargo clippy --workspace --all-targets -- -D warnings
 
 # Format entire workspace
 fmt:
     cargo +nightly fmt --all
+
+# Check formatting without writing changes
+fmt-check:
+    cargo +nightly fmt --all -- --check
 
 # Run all tests
 test:

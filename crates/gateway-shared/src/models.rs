@@ -85,34 +85,38 @@ mod tests {
     #[test]
     fn reasoning_effort_serializes_lowercase() {
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::None).unwrap(),
+            serde_json::to_value(ReasoningEffort::None).expect("reasoning effort should serialize"),
             json!("none")
         );
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::Minimal).unwrap(),
+            serde_json::to_value(ReasoningEffort::Minimal)
+                .expect("reasoning effort should serialize"),
             json!("minimal")
         );
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::Low).unwrap(),
+            serde_json::to_value(ReasoningEffort::Low).expect("reasoning effort should serialize"),
             json!("low")
         );
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::Medium).unwrap(),
+            serde_json::to_value(ReasoningEffort::Medium)
+                .expect("reasoning effort should serialize"),
             json!("medium")
         );
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::High).unwrap(),
+            serde_json::to_value(ReasoningEffort::High).expect("reasoning effort should serialize"),
             json!("high")
         );
         assert_eq!(
-            serde_json::to_value(ReasoningEffort::XHigh).unwrap(),
+            serde_json::to_value(ReasoningEffort::XHigh)
+                .expect("reasoning effort should serialize"),
             json!("xhigh")
         );
     }
 
     #[test]
     fn reasoning_effort_round_trip_from_string() {
-        let parsed: ReasoningEffort = serde_json::from_value(json!("medium")).unwrap();
+        let parsed: ReasoningEffort =
+            serde_json::from_value(json!("medium")).expect("reasoning effort should deserialize");
         assert_eq!(parsed, ReasoningEffort::Medium);
     }
 
@@ -122,9 +126,10 @@ mod tests {
             effort: ReasoningEffort::Low,
             description: "Quick".to_owned(),
         };
-        let value = serde_json::to_value(&preset).unwrap();
+        let value = serde_json::to_value(&preset).expect("preset should serialize");
         assert_eq!(value, json!({"effort": "low", "description": "Quick"}));
-        let back: ReasoningEffortPreset = serde_json::from_value(value).unwrap();
+        let back: ReasoningEffortPreset =
+            serde_json::from_value(value).expect("preset should deserialize");
         assert_eq!(back, preset);
     }
 }

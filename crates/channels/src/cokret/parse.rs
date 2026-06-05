@@ -1,18 +1,18 @@
-//! Parse Contrix `cx.message.create` Event Envelopes into savfox internal
+//! Parse Cokret `ck.message.create` Event Envelopes into savfox internal
 //! commands.
 //!
 //! Frame-level parsing (NDJSON `Delta` / `CatchupComplete` / etc.) is provided
-//! by the Contrix SDK
-//! (`contrix_core::AccountSubscribeFrame` / [`AccountSubscribeFrame::from_ndjson_line`]).
+//! by the Cokret SDK
+//! (`cokret_core::AccountSubscribeFrame` / [`AccountSubscribeFrame::from_ndjson_line`]).
 //! This module owns the "given an Event payload, decide whether to dispatch and
 //! how" logic.
 
 use serde_json::Value;
 
-use super::config::ContrixAccountConfig;
+use super::config::CokretAccountConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContrixInboundEvent {
+pub struct CokretInboundEvent {
     pub account_id: String,
     pub event_id: String,
     pub realm_id: String,
@@ -23,18 +23,18 @@ pub struct ContrixInboundEvent {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ContrixInboundParseResult {
-    pub events: Vec<ContrixInboundEvent>,
+pub struct CokretInboundParseResult {
+    pub events: Vec<CokretInboundEvent>,
 }
 
-/// Extract a `cx.message.create` Event payload into a savfox inbound command.
+/// Extract a `ck.message.create` Event payload into a savfox inbound command.
 ///
 /// Returns `None` for non-message events, redacted/missing content, or
-/// unsupported content kinds (anything other than `cx.content.text`).
+/// unsupported content kinds (anything other than `ck.content.text`).
 #[must_use]
-pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ContrixInboundEvent> {
+pub fn extract_message_event(event: &Value, account_id: &str) -> Option<CokretInboundEvent> {
     let kind = event.get("kind").and_then(Value::as_str)?;
-    if kind != "cx.message.create" {
+    if kind != "ck.message.create" {
         return None;
     }
     let event_id = event.get("event_id").and_then(Value::as_str)?.to_owned();
@@ -42,7 +42,7 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ContrixI
     let sender_did = event.get("actor_id").and_then(Value::as_str)?.to_owned();
 
     let content = event.get("content")?;
-    // `content` is the operation payload; in v1 a `cx.message.create` payload
+    // `content` is the operation payload; in v1 a `ck.message.create` payload
     // wraps `{ message_id, flow_id, track, content: { kind, body, ... } }`.
     let flow_id = content
         .get("flow_id")
@@ -50,7 +50,7 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ContrixI
         .map(str::to_owned);
     let inner = content.get("content").unwrap_or(content);
     let content_kind = inner.get("kind").and_then(Value::as_str)?;
-    if content_kind != "cx.content.text" {
+    if content_kind != "ck.content.text" {
         return None;
     }
     let body = inner.get("body").and_then(Value::as_str)?.to_owned();
@@ -60,7 +60,7 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ContrixI
         .or_else(|| content.get("thread_root_id").and_then(Value::as_str))
         .map(str::to_owned);
 
-    Some(ContrixInboundEvent {
+    Some(CokretInboundEvent {
         account_id: account_id.to_owned(),
         event_id,
         realm_id,
@@ -75,28 +75,23 @@ pub fn extract_message_event(event: &Value, account_id: &str) -> Option<ContrixI
 ///
 /// Rules:
 /// * Drop messages sent by the listening account itself (loop guard).
-/// * Drop messages whose realm is not in the account's allow set (when the
-///   account specifies one via `default_realm_id`); accounts without a
-///   `default_realm_id` accept any realm.
+/// * Drop messages whose realm is not in the account's allow set (when the account specifies one
+///   via `default_realm_id`); accounts without a `default_realm_id` accept any realm.
 #[must_use]
-pub fn should_dispatch_event(event: &ContrixInboundEvent, account: &ContrixAccountConfig) -> bool {
+pub fn should_dispatch_event(event: &CokretInboundEvent, account: &CokretAccountConfig) -> bool {
     if event.sender_did.eq_ignore_ascii_case(&account.principal_id) {
         return false;
     }
-    if let Some(allowed) = account.default_realm_id.as_deref() {
-        if !event.realm_id.eq_ignore_ascii_case(allowed) {
-            return false;
-        }
+    if let Some(allowed) = account.default_realm_id.as_deref()
+        && !event.realm_id.eq_ignore_ascii_case(allowed)
+    {
+        return false;
     }
-    if !event.body.trim().is_empty() {
-        true
-    } else {
-        false
-    }
+    !event.body.trim().is_empty()
 }
 
 /// Walk a `Delta` frame body's `realms` object and extract every dispatchable
-/// `cx.message.create` event for the given account.
+/// `ck.message.create` event for the given account.
 ///
 /// The shape expected is the v1 account subscribe `delta` shape:
 /// `realms.<realm_id>.timeline.events[] : Event`. Tolerates missing nested
@@ -104,11 +99,11 @@ pub fn should_dispatch_event(event: &ContrixInboundEvent, account: &ContrixAccou
 #[must_use]
 pub fn parse_delta_frame_for_account(
     realms_value: &Value,
-    account: &ContrixAccountConfig,
-) -> ContrixInboundParseResult {
+    account: &CokretAccountConfig,
+) -> CokretInboundParseResult {
     let mut events = Vec::new();
     let Some(realms) = realms_value.as_object() else {
-        return ContrixInboundParseResult { events };
+        return CokretInboundParseResult { events };
     };
     for (_realm_id, realm_body) in realms {
         let timeline = realm_body
@@ -125,23 +120,24 @@ pub fn parse_delta_frame_for_account(
             }
         }
     }
-    ContrixInboundParseResult { events }
+    CokretInboundParseResult { events }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
 
-    fn make_account(realm: Option<&str>) -> ContrixAccountConfig {
-        ContrixAccountConfig {
+    use super::*;
+
+    fn make_account(realm: Option<&str>) -> CokretAccountConfig {
+        CokretAccountConfig {
             id: "support".into(),
             principal_id: "did:webvh:example.org:agents:support".into(),
-            device_id: "cx:device:01".into(),
+            device_id: "ck:device:01".into(),
             access_token: "t".into(),
             key_ref: None,
             verification_method: None,
-            contrix_server_did: None,
+            cokret_server_did: None,
             grant_event_path: None,
             default_realm_id: realm.map(str::to_owned),
             default_flow_id: None,
@@ -153,21 +149,21 @@ mod tests {
     }
 
     fn message_event(actor: &str, body: &str) -> Value {
-        message_event_in_realm("cx:realm:r1", actor, body)
+        message_event_in_realm("ck:realm:r1", actor, body)
     }
 
     fn message_event_in_realm(realm: &str, actor: &str, body: &str) -> Value {
         json!({
-            "event_id": format!("cx:event:{}-{}", realm, actor),
-            "kind": "cx.message.create",
+            "event_id": format!("ck:event:{}-{}", realm, actor),
+            "kind": "ck.message.create",
             "realm_id": realm,
             "actor_id": actor,
             "content": {
-                "message_id": "cx:message:m1",
-                "flow_id": "cx:flow:f1",
+                "message_id": "ck:message:m1",
+                "flow_id": "ck:flow:f1",
                 "track": "discussion",
                 "content": {
-                    "kind": "cx.content.text",
+                    "kind": "ck.content.text",
                     "body": body
                 }
             }
@@ -179,39 +175,41 @@ mod tests {
         let event = message_event("did:webvh:example.org:user-alice", "hello");
         let parsed = extract_message_event(&event, "support").expect("parse");
         assert_eq!(parsed.body, "hello");
-        assert_eq!(parsed.realm_id, "cx:realm:r1");
-        assert_eq!(parsed.flow_id.as_deref(), Some("cx:flow:f1"));
+        assert_eq!(parsed.realm_id, "ck:realm:r1");
+        assert_eq!(parsed.flow_id.as_deref(), Some("ck:flow:f1"));
         assert_eq!(parsed.sender_did, "did:webvh:example.org:user-alice");
     }
 
     #[test]
     fn ignores_non_message_kind() {
-        let event = json!({"kind":"cx.flow.update","event_id":"e","realm_id":"r","actor_id":"a","content":{}});
+        let event = json!({"kind":"ck.flow.update","event_id":"e","realm_id":"r","actor_id":"a","content":{}});
         assert!(extract_message_event(&event, "x").is_none());
     }
 
     #[test]
     fn ignores_non_text_content() {
         let event = json!({
-            "kind":"cx.message.create","event_id":"e","realm_id":"r","actor_id":"a",
-            "content":{"flow_id":"f","content":{"kind":"cx.content.encrypted","body":""}}
+            "kind":"ck.message.create","event_id":"e","realm_id":"r","actor_id":"a",
+            "content":{"flow_id":"f","content":{"kind":"ck.content.encrypted","body":""}}
         });
         assert!(extract_message_event(&event, "x").is_none());
     }
 
     #[test]
     fn should_dispatch_filters_self_messages() {
-        let account = make_account(Some("cx:realm:r1"));
+        let account = make_account(Some("ck:realm:r1"));
         let event = message_event(&account.principal_id, "echo");
-        let parsed = extract_message_event(&event, &account.id).unwrap();
+        let parsed =
+            extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
     }
 
     #[test]
     fn should_dispatch_filters_non_allowed_realm() {
-        let account = make_account(Some("cx:realm:other"));
+        let account = make_account(Some("ck:realm:other"));
         let event = message_event("did:webvh:other", "hi");
-        let parsed = extract_message_event(&event, &account.id).unwrap();
+        let parsed =
+            extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
     }
 
@@ -219,15 +217,16 @@ mod tests {
     fn should_dispatch_filters_empty_body() {
         let account = make_account(None);
         let event = message_event("did:webvh:other", "   ");
-        let parsed = extract_message_event(&event, &account.id).unwrap();
+        let parsed =
+            extract_message_event(&event, &account.id).expect("message event should parse");
         assert!(!should_dispatch_event(&parsed, &account));
     }
 
     #[test]
     fn parse_delta_frame_walks_realms() {
-        let account = make_account(Some("cx:realm:r1"));
+        let account = make_account(Some("ck:realm:r1"));
         let realms = json!({
-            "cx:realm:r1": {
+            "ck:realm:r1": {
                 "timeline": {
                     "events": [
                         message_event("did:webvh:bob", "hello bob"),
@@ -236,9 +235,9 @@ mod tests {
                     ]
                 }
             },
-            "cx:realm:other": {
+            "ck:realm:other": {
                 "timeline": {
-                    "events": [message_event_in_realm("cx:realm:other", "did:webvh:dan", "from other realm")]
+                    "events": [message_event_in_realm("ck:realm:other", "did:webvh:dan", "from other realm")]
                 }
             }
         });
