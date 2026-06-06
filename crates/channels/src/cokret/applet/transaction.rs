@@ -2,7 +2,7 @@
 //!
 //! When the Cokret server pushes events via
 //! `POST /_cokret/edge/applet/transactions`, the body is an
-//! [`AppletTransactionReqBody`] (SDK type). This module converts each
+//! [`AppletTransactionRequestBody`] (SDK type). This module converts each
 //! contained Event into a savfox-side [`AppletInboundCommand`] when it
 //! matches the configured namespaces and looks dispatchable.
 
@@ -137,6 +137,7 @@ mod tests {
             base_url: "https://savfox.example/applet".into(),
             bot_actor_id: "did:web:bridge.example:bot".into(),
             cokret_server_url: "https://cokret.example.org".into(),
+            cokret_server_did: Some("did:webvh:cokret.example.org".into()),
             cokret_bearer_token: None,
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::new(

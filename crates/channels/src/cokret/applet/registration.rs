@@ -127,6 +127,7 @@ mod tests {
             base_url: "https://savfox.example/appservices/cokret/applet-1".into(),
             bot_actor_id: "did:web:slack-bridge.example:bot".into(),
             cokret_server_url: "https://cokret.example.org".into(),
+            cokret_server_did: Some("did:webvh:cokret.example.org".into()),
             cokret_bearer_token: None,
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::new(

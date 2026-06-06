@@ -130,7 +130,7 @@ pub fn build_applet_message_event(req: &AppletMessageRequest) -> anyhow::Result<
 /// the supplied Ed25519 signer.
 ///
 /// Wraps SDK `cokret::signatures::sign_event` (S-1). The receiver's
-/// reducer validates `proof.payload_digest == event.event_digest()` and
+/// reducer validates `proof.event_digest == event.event_digest()` and
 /// the JWS signature — so the produced event satisfies the
 /// `event_proofs_empty` and `proof_verification_failed` checks that
 /// reject any Phase 6/7 unsigned envelope.

@@ -32,8 +32,8 @@ use std::time::Duration;
 use anyhow::Context as _;
 use cokret::{IdempotencyDecision, IdempotencyWindow};
 use cokret_core::{
-    AppletActorResBody, AppletDescription, AppletPingResBody, AppletProtocolResBody,
-    AppletRealmResBody, AppletTransactionReqBody, AppletTransactionResBody, Did, Hash, canonical,
+    AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
+    AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, canonical,
 };
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -276,7 +276,7 @@ async fn applet_ping(req: &mut Request, res: &mut Response) {
     let Some(state) = resolve_applet_for_request(req, res) else {
         return;
     };
-    let body = AppletPingResBody {
+    let body = AppletPingOutcome {
         ok: true,
         applet_id: state.config.applet_id.clone(),
         // `service_did` is strictly validated (Did::new) in
@@ -361,20 +361,20 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                 res,
                 StatusCode::BAD_REQUEST,
                 "invalid_payload",
-                format!("failed to read AppletTransactionReqBody: {err}"),
+                format!("failed to read AppletTransactionRequestBody: {err}"),
             );
             return;
         }
     };
 
-    let body: AppletTransactionReqBody = match serde_json::from_slice(body_bytes) {
+    let body: AppletTransactionRequestBody = match serde_json::from_slice(body_bytes) {
         Ok(body) => body,
         Err(err) => {
             render_error(
                 res,
                 StatusCode::BAD_REQUEST,
                 "invalid_payload",
-                format!("invalid AppletTransactionReqBody: {err}"),
+                format!("invalid AppletTransactionRequestBody: {err}"),
             );
             return;
         }
@@ -443,7 +443,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
                     "applet: duplicate transaction (matching body hash) — returning cached ok"
                 );
                 res.status_code(StatusCode::OK);
-                res.render(Json(AppletTransactionResBody {
+                res.render(Json(AppletTransactionOutcome {
                     ok: true,
                     rejected: vec![],
                     retry_after_ms: None,
@@ -537,7 +537,7 @@ async fn applet_transactions(req: &mut Request, depot: &mut Depot, res: &mut Res
     }
 
     res.status_code(StatusCode::OK);
-    res.render(Json(AppletTransactionResBody {
+    res.render(Json(AppletTransactionOutcome {
         ok: true,
         rejected,
         retry_after_ms: None,
@@ -559,7 +559,7 @@ async fn applet_actor(req: &mut Request, res: &mut Response) {
         );
         return;
     }
-    let body = AppletActorResBody {
+    let body = AppletActorView {
         exists: true,
         actor_id: Did::new(actor_id).ok(),
         display_name: None,
@@ -584,7 +584,7 @@ async fn applet_realm(req: &mut Request, res: &mut Response) {
         );
         return;
     }
-    let body = AppletRealmResBody {
+    let body = AppletRealmView {
         exists: true,
         realm_id: cokret_identifiers::RealmId::new(realm).ok(),
         title: None,
@@ -609,7 +609,7 @@ async fn applet_protocol(req: &mut Request, res: &mut Response) {
         );
         return;
     }
-    let body = AppletProtocolResBody {
+    let body = AppletProtocolMetadata {
         protocol: protocol.clone(),
         display_name: protocol,
         icon_blob_ref: None,
@@ -1009,7 +1009,12 @@ async fn construct_applet_client(
             .verification_method
             .clone()
             .unwrap_or_else(|| format!("{}#key-1", cfg.bot_actor_id));
-        let audience = cfg.service_did.clone();
+        let audience = cfg.cokret_server_did.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "applet '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
+                cfg.id
+            )
+        })?;
         let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
         let principal = cokret_identifiers::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
@@ -1025,7 +1030,7 @@ async fn construct_applet_client(
             principal,
             device,
             &vm,
-            &audience,
+            audience,
         )
         .await?;
         Ok(client)

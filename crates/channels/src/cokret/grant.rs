@@ -68,7 +68,7 @@ impl CokretGrant {
 /// * Event has at least one production-shaped proof.
 /// * `event.validate_proof_bindings()` passes (proof digest matches body).
 /// * `grant.subject == expected_subject` (caller's DID).
-/// * If `expected_realm` is provided, the grant's `space_id` matches.
+/// * If `expected_realm` is provided, the grant's `realm_id` matches.
 /// * Grant has not expired.
 pub async fn load_and_verify_grant(
     path: &Path,
@@ -136,7 +136,7 @@ pub async fn load_and_verify_grant(
         );
     }
 
-    let realm_id = grant.space_id.as_ref().map(|s| s.as_str().to_owned());
+    let realm_id = grant.realm_id.as_ref().map(|s| s.as_str().to_owned());
     if let Some(expected) = expected_realm {
         match &realm_id {
             Some(actual) if actual.eq_ignore_ascii_case(expected) => {}
@@ -208,7 +208,7 @@ mod tests {
         content.insert("actions".into(), json!([action]));
         content.insert("resources".into(), json!([]));
         if let Some(realm) = realm {
-            content.insert("space_id".into(), json!(realm));
+            content.insert("realm_id".into(), json!(realm));
         }
         if let Some(exp) = expires {
             content.insert("expires_at".into(), json!(exp.to_rfc3339()));
@@ -232,7 +232,7 @@ mod tests {
             "kind": "detached_jws",
             "alg": "EdDSA",
             "verification_method": "did:webvh:example.com:admin#key-1",
-            "payload_digest": digest.as_str(),
+            "event_digest": digest.as_str(),
             "created_at": "2026-05-27T00:00:00Z",
             "jws": "test.detached.signature"
         }]);

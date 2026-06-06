@@ -34,6 +34,8 @@ pub struct CokretAppletConfig {
     pub bot_actor_id: String,
     /// Cokret server base URL where outbound events are POSTed.
     pub cokret_server_url: String,
+    /// Cokret server service DID used as DID-proof login audience.
+    pub cokret_server_did: Option<String>,
     /// Optional bearer for outbound `events_submit` calls. In a fully
     /// signed flow this is replaced by the ghost actor's detached JWS.
     pub cokret_bearer_token: Option<String>,
@@ -106,6 +108,15 @@ impl CokretAppletConfig {
         let cokret_server_url =
             first_non_empty(raw, &["cokretServerUrl", "cokret_server_url", "homeserver"])
                 .unwrap_or_else(|| base_url.clone());
+        let cokret_server_did = first_non_empty(
+            raw,
+            &[
+                "cokretServerDid",
+                "cokret_server_did",
+                "trustedServerDid",
+                "trusted_server_did",
+            ],
+        );
         let cokret_bearer_token =
             first_non_empty(raw, &["accessToken", "access_token", "cokretBearerToken"]);
 
@@ -159,6 +170,7 @@ impl CokretAppletConfig {
             base_url,
             bot_actor_id,
             cokret_server_url,
+            cokret_server_did,
             cokret_bearer_token,
             namespaces,
             protocols,
@@ -205,6 +217,20 @@ impl CokretAppletConfig {
                     value
                 )
             })?;
+        }
+        if let Some(value) = self.cokret_server_did.as_deref() {
+            Did::new(value.to_owned()).map_err(|err| {
+                anyhow::anyhow!(
+                    "Cokret applet channel '{}' cokret_server_did must be a valid DID URI, got '{}': {err}",
+                    self.id,
+                    value
+                )
+            })?;
+        } else if self.key_ref.is_some() {
+            anyhow::bail!(
+                "Cokret applet channel '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
+                self.id
+            );
         }
         if self.namespaces.actors.is_empty()
             && self.namespaces.realms.is_empty()
@@ -349,6 +375,7 @@ mod tests {
             "baseUrl": "https://savfox.example/appservices/cokret/cokret-applet-test",
             "botActorId": "did:web:slack-bridge.example:bot",
             "cokretServerUrl": "https://cokret.example.org",
+            "cokretServerDid": "did:webvh:cokret.example.org",
             "accessToken": "applet-bearer-1",
             "protocols": ["slack"],
             "namespaces": {
@@ -375,6 +402,10 @@ mod tests {
             "ck:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(parsed.protocols, vec!["slack"]);
+        assert_eq!(
+            parsed.cokret_server_did.as_deref(),
+            Some("did:webvh:cokret.example.org")
+        );
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
         assert_eq!(parsed.ghost_did_prefix, "ghost:");

@@ -1436,6 +1436,8 @@ dependencies = [
  "cokret-crypto",
  "cokret-html",
  "cokret-signatures",
+ "salvo 0.93.0",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "tracing",
@@ -1458,6 +1460,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
+ "unicode-normalization",
  "url",
 ]
 

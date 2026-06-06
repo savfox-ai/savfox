@@ -31,6 +31,7 @@ type SeqMap = HashMap<String, i64>;
 /// Guards an in-memory `HashMap<String, i64>` plus the backing file with a
 /// single [`parking_lot::Mutex`], so `reserve_block` is atomic across threads
 /// and the on-disk state is always consistent with what callers have observed.
+#[derive(Debug)]
 pub struct FileSeqStore {
     path: PathBuf,
     state: Mutex<SeqMap>,
@@ -62,12 +63,12 @@ impl FileSeqStore {
     fn persist(&self, map: &SeqMap) -> BridgeResult<()> {
         let bytes = serde_json::to_vec_pretty(map)
             .map_err(|e| BridgeError::App(format!("seq_store: serialize: {e}")))?;
-        if let Some(parent) = self.path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    BridgeError::App(format!("seq_store: create dir {}: {e}", parent.display()))
-                })?;
-            }
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                BridgeError::App(format!("seq_store: create dir {}: {e}", parent.display()))
+            })?;
         }
         let tmp = self.tmp_path();
         std::fs::write(&tmp, &bytes)

@@ -11,13 +11,13 @@
 //!   `did:web:slack-bridge.example:ghost:u123`) so the controlling Applet's DID namespace is
 //!   visible. Per spec applet-integration.md §3.4 a `#fragment` MUST NOT appear in an `actor_id` —
 //!   fragments are reserved for DID-URL verification methods (`…:ghost:u123#key-1`).
-//! * Profile MUST carry `actor_kind = "ghost"`, `managed_by_applet`, `external_ref`, and
-//!   `accountability { mode, responsible_actor_id, operator_actor_ids[] }`.
+//! * Profile MUST carry `actor_kind = "integration"`, `profile_fields.managed_by_applet`,
+//!   `profile_fields.external_ref`, and `accountable_principal_ids`.
 
 use anyhow::Context as _;
 use cokret::ProfileCreateBuilder;
 use cokret_core::Event;
-use cokret_identifiers::{Did, Hlc, RealmId};
+use cokret_identifiers::{AppletId, Did, Hlc, RealmId};
 use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.
@@ -51,8 +51,9 @@ pub fn mint_ghost_did(
 /// Build a `ck.profile.create` Event Envelope for a Ghost Actor.
 ///
 /// Uses the SDK's [`ProfileCreateBuilder`] (S-9 in SDK commit `bf29056`)
-/// to stamp `actor_kind = "ghost"`, `managed_by_applet`, and the
-/// `accountability` block per spec applet-integration.md §9. The returned
+/// to stamp `actor_kind = "integration"`, `profile_fields.managed_by_applet`,
+/// `profile_fields.external_ref`, and `accountable_principal_ids` per spec
+/// applet-integration.md §9. The returned
 /// Event is unsigned (`proofs: []`) — caller attaches a `Proof` via
 /// `cokret_signatures::sign_event` when an Ed25519 signer is plumbed in
 /// (Phase 8).
@@ -75,17 +76,15 @@ pub fn build_ghost_profile_event(
         .with_context(|| format!("invalid ghost actor DID: {ghost_did}"))?;
     let controller = Did::new(controller_did.to_owned())
         .with_context(|| format!("invalid controller DID: {controller_did}"))?;
+    let applet = AppletId::new(applet_id.to_owned())
+        .with_context(|| format!("invalid applet_id: {applet_id}"))?;
     let hlc = current_hlc();
-    let mut event = ProfileCreateBuilder::new(realm, ghost)
+    ProfileCreateBuilder::new(realm, ghost)
         .with_display_name(display_name)
-        .with_ghost_kind(applet_id.to_owned(), controller)
+        .with_ghost_actor_profile(applet, vec![controller])
         .with_external_ref(external_ref)
         .build(actor_seq, hlc)
-        .map_err(|err| anyhow::anyhow!("ProfileCreateBuilder build failed: {err}"))?;
-    event.content["actor_kind"] = json!("ghost");
-    event.content["accountability"]["mode"] = json!("applet_managed");
-    event.content["accountability"]["responsible_actor_id"] = json!(controller_did);
-    Ok(event)
+        .map_err(|err| anyhow::anyhow!("ProfileCreateBuilder build failed: {err}"))
 }
 
 fn current_hlc() -> Hlc {
@@ -112,14 +111,12 @@ pub fn build_ghost_profile(
 ) -> Value {
     json!({
         "actor_id": ghost_did,
-        "actor_kind": "ghost",
+        "actor_kind": "integration",
         "display_name": display_name,
-        "managed_by_applet": applet_id,
-        "external_ref": external_ref,
-        "accountability": {
-            "mode": "applet_managed",
-            "responsible_actor_id": controller_did,
-            "operator_actor_ids": [service_did],
+        "accountable_principal_ids": [controller_did, service_did],
+        "profile_fields": {
+            "managed_by_applet": applet_id,
+            "external_ref": external_ref,
         },
     })
 }
@@ -215,18 +212,19 @@ mod tests {
         .expect("build");
         assert_eq!(event.kind, "ck.profile.create");
         assert_eq!(event.actor_id.as_str(), "did:web:bridge.example:ghost:u1");
-        assert_eq!(event.content["actor_kind"], "ghost");
+        let object = &event.content["object"];
+        assert_eq!(object["actor_kind"], "integration");
         assert_eq!(
-            event.content["managed_by_applet"],
+            object["profile_fields"]["managed_by_applet"],
             "ck:applet:21532600-0000-7000-8000-000000000000"
         );
         assert_eq!(
-            event.content["accountability"]["responsible_actor_id"],
+            object["accountable_principal_ids"][0],
             "did:webvh:acme:admin"
         );
-        // S-7: external_ref lives at top level, not in content.
-        let ext = event.external_ref.as_ref().expect("external_ref");
+        let ext = &object["profile_fields"]["external_ref"];
         assert_eq!(ext["protocol"], "slack");
+        assert!(event.external_ref.is_none());
     }
 
     #[test]
@@ -254,18 +252,20 @@ mod tests {
             "did:webvh:acme:admin",
             build_external_ref("slack", "T123", "U1"),
         );
-        assert_eq!(profile["actor_kind"], "ghost");
-        assert_eq!(profile["managed_by_applet"], "ck:applet:1");
-        assert_eq!(profile["accountability"]["mode"], "applet_managed");
+        assert_eq!(profile["actor_kind"], "integration");
         assert_eq!(
-            profile["accountability"]["responsible_actor_id"],
+            profile["profile_fields"]["managed_by_applet"],
+            "ck:applet:1"
+        );
+        assert_eq!(
+            profile["accountable_principal_ids"][0],
             "did:webvh:acme:admin"
         );
-        let operators = profile["accountability"]["operator_actor_ids"]
+        let operators = profile["accountable_principal_ids"]
             .as_array()
             .expect("array");
-        assert_eq!(operators.len(), 1);
-        assert_eq!(operators[0], "did:web:bridge.example");
+        assert_eq!(operators.len(), 2);
+        assert_eq!(operators[1], "did:web:bridge.example");
     }
 
     #[test]

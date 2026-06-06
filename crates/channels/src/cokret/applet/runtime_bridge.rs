@@ -36,12 +36,12 @@ const DEFAULT_VERIFICATION_METHOD: &str = "#key-1";
 /// Field mapping (savfox → runtime):
 ///
 /// * `cfg.cokret_server_url`              → `cokret.server_url`
+/// * `cfg.cokret_server_did`              → `cokret.trusted_server_did`
 /// * `cfg.service_did`                    → `cokret.service_did`
 /// * `cfg.applet_id`                      → `cokret.applet_id`
 /// * `cfg.cokret_bearer_token` (or "")    → `cokret.access_token`
 /// * `cfg.verification_method` (or "#key-1") → `cokret.verification_method_id`
 /// * `""` (placeholder)                   → `cokret.signing_key_seed_hex`
-/// * `None`                               → `cokret.default_realm_id`
 /// * `cfg.id`                             → `bridge.bridge_id`
 ///
 /// `bridge` gets sensible defaults for the transport fields (the runtime
@@ -68,6 +68,10 @@ pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
         .verification_method
         .clone()
         .unwrap_or_else(|| DEFAULT_VERIFICATION_METHOD.to_owned());
+    let trusted_server_did = cfg
+        .cokret_server_did
+        .clone()
+        .unwrap_or_else(|| cfg.service_did.clone());
     let doc = json!({
         "bridge": {
             "bridge_id": cfg.id,
@@ -79,11 +83,11 @@ pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
             "service_did": cfg.service_did,
             "applet_id": cfg.applet_id,
             "access_token": cfg.cokret_bearer_token.clone().unwrap_or_default(),
+            "trusted_server_did": trusted_server_did,
             // Placeholder: savfox injects the signer via `with_signer`, so the
             // seed is never decoded by the runtime.
             "signing_key_seed_hex": "",
             "verification_method_id": verification_method_id,
-            "default_realm_id": serde_json::Value::Null,
         },
         "app": serde_json::Value::Null,
     });
@@ -96,6 +100,7 @@ pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
 /// Holds a clone of the relevant config fields (rather than borrowing the
 /// config) so it can be installed as an `Arc<dyn AppletResolver>` with a
 /// `'static` lifetime.
+#[derive(Debug)]
 pub struct SavfoxAppletResolver {
     namespaces: AppletNamespaces,
     service_did: String,
@@ -174,6 +179,7 @@ mod tests {
             base_url: "https://savfox.example/appservices/cokret/cokret-applet-test".to_owned(),
             bot_actor_id: "did:web:slack-bridge.example:bot".to_owned(),
             cokret_server_url: "https://cokret.example.org".to_owned(),
+            cokret_server_did: Some("did:webvh:cokret.example.org".to_owned()),
             cokret_bearer_token: Some("applet-bearer-1".to_owned()),
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::new(
@@ -204,6 +210,7 @@ mod tests {
 
         assert_eq!(rc.bridge.bridge_id, "cokret-applet-test");
         assert_eq!(rc.cokret.server_url, "https://cokret.example.org");
+        assert_eq!(rc.cokret.trusted_server_did, "did:webvh:cokret.example.org");
         assert_eq!(rc.cokret.service_did, "did:web:slack-bridge.example");
         assert_eq!(
             rc.cokret.applet_id,
@@ -214,7 +221,6 @@ mod tests {
         assert_eq!(rc.cokret.verification_method_id, "#key-1");
         // Placeholder seed — never decoded by the runtime (signer is injected).
         assert!(rc.cokret.signing_key_seed_hex.is_empty());
-        assert!(rc.cokret.default_realm_id.is_none());
         assert!(rc.app.is_null());
     }
 

@@ -10,7 +10,7 @@
 //! Phase 6 had a local `CokretFrameStream` that did NDJSON line splitting
 //! with `tokio::io::AsyncBufReadExt::lines()` and `serde_json::from_str`.
 //! That code is now obsolete — SDK commit `bf29056` ships
-//! `Client::account_subscribe_frames(&SyncReqBody) -> Stream<AccountSubscribeFrame>`
+//! `Client::account_subscribe_frames(&SyncRequestBody) -> Stream<AccountSubscribeFrame>`
 //! (S-6) plus `AccountSubscribeFrame::from_ndjson_line` (S-3). We delegate
 //! directly. `CokretFrameStream` is retained as a thin newtype alias for
 //! API stability of downstream callers.
@@ -20,7 +20,7 @@ use std::pin::Pin;
 use anyhow::Context;
 use cokret::Ed25519MoveSigner;
 use cokret_core::{
-    AccountSubscribeFrame, Event, EventsSubmitResBody, ServerDescription, SyncReqBody,
+    AccountSubscribeFrame, Event, EventsSubmitOutcome, ServerDescription, SyncRequestBody,
 };
 use cokret_http_client::{Auth, Client, ClientBuilder};
 use cokret_identifiers::{DeviceId, Did};
@@ -128,7 +128,7 @@ impl CokretHttpClient {
     ) -> anyhow::Result<CokretFrameStream> {
         use futures_util::StreamExt;
 
-        let req = SyncReqBody {
+        let req = SyncRequestBody {
             after: after.map(str::to_owned),
             catchup: Some(catchup),
             filter: None,
@@ -146,7 +146,7 @@ impl CokretHttpClient {
     }
 
     /// `POST /api/v1/events` — submit one signed Event Envelope.
-    pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitResBody> {
+    pub async fn submit_event(&self, event: &Event) -> anyhow::Result<EventsSubmitOutcome> {
         self.inner
             .events_submit(event)
             .await
