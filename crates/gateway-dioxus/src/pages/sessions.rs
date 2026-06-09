@@ -296,6 +296,9 @@ pub fn Sessions() -> Element {
     let mut reasoning_mode = use_signal(|| "on".to_string());
     let mut verbose_mode = use_signal(|| "on".to_string());
     let mut selected_agent = use_signal(|| "default".to_string());
+    // Top-of-list agent filter. Empty string means "all agents". Selecting an
+    // agent both narrows the session list and binds new draft sessions to it.
+    let mut agent_filter = use_signal(String::new);
     let mut session_group_activation = use_signal(String::new);
 
     let mut current_session_id = use_signal(|| Option::<String>::None);
@@ -443,8 +446,25 @@ pub fn Sessions() -> Element {
         sidebar_content.set(None);
         ambient_loading.set(false);
         idle_loading.set(false);
+
+        // A new draft binds to the currently filtered agent (or the default
+        // agent when the filter is "all"), and adopts that agent's model.
+        let filter = agent_filter();
+        let draft_agent = if filter.trim().is_empty() {
+            "default".to_string()
+        } else {
+            filter
+        };
+        selected_agent.set(draft_agent.clone());
         if let Some(pending) = pending_session_model() {
             selected_model.set(pending);
+        } else {
+            let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
+            if let Some(entry) = find_agent_entry(&agents_snapshot, &draft_agent) {
+                if let Some(primary) = primary_model_for_agent(entry) {
+                    selected_model.set(primary);
+                }
+            }
         }
     };
 
@@ -506,6 +526,7 @@ pub fn Sessions() -> Element {
                         Some(json!({
                             "label": session_label,
                             "model": patch_model,
+                            "agent": active_agent.clone(),
                             "group_activation": active_group_activation,
                             "overrides": {
                                 "model": patch_model_override,
@@ -746,6 +767,54 @@ pub fn Sessions() -> Element {
                             "+ New Session"
                         }
                     }
+                    div { class: "session-list-filter",
+                        label { class: "session-list-filter__label", "Agent" }
+                        select {
+                            class: "session-list-filter__select",
+                            value: "{agent_filter}",
+                            onchange: move |e| {
+                                let next = e.value();
+                                agent_filter.set(next.clone());
+                                // When tweaking the filter on a fresh draft, rebind the
+                                // draft (and its model) to the newly chosen agent.
+                                if current_session_id().is_none() {
+                                    let draft_agent = if next.trim().is_empty() {
+                                        "default".to_string()
+                                    } else {
+                                        next.clone()
+                                    };
+                                    selected_agent.set(draft_agent.clone());
+                                    if pending_session_model().is_none() {
+                                        let agents_snapshot =
+                                            agents_data.read().as_ref().cloned().unwrap_or_default();
+                                        if let Some(entry) = find_agent_entry(&agents_snapshot, &draft_agent) {
+                                            if let Some(primary) = primary_model_for_agent(entry) {
+                                                selected_model.set(primary);
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            option { value: "", "All Agents" }
+                            for agent in agents_list.iter() {
+                                {
+                                    let ref_id = agent.id.as_deref()
+                                        .filter(|id| !id.trim().is_empty())
+                                        .unwrap_or(&agent.name)
+                                        .to_string();
+                                    let label = if agent.is_default.unwrap_or(false) {
+                                        format!("{} (default)", agent.name)
+                                    } else {
+                                        agent.name.clone()
+                                    };
+                                    let is_selected = ref_id == agent_filter();
+                                    rsx! {
+                                        option { value: "{ref_id}", selected: is_selected, "{label}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     div { style: "padding:8px 12px;border-bottom:1px solid color-mix(in srgb, var(--border) 40%, transparent);",
                         SearchInput {
                             value: session_search_query(),
@@ -756,12 +825,14 @@ pub fn Sessions() -> Element {
                     div { class: "session-list-scroll",
                         {
                             let search_q = session_search_query().trim().to_ascii_lowercase();
+                            let agent_q = agent_filter();
+                            let agent_q = agent_q.trim();
                             let filtered_sessions: Vec<&SessionEntry> = sessions.iter().filter(|entry| {
-                                if search_q.is_empty() {
-                                    true
-                                } else {
-                                    entry.display_label().to_ascii_lowercase().contains(&search_q)
-                                }
+                                let agent_ok = agent_q.is_empty()
+                                    || entry.agent_id.as_deref() == Some(agent_q);
+                                let search_ok = search_q.is_empty()
+                                    || entry.display_label().to_ascii_lowercase().contains(&search_q);
+                                agent_ok && search_ok
                             }).collect();
                             rsx! {
                         if filtered_sessions.is_empty() {
@@ -805,6 +876,7 @@ pub fn Sessions() -> Element {
                                     let entry_model = entry.model.clone();
                                     let entry_provider = entry.provider.clone();
                                     let entry_thread_id = entry.thread_id.clone();
+                                    let entry_agent_id = entry.agent_id.clone();
                                     let on_delete_session = {
                                         let sid_for_delete = sid_for_delete.clone();
                                         let ws_delete = ws_delete.clone();
@@ -838,6 +910,11 @@ pub fn Sessions() -> Element {
                                                     sidebar_content.set(None);
                                                     pending_session_model.set(None);
                                                     save_pending_session_model(None);
+
+                                                    // A session is bound to a fixed agent; restore it.
+                                                    selected_agent.set(
+                                                        entry_agent_id.clone().unwrap_or_else(|| "default".to_string()),
+                                                    );
 
                                                     // Update selected_model from session entry if available
                                                     if let Some(model) = entry_model.clone() {
@@ -1214,16 +1291,6 @@ pub fn Sessions() -> Element {
                             }
                         },
                         agent_value: selected_agent(),
-                        on_agent_change: move |agent: String| {
-                            selected_agent.set(agent.clone());
-                            // Update model to match the selected agent's primary model
-                            let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
-                            if let Some(entry) = find_agent_entry(&agents_snapshot, &agent) {
-                                if let Some(primary) = primary_model_for_agent(entry) {
-                                    selected_model.set(primary);
-                                }
-                            }
-                        },
                         agents: agents_list.clone(),
                     }
                 }
@@ -1299,6 +1366,48 @@ const SESSION_STYLES: &str = r#"
         color: #fff;
         transform: translateY(-0.5px);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--button-cta-shadow-hover);
+    }
+
+    .session-list-filter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    }
+
+    .session-list-filter__label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .session-list-filter__select {
+        flex: 1;
+        min-width: 0;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: var(--radius);
+        border: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .session-list-filter__select:hover {
+        border-color: color-mix(in srgb, var(--border) 70%, var(--accent) 30%);
+    }
+
+    .session-list-filter__select:focus {
+        border-color: color-mix(in srgb, var(--accent) 76%, var(--border) 24%);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
     }
 
     .session-list-scroll {

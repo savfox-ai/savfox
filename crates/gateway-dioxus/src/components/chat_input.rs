@@ -268,7 +268,6 @@ pub fn ChatInput(
     model_value: String,
     on_model_change: EventHandler<String>,
     agent_value: String,
-    on_agent_change: EventHandler<String>,
     agents: Vec<AgentEntry>,
 ) -> Element {
     let mut text = use_signal(String::new);
@@ -425,13 +424,11 @@ pub fn ChatInput(
     let chat_agent_label = t("chat.agent_label");
     let chat_model_label = t("chat.model_label");
     let chat_attach = t("chat.attach_image");
-    let chat_select_agent = t("chat.select_agent");
     let chat_reasoning = t("chat.reasoning_default");
     let chat_reasoning_effort = t("chat.reasoning_effort");
     let chat_hint = t("chat.send_hint");
     let chat_send = t("chat.send_message");
     let chat_stop = t("chat.stop_generation");
-    let chat_default_suffix = t("chat.default_suffix");
     let aria_session_input = t("aria.session_input");
 
     rsx! {
@@ -468,33 +465,6 @@ pub fn ChatInput(
                             title: "{chat_attach}",
                             aria_label: "{chat_attach}",
                             Plus { size: 16 }
-                        }
-                        div { class: "chat-agent-select-wrap",
-                            select {
-                                class: "chat-agent-select",
-                                value: "{agent_value}",
-                                aria_label: "{chat_select_agent}",
-                                onchange: move |e: Event<FormData>| on_agent_change(e.value()),
-                                for agent in agents.iter() {
-                                    {
-                                        let ref_id = agent.id.as_deref()
-                                            .filter(|id| !id.trim().is_empty())
-                                            .unwrap_or(&agent.name);
-                                        let label = if agent.is_default.unwrap_or(false) {
-                                            format!("{} {}", agent.name, chat_default_suffix)
-                                        } else {
-                                            agent.name.clone()
-                                        };
-                                        rsx! {
-                                            option {
-                                                value: "{ref_id}",
-                                                selected: ref_id == agent_value,
-                                                "{label}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                         div { class: "chat-model-select-wrap",
                             ModelSelector {

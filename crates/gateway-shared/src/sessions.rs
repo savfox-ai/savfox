@@ -126,6 +126,9 @@ pub struct SessionEntry {
     pub thread_id: Option<String>,
     /// `"manual" | "mention" | "dm"` etc. — channel-specific.
     pub group_activation: Option<String>,
+    /// Agent this session is bound to (fixed for the session's lifetime).
+    /// `None` for legacy sessions that predate agent binding.
+    pub agent_id: Option<String>,
 }
 
 impl SessionEntry {

@@ -1296,6 +1296,16 @@ pub(crate) async fn handle_sessions_list(
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
+        // Resolve the session's bound agent: explicit `agent_id` (web UI
+        // sessions) takes precedence, falling back to the agent encoded in
+        // the routing id (channel sessions).
+        let agent_id = entry.agent_id.clone().or_else(|| {
+            entry
+                .routing_id
+                .as_deref()
+                .and_then(agent_from_routing_id)
+        });
+
         entries.push(json!({
             "session_id": entry.session_id,
             "id": entry.session_id,
@@ -1312,6 +1322,7 @@ pub(crate) async fn handle_sessions_list(
             "provider": entry.provider,
             "thread_id": entry.thread_id,
             "group_activation": entry.group_activation,
+            "agent_id": agent_id,
         }));
     }
     let stats = session_store.stats().await;
@@ -1450,6 +1461,16 @@ pub(crate) async fn handle_sessions_patch(
     }
     if let Some(provider) = patch_str(params, &patch, "provider") {
         updated.provider = Some(provider.to_owned());
+    }
+    // Agent binding. A session's agent is fixed once set, so only record it
+    // when the session does not already have one (e.g. on first creation).
+    if updated.agent_id.is_none()
+        && let Some(agent) = patch_str(params, &patch, "agent")
+    {
+        let normalized = agent.trim();
+        if !normalized.is_empty() {
+            updated.agent_id = Some(normalized.to_owned());
+        }
     }
     if let Some(label) = patch_str(params, &patch, "label") {
         let normalized = label.trim();

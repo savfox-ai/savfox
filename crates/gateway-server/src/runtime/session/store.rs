@@ -98,6 +98,12 @@ pub struct SessionEntry {
     /// Optional routing identifier used by channel/webhook session tracking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing_id: Option<String>,
+    /// Agent this session is bound to. Set explicitly for sessions created
+    /// from the web UI; channel sessions encode the agent in `routing_id`
+    /// instead (see `agent_from_routing_id`). A session's agent is fixed for
+    /// its lifetime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     /// Last update timestamp (epoch milliseconds).
     pub updated_at: u64,
     /// Creation timestamp (epoch milliseconds).
@@ -282,6 +288,7 @@ impl Default for SessionEntry {
         Self {
             session_id: uuid::Uuid::now_v7().to_string(),
             routing_id: None,
+            agent_id: None,
             updated_at: 0,
             created_at: 0,
             version: 0,
