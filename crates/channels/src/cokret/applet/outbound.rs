@@ -3,12 +3,12 @@
 //!
 //! Spec [`applet-integration.md`
 //! §8](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-integration.md)
-//! requires every applet-written Event to carry `actor_id`, `applet_id`,
-//! `external_ref`, `authorization_ref`, and `proof`.
+//! requires every applet-written Event to carry `actor_id`, applet provenance,
+//! `authorization_ref`, and `proof`.
 //!
-//! Since SDK commit `bf29056` (Phase 7), `cokret_core::Event` exposes
-//! top-level `applet_id: Option<String>` and `external_ref: Option<Value>`
-//! fields (S-7). We populate them directly; no more `unsigned` parking.
+//! The current SDK envelope exposes no signed top-level `applet_id` or
+//! `external_ref` slots, so this helper carries that bridge provenance in
+//! `unsigned` transport metadata.
 //!
 //! Phase 8 (T8.C): caller signs the envelope via
 //! [`sign_outbound_event`] before submitting. Callers that do not yet have
@@ -108,10 +108,12 @@ pub fn build_applet_message_event(req: &AppletMessageRequest) -> anyhow::Result<
     )
     .map_err(|err| anyhow::anyhow!("failed to build event envelope: {err}"))?;
 
-    // SDK S-7: top-level `applet_id` / `external_ref` are now first-class
-    // `Event` fields. No more `unsigned` parking.
-    event.applet_id = Some(req.applet_id.clone());
-    event.external_ref = Some(req.external_ref.clone());
+    event
+        .unsigned
+        .insert("applet_id".to_owned(), Value::String(req.applet_id.clone()));
+    event
+        .unsigned
+        .insert("external_ref".to_owned(), req.external_ref.clone());
 
     if let Some(grant) = &req.authorization_ref {
         event.authorization_ref = Some(grant.clone());
@@ -195,23 +197,20 @@ mod tests {
     }
 
     #[test]
-    fn sets_applet_id_top_level() {
+    fn sets_applet_id_unsigned_metadata() {
         let ev = build_applet_message_event(&valid()).expect("build");
         assert_eq!(
-            ev.applet_id.as_deref(),
+            ev.unsigned.get("applet_id").and_then(Value::as_str),
             Some("ck:applet:21532600-0000-7000-8000-000000000000")
         );
-        // And no longer in unsigned.
-        assert!(!ev.unsigned.contains_key("applet_id"));
     }
 
     #[test]
-    fn sets_external_ref_top_level() {
+    fn sets_external_ref_unsigned_metadata() {
         let ev = build_applet_message_event(&valid()).expect("build");
-        let ext = ev.external_ref.as_ref().expect("present");
+        let ext = ev.unsigned.get("external_ref").expect("present");
         assert_eq!(ext["protocol"], "slack");
         assert_eq!(ext["network_id"], "T123");
-        assert!(!ev.unsigned.contains_key("external_ref"));
     }
 
     #[test]

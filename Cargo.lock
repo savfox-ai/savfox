@@ -1368,7 +1368,7 @@ checksum = "e9b18233253483ce2f65329a24072ec414db782531bdbb7d0bbc4bd2ce6b7e21"
 
 [[package]]
 name = "cokret"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "base64",
@@ -1429,7 +1429,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-contracts"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-core"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "bs58",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-crypto"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -1479,7 +1479,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-ffi"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
  "serde",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-html"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
  "serde",
@@ -1497,7 +1497,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-http-client"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -1512,7 +1512,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-identifiers"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -1526,14 +1526,14 @@ dependencies = [
 
 [[package]]
 name = "cokret-keystore"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
 ]
 
 [[package]]
 name = "cokret-server"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-contracts",
  "cokret-core",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-signatures"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",

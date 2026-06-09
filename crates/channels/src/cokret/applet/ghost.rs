@@ -224,7 +224,7 @@ mod tests {
         );
         let ext = &object["profile_fields"]["external_ref"];
         assert_eq!(ext["protocol"], "slack");
-        assert!(event.external_ref.is_none());
+        assert!(!event.unsigned.contains_key("external_ref"));
     }
 
     #[test]

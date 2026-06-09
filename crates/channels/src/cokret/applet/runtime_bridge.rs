@@ -2,8 +2,9 @@
 //! `cokret-bridge-runtime` crate.
 //!
 //! The runtime crate factors out the outbound mint bookkeeping (monotonic
-//! `actor_seq`, HLC generation, `applet_id` stamping + signing) and the inbound
-//! actor/realm resolution probes. savfox owns the *configuration* and the
+//! `actor_seq`, HLC generation, signing, and applet metadata transport tagging)
+//! and the inbound actor/realm resolution probes. savfox owns the
+//! *configuration* and the
 //! *signer* (loaded from a [`CokretKeyRef`] via [`load_ed25519_signer`]), so the
 //! glue here is purely:
 //!
