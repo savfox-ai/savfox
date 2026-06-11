@@ -614,6 +614,28 @@ pub(crate) async fn handle_config_schema() -> RpcResult {
                                 "enum": ["mention", "keyword", "always", "command", "off"],
                                 "default": "mention"
                             },
+                            "channel_replies": {
+                                "type": "array",
+                                "title": "Channel Replies",
+                                "description": "Per-channel route reply modes for this agent. The default route uses group_activation.",
+                                "items": {
+                                    "type": "object",
+                                    "required": ["channel_id"],
+                                    "properties": {
+                                        "channel_id": {
+                                            "type": "string",
+                                            "title": "Channel Route",
+                                            "description": "Saved channel config id or channel route key"
+                                        },
+                                        "group_activation": {
+                                            "type": "string",
+                                            "title": "Reply Mode",
+                                            "enum": ["mention", "keyword", "always", "command", "off"],
+                                            "default": "mention"
+                                        }
+                                    }
+                                }
+                            },
                             "group_keywords": {
                                 "type": "array",
                                 "title": "Group Keywords",

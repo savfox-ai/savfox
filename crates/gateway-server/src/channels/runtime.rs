@@ -29,8 +29,9 @@ pub(crate) use self::idle_reply::{
 use self::memory::maybe_auto_memory_flush;
 pub(crate) use self::routing::StartThreadMeta;
 use self::routing::{
-    PolicyDecision, check_channel_policies, load_agent_trigger_config, parse_group_activation_str,
-    resolve_linked_identity, resolve_routed_agent, resolve_text_target_match,
+    ChannelReplyRouteContext, PolicyDecision, check_channel_policies, load_agent_trigger_config,
+    parse_group_activation_str, resolve_linked_identity, resolve_routed_agent,
+    resolve_text_target_match,
 };
 pub(crate) use self::trigger::SenderKind;
 use self::trigger::{
@@ -450,8 +451,16 @@ pub(crate) async fn spawn_start_thread_pipeline_with_meta(
     }
 
     let runtime_command = command_registry().has_command(&cleaned_prompt);
-    let mut agent_trigger_config =
-        load_agent_trigger_config(&gateway_channel.config().savfox_home, &routed_agent).await;
+    let mut agent_trigger_config = load_agent_trigger_config(
+        &gateway_channel.config().savfox_home,
+        &routed_agent,
+        ChannelReplyRouteContext {
+            platform: Some(platform),
+            channel_id: Some(&channel_id),
+            saved_channel_config_id: start_meta.saved_channel_config_id.as_deref(),
+        },
+    )
+    .await;
     if let Some(group_activation) = tracked.group_activation.as_deref() {
         agent_trigger_config.group_activation = parse_group_activation_str(Some(group_activation));
     }

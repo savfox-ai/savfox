@@ -278,6 +278,7 @@ pub struct AgentDetail {
     pub is_default: Option<bool>,
     pub fallback_models: Option<Vec<String>>,
     pub group_activation: Option<String>,
+    pub channel_replies: Option<Vec<AgentChannelReplyConfig>>,
     pub group_keywords: Option<Vec<String>>,
     pub agent_aliases: Option<Vec<String>>,
     pub ingest_policy: Option<String>,
@@ -288,6 +289,13 @@ pub struct AgentDetail {
     /// List of Matrix appservice channel config IDs for which to auto-create
     /// a virtual user for this agent.
     pub matrix_auto_user_channels: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentChannelReplyConfig {
+    #[serde(alias = "route", alias = "channel")]
+    pub channel_id: String,
+    pub group_activation: Option<String>,
 }
 
 #[cfg(test)]

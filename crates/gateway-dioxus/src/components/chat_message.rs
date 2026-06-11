@@ -160,6 +160,9 @@ pub fn ChatMessageBubble(
     is_last: Option<bool>,
     is_streaming: Option<bool>,
     prev_same_role: Option<bool>,
+    /// Display name shown above assistant messages (the active agent's name).
+    /// Falls back to "Assistant" when empty/None.
+    agent_name: Option<String>,
     on_expand_tool: Option<EventHandler<String>>,
 ) -> Element {
     inject_chat_bubble_styles_once();
@@ -177,11 +180,24 @@ pub fn ChatMessageBubble(
         "chat-bubble chat-bubble-assistant"
     };
 
-    let message_class = if prev_same {
-        "chat-message chat-message--grouped"
+    let role_modifier = if is_user {
+        "chat-message--user"
     } else {
-        "chat-message"
+        "chat-message--assistant"
     };
+    let message_class = if prev_same {
+        format!("chat-message chat-message--grouped {role_modifier}")
+    } else {
+        format!("chat-message {role_modifier}")
+    };
+
+    // Label above assistant messages — the active agent's name.
+    let agent_label = agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Assistant")
+        .to_string();
 
     let has_thinking = show_thinking && message.thinking.is_some();
     let has_attachments = !message.attachments.is_empty();
@@ -215,9 +231,9 @@ pub fn ChatMessageBubble(
     rsx! {
         div { class: "{message_class}",
             div { class: "{bubble_class}", dir: "{message_dir}",
-                // Role label for non-grouped messages
+                // Role label for non-grouped messages — shows the active agent name
                 if !prev_same && !is_user {
-                    div { class: "chat-bubble__role", "Assistant" }
+                    div { class: "chat-bubble__role", "{agent_label}" }
                 }
 
                 // Timestamp for non-grouped messages
@@ -423,22 +439,25 @@ fn inject_chat_bubble_styles_once() {
 const CHAT_BUBBLE_STYLES: &str = r#"
     .chat-message {
         display: flex;
-        padding: 24px 16px;
+        padding: 12px 24px;
         width: 100%;
         position: relative;
     }
 
     .chat-message--grouped {
         display: flex;
-        padding: 8px 16px;
+        padding: 4px 24px;
         width: 100%;
         position: relative;
     }
 
+    /* User on the right, assistant on the left. */
+    .chat-message--user { justify-content: flex-end; }
+    .chat-message--assistant { justify-content: flex-start; }
+
     .chat-bubble {
-        width: 100%;
-        max-width: 860px;
-        margin: 0 auto;
+        width: fit-content;
+        max-width: min(76%, 720px);
         padding: 0 18px;
         white-space: pre-wrap;
         word-break: break-word;
@@ -450,8 +469,8 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     .chat-bubble-user {
         color: var(--text-primary);
         font-weight: 400;
-        border-radius: var(--radius-lg);
-        padding: 18px 24px;
+        border-radius: 12px 12px 4px 12px;
+        padding: 14px 18px;
         background:
             linear-gradient(180deg,
                 color-mix(in srgb, var(--accent) 10%, var(--surface-flat-strong) 90%) 0%,
@@ -471,8 +490,8 @@ const CHAT_BUBBLE_STYLES: &str = r#"
         background: color-mix(in srgb, var(--surface-flat-soft) 58%, transparent);
         color: var(--text-primary);
         border: 1px solid color-mix(in srgb, var(--surface-stroke) 42%, transparent);
-        border-radius: var(--radius-lg);
-        padding: 18px 24px;
+        border-radius: 12px 12px 12px 4px;
+        padding: 14px 18px;
         box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
         backdrop-filter: blur(14px) saturate(135%);
         -webkit-backdrop-filter: blur(14px) saturate(135%);
@@ -481,29 +500,24 @@ const CHAT_BUBBLE_STYLES: &str = r#"
     .chat-bubble__role {
         font-size: 12px;
         font-weight: 600;
-        color: var(--accent);
-        margin-bottom: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 6px 12px;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--surface-flat-soft) 92%, transparent);
-        border: 1px solid color-mix(in srgb, var(--surface-stroke) 70%, transparent);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+        gap: 6px;
         font-family: var(--font-display);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        letter-spacing: 0.01em;
+        text-transform: none;
     }
-    
+
     .chat-bubble__role::before {
         content: '';
         display: inline-block;
-        width: 8px;
-        height: 8px;
-        background: linear-gradient(180deg, color-mix(in srgb, var(--ornament) 36%, var(--accent) 64%) 0%, var(--accent) 100%);
+        width: 6px;
+        height: 6px;
+        background: var(--accent);
         border-radius: 999px;
-        box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 42%, transparent);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 42%, transparent);
     }
 
     .chat-bubble__timestamp {

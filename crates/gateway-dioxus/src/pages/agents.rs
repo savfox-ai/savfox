@@ -21,6 +21,20 @@ use crate::utils::deep_link::replace_url;
 use crate::utils::download::trigger_download;
 use crate::utils::provider_registry::{canonical_provider_id, provider_display_name};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChannelConfigOption {
+    id: String,
+    kind: String,
+    name: String,
+    enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ChannelReplyFormRow {
+    channel_id: String,
+    group_activation: String,
+}
+
 // ---------------------------------------------------------------------------
 // Agent status indicator helper
 // ---------------------------------------------------------------------------
@@ -278,6 +292,170 @@ fn json_string_list(value: Option<&Value>) -> Vec<String> {
         Some(Value::String(raw)) => normalize_multiline_list(raw),
         _ => Vec::new(),
     }
+}
+
+fn normalized_group_activation(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "keyword" => "keyword".to_string(),
+        "always" => "always".to_string(),
+        "command" => "command".to_string(),
+        "off" => "off".to_string(),
+        _ => "mention".to_string(),
+    }
+}
+
+fn json_channel_reply_rows(value: Option<&Value>) -> Vec<ChannelReplyFormRow> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    items
+        .iter()
+        .filter_map(|item| {
+            let channel_id = item
+                .get("channel_id")
+                .or_else(|| item.get("route"))
+                .or_else(|| item.get("channel"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            let key = channel_id.to_ascii_lowercase();
+            if !seen.insert(key) {
+                return None;
+            }
+            let group_activation = item
+                .get("group_activation")
+                .or_else(|| item.get("activation"))
+                .and_then(Value::as_str)
+                .map(normalized_group_activation)
+                .unwrap_or_else(|| "mention".to_string());
+            Some(ChannelReplyFormRow {
+                channel_id,
+                group_activation,
+            })
+        })
+        .collect()
+}
+
+fn channel_replies_payload(rows: &[ChannelReplyFormRow]) -> Option<Value> {
+    let mut seen = std::collections::BTreeSet::new();
+    let payload = rows
+        .iter()
+        .filter_map(|row| {
+            let channel_id = row.channel_id.trim();
+            if channel_id.is_empty() {
+                return None;
+            }
+            let key = channel_id.to_ascii_lowercase();
+            if !seen.insert(key) {
+                return None;
+            }
+            Some(json!({
+                "channel_id": channel_id,
+                "group_activation": normalized_group_activation(&row.group_activation),
+            }))
+        })
+        .collect::<Vec<_>>();
+    (!payload.is_empty()).then(|| Value::Array(payload))
+}
+
+fn channel_config_options(configs: &[Value]) -> Vec<ChannelConfigOption> {
+    let mut options = configs
+        .iter()
+        .filter_map(|cfg| {
+            let id = cfg
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?
+                .to_string();
+            let kind = cfg
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let name = cfg
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let enabled = cfg.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+            Some(ChannelConfigOption {
+                id,
+                kind,
+                name,
+                enabled,
+            })
+        })
+        .collect::<Vec<_>>();
+    options.sort_by(|a, b| {
+        a.kind
+            .cmp(&b.kind)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    options
+}
+
+fn channel_option_label(option: &ChannelConfigOption) -> String {
+    let kind = option.kind.trim();
+    let name = option.name.trim();
+    let base = if !kind.is_empty() && !name.is_empty() {
+        format!("{kind} / {name}")
+    } else if !name.is_empty() {
+        name.to_string()
+    } else if !kind.is_empty() {
+        kind.to_string()
+    } else {
+        option.id.clone()
+    };
+    if base == option.id {
+        base
+    } else if option.enabled {
+        format!("{base} ({})", option.id)
+    } else {
+        format!("{base} ({}, disabled)", option.id)
+    }
+}
+
+fn matrix_appservice_channels(configs: &[Value]) -> Vec<(String, String, String, String)> {
+    configs
+        .iter()
+        .filter_map(|cfg| {
+            let kind = cfg.get("kind")?.as_str()?;
+            if !kind.eq_ignore_ascii_case("matrix") {
+                return None;
+            }
+            let inner = cfg.get("config").and_then(|c| c.as_object())?;
+            let mode = inner.get("mode").and_then(|v| v.as_str()).unwrap_or("user");
+            if !mode.eq_ignore_ascii_case("appservice") {
+                return None;
+            }
+            let id = cfg.get("id")?.as_str()?.to_string();
+            let name = cfg
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let server_name = inner
+                .get("serverName")
+                .or_else(|| inner.get("server_name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let user_prefix = inner
+                .get("userPrefix")
+                .or_else(|| inner.get("user_prefix"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "_savfox_".to_string());
+            Some((id, name, server_name, user_prefix))
+        })
+        .collect()
 }
 
 fn idle_reply_delay_value(value: Option<u64>) -> String {
@@ -1334,6 +1512,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                             let model = parsed.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let group_activation = parsed.get("group_activation").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let channel_replies = json_channel_reply_rows(parsed.get("channel_replies"));
                                             let group_keywords = json_string_list(parsed.get("group_keywords"));
                                             let agent_aliases = json_string_list(parsed.get("agent_aliases"));
                                             let ingest_policy = parsed.get("ingest_policy").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -1389,6 +1568,9 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 }
                                                 if !group_activation.is_empty() {
                                                     payload["group_activation"] = json!(group_activation);
+                                                }
+                                                if let Some(channel_replies) = channel_replies_payload(&channel_replies) {
+                                                    payload["channel_replies"] = channel_replies;
                                                 }
                                                 if !group_keywords.is_empty() {
                                                     payload["group_keywords"] = json!(group_keywords);
@@ -1806,8 +1988,7 @@ fn AgentCreateForm(
     // Derive available providers + per-provider model options. Recomputed
     // only when the configured models resource changes.
     let provider_data = use_memo(move || {
-        let models: Vec<AvailableModel> =
-            models_data.read().as_ref().cloned().unwrap_or_default();
+        let models: Vec<AvailableModel> = models_data.read().as_ref().cloned().unwrap_or_default();
         let mut set = std::collections::BTreeSet::new();
         let mut model_map =
             std::collections::BTreeMap::<String, std::collections::BTreeMap<String, String>>::new();
@@ -2721,6 +2902,151 @@ fn AgentSettingsPane(agents: Vec<AgentEntry>, ws: WsRpc, mut refresh_tick: Signa
     }
 }
 
+#[component]
+fn ChannelRepliesEditor(
+    channel_options: Vec<ChannelConfigOption>,
+    mut default_activation: Signal<String>,
+    mut rows: Signal<Vec<ChannelReplyFormRow>>,
+) -> Element {
+    let current_rows = rows();
+    let used_ids: std::collections::BTreeSet<String> = current_rows
+        .iter()
+        .map(|row| row.channel_id.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .collect();
+    let add_candidate = channel_options
+        .iter()
+        .find(|option| !used_ids.contains(&option.id.to_ascii_lowercase()))
+        .cloned();
+    let add_candidate_for_click = add_candidate.clone();
+
+    rsx! {
+        div { style: "display:flex;flex-direction:column;gap:10px;",
+            div { style: "display:grid;grid-template-columns:minmax(180px,1fr) minmax(190px,240px);gap:10px;align-items:end;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);",
+                div {
+                    div { style: "font-size:13px;font-weight:600;color:var(--text-primary);", "Default route" }
+                    div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "Used when no specific channel route override matches." }
+                }
+                div {
+                    label { class: "{LABEL}", "Reply Mode" }
+                    select {
+                        value: "{default_activation}",
+                        onchange: move |e| default_activation.set(e.value()),
+                        class: "{INPUT}",
+                        option { value: "mention", "Mention only" }
+                        option { value: "keyword", "Mention or keyword" }
+                        option { value: "always", "Always reply" }
+                        option { value: "command", "Commands only" }
+                        option { value: "off", "Never reply in groups" }
+                    }
+                }
+            }
+
+            for (idx, row) in current_rows.iter().cloned().enumerate() {
+                {
+                    let remove_idx = idx;
+                    let route_idx = idx;
+                    let mode_idx = idx;
+                    let row_channel = row.channel_id.clone();
+                    let row_mode = row.group_activation.clone();
+                    let row_label = channel_options
+                        .iter()
+                        .find(|option| option.id == row_channel)
+                        .map(channel_option_label)
+                        .unwrap_or_else(|| row_channel.clone());
+                    rsx! {
+                        div {
+                            key: "{idx}-{row_channel}",
+                            style: "display:grid;grid-template-columns:minmax(180px,1fr) minmax(190px,240px) auto;gap:10px;align-items:end;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-tertiary);",
+                            div {
+                                label { class: "{LABEL}", "Channel Route" }
+                                select {
+                                    value: "{row_channel}",
+                                    onchange: move |e| {
+                                        if let Some(row) = rows.write().get_mut(route_idx) {
+                                            row.channel_id = e.value();
+                                        }
+                                    },
+                                    class: "{INPUT}",
+                                    if !channel_options.iter().any(|option| option.id == row_channel) {
+                                        option { value: "{row_channel}", "{row_label}" }
+                                    }
+                                    for option in channel_options.iter().filter(|option| {
+                                        option.id == row_channel
+                                            || !used_ids.contains(&option.id.to_ascii_lowercase())
+                                    }) {
+                                        {
+                                            let option_id = option.id.clone();
+                                            let option_label = channel_option_label(option);
+                                            rsx! {
+                                                option {
+                                                    key: "{option_id}",
+                                                    value: "{option_id}",
+                                                    "{option_label}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            div {
+                                label { class: "{LABEL}", "Reply Mode" }
+                                select {
+                                    value: "{row_mode}",
+                                    onchange: move |e| {
+                                        if let Some(row) = rows.write().get_mut(mode_idx) {
+                                            row.group_activation = e.value();
+                                        }
+                                    },
+                                    class: "{INPUT}",
+                                    option { value: "mention", "Mention only" }
+                                    option { value: "keyword", "Mention or keyword" }
+                                    option { value: "always", "Always reply" }
+                                    option { value: "command", "Commands only" }
+                                    option { value: "off", "Never reply in groups" }
+                                }
+                            }
+                            button {
+                                class: "{TOOL_BTN} tool-btn--icon",
+                                title: "Delete channel reply route",
+                                aria_label: "Delete channel reply route",
+                                onclick: move |_| {
+                                    let mut current = rows.write();
+                                    if remove_idx < current.len() {
+                                        current.remove(remove_idx);
+                                    }
+                                },
+                                X { size: 14 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            div { style: "display:flex;align-items:center;gap:10px;flex-wrap:wrap;",
+                button {
+                    class: "{TOOL_BTN}",
+                    disabled: add_candidate.is_none(),
+                    onclick: move |_| {
+                        if let Some(option) = add_candidate_for_click.clone() {
+                            rows.write().push(ChannelReplyFormRow {
+                                channel_id: option.id,
+                                group_activation: "mention".to_string(),
+                            });
+                        }
+                    },
+                    "+ Add Channel Route"
+                }
+                if channel_options.is_empty() {
+                    span { style: "font-size:12px;color:var(--text-muted);", "No saved channels are configured yet." }
+                } else if add_candidate.is_none() {
+                    span { style: "font-size:12px;color:var(--text-muted);", "All saved channel routes already have overrides." }
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tab 1 -- Overview
 // ---------------------------------------------------------------------------
@@ -2756,6 +3082,7 @@ fn AgentOverviewTab(
         .unwrap_or_default();
     let mut form_reasoning = use_signal(move || initial_reasoning.clone());
     let mut form_group_activation = use_signal(|| "mention".to_string());
+    let mut form_channel_replies = use_signal(Vec::<ChannelReplyFormRow>::new);
     let mut form_group_keywords = use_signal(String::new);
     let mut form_agent_aliases = use_signal(String::new);
     let mut form_ingest_policy = use_signal(String::new);
@@ -2859,6 +3186,11 @@ fn AgentOverviewTab(
                     .clone()
                     .unwrap_or_else(|| "mention".to_string()),
             );
+            form_channel_replies.set(json_channel_reply_rows(
+                detail_raw_snapshot
+                    .as_ref()
+                    .and_then(|detail| detail.get("channel_replies")),
+            ));
             form_group_keywords.set(multiline_list_value(detail.group_keywords.as_ref()));
             form_agent_aliases.set(multiline_list_value(detail.agent_aliases.as_ref()));
             form_ingest_policy.set(detail.ingest_policy.clone().unwrap_or_default());
@@ -2910,52 +3242,25 @@ fn AgentOverviewTab(
         }
     }
 
-    // Fetch matrix appservice channel configs for Matrix Identity section
-    let ws_matrix = ws.clone();
-    let matrix_configs_data = use_resource(move || {
+    // Fetch channel configs for Channel Replies and Matrix Identity sections.
+    let ws_channels = ws.clone();
+    let channel_configs_data = use_resource(move || {
         let _c = ws_connected();
-        let ws = ws_matrix.clone();
+        let ws = ws_channels.clone();
         async move {
             ws.call::<serde_json::Value>("channels.config.list", None)
                 .await
                 .ok()
                 .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default()
-                .into_iter()
-                .filter_map(|cfg| {
-                    let kind = cfg.get("kind")?.as_str()?;
-                    if !kind.eq_ignore_ascii_case("matrix") {
-                        return None;
-                    }
-                    let inner = cfg.get("config").and_then(|c| c.as_object())?;
-                    let mode = inner.get("mode").and_then(|v| v.as_str()).unwrap_or("user");
-                    if !mode.eq_ignore_ascii_case("appservice") {
-                        return None;
-                    }
-                    let id = cfg.get("id")?.as_str()?.to_string();
-                    let name = cfg
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let server_name = inner
-                        .get("serverName")
-                        .or_else(|| inner.get("server_name"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let user_prefix = inner
-                        .get("userPrefix")
-                        .or_else(|| inner.get("user_prefix"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| "_savfox_".to_string());
-                    Some((id, name, server_name, user_prefix))
-                })
-                .collect::<Vec<(String, String, String, String)>>()
         }
     });
+    let channel_configs = channel_configs_data
+        .read()
+        .as_ref()
+        .cloned()
+        .unwrap_or_default();
+    let channel_options = channel_config_options(&channel_configs);
 
     // Fetch available models for dropdown
     let ws_models = ws.clone();
@@ -3026,6 +3331,11 @@ fn AgentOverviewTab(
             .as_ref()
             .and_then(|detail| detail.group_activation.clone())
             .unwrap_or_else(|| "mention".to_string());
+        let orig_channel_replies = json_channel_reply_rows(
+            detail_raw_snapshot
+                .as_ref()
+                .and_then(|detail| detail.get("channel_replies")),
+        );
         let orig_group_keywords = detail_snapshot
             .as_ref()
             .map(|detail| multiline_list_value(detail.group_keywords.as_ref()))
@@ -3100,6 +3410,7 @@ fn AgentOverviewTab(
             || form_desc() != orig_desc
             || form_reasoning() != orig_reasoning
             || form_group_activation() != orig_group_activation
+            || form_channel_replies() != orig_channel_replies
             || form_group_keywords() != orig_group_keywords
             || form_agent_aliases() != orig_agent_aliases
             || form_ingest_policy() != orig_ingest_policy
@@ -3213,6 +3524,11 @@ fn AgentOverviewTab(
                                             if let Some(ref group_activation) = detail.group_activation {
                                                 payload["group_activation"] = json!(group_activation);
                                             }
+                                            if let Some(ref channel_replies) = detail.channel_replies
+                                                && !channel_replies.is_empty()
+                                            {
+                                                payload["channel_replies"] = json!(channel_replies);
+                                            }
                                             if let Some(ref group_keywords) = detail.group_keywords
                                                 && !group_keywords.is_empty()
                                             {
@@ -3290,6 +3606,11 @@ fn AgentOverviewTab(
                                     }
                                     if let Some(ref group_activation) = detail.group_activation {
                                         export_data["group_activation"] = json!(group_activation);
+                                    }
+                                    if let Some(ref channel_replies) = detail.channel_replies
+                                        && !channel_replies.is_empty()
+                                    {
+                                        export_data["channel_replies"] = json!(channel_replies);
                                     }
                                     if let Some(ref group_keywords) = detail.group_keywords
                                         && !group_keywords.is_empty()
@@ -3907,11 +4228,7 @@ fn AgentOverviewTab(
 
             // Matrix Identity (appservice auto-user)
             {
-                let appservice_channels: Vec<(String, String, String, String)> = matrix_configs_data
-                    .read()
-                    .as_ref()
-                    .cloned()
-                    .unwrap_or_default();
+                let appservice_channels = matrix_appservice_channels(&channel_configs);
                 let agent_slug: String = agent_id
                     .chars()
                     .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c.to_ascii_lowercase() } else { '_' })
@@ -3976,26 +4293,25 @@ fn AgentOverviewTab(
                 }
             }
 
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Channel Replies" }
+                p { style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;",
+                    "Set how this agent replies for the default route, then add overrides for specific saved channel routes."
+                }
+                ChannelRepliesEditor {
+                    channel_options: channel_options.clone(),
+                    default_activation: form_group_activation,
+                    rows: form_channel_replies,
+                }
+            }
+
             // Chat trigger policy
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Chat Trigger Policy" }
                 p { style: "font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;",
-                    "Control when this agent replies in group chats, which passive messages are buffered into ambient context, and which aliases explicitly target this agent."
+                    "Control which passive messages are buffered into ambient context, and which aliases explicitly target this agent."
                 }
                 div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;",
-                    div {
-                        label { class: "{LABEL}", "Group Activation" }
-                        select {
-                            value: "{form_group_activation}",
-                            onchange: move |e| form_group_activation.set(e.value()),
-                            class: "{INPUT}",
-                            option { value: "mention", "Mention only" }
-                            option { value: "keyword", "Mention or keyword" }
-                            option { value: "always", "Always reply" }
-                            option { value: "command", "Commands only" }
-                            option { value: "off", "Never reply in groups" }
-                        }
-                    }
                     div {
                         label { class: "{LABEL}", "Ingest Policy" }
                         select {
@@ -4162,6 +4478,7 @@ fn AgentOverviewTab(
                             let desc_val = form_desc();
                             let reasoning_val = form_reasoning();
                             let group_activation_val = form_group_activation();
+                            let channel_replies_val = form_channel_replies();
                             let group_keywords_val = form_group_keywords();
                             let agent_aliases_val = form_agent_aliases();
                             let ingest_policy_val = form_ingest_policy();
@@ -4231,6 +4548,9 @@ fn AgentOverviewTab(
                                 } else {
                                     json!(group_activation_val)
                                 };
+                                params["channel_replies"] =
+                                    channel_replies_payload(&channel_replies_val)
+                                        .unwrap_or(serde_json::Value::Null);
                                 params["group_keywords"] = if keyword_list.is_empty() {
                                     serde_json::Value::Null
                                 } else {

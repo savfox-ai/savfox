@@ -10,7 +10,7 @@ use tracing::warn;
 use super::delivery::send_with_retry;
 use super::footer::{append_footer, current_response_footer_config, format_model_footer};
 use super::memory::maybe_auto_memory_flush;
-use super::routing::load_agent_trigger_config;
+use super::routing::{ChannelReplyRouteContext, load_agent_trigger_config};
 use super::trigger::{
     AgentTriggerConfig, ConversationKind, SenderKind, TriggerContext, TriggerDecision,
     TriggerReason,
@@ -353,7 +353,21 @@ pub(crate) async fn resume_pending_idle_replies(
             continue;
         };
 
-        let config = load_agent_trigger_config(savfox_home, &pending.agent_id).await;
+        let (platform, channel_id) = pending
+            .outbound_channel
+            .split_once(':')
+            .map(|(platform, channel_id)| (Some(platform), Some(channel_id)))
+            .unwrap_or((None, Some(pending.outbound_channel.as_str())));
+        let config = load_agent_trigger_config(
+            savfox_home,
+            &pending.agent_id,
+            ChannelReplyRouteContext {
+                platform,
+                channel_id,
+                saved_channel_config_id: None,
+            },
+        )
+        .await;
         if !config.idle_reply.enabled {
             clear_pending(&session_id).await;
             continue;

@@ -299,7 +299,6 @@ pub fn Sessions() -> Element {
     // Top-of-list agent filter. Empty string means "all agents". Selecting an
     // agent both narrows the session list and binds new draft sessions to it.
     let mut agent_filter = use_signal(String::new);
-    let mut session_group_activation = use_signal(String::new);
 
     let mut current_session_id = use_signal(|| Option::<String>::None);
     let mut session_refresh_tick = use_signal(|| 0u32);
@@ -441,7 +440,6 @@ pub fn Sessions() -> Element {
         streaming.set(false);
         loading_session.set(false);
         current_session_id.set(None);
-        session_group_activation.set(String::new());
         messages.write().clear();
         sidebar_content.set(None);
         ambient_loading.set(false);
@@ -504,7 +502,6 @@ pub fn Sessions() -> Element {
         let active_thinking = thinking_level();
         let active_reasoning = normalize_reasoning_mode(&reasoning_mode());
         let active_verbose = normalize_verbose_mode(&verbose_mode());
-        let active_group_activation = session_group_activation();
         let active_agent = selected_agent();
         let agents_snapshot = agents_data.read().as_ref().cloned().unwrap_or_default();
         let use_terminal_ws = agent_has_terminal_delegate(&agents_snapshot, &active_agent);
@@ -527,7 +524,6 @@ pub fn Sessions() -> Element {
                             "label": session_label,
                             "model": patch_model,
                             "agent": active_agent.clone(),
-                            "group_activation": active_group_activation,
                             "overrides": {
                                 "model": patch_model_override,
                                 "thinking": active_thinking,
@@ -561,7 +557,6 @@ pub fn Sessions() -> Element {
                         Some(json!({
                             "session_id": existing_session_id,
                             "model": patch_model,
-                            "group_activation": active_group_activation,
                             "overrides": {
                                 "model": patch_model_override,
                                 "thinking": active_thinking,
@@ -755,6 +750,12 @@ pub fn Sessions() -> Element {
     let has_sidebar = sidebar_content().is_some();
     let agents_list: Vec<AgentEntry> = agents_data.read().as_ref().cloned().unwrap_or_default();
 
+    // Name shown above assistant messages — the active agent's display name,
+    // falling back to "Assistant" when the selection can't be resolved.
+    let assistant_label = find_agent_entry(&agents_list, &selected_agent())
+        .map(|entry| entry.name.clone())
+        .unwrap_or_else(|| "Assistant".to_string());
+
     rsx! {
         div { class: "session-page",
             div { class: "session-shell",
@@ -864,7 +865,6 @@ pub fn Sessions() -> Element {
                                     };
                                     let item_model = entry.model.as_deref().unwrap_or("").to_string();
                                     let item_meta = entry.last_activity.as_deref().unwrap_or("-").to_string();
-                                    let entry_group_activation = entry.group_activation.clone();
                                     let item_active = active_session_id.as_deref() == Some(sid.as_str());
                                     let item_class = if item_active {
                                         "session-list-item session-list-item--active"
@@ -906,7 +906,6 @@ pub fn Sessions() -> Element {
                                                 class: "{item_class}",
                                                 onclick: move |_| {
                                                     current_session_id.set(Some(sid_for_click.clone()));
-                                                    session_group_activation.set(entry_group_activation.clone().unwrap_or_default());
                                                     sidebar_content.set(None);
                                                     pending_session_model.set(None);
                                                     save_pending_session_model(None);
@@ -1106,104 +1105,73 @@ pub fn Sessions() -> Element {
                         }
                     }
 
-                    div { class: "session-control-row",
-                        div { class: "session-control-group",
-                            label { class: "session-control-label", "Group Replies" }
-                            select {
-                                class: "session-control-select",
-                                value: "{session_group_activation}",
-                                onchange: {
-                                    let ws = ws.clone();
-                                    move |e| {
-                                        let next = e.value();
-                                        session_group_activation.set(next.clone());
-                                        if let Some(session_id) = current_session_id() {
+                    if current_session_id().is_some() {
+                        div { class: "session-control-row",
+                            div { class: "session-control-actions",
+                                button {
+                                    class: "session-pill-btn",
+                                    disabled: ambient_loading(),
+                                    onclick: {
+                                        let ws = ws.clone();
+                                        let active_session_id = active_session_id.clone();
+                                        move |_| {
+                                            let Some(session_id) = active_session_id.clone() else {
+                                                return;
+                                            };
                                             let ws = ws.clone();
+                                            ambient_loading.set(true);
                                             spawn(async move {
-                                                let _ = ws.call::<Value>(
-                                                    "sessions.patch",
-                                                    Some(json!({
-                                                        "session_id": session_id,
-                                                        "group_activation": next,
-                                                    })),
-                                                ).await;
-                                                session_refresh_tick += 1;
+                                                let content = match ws
+                                                    .call::<SessionAmbientResponse>(
+                                                        "sessions.ambient.get",
+                                                        Some(json!({ "session_id": session_id })),
+                                                    )
+                                                    .await
+                                                {
+                                                    Ok(response) => format_ambient_sidebar(&response.messages),
+                                                    Err(err) => format!(
+                                                        "## Ambient Context\n\nFailed to load ambient messages.\n\n`{err}`"
+                                                    ),
+                                                };
+                                                ambient_loading.set(false);
+                                                sidebar_content.set(Some(content));
                                             });
                                         }
-                                    }
-                                },
-                                option { value: "", "Use agent default" }
-                                option { value: "mention", "Mention only" }
-                                option { value: "keyword", "Mention or keyword" }
-                                option { value: "always", "Always reply" }
-                                option { value: "command", "Commands only" }
-                                option { value: "off", "Never reply in groups" }
-                            }
-                        }
-                        if current_session_id().is_some() {
-                            button {
-                                class: "session-pill-btn",
-                                disabled: ambient_loading(),
-                                onclick: {
-                                    let ws = ws.clone();
-                                    let active_session_id = active_session_id.clone();
-                                    move |_| {
-                                        let Some(session_id) = active_session_id.clone() else {
-                                            return;
-                                        };
+                                    },
+                                    if ambient_loading() { "Ambient..." } else { "Ambient" }
+                                }
+                                button {
+                                    class: "session-pill-btn",
+                                    disabled: idle_loading(),
+                                    onclick: {
                                         let ws = ws.clone();
-                                        ambient_loading.set(true);
-                                        spawn(async move {
-                                            let content = match ws
-                                                .call::<SessionAmbientResponse>(
-                                                    "sessions.ambient.get",
-                                                    Some(json!({ "session_id": session_id })),
-                                                )
-                                                .await
-                                            {
-                                                Ok(response) => format_ambient_sidebar(&response.messages),
-                                                Err(err) => format!(
-                                                    "## Ambient Context\n\nFailed to load ambient messages.\n\n`{err}`"
-                                                ),
+                                        let active_session_id = active_session_id.clone();
+                                        move |_| {
+                                            let Some(session_id) = active_session_id.clone() else {
+                                                return;
                                             };
-                                            ambient_loading.set(false);
-                                            sidebar_content.set(Some(content));
-                                        });
-                                    }
-                                },
-                                if ambient_loading() { "Ambient..." } else { "Ambient" }
-                            }
-                            button {
-                                class: "session-pill-btn",
-                                disabled: idle_loading(),
-                                onclick: {
-                                    let ws = ws.clone();
-                                    let active_session_id = active_session_id.clone();
-                                    move |_| {
-                                        let Some(session_id) = active_session_id.clone() else {
-                                            return;
-                                        };
-                                        let ws = ws.clone();
-                                        idle_loading.set(true);
-                                        spawn(async move {
-                                            let content = match ws
-                                                .call::<SessionIdleReplyResponse>(
-                                                    "sessions.idle_reply.get",
-                                                    Some(json!({ "session_id": session_id })),
-                                                )
-                                                .await
-                                            {
-                                                Ok(response) => format_idle_reply_sidebar(&response),
-                                                Err(err) => format!(
-                                                    "## Idle Fallback\n\nFailed to load idle reply state.\n\n`{err}`"
-                                                ),
-                                            };
-                                            idle_loading.set(false);
-                                            sidebar_content.set(Some(content));
-                                        });
-                                    }
-                                },
-                                if idle_loading() { "Idle..." } else { "Idle" }
+                                            let ws = ws.clone();
+                                            idle_loading.set(true);
+                                            spawn(async move {
+                                                let content = match ws
+                                                    .call::<SessionIdleReplyResponse>(
+                                                        "sessions.idle_reply.get",
+                                                        Some(json!({ "session_id": session_id })),
+                                                    )
+                                                    .await
+                                                {
+                                                    Ok(response) => format_idle_reply_sidebar(&response),
+                                                    Err(err) => format!(
+                                                        "## Idle Fallback\n\nFailed to load idle reply state.\n\n`{err}`"
+                                                    ),
+                                                };
+                                                idle_loading.set(false);
+                                                sidebar_content.set(Some(content));
+                                            });
+                                        }
+                                    },
+                                    if idle_loading() { "Idle..." } else { "Idle" }
+                                }
                             }
                         }
                     }
@@ -1249,6 +1217,7 @@ pub fn Sessions() -> Element {
                                             is_last: is_last,
                                             is_streaming: is_last && streaming(),
                                             prev_same_role: prev_same,
+                                            agent_name: assistant_label.clone(),
                                             on_expand_tool: on_expand_tool,
                                         }
                                     }
@@ -1654,28 +1623,11 @@ const SESSION_STYLES: &str = r#"
         flex-wrap: wrap;
     }
 
-    .session-control-group {
+    .session-control-actions {
         display: flex;
         align-items: center;
         gap: 10px;
-        min-width: 0;
-    }
-
-    .session-control-label {
-        font-size: 12px;
-        color: var(--text-muted);
-        font-weight: 600;
-        letter-spacing: 0.01em;
-    }
-
-    .session-control-select {
-        min-width: 220px;
-        padding: 8px 10px;
-        border-radius: var(--radius);
-        border: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-        font-size: 13px;
+        margin-left: auto;
     }
 
     .session-main-title {

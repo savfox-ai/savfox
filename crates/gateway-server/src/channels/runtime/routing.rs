@@ -48,6 +48,13 @@ pub(crate) struct StartThreadMeta {
     pub explicitly_targets_other_agent: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct ChannelReplyRouteContext<'a> {
+    pub platform: Option<&'a str>,
+    pub channel_id: Option<&'a str>,
+    pub saved_channel_config_id: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct TextTargetMatch {
     pub agent_id: Option<String>,
@@ -305,6 +312,65 @@ fn parse_group_activation(value: Option<&Value>) -> GroupActivation {
     parse_group_activation_str(value.and_then(Value::as_str))
 }
 
+fn normalized_route_key(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
+fn route_context_keys(route: ChannelReplyRouteContext<'_>) -> HashSet<String> {
+    let mut keys = HashSet::new();
+    if let Some(config_id) = route.saved_channel_config_id.and_then(normalized_route_key) {
+        keys.insert(config_id);
+    }
+    if let Some(channel_id) = route.channel_id.and_then(normalized_route_key) {
+        keys.insert(channel_id.clone());
+        if let Some(platform) = route.platform.and_then(normalized_route_key) {
+            keys.insert(format!("{platform}:{channel_id}"));
+            keys.insert(platform);
+        }
+    } else if let Some(platform) = route.platform.and_then(normalized_route_key) {
+        keys.insert(platform);
+    }
+    keys
+}
+
+fn channel_reply_group_activation(
+    config: &Value,
+    route: ChannelReplyRouteContext<'_>,
+) -> Option<GroupActivation> {
+    let keys = route_context_keys(route);
+    if keys.is_empty() {
+        return None;
+    }
+
+    let replies = config.get("channel_replies").and_then(Value::as_array)?;
+    for reply in replies {
+        let route_key = reply
+            .get("channel_id")
+            .or_else(|| reply.get("route"))
+            .or_else(|| reply.get("channel"))
+            .and_then(Value::as_str)
+            .and_then(normalized_route_key);
+        let Some(route_key) = route_key else {
+            continue;
+        };
+        if !keys.contains(&route_key) {
+            continue;
+        }
+        let activation = reply
+            .get("group_activation")
+            .or_else(|| reply.get("activation"))
+            .and_then(Value::as_str);
+        return Some(parse_group_activation_str(activation));
+    }
+
+    None
+}
+
 fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
     let Some(config) = value.and_then(Value::as_object) else {
         return IdleReplyConfig::default();
@@ -342,6 +408,7 @@ fn parse_idle_reply_config(value: Option<&Value>) -> IdleReplyConfig {
 pub(super) async fn load_agent_trigger_config(
     savfox_home: &Path,
     agent_ref: &str,
+    route: ChannelReplyRouteContext<'_>,
 ) -> AgentTriggerConfig {
     let Some(config) = resolve_agent_config_value(savfox_home, agent_ref).await else {
         return AgentTriggerConfig::default();
@@ -363,7 +430,7 @@ pub(super) async fn load_agent_trigger_config(
         })
         .unwrap_or_default();
 
-    AgentTriggerConfig {
+    let mut trigger_config = AgentTriggerConfig {
         group_activation: parse_group_activation(config.get("group_activation")),
         group_keywords,
         ingest_policy: IngestPolicy::from_str(config.get("ingest_policy").and_then(Value::as_str)),
@@ -372,7 +439,11 @@ pub(super) async fn load_agent_trigger_config(
         ),
         agent_aliases: collect_agent_aliases(&config, fallback_id),
         idle_reply: parse_idle_reply_config(config.get("idle_reply")),
+    };
+    if let Some(group_activation) = channel_reply_group_activation(&config, route) {
+        trigger_config.group_activation = group_activation;
     }
+    trigger_config
 }
 
 fn split_leading_alias<'a>(text: &'a str, alias: &str) -> Option<&'a str> {
@@ -677,8 +748,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        AgentTriggerConfig, GroupActivation, load_agent_trigger_config, parse_group_activation_str,
-        resolve_text_target_match,
+        AgentTriggerConfig, ChannelReplyRouteContext, GroupActivation, load_agent_trigger_config,
+        parse_group_activation_str, resolve_text_target_match,
     };
 
     #[tokio::test]
@@ -730,7 +801,9 @@ mod tests {
         .await
         .expect("write config");
 
-        let config = load_agent_trigger_config(home.path(), "reviewer").await;
+        let config =
+            load_agent_trigger_config(home.path(), "reviewer", ChannelReplyRouteContext::default())
+                .await;
         assert_eq!(config.group_activation, GroupActivation::Keyword);
         assert_eq!(
             config.group_keywords,
@@ -752,6 +825,41 @@ mod tests {
             config.idle_reply.prompt.as_deref(),
             Some("Follow up if the room stays quiet.")
         );
+    }
+
+    #[tokio::test]
+    async fn load_agent_trigger_config_applies_channel_reply_override() {
+        let home = tempdir().expect("tempdir");
+        let agents_dir = home.path().join("agents");
+        tokio::fs::create_dir_all(&agents_dir).await.expect("mkdir");
+        tokio::fs::write(
+            agents_dir.join("reviewer.json"),
+            r#"{
+  "id": "reviewer",
+  "group_activation": "mention",
+  "channel_replies": [
+    {
+      "channel_id": "discord-main",
+      "group_activation": "always"
+    }
+  ]
+}"#,
+        )
+        .await
+        .expect("write config");
+
+        let config = load_agent_trigger_config(
+            home.path(),
+            "reviewer",
+            ChannelReplyRouteContext {
+                platform: Some("discord"),
+                channel_id: Some("12345"),
+                saved_channel_config_id: Some("discord-main"),
+            },
+        )
+        .await;
+
+        assert_eq!(config.group_activation, GroupActivation::Always);
     }
 
     #[test]
