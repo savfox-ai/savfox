@@ -313,12 +313,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arraydeque"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1404,16 +1398,12 @@ dependencies = [
 
 [[package]]
 name = "cokret-bridge-runtime"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "cokret",
- "config",
- "futures",
- "kdl",
- "once_cell",
  "parking_lot",
  "reqwest 0.12.28",
  "serde",
@@ -1424,7 +1414,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -1651,26 +1640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "config"
-version = "0.15.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f316c6237b2d38be61949ecd15268a4c6ca32570079394a2444d9ce2c72a72d8"
-dependencies = [
- "async-trait",
- "convert_case 0.6.0",
- "json5",
- "pathdiff",
- "ron",
- "rust-ini",
- "serde-untagged",
- "serde_core",
- "serde_json",
- "toml 1.1.1+spec-1.1.0",
- "winnow 1.0.1",
- "yaml-rust2",
-]
-
-[[package]]
 name = "console"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1714,26 +1683,6 @@ name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
-
-[[package]]
-name = "const-random"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87e00182fe74b066627d63b85fd550ac2998d4b0bd86bfed477a0ae4c7c71359"
-dependencies = [
- "const-random-macro",
-]
-
-[[package]]
-name = "const-random-macro"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9d839f2a20b0aee515dc581a6172f2321f96cab76c1a38a4c584a194955390e"
-dependencies = [
- "getrandom 0.2.17",
- "once_cell",
- "tiny-keccak",
-]
 
 [[package]]
 name = "const-serialize"
@@ -3131,15 +3080,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dlv-list"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "442039f5147480ba31067cb00ada1adae6892028e40e45fc5de7b7df6dcc1b5f"
-dependencies = [
- "const-random",
-]
-
-[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3406,17 +3346,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c138974f9d5e7fe373eb04df7cae98833802ae4b11c24ac7039a21d5af4b26c"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "erased-serde"
-version = "0.4.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2add8a07dd6a8d93ff627029c51de145e12686fbc36ecb298ac22e74cf02dec"
-dependencies = [
- "serde",
- "serde_core",
- "typeid",
 ]
 
 [[package]]
@@ -4216,15 +4145,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
-]
-
-[[package]]
-name = "hashlink"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea0b22561a9c04a7cb1a302c013e0259cd3b4bb619f145b32f72b8b4bcbed230"
-dependencies = [
- "hashbrown 0.16.1",
 ]
 
 [[package]]
@@ -5101,17 +5021,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "json5"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96b0db21af676c1ce64250b5f40f3ce2cf27e4e47cb91ed91eb6fe9350b430c1"
-dependencies = [
- "pest",
- "pest_derive",
- "serde",
-]
-
-[[package]]
 name = "kasuari"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5120,17 +5029,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "kdl"
-version = "4.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e03e2e96c5926fe761088d66c8c2aee3a4352a2573f4eaca50043ad130af9117"
-dependencies = [
- "miette",
- "nom 7.1.3",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5705,29 +5603,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "miette"
-version = "5.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59bb584eaeeab6bd0226ccf3509a69d7936d148cf3d036ad350abe35e8c6856e"
-dependencies = [
- "miette-derive",
- "once_cell",
- "thiserror 1.0.69",
- "unicode-width 0.1.14",
-]
-
-[[package]]
-name = "miette-derive"
-version = "5.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49e7bc1560b95a3c4a25d03de42fe76ca718ab92d1a22a55b9b4cf67b3ae635c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -6605,16 +6480,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "ordered-multimap"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49203cdcae0030493bad186b28da2fa25645fa276a51b6fec8010d281e02ef79"
-dependencies = [
- "dlv-list",
- "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -8477,20 +8342,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ron"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4147b952f3f819eca0e99527022f7d6a8d05f111aeb0a62960c74eb283bec8fc"
-dependencies = [
- "bitflags 2.11.0",
- "once_cell",
- "serde",
- "serde_derive",
- "typeid",
- "unicode-ident",
-]
-
-[[package]]
 name = "rsa"
 version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8547,16 +8398,6 @@ checksum = "5bcdef0be6fe7f6fa333b1073c949729274b05f123a0ad7efcb8efd878e5c3b1"
 dependencies = [
  "sha2 0.10.9",
  "walkdir",
-]
-
-[[package]]
-name = "rust-ini"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "796e8d2b6696392a43bea58116b667fb4c29727dc5abd27d6acf338bb4f688c7"
-dependencies = [
- "cfg-if",
- "ordered-multimap",
 ]
 
 [[package]]
@@ -10565,18 +10406,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-untagged"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9faf48a4a2d2693be24c6289dbe26552776eb7737074e6722891fadbe6c5058"
-dependencies = [
- "erased-serde 0.4.10",
- "serde",
- "serde_core",
- "typeid",
-]
-
-[[package]]
 name = "serde-wasm-bindgen"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11136,7 +10965,7 @@ dependencies = [
  "futures-io",
  "futures-util",
  "hashbrown 0.15.5",
- "hashlink 0.10.0",
+ "hashlink",
  "indexmap 2.13.0",
  "log",
  "memchr",
@@ -11341,7 +11170,7 @@ dependencies = [
  "display_container",
  "dupe",
  "either",
- "erased-serde 0.3.31",
+ "erased-serde",
  "hashbrown 0.14.5",
  "inventory",
  "itertools 0.13.0",
@@ -12700,12 +12529,6 @@ name = "typed-path"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
-
-[[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typemap_rev"
@@ -14199,17 +14022,6 @@ name = "xxhash-rust"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
-
-[[package]]
-name = "yaml-rust2"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "631a50d867fafb7093e709d75aaee9e0e0d5deb934021fcea25ac2fe09edc51e"
-dependencies = [
- "arraydeque",
- "encoding_rs",
- "hashlink 0.11.0",
-]
 
 [[package]]
 name = "yansi"

@@ -1045,6 +1045,61 @@ pub(crate) async fn handle_models_delete(
     Ok(json!({ "id": id, "status": "deleted" }))
 }
 
+/// Delete an entire provider account: remove its `models/{account_id}.json`
+/// file, clear any runtime auth overrides it injected, and fall back to
+/// another default provider if it happened to be the active one.
+pub(crate) async fn handle_models_account_delete(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let account_id = params
+        .get("account_id")
+        .or_else(|| params.get("provider"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or((
+            INVALID_PARAMS,
+            "missing 'account_id' parameter".to_owned(),
+        ))?
+        .to_owned();
+
+    // Load the file first so we can clear the auth overrides it injected.
+    let file = load_provider_file(channel, &account_id).await;
+    if let Some(auth) = &file.auth {
+        if let Some(env_key) = auth.env_key.as_deref().filter(|k| !k.is_empty()) {
+            savfox_core::remove_env_override(env_key);
+        }
+    }
+    savfox_core::remove_bearer_token_override(&account_id);
+
+    // Remove the on-disk store file.
+    let path = models_dir(channel).join(format!("{account_id}.json"));
+    match tokio::fs::remove_file(&path).await {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err((
+                INTERNAL_ERROR,
+                format!("failed to delete account file: {e}"),
+            ));
+        }
+    }
+
+    // If the removed account was the configured default, pick a replacement.
+    let savfox_home = channel.config().savfox_home.clone();
+    let account = account_id.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        savfox_core::config::provider_store::fallback_default_provider_if_removed(
+            &savfox_home,
+            &account,
+        );
+    })
+    .await;
+
+    Ok(json!({ "account_id": account_id, "status": "deleted" }))
+}
+
 pub(crate) async fn handle_models_setdefault(
     params: &Value,
     channel: &Arc<GatewayChannel>,

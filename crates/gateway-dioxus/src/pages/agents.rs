@@ -1006,6 +1006,24 @@ fn model_option_label(model: &AvailableModel) -> String {
         .unwrap_or_else(|| model.id.clone())
 }
 
+/// The agent's primary model, normalized the same way the editor seeds and
+/// compares it: an unset/blank model falls back to the `"default"` sentinel.
+/// Both the form's initial value and the dirty-check baseline must go through
+/// this, otherwise an agent with no explicit model reads as perpetually dirty.
+fn normalized_primary_model(entry: &AgentEntry) -> String {
+    entry
+        .model
+        .clone()
+        .or_else(|| {
+            entry
+                .models
+                .as_ref()
+                .and_then(|models| models.primary.clone())
+        })
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "default".to_string())
+}
+
 fn model_select_value(models: &[AvailableModel], model_id: &str) -> String {
     let trimmed = model_id.trim();
     if trimmed.is_empty() {
@@ -2729,17 +2747,7 @@ fn AgentOverviewTab(
     let initial_prompt = entry.system_prompt.clone().unwrap_or_default();
     let mut form_desc = use_signal(move || initial_prompt.clone());
 
-    let initial_model = entry
-        .model
-        .clone()
-        .or_else(|| {
-            entry
-                .models
-                .as_ref()
-                .and_then(|models| models.primary.clone())
-        })
-        .filter(|v| !v.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string());
+    let initial_model = normalized_primary_model(&entry);
     let mut form_model = use_signal(move || initial_model.clone());
     let initial_reasoning = entry
         .thinking
@@ -2995,16 +3003,7 @@ fn AgentOverviewTab(
     // Dirty tracking
     let is_dirty = {
         let orig_name = entry.name.clone();
-        let orig_model = entry
-            .model
-            .clone()
-            .or_else(|| {
-                entry
-                    .models
-                    .as_ref()
-                    .and_then(|models| models.primary.clone())
-            })
-            .unwrap_or_default();
+        let orig_model = normalized_primary_model(&entry);
         let orig_desc = entry.system_prompt.clone().unwrap_or_default();
         let current_model = model_select_value(&models, &form_model());
         let original_model = model_select_value(&models, &orig_model);

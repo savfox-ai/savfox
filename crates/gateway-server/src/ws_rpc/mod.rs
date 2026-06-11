@@ -308,6 +308,7 @@ pub(crate) async fn dispatch_rpc(
         "models.add" => handle_models_add(&params, channel).await,
         "models.update" => handle_models_update(&params, channel).await,
         "models.delete" => handle_models_delete(&params, channel).await,
+        "models.deleteAccount" => handle_models_account_delete(&params, channel).await,
         "models.setdefault" => handle_models_setdefault(&params, channel).await,
         "models.import" => handle_models_import(&params, channel).await,
 

@@ -703,6 +703,28 @@ async fn handle_streaming(
             }
             Err(err) => {
                 error!("streaming agent error: {err}");
+                // Surface the failure to the client. Without this the stream
+                // ends with only the opening role chunk followed by `[DONE]`,
+                // which the UI renders as a blank assistant bubble with no clue
+                // that anything went wrong.
+                let error_chunk = ChatCompletionChunk {
+                    id: cid,
+                    object: "chat.completion.chunk",
+                    created,
+                    model: m,
+                    choices: vec![StreamChoice {
+                        index: 0,
+                        delta: DeltaMessage {
+                            role: None,
+                            content: Some(format!("⚠️ Agent error: {err}")),
+                            reasoning_content: None,
+                        },
+                        finish_reason: Some("stop".to_owned()),
+                    }],
+                };
+                if let Ok(json) = serde_json::to_string(&error_chunk) {
+                    let _ = tx.send(Ok(SseEvent::default().text(json)));
+                }
                 let _ = tx.send(Ok(SseEvent::default().text("[DONE]")));
             }
         }

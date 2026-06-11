@@ -92,6 +92,51 @@ pub(crate) async fn persist_chat_session_metadata(
     }
 }
 
+/// Record only the logical-session → thread/rollout linkage, leaving
+/// model/provider/token fields untouched.
+///
+/// Called *before* a turn runs so that the web session entry already points at
+/// its rollout file. If the turn later errors, times out, or is interrupted,
+/// `chat.history` can still recover the conversation after a page refresh
+/// instead of finding nothing (the rollout lives under a freshly minted thread
+/// id that differs from the logical session id).
+pub(crate) async fn persist_session_thread_link(
+    session_store: &SessionStore,
+    savfox_home: &Path,
+    logical_session_id: &str,
+    thread_id: &str,
+    rollout_path: Option<&Path>,
+) {
+    let session_file = rollout_path.map(|path| session_file_to_store_value(savfox_home, path));
+    let thread_id = thread_id.to_owned();
+
+    let updated = session_store
+        .update(logical_session_id, {
+            let session_file = session_file.clone();
+            let thread_id = thread_id.clone();
+            move |entry| {
+                entry.thread_id = Some(thread_id.clone());
+                if let Some(file) = session_file.as_ref() {
+                    entry.session_file = Some(file.clone());
+                }
+            }
+        })
+        .await;
+
+    if updated.is_some() {
+        return;
+    }
+
+    if let Some(mut entry) = session_store.get_or_create(logical_session_id).await {
+        entry.thread_id = Some(thread_id);
+        if let Some(file) = session_file {
+            entry.session_file = Some(file);
+        }
+        entry.touch();
+        session_store.upsert(entry).await;
+    }
+}
+
 pub(crate) async fn resolve_abort_candidate_ids(
     session_store: &SessionStore,
     thread_id: Option<&str>,

@@ -32,16 +32,31 @@ impl Toaster {
         }
     }
 
+    /// Maximum number of toasts kept on screen at once; older ones are evicted.
+    const MAX_VISIBLE: usize = 4;
+
     pub fn show(&mut self, variant: ToastVariant, message: impl Into<String>, duration_ms: u32) {
+        let message = message.into();
         let id = (self.next_id)();
         self.next_id.set(id + 1);
         let toast = Toast {
             id,
-            variant,
-            message: message.into(),
+            variant: variant.clone(),
+            message: message.clone(),
             duration_ms,
         };
-        self.items.write().push(toast);
+        {
+            let mut items = self.items.write();
+            // Collapse duplicates: a repeated identical notification refreshes the
+            // existing one instead of stacking another copy.
+            items.retain(|t| !(t.variant == variant && t.message == message));
+            items.push(toast);
+            // Cap the stack so a burst of distinct messages can't fill the screen.
+            let overflow = items.len().saturating_sub(Self::MAX_VISIBLE);
+            if overflow > 0 {
+                items.drain(0..overflow);
+            }
+        }
 
         // Schedule auto-dismiss
         let mut items = self.items;

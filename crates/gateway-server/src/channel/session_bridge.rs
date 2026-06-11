@@ -202,6 +202,26 @@ impl GatewayChannel {
             .map_err(|e| anyhow::anyhow!("failed to get session: {e}"))?;
         let rollout_path = session.rollout_path();
 
+        // Persist the logical-session → thread/rollout linkage *before* running
+        // the turn. The agent runs in a freshly minted thread whose id differs
+        // from the caller's logical session id, and the rollout file is named
+        // after the thread id. If we only recorded this linkage on success
+        // (as the HTTP handlers do), a turn that errors or times out would
+        // leave the web session entry with no `session_file`, so `chat.history`
+        // could not locate the rollout and the conversation would vanish on
+        // refresh. Recording it up front keeps history recoverable regardless
+        // of how the turn ends.
+        if let Some(logical_id) = requested_session_id.as_deref() {
+            crate::chat_session::persist_session_thread_link(
+                &self.session_store,
+                &self.config.savfox_home,
+                logical_id,
+                &session_id.to_string(),
+                rollout_path.as_deref(),
+            )
+            .await;
+        }
+
         // Submit the user message.
         let user_input = UserInput::Text {
             text: prompt.to_owned(),

@@ -3,7 +3,7 @@ pub mod connect_provider;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use lucide_dioxus::{ChevronDown, ChevronRight, LayoutGrid, LayoutList, Search};
+use lucide_dioxus::{ChevronDown, ChevronRight, LayoutGrid, LayoutList, Search, Trash2};
 use serde_json::json;
 
 use crate::api::types::{AvailableModel, AvailableModelsResponse};
@@ -50,6 +50,11 @@ pub fn Models() -> Element {
     // Per-provider test connection state: provider_id -> (testing, Option<(ok, message)>)
     let mut test_states = use_signal(|| HashMap::<String, (bool, Option<(bool, String)>)>::new());
 
+    // Account-deletion flow: the account_id awaiting a delete confirmation, and
+    // the account_id currently being deleted (for the in-flight button label).
+    let mut confirm_delete = use_signal(|| Option::<String>::None);
+    let mut deleting_account = use_signal(|| Option::<String>::None);
+
     let ws_models = ws.clone();
     let ws_connected_models = ws_connected;
     let mut models_data = use_resource(move || {
@@ -80,7 +85,7 @@ pub fn Models() -> Element {
     // Load the global default model from config.toml [model] section
     let ws_config = ws.clone();
     let ws_connected_config = ws_connected;
-    let config_default = use_resource(move || {
+    let mut config_default = use_resource(move || {
         let connected = ws_connected_config();
         let ws = ws_config.clone();
         async move {
@@ -362,6 +367,11 @@ pub fn Models() -> Element {
                                 let is_testing = test_state.0;
                                 let test_result = test_state.1.clone();
                                 let ws_test = ws.clone();
+                                let pid_for_delete = provider_id.clone();
+                                let ws_delete = ws.clone();
+                                let is_confirming_delete = confirm_delete() == Some(pid.clone());
+                                let is_deleting = deleting_account() == Some(pid.clone());
+                                let pid_for_confirm = provider_id.clone();
                                 rsx! {
                                     section { class: "models-group",
                                         div { class: "models-group__header",
@@ -416,6 +426,45 @@ pub fn Models() -> Element {
                                                         });
                                                     },
                                                     if is_testing { "Testing..." } else { "Test" }
+                                                }
+                                                if is_confirming_delete {
+                                                    span { class: "models-delete-confirm__text", "Delete this account?" }
+                                                    button {
+                                                        class: "models-delete-confirm__yes",
+                                                        disabled: is_deleting,
+                                                        onclick: move |_| {
+                                                            let pid = pid_for_delete.clone();
+                                                            let ws = ws_delete.clone();
+                                                            deleting_account.set(Some(pid.clone()));
+                                                            spawn(async move {
+                                                                let _ = ws.call::<serde_json::Value>(
+                                                                    "models.deleteAccount",
+                                                                    Some(json!({ "account_id": pid })),
+                                                                ).await;
+                                                                deleting_account.set(None);
+                                                                confirm_delete.set(None);
+                                                                // The deleted account's models are gone and the
+                                                                // global default may have fallen back — refresh both.
+                                                                models_data.restart();
+                                                                config_default.restart();
+                                                            });
+                                                        },
+                                                        if is_deleting { "Deleting..." } else { "Delete" }
+                                                    }
+                                                    button {
+                                                        class: "models-delete-confirm__no",
+                                                        disabled: is_deleting,
+                                                        onclick: move |_| confirm_delete.set(None),
+                                                        "Cancel"
+                                                    }
+                                                } else {
+                                                    button {
+                                                        class: "models-delete-btn",
+                                                        title: "Delete account",
+                                                        aria_label: "Delete account",
+                                                        onclick: move |_| confirm_delete.set(Some(pid_for_confirm.clone())),
+                                                        Trash2 { size: 15 }
+                                                    }
                                                 }
                                             }
                                         }
@@ -960,6 +1009,70 @@ const MODELS_STYLES: &str = r#"
 
     .models-test-result--err {
         color: var(--danger);
+    }
+
+    .models-delete-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        flex-shrink: 0;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+    }
+
+    .models-delete-btn:hover {
+        border-color: var(--danger);
+        color: var(--danger);
+        background: color-mix(in srgb, var(--danger) 8%, transparent);
+    }
+
+    .models-delete-confirm__text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        white-space: nowrap;
+    }
+
+    .models-delete-confirm__yes,
+    .models-delete-confirm__no {
+        padding: 4px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: var(--radius);
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .models-delete-confirm__yes {
+        border: 1px solid var(--danger);
+        background: color-mix(in srgb, var(--danger) 12%, transparent);
+        color: var(--danger);
+    }
+
+    .models-delete-confirm__yes:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--danger) 20%, transparent);
+    }
+
+    .models-delete-confirm__no {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-secondary);
+    }
+
+    .models-delete-confirm__no:hover:not(:disabled) {
+        border-color: var(--text-secondary);
+    }
+
+    .models-delete-confirm__yes:disabled,
+    .models-delete-confirm__no:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     .models-view-toggle-btn {
