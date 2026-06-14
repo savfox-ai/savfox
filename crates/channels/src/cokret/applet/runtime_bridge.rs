@@ -9,10 +9,10 @@
 //! glue here is purely:
 //!
 //! * [`applet_runtime_config`] — translate a savfox applet config into the
-//!   runtime's [`Config`](cokret_bridge_runtime::Config). The signing seed is
-//!   left empty on purpose: savfox injects an already-constructed
-//!   [`cokret::Ed25519MoveSigner`] through `CokretEdge::with_signer`, so the
-//!   seed in the config is never read.
+//!   runtime's [`Config`](cokret_bridge_runtime::Config). The pure mapping
+//!   leaves the signing seed empty; [`build_outbound_edge`] fills it from the
+//!   configured [`CokretKeyRef`](crate::cokret::CokretKeyRef) before handing the
+//!   config to the runtime.
 //! * [`SavfoxAppletResolver`] — answer `resolve_actor` / `resolve_realm` probes
 //!   from the applet's declared namespaces.
 //! * [`build_outbound_edge`] — assemble a ready-to-use
@@ -85,8 +85,8 @@ pub fn applet_runtime_config(cfg: &CokretAppletConfig) -> Config {
             "applet_id": cfg.applet_id,
             "access_token": cfg.cokret_bearer_token.clone().unwrap_or_default(),
             "trusted_server_did": trusted_server_did,
-            // Placeholder: savfox injects the signer via `with_signer`, so the
-            // seed is never decoded by the runtime.
+            // Placeholder: build_outbound_edge fills this from key_ref before
+            // constructing a runtime edge.
             "signing_key_seed_hex": "",
             "verification_method_id": verification_method_id,
         },
@@ -150,19 +150,27 @@ impl AppletResolver for SavfoxAppletResolver {
 }
 
 /// Build a ready-to-use outbound [`CokretEdge`](cokret_bridge_runtime::CokretEdge)
-/// for `cfg`, injecting an externally-loaded `signer` and a `seq` store.
+/// for `cfg`, injecting a `seq` store.
 ///
-/// The runtime config is derived from `cfg` via [`applet_runtime_config`]; its
-/// `signing_key_seed_hex` placeholder is irrelevant because `with_signer`
-/// supplies the constructed signer directly. The runtime [`BridgeError`] is
-/// mapped into `anyhow` for savfox callers.
+/// The runtime config is derived from `cfg` via [`applet_runtime_config`], then
+/// its `signing_key_seed_hex` placeholder is filled from `cfg.key_ref` because
+/// current `cokret-bridge-runtime` constructs its own signer inside
+/// [`CokretEdge::new`]. The runtime [`BridgeError`] is mapped into `anyhow` for
+/// savfox callers.
 pub fn build_outbound_edge(
     cfg: &CokretAppletConfig,
-    signer: cokret::Ed25519MoveSigner,
     seq: Arc<dyn SeqStore>,
 ) -> anyhow::Result<CokretEdge> {
-    let config = Arc::new(applet_runtime_config(cfg));
-    CokretEdge::with_signer(config, seq, signer)
+    let mut config = applet_runtime_config(cfg);
+    let key_ref = cfg.key_ref.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "cokret applet '{}' cannot build runtime edge without key_ref",
+            cfg.id
+        )
+    })?;
+    config.cokret.signing_key_seed_hex = crate::cokret::load_ed25519_seed_hex(key_ref)?;
+    let (inbound_tx, _inbound_rx) = tokio::sync::mpsc::channel(1);
+    CokretEdge::new(Arc::new(config), seq, inbound_tx)
         .map_err(|e| anyhow::anyhow!("cokret runtime edge: {e}"))
 }
 
@@ -181,6 +189,7 @@ mod tests {
             bot_actor_id: "did:web:slack-bridge.example:bot".to_owned(),
             cokret_server_url: "https://cokret.example.org".to_owned(),
             cokret_server_did: Some("did:webvh:cokret.example.org".to_owned()),
+            login_challenge: None,
             cokret_bearer_token: Some("applet-bearer-1".to_owned()),
             namespaces: AppletNamespaces {
                 actors: vec![NamespacePattern::new(
@@ -220,7 +229,8 @@ mod tests {
         assert_eq!(rc.cokret.access_token, "applet-bearer-1");
         // Defaulted verification method when config leaves it unset.
         assert_eq!(rc.cokret.verification_method_id, "#key-1");
-        // Placeholder seed — never decoded by the runtime (signer is injected).
+        // Placeholder seed in the pure config mapping; build_outbound_edge
+        // fills it from key_ref before constructing a runtime edge.
         assert!(rc.cokret.signing_key_seed_hex.is_empty());
         assert!(rc.app.is_null());
     }

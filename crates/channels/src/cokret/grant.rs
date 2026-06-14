@@ -20,8 +20,8 @@ use std::path::Path;
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use cokret::CapabilityGrant;
-use cokret_core::Event;
+use cokret_core::{CapabilityGrant, CapabilitySubject, Event};
+use serde_json::Value;
 
 /// Loaded capability grant ready for use as `authorization_ref` on
 /// outbound writes.
@@ -104,7 +104,7 @@ pub async fn load_and_verify_grant(
         .validate_proof_bindings()
         .map_err(|err| anyhow::anyhow!("grant proof binding invalid: {err}"))?;
 
-    let grant: CapabilityGrant = serde_json::from_value(event.content.clone())
+    let grant: CapabilityGrant = decode_capability_grant(event.content.clone())
         .with_context(|| format!("decode CapabilityGrant content in {}", path.display()))?;
 
     if event.actor_id.as_str() != grant.issuer.as_str() {
@@ -127,11 +127,19 @@ pub async fn load_and_verify_grant(
         );
     }
 
-    if grant.subject.as_str() != expected_subject {
+    let subject = capability_subject_did(&grant.subject).ok_or_else(|| {
+        anyhow::anyhow!(
+            "capability grant {}: subject must be a DID to match expected '{}'",
+            path.display(),
+            expected_subject
+        )
+    })?;
+
+    if subject != expected_subject {
         anyhow::bail!(
             "capability grant {}: subject '{}' does not match expected '{}'",
             path.display(),
-            grant.subject.as_str(),
+            subject,
             expected_subject
         );
     }
@@ -162,12 +170,27 @@ pub async fn load_and_verify_grant(
 
     Ok(CokretGrant {
         event_id: event.event_id.as_str().to_owned(),
-        subject: grant.subject.as_str().to_owned(),
+        subject: subject.to_owned(),
         issuer: grant.issuer.as_str().to_owned(),
         realm_id,
         actions: grant.actions,
         expires_at: grant.expires_at,
     })
+}
+
+fn decode_capability_grant(content: Value) -> anyhow::Result<CapabilityGrant> {
+    if let Some(grant) = content.get("grant") {
+        return serde_json::from_value(grant.clone())
+            .context("decode wrapped capability_grant_payload.grant");
+    }
+    serde_json::from_value(content).context("decode legacy direct CapabilityGrant")
+}
+
+fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
+    match subject {
+        CapabilitySubject::Did(did) => Some(did.as_str()),
+        CapabilitySubject::Selector(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -198,26 +221,39 @@ mod tests {
         action: &str,
         expires: Option<DateTime<Utc>>,
     ) -> serde_json::Value {
-        let mut content = serde_json::Map::new();
-        content.insert(
-            "id".into(),
-            json!("ck:grant:01904100-0000-7000-8000-000000000abc"),
-        );
-        content.insert("issuer".into(), json!("did:webvh:example.com:admin"));
-        content.insert("subject".into(), json!(subject));
-        content.insert("actions".into(), json!([action]));
-        content.insert("resources".into(), json!([]));
+        let mut grant = serde_json::Map::new();
+        let grant_id = "ck:grant:01904100-0000-7000-8000-000000000abc";
+        let issuer = "did:webvh:example.com:admin";
+        let proof = json!({
+            "kind": "detached_jws",
+            "alg": "EdDSA",
+            "verification_method": "did:webvh:example.com:admin#grant-key-1",
+            "event_digest": format!("sha256:{}", "0".repeat(64)),
+            "created_at": "2026-05-27T00:00:00Z",
+            "jws": "grant.detached.signature"
+        });
+        grant.insert("id".into(), json!(grant_id));
+        grant.insert("schema".into(), json!("ck.schema.capability.v1"));
+        grant.insert("issuer".into(), json!(issuer));
+        grant.insert("subject".into(), json!(subject));
+        grant.insert("actions".into(), json!([action]));
+        grant.insert("resources".into(), json!([{"kind": "*"}]));
+        grant.insert("issued_at".into(), json!("2026-05-27T00:00:00Z"));
+        grant.insert("proofs".into(), json!([proof]));
         if let Some(realm) = realm {
-            content.insert("realm_id".into(), json!(realm));
+            grant.insert("realm_id".into(), json!(realm));
         }
         if let Some(exp) = expires {
-            content.insert("expires_at".into(), json!(exp.to_rfc3339()));
+            grant.insert("expires_at".into(), json!(exp.to_rfc3339()));
         }
+        let mut content = serde_json::Map::new();
+        content.insert("grant_id".into(), json!(grant_id));
+        content.insert("grant".into(), serde_json::Value::Object(grant));
         let mut event = json!({
             "event_id": "ck:event:01904100-0000-7000-8000-000000000def",
             "kind": "ck.capability.grant",
             "realm_id": realm.unwrap_or("ck:realm:01904100-0000-7000-8000-000000000001"),
-            "actor_id": "did:webvh:example.com:admin",
+            "actor_id": issuer,
             "actor_seq": 1,
             "created_at": "2026-05-27T00:00:00Z",
             "hlc": "000000000000-0000-00000000",

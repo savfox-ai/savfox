@@ -384,6 +384,12 @@ async fn construct_account_client(
                     account.id
                 )
             })?;
+        let challenge = account.login_challenge.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "cokret account '{}' has key_ref but no login_challenge / loginChallenge",
+                account.id
+            )
+        })?;
         let signer = load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
         let principal = Did::new(account.principal_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
@@ -394,7 +400,7 @@ async fn construct_account_client(
             &signer,
             principal,
             device,
-            &vm,
+            challenge,
             &audience,
         )
         .await?;

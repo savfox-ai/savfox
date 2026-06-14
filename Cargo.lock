@@ -1203,9 +1203,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -1369,7 +1369,6 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "chrono-tz",
- "cokret-contracts",
  "cokret-core",
  "cokret-crypto",
  "cokret-ffi",
@@ -1379,15 +1378,16 @@ dependencies = [
  "cokret-server",
  "cokret-signatures",
  "ed25519-dalek",
- "getrandom 0.3.4",
- "hkdf",
+ "getrandom 0.4.2",
+ "hex",
+ "hkdf 0.13.0",
  "parking_lot",
  "regex",
- "reqwest 0.12.28",
+ "reqwest 0.13.4",
  "salvo 0.93.0",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
  "tokio",
@@ -1405,31 +1405,15 @@ dependencies = [
  "chrono",
  "cokret",
  "parking_lot",
- "reqwest 0.12.28",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml_ng",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
-]
-
-[[package]]
-name = "cokret-contracts"
-version = "0.3.0"
-dependencies = [
- "chrono",
- "cokret-core",
- "cokret-crypto",
- "cokret-html",
- "cokret-signatures",
- "salvo 0.93.0",
- "salvo-oapi",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -1440,15 +1424,16 @@ dependencies = [
  "bs58",
  "chrono",
  "cokret-identifiers",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
+ "hex",
  "regex",
- "reqwest 0.12.28",
  "salvo 0.93.0",
  "salvo-oapi",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
+ "tracing",
  "unicode-normalization",
  "url",
 ]
@@ -1462,7 +1447,7 @@ dependencies = [
  "cokret-signatures",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
 ]
 
@@ -1491,7 +1476,7 @@ dependencies = [
  "chrono",
  "cokret-core",
  "futures-util",
- "reqwest 0.12.28",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "tokio",
@@ -1504,11 +1489,12 @@ name = "cokret-identifiers"
 version = "0.3.0"
 dependencies = [
  "getrandom 0.2.17",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
+ "hex",
  "salvo 0.93.0",
  "salvo-oapi",
  "serde",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "thiserror 2.0.18",
  "uuid",
 ]
@@ -1524,7 +1510,6 @@ dependencies = [
 name = "cokret-server"
 version = "0.3.0"
 dependencies = [
- "cokret-contracts",
  "cokret-core",
  "cokret-signatures",
  "serde",
@@ -1541,7 +1526,7 @@ dependencies = [
  "ed25519-dalek",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
 ]
@@ -1869,7 +1854,7 @@ dependencies = [
  "notify",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-core",
  "savfox-protocol",
  "savfox-utils",
@@ -2287,7 +2272,7 @@ dependencies = [
  "cbc",
  "dbus",
  "fastrand",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "sha2 0.10.9",
@@ -2520,7 +2505,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "rand 0.10.0",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "serde_repr",
@@ -3526,7 +3511,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "prost",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rustls 0.23.37",
  "serde",
  "serde_json",
@@ -3927,11 +3912,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.0",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3978,7 +3965,7 @@ dependencies = [
  "bstr",
  "log",
  "regex-automata",
- "regex-syntax 0.8.10",
+ "regex-syntax 0.8.11",
 ]
 
 [[package]]
@@ -4242,6 +4229,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
 dependencies = [
  "hmac 0.12.1",
+]
+
+[[package]]
+name = "hkdf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
+dependencies = [
+ "hmac 0.13.0",
 ]
 
 [[package]]
@@ -5507,7 +5503,7 @@ dependencies = [
  "pin-project-lite",
  "rand 0.10.0",
  "regex",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "salvo 0.89.3",
  "serde",
  "serde_json",
@@ -6399,7 +6395,7 @@ dependencies = [
  "bytes",
  "http",
  "opentelemetry",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
 ]
 
 [[package]]
@@ -6413,7 +6409,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -7162,7 +7158,7 @@ dependencies = [
  "rand 0.9.2",
  "rand_chacha 0.9.0",
  "rand_xorshift",
- "regex-syntax 0.8.10",
+ "regex-syntax 0.8.11",
  "rusty-fork",
  "tempfile",
  "unarray",
@@ -8096,14 +8092,14 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.12.3"
+version = "1.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
+checksum = "f1292b7759ae1cb9ec195452d1390a074f0cd8541ab7a5a8c31cd6db45d4a6ba"
 dependencies = [
  "aho-corasick",
  "memchr",
  "regex-automata",
- "regex-syntax 0.8.10",
+ "regex-syntax 0.8.11",
 ]
 
 [[package]]
@@ -8114,7 +8110,7 @@ checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.8.10",
+ "regex-syntax 0.8.11",
 ]
 
 [[package]]
@@ -8131,9 +8127,9 @@ checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.10"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rend"
@@ -8156,7 +8152,6 @@ dependencies = [
  "cookie_store",
  "futures-core",
  "futures-util",
- "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -8191,9 +8186,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.13.2"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3f43e3283ab1488b624b44b0e988d0acea0b3214e694730a055cb6b2efa801"
+checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
@@ -8312,7 +8307,7 @@ dependencies = [
  "pin-project-lite",
  "process-wrap",
  "rand 0.10.0",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rmcp-macros",
  "schemars 1.2.1",
  "serde",
@@ -8783,7 +8778,7 @@ dependencies = [
  "hyper-util",
  "local-ip-address",
  "percent-encoding",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "salvo_core 0.89.3",
  "tokio",
  "tracing",
@@ -9059,7 +9054,7 @@ dependencies = [
  "http",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-http-client",
  "savfox-protocol",
  "serde",
@@ -9196,7 +9191,7 @@ dependencies = [
  "async-trait",
  "base64",
  "futures-util",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "tokio",
@@ -9230,7 +9225,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "parking_lot",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-core",
  "serde",
  "serde_json",
@@ -9263,7 +9258,7 @@ dependencies = [
  "predicates",
  "pretty_assertions",
  "regex-lite",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-app-server",
  "savfox-app-server-protocol",
  "savfox-arg0",
@@ -9384,7 +9379,7 @@ dependencies = [
  "rand 0.10.0",
  "regex",
  "regex-lite",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rmcp",
  "rustls 0.23.37",
  "savfox-api-client",
@@ -9620,7 +9615,7 @@ dependencies = [
  "mime_guess",
  "rand 0.10.0",
  "regex",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rust-embed",
  "rustls 0.23.37",
  "salvo 0.91.1",
@@ -9678,7 +9673,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pretty_assertions",
  "rand 0.10.0",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rustls-pemfile",
  "serde",
  "serde_json",
@@ -9719,7 +9714,7 @@ name = "savfox-lmstudio"
 version = "0.3.1"
 dependencies = [
  "core_test_support",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-core",
  "serde_json",
  "tokio",
@@ -9737,7 +9732,7 @@ dependencies = [
  "chrono",
  "core_test_support",
  "rand 0.10.0",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-app-server-protocol",
  "savfox-core",
  "serde",
@@ -9788,7 +9783,7 @@ dependencies = [
  "futures",
  "once_cell",
  "regex",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "schemars 1.2.1",
  "serde",
  "serde_json",
@@ -9851,7 +9846,7 @@ dependencies = [
  "core_test_support",
  "futures",
  "pretty_assertions",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-core",
  "semver",
  "serde_json",
@@ -9873,7 +9868,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "pretty_assertions",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-api-client",
  "savfox-app-server-protocol",
  "savfox-protocol",
@@ -9923,7 +9918,7 @@ dependencies = [
  "keyring",
  "oauth2",
  "pretty_assertions",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rmcp",
  "salvo 0.91.1",
  "salvo_extra",
@@ -9954,7 +9949,7 @@ dependencies = [
  "dirs",
  "fs_extra",
  "futures-util",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "savfox-http-client",
  "semver",
  "serde",
@@ -10035,7 +10030,7 @@ dependencies = [
  "ratatui-image",
  "ratatui-macros",
  "regex-lite",
- "reqwest 0.13.2",
+ "reqwest 0.13.4",
  "rmcp",
  "savfox-ansi-escape",
  "savfox-app-server-protocol",
@@ -10291,7 +10286,7 @@ dependencies = [
  "cbc",
  "futures-util",
  "generic-array",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "rand 0.8.5",
@@ -10483,9 +10478,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.149"
+version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
+checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
  "indexmap 2.13.0",
  "itoa",
@@ -10598,6 +10593,19 @@ name = "serde_yaml"
 version = "0.9.34+deprecated"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.13.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
+name = "serde_yaml_ng"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
  "indexmap 2.13.0",
  "itoa",
@@ -11041,7 +11049,7 @@ dependencies = [
  "futures-util",
  "generic-array",
  "hex",
- "hkdf",
+ "hkdf 0.12.4",
  "hmac 0.12.1",
  "itoa",
  "log",
@@ -11078,7 +11086,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hex",
- "hkdf",
+ "hkdf 0.12.4",
  "hmac 0.12.1",
  "home",
  "itoa",
@@ -11908,9 +11916,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.50.0"
+version = "1.52.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d"
+checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
 dependencies = [
  "bytes",
  "libc",
@@ -11938,9 +11946,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.6.1"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c55a2eff8b69ce66c84f85e1da1c233edc36ceb85a2058d11b0d6a3c7e7569c"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12370,7 +12378,7 @@ checksum = "887bd495d0582c5e3e0d8ece2233666169fa56a9644d172fc22ad179ab2d0538"
 dependencies = [
  "cc",
  "regex",
- "regex-syntax 0.8.10",
+ "regex-syntax 0.8.11",
  "serde_json",
  "streaming-iterator",
  "tree-sitter-language",

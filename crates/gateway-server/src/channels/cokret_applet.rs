@@ -1015,6 +1015,12 @@ async fn construct_applet_client(
                 cfg.id
             )
         })?;
+        let challenge = cfg.login_challenge.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "applet '{}' has key_ref but no login_challenge / loginChallenge",
+                cfg.id
+            )
+        })?;
         let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
         let principal = cokret_identifiers::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
@@ -1029,7 +1035,7 @@ async fn construct_applet_client(
             &signer,
             principal,
             device,
-            &vm,
+            challenge,
             audience,
         )
         .await?;

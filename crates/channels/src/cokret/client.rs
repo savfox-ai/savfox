@@ -74,7 +74,7 @@ impl CokretHttpClient {
         signer: &Ed25519MoveSigner,
         principal_did: Did,
         device_id: DeviceId,
-        verification_method: &str,
+        challenge: &str,
         audience: &str,
     ) -> anyhow::Result<(Self, CokretSession)> {
         let url =
@@ -87,12 +87,12 @@ impl CokretHttpClient {
             signer,
             principal_did,
             device_id,
-            verification_method,
+            challenge,
             audience,
         )
         .await?;
         let inner = ClientBuilder::new(url)
-            .auth(Auth::Bearer(session.access_token.clone()))
+            .auth(Auth::Bearer(session.session_grant.clone()))
             .build()
             .map_err(|err| anyhow::anyhow!("authenticated HTTP client: {err}"))?;
         Ok((Self { inner }, session))

@@ -24,6 +24,8 @@ pub struct CokretAccountConfig {
     /// Phase 8: Cokret server DID used as `audience` for `login_did_proof`.
     /// Defaults to the channel-level `service_did` when missing.
     pub cokret_server_did: Option<String>,
+    /// Server-issued one-time challenge for DID-proof session grant issuance.
+    pub login_challenge: Option<String>,
     /// Phase 8: path to a pre-signed `ck.capability.grant` Event JSON.
     /// When set, the event_id is attached as `authorization_ref` on every
     /// outbound write.
@@ -135,6 +137,26 @@ impl CokretAccountConfig {
                 self.id
             );
         }
+        if self.key_ref.is_some() {
+            let Some(challenge) = self.login_challenge.as_deref().map(str::trim) else {
+                anyhow::bail!(
+                    "Cokret account '{}' has key_ref but no login_challenge / loginChallenge",
+                    self.id
+                );
+            };
+            if challenge.is_empty() {
+                anyhow::bail!(
+                    "Cokret account '{}' has key_ref but no login_challenge / loginChallenge",
+                    self.id
+                );
+            }
+            if challenge.len() < 16 {
+                anyhow::bail!(
+                    "Cokret account '{}' login_challenge must be at least 16 characters",
+                    self.id
+                );
+            }
+        }
         if self.send && self.default_realm_id.is_none() {
             anyhow::bail!(
                 "Cokret account '{}' has send=true but no default_realm_id",
@@ -198,6 +220,7 @@ fn parse_account_entry(map: &serde_json::Map<String, Value>) -> Option<CokretAcc
         ],
     );
     let cokret_server_did = first_non_empty(map, &["cokretServerDid", "cokret_server_did"]);
+    let login_challenge = first_non_empty(map, &["loginChallenge", "login_challenge"]);
     let grant_event_path =
         first_non_empty(map, &["grantEventPath", "grant_event_path"]).map(PathBuf::from);
 
@@ -213,6 +236,7 @@ fn parse_account_entry(map: &serde_json::Map<String, Value>) -> Option<CokretAcc
         key_ref,
         verification_method,
         cokret_server_did,
+        login_challenge,
         grant_event_path,
         default_realm_id,
         default_flow_id,
@@ -369,6 +393,48 @@ mod tests {
         assert_eq!(parsed.accounts.len(), 1);
         assert_eq!(parsed.accounts[0].principal_id, "did:webvh:example.org:bot");
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn parses_keyed_account_login_challenge() {
+        let cfg = make_channel_config(json!({
+            "baseUrl": "https://cokret.example.org",
+            "serviceDid": "did:webvh:cokret.example.org",
+            "accounts": [{
+                "id": "support",
+                "principalId": "did:webvh:example.org:agents:support",
+                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_BOT_KEY" },
+                "loginChallenge": "challenge-from-cokret",
+                "defaultRealmId": "ck:realm:abc"
+            }]
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        assert_eq!(
+            parsed.accounts[0].login_challenge.as_deref(),
+            Some("challenge-from-cokret")
+        );
+        parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn keyed_account_requires_login_challenge() {
+        let cfg = make_channel_config(json!({
+            "baseUrl": "https://cokret.example.org",
+            "serviceDid": "did:webvh:cokret.example.org",
+            "accounts": [{
+                "id": "support",
+                "principalId": "did:webvh:example.org:agents:support",
+                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_BOT_KEY" },
+                "defaultRealmId": "ck:realm:abc"
+            }]
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed
+            .validate()
+            .expect_err("missing login challenge should fail");
+        assert!(format!("{err:#}").contains("login_challenge"));
     }
 
     #[test]

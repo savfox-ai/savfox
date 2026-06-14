@@ -36,6 +36,8 @@ pub struct CokretAppletConfig {
     pub cokret_server_url: String,
     /// Cokret server service DID used as DID-proof login audience.
     pub cokret_server_did: Option<String>,
+    /// Server-issued one-time challenge for DID-proof session grant issuance.
+    pub login_challenge: Option<String>,
     /// Optional bearer for outbound `events_submit` calls. In a fully
     /// signed flow this is replaced by the ghost actor's detached JWS.
     pub cokret_bearer_token: Option<String>,
@@ -117,6 +119,7 @@ impl CokretAppletConfig {
                 "trusted_server_did",
             ],
         );
+        let login_challenge = first_non_empty(raw, &["loginChallenge", "login_challenge"]);
         let cokret_bearer_token =
             first_non_empty(raw, &["accessToken", "access_token", "cokretBearerToken"]);
 
@@ -171,6 +174,7 @@ impl CokretAppletConfig {
             bot_actor_id,
             cokret_server_url,
             cokret_server_did,
+            login_challenge,
             cokret_bearer_token,
             namespaces,
             protocols,
@@ -231,6 +235,26 @@ impl CokretAppletConfig {
                 "Cokret applet channel '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
                 self.id
             );
+        }
+        if self.key_ref.is_some() {
+            let Some(challenge) = self.login_challenge.as_deref().map(str::trim) else {
+                anyhow::bail!(
+                    "Cokret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
+                    self.id
+                );
+            };
+            if challenge.is_empty() {
+                anyhow::bail!(
+                    "Cokret applet channel '{}' has key_ref but no login_challenge / loginChallenge",
+                    self.id
+                );
+            }
+            if challenge.len() < 16 {
+                anyhow::bail!(
+                    "Cokret applet channel '{}' login_challenge must be at least 16 characters",
+                    self.id
+                );
+            }
         }
         if self.namespaces.actors.is_empty()
             && self.namespaces.realms.is_empty()
@@ -409,6 +433,20 @@ mod tests {
         assert_eq!(parsed.namespaces.actors.len(), 1);
         assert!(parsed.namespaces.actors[0].exclusive);
         assert_eq!(parsed.ghost_did_prefix, "ghost:");
+        parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn parses_keyed_applet_login_challenge() {
+        let mut body = valid_body();
+        body["keyRef"] = json!({ "kind": "env", "var": "SAVFOX_COKRET_APPLET_KEY" });
+        body["loginChallenge"] = json!("challenge-from-cokret");
+        let cfg = make_channel_config(body);
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        assert_eq!(
+            parsed.login_challenge.as_deref(),
+            Some("challenge-from-cokret")
+        );
         parsed.validate().expect("validate");
     }
 

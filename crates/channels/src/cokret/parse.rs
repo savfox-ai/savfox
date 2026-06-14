@@ -138,6 +138,7 @@ mod tests {
             key_ref: None,
             verification_method: None,
             cokret_server_did: None,
+            login_challenge: None,
             grant_event_path: None,
             default_realm_id: realm.map(str::to_owned),
             default_flow_id: None,

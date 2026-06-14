@@ -58,4 +58,4 @@ pub use parse::{
 };
 pub use seq_store::FileSeqStore;
 pub use session::{CokretSession, login_with_signer};
-pub use signer::{CokretKeyRef, load_ed25519_signer};
+pub use signer::{CokretKeyRef, load_ed25519_seed_hex, load_ed25519_signer};

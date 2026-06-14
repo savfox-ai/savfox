@@ -1,4 +1,4 @@
-//! DID-proof login + session refresh.
+//! DID-proof login + session grant tracking.
 //!
 //! Phase 8 (T8.B): wraps SDK `AuthManager::login_did_proof` (S-2) so the
 //! gateway runtime can boot a Cokret account / applet bot from a signer
@@ -14,11 +14,10 @@ use cokret_identifiers::{DeviceId, Did};
 /// One-shot session state produced by [`login_with_signer`].
 #[derive(Debug, Clone)]
 pub struct CokretSession {
-    pub access_token: String,
-    pub refresh_token: String,
+    pub session_grant: String,
     pub expires_at: DateTime<Utc>,
     pub principal_did: Did,
-    pub device_id: DeviceId,
+    pub device_id: Option<DeviceId>,
 }
 
 impl CokretSession {
@@ -42,7 +41,7 @@ pub async fn login_with_signer(
     signer: &Ed25519MoveSigner,
     principal_did: Did,
     device_id: DeviceId,
-    verification_method: &str,
+    challenge: &str,
     audience: &str,
 ) -> anyhow::Result<CokretSession> {
     let mut auth = AuthManager::default();
@@ -52,7 +51,7 @@ pub async fn login_with_signer(
             principal_did.clone(),
             device_id.clone(),
             signer,
-            verification_method,
+            challenge,
             audience,
         )
         .await
@@ -65,11 +64,10 @@ pub async fn login_with_signer(
             )
         })?;
     Ok(CokretSession {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
+        session_grant: session.session_grant,
         expires_at: session.expires_at,
-        principal_did,
-        device_id,
+        principal_did: session.principal_id,
+        device_id: session.device_id,
     })
 }
 
@@ -80,13 +78,14 @@ mod tests {
     #[test]
     fn near_expiry_returns_true_when_past_threshold() {
         let s = CokretSession {
-            access_token: "t".into(),
-            refresh_token: "r".into(),
+            session_grant: "g".into(),
             expires_at: Utc::now() + chrono::Duration::seconds(10),
             principal_did: Did::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
-            device_id: DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
-                .expect("test device id should parse"),
+            device_id: Some(
+                DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                    .expect("test device id should parse"),
+            ),
         };
         // 10s until expiry; with 60s skew, "near expiry" is true.
         assert!(s.is_near_expiry(60));
@@ -97,13 +96,14 @@ mod tests {
     #[test]
     fn near_expiry_handles_already_expired() {
         let s = CokretSession {
-            access_token: "t".into(),
-            refresh_token: "r".into(),
+            session_grant: "g".into(),
             expires_at: Utc::now() - chrono::Duration::seconds(10),
             principal_did: Did::new("did:web:alice.example".to_owned())
                 .expect("test DID should parse"),
-            device_id: DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
-                .expect("test device id should parse"),
+            device_id: Some(
+                DeviceId::new("ck:device:01904100-0000-7000-8000-000000000001".to_owned())
+                    .expect("test device id should parse"),
+            ),
         };
         assert!(s.is_near_expiry(0));
         assert!(s.is_near_expiry(60));

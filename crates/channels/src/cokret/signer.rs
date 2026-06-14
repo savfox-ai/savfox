@@ -69,17 +69,7 @@ pub fn load_ed25519_signer(
     did: &str,
     verification_method: &str,
 ) -> anyhow::Result<Ed25519MoveSigner> {
-    let mut seed_bytes = load_seed_bytes(key_ref)?;
-    if seed_bytes.len() != 32 {
-        seed_bytes.zeroize();
-        anyhow::bail!(
-            "cokret signer: seed must be 32 bytes, got {}",
-            seed_bytes.len()
-        );
-    }
-    let mut seed_arr = [0u8; 32];
-    seed_arr.copy_from_slice(&seed_bytes);
-    seed_bytes.zeroize();
+    let mut seed_arr = load_seed_array(key_ref)?;
 
     let did =
         Did::new(did.to_owned()).with_context(|| format!("cokret signer: invalid DID '{did}'"))?;
@@ -87,6 +77,27 @@ pub fn load_ed25519_signer(
     // `from_did_key_seed` copies the seed into a SigningKey; wipe ours.
     seed_arr.zeroize();
     Ok(signer)
+}
+
+/// Load a seed and return the runtime bridge's expected lowercase hex form.
+pub fn load_ed25519_seed_hex(key_ref: &CokretKeyRef) -> anyhow::Result<String> {
+    let mut seed = load_seed_array(key_ref)?;
+    let encoded = hex::encode(seed);
+    seed.zeroize();
+    Ok(encoded)
+}
+
+fn load_seed_array(key_ref: &CokretKeyRef) -> anyhow::Result<[u8; 32]> {
+    let mut seed_bytes = load_seed_bytes(key_ref)?;
+    if seed_bytes.len() != 32 {
+        let len = seed_bytes.len();
+        seed_bytes.zeroize();
+        anyhow::bail!("cokret signer: seed must be 32 bytes, got {len}");
+    }
+    let mut seed_arr = [0u8; 32];
+    seed_arr.copy_from_slice(&seed_bytes);
+    seed_bytes.zeroize();
+    Ok(seed_arr)
 }
 
 fn load_seed_bytes(key_ref: &CokretKeyRef) -> anyhow::Result<Vec<u8>> {
