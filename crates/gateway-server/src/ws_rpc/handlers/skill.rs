@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use std::sync::Arc;
 
 use base64::Engine as _;

@@ -1,9 +1,6 @@
-#![allow(unused_imports)]
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};

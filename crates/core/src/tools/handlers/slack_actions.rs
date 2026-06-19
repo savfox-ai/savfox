@@ -2,13 +2,14 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{parse_arguments, require_field};
+use super::{parse_arguments, require_field, reqwest_error_without_url, sanitize_error_body};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const SLACK_API_BASE: &str = "https://slack.com/api";
+const MAX_HISTORY_LIMIT: u32 = 200;
 
 #[derive(Deserialize)]
 struct SlackActionsArgs {
@@ -134,7 +135,8 @@ impl ToolHandler for SlackActionsHandler {
             }
             "get_channel_history" => {
                 let channel_id = require_field(&args.channel_id, "channel_id")?;
-                let limit = args.limit.unwrap_or(50);
+                let channel_id = urlencoding::encode(channel_id);
+                let limit = args.limit.unwrap_or(50).clamp(1, MAX_HISTORY_LIMIT);
                 let url = format!(
                     "{SLACK_API_BASE}/conversations.history?channel={channel_id}&limit={limit}"
                 );
@@ -171,18 +173,21 @@ async fn send_request(
         request = request.json(&json);
     }
 
-    let response = request.send().await.map_err(|err| {
-        FunctionCallError::RespondToModel(format!("slack API request failed: {err}"))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| reqwest_error_without_url("slack API request failed", err))?;
 
     let status = response.status();
-    let body_bytes = response.bytes().await.map_err(|err| {
-        FunctionCallError::RespondToModel(format!("failed to read slack response: {err}"))
-    })?;
+    let body_bytes = response
+        .bytes()
+        .await
+        .map_err(|err| reqwest_error_without_url("failed to read slack response", err))?;
 
     let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
 
     if !status.is_success() {
+        let body_text = sanitize_error_body(&body_text, &[token]);
         return model_err(format!("slack API returned HTTP {status}: {body_text}"));
     }
 

@@ -1,16 +1,10 @@
-#![allow(unused_imports)]
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
 
 use savfox_core::config::provider_store::{
-    PROVIDER_STORE_FILE_VERSION, ProviderStoreAuth as ProviderAuth,
-    ProviderStoreFile as ProviderFile,
+    PROVIDER_STORE_FILE_VERSION, ProviderStoreFile as ProviderFile,
 };
-use savfox_core::{AuthManager, SavfoxAuth};
 use savfox_utils::home_dir::MODELS_SUBDIR;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::super::gateway_auth_manager;
@@ -1058,10 +1052,7 @@ pub(crate) async fn handle_models_account_delete(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or((
-            INVALID_PARAMS,
-            "missing 'account_id' parameter".to_owned(),
-        ))?
+        .ok_or((INVALID_PARAMS, "missing 'account_id' parameter".to_owned()))?
         .to_owned();
 
     // Load the file first so we can clear the auth overrides it injected.

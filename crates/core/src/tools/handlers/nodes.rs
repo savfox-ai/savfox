@@ -5,31 +5,19 @@ use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
 
-/// Manages paired device nodes (list, status, run_command, camera_capture,
-/// get_location, send_notification).
+/// Placeholder for paired device node discovery.
 ///
 /// Nodes are mobile or IoT devices paired via the Savfox mobile app.
 /// This handler returns placeholder responses until the node pairing
 /// protocol is fully integrated.
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct NodesArgs {
-    /// One of "list", "status", "run_command", "camera_capture",
-    /// "get_location", "send_notification".
+    /// One of "list", "status", or a future node action.
     action: String,
     /// Target node identifier (required for all actions except "list").
     #[serde(default)]
     node_id: Option<String>,
-    /// Shell command to execute on the node (used by "run_command").
-    #[serde(default)]
-    command: Option<String>,
-    /// Notification body text (used by "send_notification").
-    #[serde(default)]
-    message: Option<String>,
-    /// Notification title (used by "send_notification").
-    #[serde(default)]
-    title: Option<String>,
 }
 
 pub struct NodesHandler;

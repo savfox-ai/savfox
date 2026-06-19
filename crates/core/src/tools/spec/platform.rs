@@ -75,7 +75,7 @@ pub(super) fn create_discord_actions_tool() -> ToolSpec {
         (
             "emoji".to_owned(),
             JsonSchema::String {
-                description: Some("Emoji for reaction actions (URL-encoded).".to_owned()),
+                description: Some("Emoji for reaction actions; the tool URL-encodes it.".to_owned()),
             },
         ),
         (

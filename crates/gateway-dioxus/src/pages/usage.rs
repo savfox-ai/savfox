@@ -303,8 +303,9 @@ pub fn Usage() -> Element {
     // Cached aggregations driven by the `cost_data` resource so they only
     // recompute when the underlying cost entries change.
 
-    let model_breakdown_memo =
-        use_memo(move || compute_model_breakdown(&cost_data.read().as_ref().cloned().unwrap_or_default()));
+    let model_breakdown_memo = use_memo(move || {
+        compute_model_breakdown(&cost_data.read().as_ref().cloned().unwrap_or_default())
+    });
     let model_breakdown = model_breakdown_memo.read();
 
     // ── Cost calculations ───────────────────────────────────────────
@@ -384,38 +385,34 @@ pub fn Usage() -> Element {
             let a = &entries[ia];
             let b = &entries[ib];
             let cmp = match col {
-            SessionSortCol::Session => a.session_id.cmp(&b.session_id),
-            SessionSortCol::Model => {
-                let am = a.model.as_deref().unwrap_or("");
-                let bm = b.model.as_deref().unwrap_or("");
-                am.cmp(bm)
-            }
-            SessionSortCol::Input => {
-                let ai = a.input_tokens.unwrap_or(0);
-                let bi = b.input_tokens.unwrap_or(0);
-                ai.cmp(&bi)
-            }
-            SessionSortCol::Output => {
-                let ao = a.output_tokens.unwrap_or(0);
-                let bo = b.output_tokens.unwrap_or(0);
-                ao.cmp(&bo)
-            }
-            SessionSortCol::Total => {
-                let at = a.tokens.unwrap_or(0);
-                let bt = b.tokens.unwrap_or(0);
-                at.cmp(&bt)
-            }
-            SessionSortCol::Cost => {
-                let ac = session_entry_cost(a);
-                let bc = session_entry_cost(b);
-                ac.partial_cmp(&bc).unwrap_or(std::cmp::Ordering::Equal)
-            }
-        };
-        if asc {
-            cmp
-        } else {
-            cmp.reverse()
-        }
+                SessionSortCol::Session => a.session_id.cmp(&b.session_id),
+                SessionSortCol::Model => {
+                    let am = a.model.as_deref().unwrap_or("");
+                    let bm = b.model.as_deref().unwrap_or("");
+                    am.cmp(bm)
+                }
+                SessionSortCol::Input => {
+                    let ai = a.input_tokens.unwrap_or(0);
+                    let bi = b.input_tokens.unwrap_or(0);
+                    ai.cmp(&bi)
+                }
+                SessionSortCol::Output => {
+                    let ao = a.output_tokens.unwrap_or(0);
+                    let bo = b.output_tokens.unwrap_or(0);
+                    ao.cmp(&bo)
+                }
+                SessionSortCol::Total => {
+                    let at = a.tokens.unwrap_or(0);
+                    let bt = b.tokens.unwrap_or(0);
+                    at.cmp(&bt)
+                }
+                SessionSortCol::Cost => {
+                    let ac = session_entry_cost(a);
+                    let bc = session_entry_cost(b);
+                    ac.partial_cmp(&bc).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            };
+            if asc { cmp } else { cmp.reverse() }
         });
         order
     });

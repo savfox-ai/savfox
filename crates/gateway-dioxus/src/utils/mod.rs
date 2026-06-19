@@ -12,10 +12,8 @@ pub async fn sleep_ms(ms: i32) {
     });
     if let Some(w) = web_sys::window() {
         use wasm_bindgen::JsCast;
-        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            ms,
-        );
+        let _ = w
+            .set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), ms);
     }
     cb.forget();
     let _ = rx.await;

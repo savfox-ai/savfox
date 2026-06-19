@@ -86,6 +86,8 @@ pub use write_file::WriteFileHandler;
 
 use crate::function_tool::FunctionCallError;
 
+const MAX_TOOL_ERROR_BODY_CHARS: usize = 2_000;
+
 fn parse_arguments<T>(arguments: &str) -> Result<T, FunctionCallError>
 where
     T: for<'de> Deserialize<'de>,
@@ -104,4 +106,28 @@ pub(crate) fn require_field<'a>(
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| FunctionCallError::RespondToModel(format!("missing required field: {name}")))
+}
+
+pub(crate) fn reqwest_error_without_url(prefix: &str, err: reqwest::Error) -> FunctionCallError {
+    FunctionCallError::RespondToModel(format!("{prefix}: {}", err.without_url()))
+}
+
+pub(crate) fn sanitize_error_body(body: &str, secrets: &[&str]) -> String {
+    let mut sanitized = body.to_owned();
+    for secret in secrets {
+        let secret = secret.trim();
+        if !secret.is_empty() {
+            sanitized = sanitized.replace(secret, "[redacted]");
+        }
+    }
+
+    if sanitized.chars().count() <= MAX_TOOL_ERROR_BODY_CHARS {
+        return sanitized;
+    }
+
+    let truncated = sanitized
+        .chars()
+        .take(MAX_TOOL_ERROR_BODY_CHARS)
+        .collect::<String>();
+    format!("{truncated}\n[response truncated]")
 }

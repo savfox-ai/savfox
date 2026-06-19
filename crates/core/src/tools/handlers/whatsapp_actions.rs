@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{parse_arguments, require_field};
+use super::{parse_arguments, require_field, reqwest_error_without_url, sanitize_error_body};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -77,16 +77,16 @@ impl ToolHandler for WhatsAppActionsHandler {
                     .json(&body)
                     .send()
                     .await
-                    .or_else(|err| model_err(format!("WhatsApp API request failed: {err}")))?;
+                    .map_err(|err| reqwest_error_without_url("WhatsApp API request failed", err))?;
 
                 let status = response.status();
-                let body_bytes = response
-                    .bytes()
-                    .await
-                    .or_else(|err| model_err(format!("failed to read WhatsApp response: {err}")))?;
+                let body_bytes = response.bytes().await.map_err(|err| {
+                    reqwest_error_without_url("failed to read WhatsApp response", err)
+                })?;
                 let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
 
                 if !status.is_success() {
+                    let body_text = sanitize_error_body(&body_text, &[api_url.as_str()]);
                     return model_err(format!("WhatsApp API returned HTTP {status}: {body_text}"));
                 }
 

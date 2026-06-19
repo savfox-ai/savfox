@@ -1,13 +1,9 @@
-#![allow(unused_imports)]
-
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
-use super::super::utils::now_ms;
 use super::channel_management::{load_nostr_profile, save_nostr_profile};
 use crate::channel::GatewayChannel;
 use crate::session::{SessionEntry, SessionStore};

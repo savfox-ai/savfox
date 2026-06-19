@@ -473,13 +473,8 @@ pub fn Layout() -> Element {
     // Derive the pending-approval count directly from the resource. `usize` is
     // `PartialEq`, so this memo is cheap and only re-fires when the count
     // actually changes (avoiding work when other signals update).
-    let approvals_count_memo = use_memo(move || {
-        approvals_data
-            .read()
-            .as_ref()
-            .map(|d| d.len())
-            .unwrap_or(0)
-    });
+    let approvals_count_memo =
+        use_memo(move || approvals_data.read().as_ref().map(|d| d.len()).unwrap_or(0));
 
     // Listen for new exec approval events from WebSocket.
     // When a new approval request arrives, auto-show the modal and send a

@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -62,6 +62,7 @@ mod defaults {
 /// In-memory cache entry with TTL.
 struct CacheEntry {
     content: String,
+    source_url: String,
     inserted_at: Instant,
     ttl: Duration,
 }
@@ -72,28 +73,36 @@ impl CacheEntry {
     }
 }
 
+struct CachedFetch {
+    content: String,
+    source_url: String,
+}
+
 /// Simple TTL-based cache for web fetch results.
 static FETCH_CACHE: std::sync::LazyLock<Mutex<HashMap<String, CacheEntry>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Normalize a cache key: trim + lowercase.
+/// Normalize a cache key without changing case-sensitive URL components.
 fn normalize_cache_key(url: &str) -> String {
-    url.trim().to_lowercase()
+    url.trim().to_owned()
 }
 
 /// Read from cache if entry exists and is not expired.
-fn read_cache(key: &str) -> Option<String> {
+fn read_cache(key: &str) -> Option<CachedFetch> {
     let cache = FETCH_CACHE.lock().ok()?;
     let entry = cache.get(key)?;
     if entry.is_expired() {
         None
     } else {
-        Some(entry.content.clone())
+        Some(CachedFetch {
+            content: entry.content.clone(),
+            source_url: entry.source_url.clone(),
+        })
     }
 }
 
 /// Write to cache, evicting the oldest entry if full.
-fn write_cache(key: String, content: String, ttl: Duration) {
+fn write_cache(key: String, source_url: String, content: String, ttl: Duration) {
     let Ok(mut cache) = FETCH_CACHE.lock() else {
         return;
     };
@@ -116,6 +125,7 @@ fn write_cache(key: String, content: String, ttl: Duration) {
         key,
         CacheEntry {
             content,
+            source_url,
             inserted_at: Instant::now(),
             ttl,
         },
@@ -148,25 +158,20 @@ impl ToolHandler for WebFetchHandler {
         if args.cache_ttl_secs > 0
             && let Some(cached) = read_cache(&cache_key)
         {
-            let output = truncate_output(&cached, args.max_length);
+            let output = truncate_output(&cached.content, args.max_length);
             let wrapped =
-                crate::external_content::wrap_external_content(parsed_url.as_str(), &output);
+                crate::external_content::wrap_external_content(&cached.source_url, &output);
             return Ok(ToolOutput::ok(format!("[cached]\n{wrapped}")));
         }
 
-        // Build the HTTP client with custom timeout.
         let timeout = Duration::from_secs(args.timeout_secs.max(1).min(300));
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))?;
 
         let mut current_url = parsed_url.clone();
         let response = {
             let mut response = None;
             for _hop in 0..=MAX_REDIRECTS {
-                validate_target_url(&current_url).await?;
+                let resolved_addrs = validate_target_url(&current_url).await?;
+                let client = build_http_client(timeout, &current_url, &resolved_addrs)?;
                 let candidate = client
                     .get(current_url.as_str())
                     .send()
@@ -216,6 +221,11 @@ impl ToolHandler for WebFetchHandler {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
+        if !is_supported_content_type(&content_type) {
+            return model_err(format!(
+                "unsupported response content type for web_fetch: {content_type}"
+            ));
+        }
 
         // Read the body with size limit.
         let body_bytes = response
@@ -257,6 +267,7 @@ impl ToolHandler for WebFetchHandler {
         if args.cache_ttl_secs > 0 {
             write_cache(
                 cache_key,
+                current_url.as_str().to_owned(),
                 extracted.clone(),
                 Duration::from_secs(args.cache_ttl_secs),
             );
@@ -264,10 +275,32 @@ impl ToolHandler for WebFetchHandler {
 
         // Truncate to max_length.
         let output = truncate_output(&extracted, args.max_length);
-        let wrapped = crate::external_content::wrap_external_content(parsed_url.as_str(), &output);
+        let wrapped = crate::external_content::wrap_external_content(current_url.as_str(), &output);
 
         Ok(ToolOutput::ok(wrapped))
     }
+}
+
+fn build_http_client(
+    timeout: Duration,
+    url: &url::Url,
+    resolved_addrs: &[SocketAddr],
+) -> Result<reqwest::Client, FunctionCallError> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy();
+
+    if !resolved_addrs.is_empty() {
+        let Some(host) = url.host_str() else {
+            return model_err("URL missing host");
+        };
+        builder = builder.resolve_to_addrs(host, resolved_addrs);
+    }
+
+    builder
+        .build()
+        .or_else(|err| model_err(format!("failed to build HTTP client: {err}")))
 }
 
 /// Truncate content to max_length with indicator.
@@ -279,6 +312,32 @@ fn truncate_output(content: &str, max_length: usize) -> String {
     } else {
         content.to_owned()
     }
+}
+
+fn is_supported_content_type(content_type: &str) -> bool {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    media_type.is_empty()
+        || media_type.starts_with("text/")
+        || matches!(
+            media_type.as_str(),
+            "application/json"
+                | "application/javascript"
+                | "application/ld+json"
+                | "application/rss+xml"
+                | "application/atom+xml"
+                | "application/xml"
+                | "application/xhtml+xml"
+                | "application/x-javascript"
+                | "image/svg+xml"
+        )
+        || media_type.ends_with("+json")
+        || media_type.ends_with("+xml")
 }
 
 // ─── HTML-to-Markdown conversion ────────────────────────────────────────────
@@ -433,7 +492,7 @@ fn markdown_to_text(markdown: &str) -> String {
 // ─── SSRF protection ────────────────────────────────────────────────────────
 
 /// Check if a hostname resolves to a private or loopback IP.
-async fn validate_target_url(url: &url::Url) -> Result<(), FunctionCallError> {
+async fn validate_target_url(url: &url::Url) -> Result<Vec<SocketAddr>, FunctionCallError> {
     match url.scheme() {
         "http" | "https" => {}
         scheme => {
@@ -455,7 +514,7 @@ async fn validate_target_url(url: &url::Url) -> Result<(), FunctionCallError> {
         if is_private_ip(ip) {
             return model_err("fetching private/loopback addresses is not allowed");
         }
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let lookup = tokio::net::lookup_host((host, port))
@@ -463,6 +522,7 @@ async fn validate_target_url(url: &url::Url) -> Result<(), FunctionCallError> {
         .or_else(|err| model_err(format!("failed to resolve host '{host}': {err}")))?;
     let mut unique = HashSet::new();
     let mut has_records = false;
+    let mut resolved_addrs = Vec::new();
     for addr in lookup {
         has_records = true;
         let ip = addr.ip();
@@ -472,11 +532,12 @@ async fn validate_target_url(url: &url::Url) -> Result<(), FunctionCallError> {
         if is_private_ip(ip) {
             return model_err(format!("fetching private address {ip} is not allowed"));
         }
+        resolved_addrs.push(SocketAddr::new(ip, port));
     }
     if !has_records {
         return model_err(format!("failed to resolve host '{host}'"));
     }
-    Ok(())
+    Ok(resolved_addrs)
 }
 
 #[cfg(test)]
@@ -585,15 +646,40 @@ mod tests {
     }
 
     #[test]
+    fn supported_content_type_rejects_binary_media() {
+        assert!(is_supported_content_type("text/html; charset=utf-8"));
+        assert!(is_supported_content_type("application/problem+json"));
+        assert!(is_supported_content_type("application/rss+xml"));
+        assert!(!is_supported_content_type("application/octet-stream"));
+        assert!(!is_supported_content_type("image/png"));
+        assert!(!is_supported_content_type("application/pdf"));
+    }
+
+    #[test]
     fn cache_round_trip() {
-        let key = normalize_cache_key("  HTTP://Example.COM  ");
-        assert_eq!(key, "http://example.com");
+        let key = normalize_cache_key("  https://Example.COM/CaseSensitive?Q=Upper  ");
+        assert_eq!(key, "https://Example.COM/CaseSensitive?Q=Upper");
 
         write_cache(
             "test_key".to_owned(),
+            "https://example.com/final".to_owned(),
             "test_value".to_owned(),
             Duration::from_secs(60),
         );
-        assert_eq!(read_cache("test_key"), Some("test_value".to_owned()));
+        let cached = read_cache("test_key").expect("cache entry");
+        assert_eq!(cached.content, "test_value");
+        assert_eq!(cached.source_url, "https://example.com/final");
+    }
+
+    #[test]
+    fn cache_key_preserves_case_sensitive_url_parts() {
+        assert_ne!(
+            normalize_cache_key("https://example.com/Readme"),
+            normalize_cache_key("https://example.com/readme")
+        );
+        assert_ne!(
+            normalize_cache_key("https://example.com/page?Item=A"),
+            normalize_cache_key("https://example.com/page?item=a")
+        );
     }
 }

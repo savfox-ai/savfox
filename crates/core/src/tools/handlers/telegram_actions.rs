@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use super::{parse_arguments, require_field};
+use super::{parse_arguments, require_field, reqwest_error_without_url, sanitize_error_body};
 use crate::function_tool::{FunctionCallError, model_err};
 use crate::tools::context::{ToolInvocation, ToolOutput, ToolPayload};
 use crate::tools::registry::{ToolHandler, ToolKind};
@@ -11,7 +11,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct TelegramActionsArgs {
     action: String,
     #[serde(default)]
@@ -20,12 +19,6 @@ struct TelegramActionsArgs {
     message_id: Option<String>,
     #[serde(default)]
     content: Option<String>,
-    #[serde(default)]
-    emoji: Option<String>,
-    #[serde(default)]
-    topic: Option<String>,
-    #[serde(default)]
-    limit: Option<u32>,
 }
 
 pub struct TelegramActionsHandler;
@@ -103,6 +96,7 @@ impl ToolHandler for TelegramActionsHandler {
             }
             "get_chat_info" => {
                 let channel_id = require_field(&args.channel_id, "channel_id")?;
+                let channel_id = urlencoding::encode(channel_id);
                 let url = format!("{base}/getChat?chat_id={channel_id}");
                 send_request(&client, reqwest::Method::GET, &url, None).await
             }
@@ -125,18 +119,21 @@ async fn send_request(
         request = request.json(&json);
     }
 
-    let response = request.send().await.map_err(|err| {
-        FunctionCallError::RespondToModel(format!("telegram API request failed: {err}"))
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|err| reqwest_error_without_url("telegram API request failed", err))?;
 
     let status = response.status();
-    let body_bytes = response.bytes().await.map_err(|err| {
-        FunctionCallError::RespondToModel(format!("failed to read telegram response: {err}"))
-    })?;
+    let body_bytes = response
+        .bytes()
+        .await
+        .map_err(|err| reqwest_error_without_url("failed to read telegram response", err))?;
 
     let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
 
     if !status.is_success() {
+        let body_text = sanitize_error_body(&body_text, &[]);
         return model_err(format!("telegram API returned HTTP {status}: {body_text}"));
     }
 

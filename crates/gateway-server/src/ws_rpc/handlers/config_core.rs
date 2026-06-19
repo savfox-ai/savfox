@@ -1,4 +1,4 @@
-#![allow(unused_imports, clippy::module_inception)]
+#![allow(clippy::module_inception)]
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};

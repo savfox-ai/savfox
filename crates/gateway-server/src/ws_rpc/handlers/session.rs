@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1299,12 +1297,10 @@ pub(crate) async fn handle_sessions_list(
         // Resolve the session's bound agent: explicit `agent_id` (web UI
         // sessions) takes precedence, falling back to the agent encoded in
         // the routing id (channel sessions).
-        let agent_id = entry.agent_id.clone().or_else(|| {
-            entry
-                .routing_id
-                .as_deref()
-                .and_then(agent_from_routing_id)
-        });
+        let agent_id = entry
+            .agent_id
+            .clone()
+            .or_else(|| entry.routing_id.as_deref().and_then(agent_from_routing_id));
 
         entries.push(json!({
             "session_id": entry.session_id,

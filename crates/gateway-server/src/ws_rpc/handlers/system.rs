@@ -1,14 +1,10 @@
-#![allow(unused_imports)]
-
-use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use savfox_utils::home_dir::LOGS_SUBDIR;
 use serde_json::{Value, json};
 
 use super::super::types::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, PLUGIN_ROUTE_RATE_LIMIT_PER_MINUTE, RpcResult,
+    INTERNAL_ERROR, INVALID_PARAMS, PLUGIN_ROUTE_RATE_LIMIT_PER_MINUTE, RpcResult,
 };
 use super::config::load_config_intermediate;
 use crate::channel::GatewayChannel;

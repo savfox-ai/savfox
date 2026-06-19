@@ -567,7 +567,7 @@ fn create_nodes_tool() -> ToolSpec {
             "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Node action: \"list\", \"status\", \"run_command\", \"camera_capture\", \"get_location\", \"send_notification\".".to_owned(),
+                    "Node action: \"list\" or \"status\". Other node actions are reserved until node pairing is integrated.".to_owned(),
                 ),
             },
         ),
@@ -577,29 +577,11 @@ fn create_nodes_tool() -> ToolSpec {
                 description: Some("Target node identifier.".to_owned()),
             },
         ),
-        (
-            "command".to_owned(),
-            JsonSchema::String {
-                description: Some("Command to run on the node (for \"run_command\").".to_owned()),
-            },
-        ),
-        (
-            "message".to_owned(),
-            JsonSchema::String {
-                description: Some("Notification message text.".to_owned()),
-            },
-        ),
-        (
-            "title".to_owned(),
-            JsonSchema::String {
-                description: Some("Notification title.".to_owned()),
-            },
-        ),
     ]);
 
     function_tool(FunctionToolDecl {
         name: "nodes",
-        description: "Interact with paired device nodes: list devices, check status, run commands, capture camera, get location, or send notifications.",
+        description: "Placeholder for paired device nodes. Currently reports discovery/status only; command, camera, location, and notification actions are not integrated yet.",
         properties,
         required: &["action"],
     })

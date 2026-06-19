@@ -1,4 +1,4 @@
-#![allow(unused_imports, clippy::module_inception)]
+#![allow(clippy::module_inception)]
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 
 use super::super::heartbeat_config_path;
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
-use super::super::utils::{now_ms, opt_bool, opt_str, opt_u64, require_str};
+use super::super::utils::{opt_bool, opt_str, opt_u64, require_str};
 use super::config::primary_config_toml_path;
 use crate::channel::GatewayChannel;
 use crate::security::path_safety::safe_join;
