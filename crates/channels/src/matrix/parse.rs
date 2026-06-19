@@ -36,16 +36,26 @@ pub struct MatrixCommandEvent {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MatrixInviteEvent {
+    pub room_id: String,
+    pub invited_user_id: Option<String>,
+    pub inviter: Option<String>,
+    pub room_name: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub membership_event_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MatrixInboundParseResult {
     pub commands: Vec<MatrixCommandEvent>,
-    pub rooms_to_auto_join: Vec<(String, Option<String>)>,
+    pub rooms_to_auto_join: Vec<MatrixInviteEvent>,
 }
 
 #[derive(Debug, Clone)]
 pub struct MatrixWebhookParseResult {
     pub action: ChannelAction,
     pub dedupe_key: Option<String>,
-    pub rooms_to_auto_join: Vec<(String, Option<String>)>,
+    pub rooms_to_auto_join: Vec<MatrixInviteEvent>,
 }
 
 fn parse_message_event_internal(
@@ -309,10 +319,122 @@ fn collect_matrix_events(payload: &Value) -> Vec<(&Value, Option<&str>)> {
     out
 }
 
-pub fn parse_invite_event(
-    event: &Value,
-    room_id_hint: Option<&str>,
-) -> Option<(String, Option<String>)> {
+fn push_invite_unique(invites: &mut Vec<MatrixInviteEvent>, invite: MatrixInviteEvent) {
+    if let Some(existing) = invites
+        .iter_mut()
+        .find(|existing| existing.room_id.eq_ignore_ascii_case(&invite.room_id))
+    {
+        if invite.invited_user_id.is_some() {
+            existing.invited_user_id = invite.invited_user_id;
+        }
+        if invite.inviter.is_some() {
+            existing.inviter = invite.inviter;
+        }
+        if invite.room_name.is_some() {
+            existing.room_name = invite.room_name;
+        }
+        if invite.canonical_alias.is_some() {
+            existing.canonical_alias = invite.canonical_alias;
+        }
+        if invite.membership_event_id.is_some() {
+            existing.membership_event_id = invite.membership_event_id;
+        }
+        return;
+    }
+
+    invites.push(invite);
+}
+
+fn parse_sync_invites(payload: &Value) -> Vec<MatrixInviteEvent> {
+    let Some(rooms) = payload
+        .get("rooms")
+        .and_then(|value| value.get("invite"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+
+    let mut invites = Vec::new();
+    for (room_id, room_data) in rooms {
+        let room_id = room_id.trim();
+        if room_id.is_empty() {
+            continue;
+        }
+        let Some(events) = room_data
+            .get("invite_state")
+            .and_then(|value| value.get("events"))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+
+        let mut invite = MatrixInviteEvent {
+            room_id: room_id.to_owned(),
+            ..MatrixInviteEvent::default()
+        };
+        let mut saw_invite_membership = false;
+
+        for event in events {
+            match event.get("type").and_then(Value::as_str) {
+                Some("m.room.member") => {
+                    let membership = event
+                        .get("content")
+                        .and_then(|content| content.get("membership"))
+                        .and_then(Value::as_str);
+                    if membership.is_some_and(|value| value.eq_ignore_ascii_case("invite")) {
+                        saw_invite_membership = true;
+                        invite.invited_user_id = event
+                            .get("state_key")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_owned);
+                        invite.inviter = event
+                            .get("sender")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_owned);
+                        invite.membership_event_id = event
+                            .get("event_id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_owned);
+                    }
+                }
+                Some("m.room.name") => {
+                    invite.room_name = event
+                        .get("content")
+                        .and_then(|content| content.get("name"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned);
+                }
+                Some("m.room.canonical_alias") => {
+                    invite.canonical_alias = event
+                        .get("content")
+                        .and_then(|content| content.get("alias"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned);
+                }
+                _ => {}
+            }
+        }
+
+        if saw_invite_membership {
+            debug_matrix_invite_detected(&invite.room_id, invite.invited_user_id.as_deref());
+            invites.push(invite);
+        }
+    }
+
+    invites
+}
+
+pub fn parse_invite_event(event: &Value, room_id_hint: Option<&str>) -> Option<MatrixInviteEvent> {
     if event.get("type").and_then(Value::as_str) != Some("m.room.member") {
         return None;
     }
@@ -342,7 +464,24 @@ pub fn parse_invite_event(
         .map(str::to_owned);
 
     debug_matrix_invite_detected(room_id, invited_user_id.as_deref());
-    Some((room_id.to_owned(), invited_user_id))
+    Some(MatrixInviteEvent {
+        room_id: room_id.to_owned(),
+        invited_user_id,
+        inviter: event
+            .get("sender")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+        room_name: None,
+        canonical_alias: None,
+        membership_event_id: event
+            .get("event_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+    })
 }
 
 #[must_use]
@@ -381,16 +520,13 @@ pub fn parse_inbound_payload_for_user(
     self_user_id: Option<&str>,
 ) -> MatrixInboundParseResult {
     let mut parsed = MatrixInboundParseResult::default();
+    for invite in parse_sync_invites(payload) {
+        push_invite_unique(&mut parsed.rooms_to_auto_join, invite);
+    }
 
     for (event, room_id_hint) in collect_matrix_events(payload) {
-        if let Some((room_id, invited_user_id)) = parse_invite_event(event, room_id_hint)
-            && !parsed.rooms_to_auto_join.iter().any(
-                |(existing_room_id, _): &(String, Option<String>)| {
-                    existing_room_id.eq_ignore_ascii_case(&room_id)
-                },
-            )
-        {
-            parsed.rooms_to_auto_join.push((room_id, invited_user_id));
+        if let Some(invite) = parse_invite_event(event, room_id_hint) {
+            push_invite_unique(&mut parsed.rooms_to_auto_join, invite);
         }
 
         if let Some(command) = parse_command_event_for_user(event, room_id_hint, self_user_id) {
@@ -436,8 +572,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        MatrixWebhookParseResult, parse_appservice_message_event_for_user, parse_inbound_payload,
-        parse_inbound_payload_for_user, parse_webhook_payload, parse_webhook_payload_for_user,
+        MatrixInviteEvent, MatrixWebhookParseResult, parse_appservice_message_event_for_user,
+        parse_inbound_payload, parse_inbound_payload_for_user, parse_webhook_payload,
+        parse_webhook_payload_for_user,
     };
 
     fn assert_start_thread(
@@ -461,6 +598,8 @@ mod tests {
                 {
                     "type": "m.room.member",
                     "room_id": "!flat:matrix.org",
+                    "event_id": "$invite-flat",
+                    "sender": "@alice:matrix.org",
                     "state_key": "@savfox:matrix.org",
                     "content": { "membership": "invite" }
                 },
@@ -480,10 +619,14 @@ mod tests {
         let parsed = parse_webhook_payload(&payload);
         assert_eq!(
             parsed.rooms_to_auto_join,
-            vec![(
-                "!flat:matrix.org".to_owned(),
-                Some("@savfox:matrix.org".to_owned())
-            )]
+            vec![MatrixInviteEvent {
+                room_id: "!flat:matrix.org".to_owned(),
+                invited_user_id: Some("@savfox:matrix.org".to_owned()),
+                inviter: Some("@alice:matrix.org".to_owned()),
+                room_name: None,
+                canonical_alias: None,
+                membership_event_id: Some("$invite-flat".to_owned()),
+            }]
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$flat"));
         assert_start_thread(&parsed, "!flat:matrix.org", "summarize this room");
@@ -498,7 +641,17 @@ mod tests {
                         "invite_state": {
                             "events": [
                                 {
+                                    "type": "m.room.name",
+                                    "content": { "name": "Ops Room" }
+                                },
+                                {
+                                    "type": "m.room.canonical_alias",
+                                    "content": { "alias": "#ops:matrix.org" }
+                                },
+                                {
                                     "type": "m.room.member",
+                                    "event_id": "$invite-sync",
+                                    "sender": "@alice:matrix.org",
                                     "state_key": "@savfox:matrix.org",
                                     "content": { "membership": "invite" }
                                 }
@@ -529,10 +682,14 @@ mod tests {
         let parsed = parse_webhook_payload(&payload);
         assert_eq!(
             parsed.rooms_to_auto_join,
-            vec![(
-                "!invite:matrix.org".to_owned(),
-                Some("@savfox:matrix.org".to_owned())
-            )]
+            vec![MatrixInviteEvent {
+                room_id: "!invite:matrix.org".to_owned(),
+                invited_user_id: Some("@savfox:matrix.org".to_owned()),
+                inviter: Some("@alice:matrix.org".to_owned()),
+                room_name: Some("Ops Room".to_owned()),
+                canonical_alias: Some("#ops:matrix.org".to_owned()),
+                membership_event_id: Some("$invite-sync".to_owned()),
+            }]
         );
         assert_eq!(parsed.dedupe_key.as_deref(), Some("matrix:$joined"));
         assert_start_thread(&parsed, "!joined:matrix.org", "sync payload works");

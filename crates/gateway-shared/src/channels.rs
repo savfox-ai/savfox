@@ -139,6 +139,8 @@ pub struct MatrixStatus {
     pub homeserver: Option<String>,
     pub user_id: Option<String>,
     pub room_count: Option<u32>,
+    pub pending_invites: Option<u32>,
+    pub auto_join: Option<String>,
     pub appservice_url: Option<String>,
     pub sender_localpart: Option<String>,
     pub user_prefix: Option<String>,

@@ -1,7 +1,8 @@
 use anyhow::Context;
 use matrix_bot_sdk::client::{MatrixAuth, MatrixClient};
+use reqwest::Method;
 use savfox_channels::matrix::{
-    MatrixChannelConfig as MatrixPlatformConfig,
+    MatrixAutoJoin, MatrixChannelConfig as MatrixPlatformConfig, MatrixInviteEvent,
     resolve_matrix_outbound_config as resolve_saved_matrix_config,
 };
 use savfox_core::channel::Channel;
@@ -10,6 +11,42 @@ use tracing::{debug, warn};
 use url::Url;
 
 use super::{GatewayChannel, ResolvedMatrixClient, non_empty_trimmed};
+
+fn matrix_invite_matches_target(invite: &MatrixInviteEvent, target: &str) -> bool {
+    let target = target.trim();
+    if target.is_empty() {
+        return false;
+    }
+    if target == "*" {
+        return true;
+    }
+    invite.room_id.eq_ignore_ascii_case(target)
+        || invite
+            .canonical_alias
+            .as_deref()
+            .is_some_and(|alias| alias.eq_ignore_ascii_case(target))
+}
+
+fn matrix_invite_auto_join_allowed(
+    config: &MatrixPlatformConfig,
+    invite: &MatrixInviteEvent,
+) -> bool {
+    match config.auto_join {
+        MatrixAutoJoin::Off => false,
+        MatrixAutoJoin::Always => true,
+        MatrixAutoJoin::Allowlist => {
+            let targets = if config.auto_join_allowlist.is_empty() {
+                &config.rooms
+            } else {
+                &config.auto_join_allowlist
+            };
+            !targets.is_empty()
+                && targets
+                    .iter()
+                    .any(|target| matrix_invite_matches_target(invite, target))
+        }
+    }
+}
 
 impl GatewayChannel {
     // === Platform API calls ===
@@ -418,42 +455,13 @@ impl GatewayChannel {
         Ok(())
     }
 
-    /// Join a Matrix room when this gateway user receives an invite event.
-    pub(crate) async fn auto_join_matrix_invited_room(
+    async fn join_matrix_room_for_config(
         &self,
         room_id: &str,
-        invited_user_id: Option<&str>,
+        config: &MatrixPlatformConfig,
+        configured_user_id: Option<&str>,
     ) -> anyhow::Result<()> {
-        let room_id = room_id.trim();
-        if room_id.is_empty() {
-            return Ok(());
-        }
-
-        let Some(config) = self.resolve_matrix_outbound_config(room_id).await? else {
-            warn!(
-                room_id,
-                "Matrix invite received but no Matrix channel config is available"
-            );
-            return Ok(());
-        };
-
         let runtime_state = crate::channels::matrix::matrix_runtime_state_for(&config.id);
-        let configured_user_id = runtime_state
-            .as_ref()
-            .and_then(|state| non_empty_trimmed(state.user_id.as_deref()))
-            .or_else(|| non_empty_trimmed(config.user_id.as_deref()));
-        let bot_user_id = config.bot_user_id();
-        let configured_user_id = configured_user_id
-            .map(str::to_owned)
-            .or(bot_user_id.clone());
-        if let (Some(invited), Some(configured)) = (
-            non_empty_trimmed(invited_user_id),
-            configured_user_id.as_deref(),
-        ) && !invited.eq_ignore_ascii_case(configured)
-        {
-            return Ok(());
-        }
-
         let joined_room_id = if let Some(appservice_channel) =
             crate::channels::matrix::matrix_appservice_channel_for(&config.id)
         {
@@ -509,6 +517,153 @@ impl GatewayChannel {
             config_id = %config.id,
             "Auto-joined Matrix room after invite"
         );
+        Ok(())
+    }
+
+    /// Join a Matrix room when this gateway user receives an invite event.
+    pub(crate) async fn auto_join_matrix_invited_room(
+        &self,
+        invite: &MatrixInviteEvent,
+    ) -> anyhow::Result<()> {
+        let room_id = invite.room_id.trim();
+        if room_id.is_empty() {
+            return Ok(());
+        }
+
+        let Some(config) = self.resolve_matrix_outbound_config(room_id).await? else {
+            warn!(
+                room_id,
+                "Matrix invite received but no Matrix channel config is available"
+            );
+            return Ok(());
+        };
+
+        let runtime_state = crate::channels::matrix::matrix_runtime_state_for(&config.id);
+        let configured_user_id = runtime_state
+            .as_ref()
+            .and_then(|state| non_empty_trimmed(state.user_id.as_deref()))
+            .or_else(|| non_empty_trimmed(config.user_id.as_deref()));
+        let bot_user_id = config.bot_user_id();
+        let configured_user_id = configured_user_id
+            .map(str::to_owned)
+            .or(bot_user_id.clone());
+        if let (Some(invited), Some(configured)) = (
+            non_empty_trimmed(invite.invited_user_id.as_deref()),
+            configured_user_id.as_deref(),
+        ) && !invited.eq_ignore_ascii_case(configured)
+        {
+            return Ok(());
+        }
+
+        if !matrix_invite_auto_join_allowed(&config, invite) {
+            let store = crate::channels::matrix::MatrixInviteStore::for_savfox_home(
+                &self.config.savfox_home,
+            );
+            store
+                .upsert(crate::channels::matrix::MatrixPendingInvite::from_event(
+                    &config.id, invite,
+                ))
+                .await?;
+            return Ok(());
+        }
+
+        self.join_matrix_room_for_config(room_id, &config, configured_user_id.as_deref())
+            .await?;
+        let store =
+            crate::channels::matrix::MatrixInviteStore::for_savfox_home(&self.config.savfox_home);
+        let _ = store.remove(&config.id, room_id).await;
+        Ok(())
+    }
+
+    async fn matrix_invite_action_config(
+        &self,
+        config_id: &str,
+        room_id: &str,
+    ) -> anyhow::Result<MatrixPlatformConfig> {
+        if let Some(config_id) = non_empty_trimmed(Some(config_id)) {
+            let configs =
+                savfox_core::config::channel_store::list_channel_configs(&self.config.savfox_home)
+                    .await
+                    .context("failed to load Matrix channel configs")?;
+            for config in configs {
+                if config.id != config_id || !config.kind.eq_ignore_ascii_case("matrix") {
+                    continue;
+                }
+                return MatrixPlatformConfig::from_channel_config(&config)
+                    .context("Matrix channel config must be an object");
+            }
+            anyhow::bail!("Matrix channel config '{config_id}' was not found");
+        }
+
+        self.resolve_matrix_outbound_config(room_id)
+            .await?
+            .context("Matrix invite received but no Matrix channel config is available")
+    }
+
+    pub(crate) async fn accept_matrix_invite(
+        &self,
+        config_id: &str,
+        room_id: &str,
+    ) -> anyhow::Result<()> {
+        let room_id = room_id.trim();
+        if room_id.is_empty() {
+            anyhow::bail!("missing Matrix room_id");
+        }
+        let config = self.matrix_invite_action_config(config_id, room_id).await?;
+        let runtime_state = crate::channels::matrix::matrix_runtime_state_for(&config.id);
+        let configured_user_id = runtime_state
+            .as_ref()
+            .and_then(|state| non_empty_trimmed(state.user_id.as_deref()))
+            .or_else(|| non_empty_trimmed(config.user_id.as_deref()))
+            .map(str::to_owned)
+            .or_else(|| config.bot_user_id());
+
+        self.join_matrix_room_for_config(room_id, &config, configured_user_id.as_deref())
+            .await?;
+
+        let store =
+            crate::channels::matrix::MatrixInviteStore::for_savfox_home(&self.config.savfox_home);
+        let _ = store.remove(&config.id, room_id).await;
+        Ok(())
+    }
+
+    pub(crate) async fn reject_matrix_invite(
+        &self,
+        config_id: &str,
+        room_id: &str,
+    ) -> anyhow::Result<()> {
+        let room_id = room_id.trim();
+        if room_id.is_empty() {
+            anyhow::bail!("missing Matrix room_id");
+        }
+        let config = self.matrix_invite_action_config(config_id, room_id).await?;
+        let resolved = Self::resolve_matrix_client(
+            &config.homeserver,
+            config.access_token.as_deref(),
+            config.user_id.as_deref(),
+            config.password.as_deref(),
+            config.device_name.as_deref(),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "failed to authenticate Matrix client for config {}",
+                config.id
+            )
+        })?;
+        let encoded_room_id: String =
+            url::form_urlencoded::byte_serialize(room_id.as_bytes()).collect();
+        let endpoint = format!("/_matrix/client/v3/rooms/{encoded_room_id}/leave");
+        let body = serde_json::json!({});
+        resolved
+            .client
+            .raw_json(Method::POST, &endpoint, Some(body))
+            .await
+            .with_context(|| format!("failed to reject Matrix invite for room {room_id}"))?;
+
+        let store =
+            crate::channels::matrix::MatrixInviteStore::for_savfox_home(&self.config.savfox_home);
+        let _ = store.remove(&config.id, room_id).await;
         Ok(())
     }
 

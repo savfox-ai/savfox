@@ -179,6 +179,16 @@ pub(crate) async fn dispatch_rpc(
         "channels.login" => handle_channels_login(&params, channel, session_store).await,
         "channels.logout" => handle_channels_logout(&params, channel).await,
         "channels.test" => handle_channels_test(&params, channel).await,
+        "channels.matrix.invites" => handle_channels_matrix_invites(&params, channel).await,
+        "channels.matrix.invite.accept" => {
+            handle_channels_matrix_invite_accept(&params, channel).await
+        }
+        "channels.matrix.invite.reject" => {
+            handle_channels_matrix_invite_reject(&params, channel).await
+        }
+        "channels.matrix.invite.dismiss" => {
+            handle_channels_matrix_invite_dismiss(&params, channel).await
+        }
         "channels.account.update" => handle_channels_account_update(&params, channel).await,
         "web.login.start" => handle_web_login_start(&params, channel, session_store).await,
         "web.login.wait" => handle_web_login_wait(&params, channel).await,

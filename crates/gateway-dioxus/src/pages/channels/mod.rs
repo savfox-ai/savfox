@@ -441,6 +441,37 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Room IDs or aliases the bot is allowed to join and respond in",
                 },
                 ConfigField {
+                    key: "autoJoin".into(),
+                    label: "Invite Join Strategy".into(),
+                    field_type: FieldType::Select(vec![
+                        "off".into(),
+                        "allowlist".into(),
+                        "always".into(),
+                    ]),
+                    placeholder: "off".into(),
+                    secret: false,
+                    required: false,
+                    help: "Controls whether Matrix room invites are queued for review, joined by allowlist, or always joined",
+                },
+                ConfigField {
+                    key: "autoJoinAllowlist".into(),
+                    label: "Invite Allowlist".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "!roomId:server.org\n#alias:server.org\n*".into(),
+                    secret: false,
+                    required: false,
+                    help: "Room IDs, aliases, or * allowed for automatic invite joining when strategy is allowlist",
+                },
+                ConfigField {
+                    key: "allowedSenders".into(),
+                    label: "Allowed Senders".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "@user:server.org\n@admin:example.com".into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional Matrix user IDs allowed to trigger the bot; leave empty to allow all senders",
+                },
+                ConfigField {
                     key: "serverName".into(),
                     label: "Server Name".into(),
                     field_type: FieldType::Text,
@@ -1468,6 +1499,9 @@ fn is_matrix_user_only_field(field_key: &str) -> bool {
             | "dmPolicy"
             | "dmAllowFrom"
             | "groupPolicy"
+            | "autoJoin"
+            | "autoJoinAllowlist"
+            | "allowedSenders"
     )
 }
 
@@ -2631,16 +2665,31 @@ fn ChannelConfigModal(
                                         let ws = ws_test.clone();
                                         let ch_id = ch_id.clone();
                                         let ch_name = ch_name.clone();
+                                        let fields = fields_vec.clone();
                                         move |_| {
                                             let ws = ws.clone();
                                             let platform = ch_id.clone();
                                             let name = ch_name.clone();
+                                            let fields = fields.clone();
+                                            let vals = inline_values.read();
+                                            let channel_name = vals
+                                                .get(&channel_name_key(&platform))
+                                                .filter(|v| !v.trim().is_empty())
+                                                .cloned()
+                                                .unwrap_or_else(|| "default".to_string());
+                                            let channel_computed_id = compute_channel_id(&channel_name, &platform);
+                                            let config_patch = build_channel_patch(&platform, &fields, &vals);
                                             testing_channel.set(Some(platform.clone()));
                                             test_result.set(None);
                                             spawn(async move {
                                                 let result = ws.call::<serde_json::Value>(
                                                     "channels.test",
-                                                    Some(json!({ "platform": platform })),
+                                                    Some(json!({
+                                                        "platform": platform,
+                                                        "id": channel_computed_id,
+                                                        "name": channel_name,
+                                                        "config": config_patch,
+                                                    })),
                                                 ).await;
                                                 testing_channel.set(None);
                                                 let (ok, msg) = match result {

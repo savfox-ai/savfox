@@ -23,6 +23,34 @@ pub enum MatrixMode {
     Appservice,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MatrixAutoJoin {
+    #[default]
+    Off,
+    Allowlist,
+    Always,
+}
+
+impl MatrixAutoJoin {
+    #[must_use]
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "always" | "on" | "true" => Self::Always,
+            "allowlist" | "allow_list" | "allowed" => Self::Allowlist,
+            _ => Self::Off,
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Allowlist => "allowlist",
+            Self::Always => "always",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MatrixChannelConfig {
     pub id: String,
@@ -33,6 +61,9 @@ pub struct MatrixChannelConfig {
     pub device_name: Option<String>,
     pub user_id: Option<String>,
     pub rooms: Vec<String>,
+    pub auto_join: MatrixAutoJoin,
+    pub auto_join_allowlist: Vec<String>,
+    pub allowed_senders: Vec<String>,
     pub server_name: Option<String>,
     pub public_url: Option<String>,
     pub appservice_id: Option<String>,
@@ -97,6 +128,40 @@ impl MatrixChannelConfig {
         rooms.sort_unstable();
         rooms.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
 
+        let auto_join = first_non_empty_config_string(
+            raw,
+            &[
+                "autoJoin",
+                "auto_join",
+                "inviteAutoJoin",
+                "invite_auto_join",
+            ],
+        )
+        .map(|value| MatrixAutoJoin::parse(&value))
+        .unwrap_or_default();
+        let mut auto_join_allowlist = Vec::new();
+        for key in [
+            "autoJoinAllowlist",
+            "auto_join_allowlist",
+            "inviteAllowlist",
+            "invite_allowlist",
+        ] {
+            if let Some(value) = raw.get(key) {
+                auto_join_allowlist.extend(parse_string_list(value));
+            }
+        }
+        auto_join_allowlist.sort_unstable();
+        auto_join_allowlist.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+
+        let mut allowed_senders = Vec::new();
+        for key in ["allowedSenders", "allowed_senders"] {
+            if let Some(value) = raw.get(key) {
+                allowed_senders.extend(parse_string_list(value));
+            }
+        }
+        allowed_senders.sort_unstable();
+        allowed_senders.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
+
         Some(Self {
             id: config.id.clone(),
             mode,
@@ -106,6 +171,9 @@ impl MatrixChannelConfig {
             device_name,
             user_id,
             rooms,
+            auto_join,
+            auto_join_allowlist,
+            allowed_senders,
             server_name,
             public_url,
             appservice_id,
@@ -433,6 +501,9 @@ mod tests {
                 device_name: None,
                 user_id: Some("@bot:example.org".to_owned()),
                 rooms: Vec::new(),
+                auto_join: MatrixAutoJoin::Off,
+                auto_join_allowlist: Vec::new(),
+                allowed_senders: Vec::new(),
                 server_name: None,
                 public_url: None,
                 appservice_id: None,
@@ -451,6 +522,9 @@ mod tests {
                 device_name: None,
                 user_id: Some("@bot:example.org".to_owned()),
                 rooms: vec!["!ops:example.org".to_owned()],
+                auto_join: MatrixAutoJoin::Off,
+                auto_join_allowlist: Vec::new(),
+                allowed_senders: Vec::new(),
                 server_name: None,
                 public_url: None,
                 appservice_id: None,
@@ -471,5 +545,38 @@ mod tests {
             .expect("default config should be used");
         assert_eq!(fallback.0.id, "default");
         assert_eq!(fallback.1, MatrixConfigSelection::DefaultConfig);
+    }
+
+    #[test]
+    fn matrix_config_parses_invite_policy_and_sender_allowlist() {
+        let parsed = MatrixChannelConfig::from_channel_config(&channel_config(
+            "matrix-main",
+            "matrix",
+            true,
+            json!({
+                "homeserver": "https://matrix.example",
+                "accessToken": "secret",
+                "auto_join": "allowlist",
+                "auto_join_allowlist": ["!ops:example.org", "#team:example.org"],
+                "allowed_senders": "@alice:example.org, @bob:example.org"
+            }),
+        ))
+        .expect("matrix config should parse");
+
+        assert_eq!(parsed.auto_join, MatrixAutoJoin::Allowlist);
+        assert_eq!(
+            parsed.auto_join_allowlist,
+            vec![
+                "!ops:example.org".to_owned(),
+                "#team:example.org".to_owned()
+            ]
+        );
+        assert_eq!(
+            parsed.allowed_senders,
+            vec![
+                "@alice:example.org".to_owned(),
+                "@bob:example.org".to_owned()
+            ]
+        );
     }
 }

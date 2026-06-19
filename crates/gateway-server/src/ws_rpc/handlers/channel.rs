@@ -696,6 +696,12 @@ pub(crate) async fn handle_channels_status(
         .filter(|config| channel_platform_matches_kind(&config.kind, "matrix"))
         .find_map(|config| matrix_runtime_states.get(&config.id).cloned())
         .or_else(|| matrix_runtime_states.values().next().cloned());
+    let matrix_pending_invites =
+        crate::channels::matrix::MatrixInviteStore::for_savfox_home(&channel.config().savfox_home)
+            .list(false)
+            .await
+            .ok()
+            .map(|invites| invites.len() as u32);
     let matrix_registry_running = {
         let registry = channel.channel_registry();
         let started_channel_ids = registry
@@ -769,6 +775,7 @@ pub(crate) async fn handle_channels_status(
             "configured": matrix_configured,
             "running": matrix_running,
             "connected": matrix_connected,
+            "pending_invites": matrix_pending_invites,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
@@ -921,6 +928,13 @@ pub(crate) async fn handle_channels_status(
             }
             if let Some(room_count) = matrix_runtime.room_count {
                 matrix_entry.insert("room_count".to_owned(), json!(room_count));
+            }
+            if let Some(pending_invites) = matrix_runtime.pending_invites.or(matrix_pending_invites)
+            {
+                matrix_entry.insert("pending_invites".to_owned(), json!(pending_invites));
+            }
+            if let Some(auto_join) = matrix_runtime.auto_join.as_deref() {
+                matrix_entry.insert("auto_join".to_owned(), json!(auto_join));
             }
             if let Some(appservice_url) = matrix_runtime.appservice_url.as_deref() {
                 matrix_entry.insert("appservice_url".to_owned(), json!(appservice_url));
@@ -1569,6 +1583,10 @@ pub(crate) async fn handle_channels_test(
         .is_some_and(|v| !v.trim().is_empty());
     let configured = channel_is_configured(&platform, &runtime, &saved_configs, nostr_configured);
 
+    if platform == "matrix" {
+        return handle_matrix_channel_test(params, channel, &saved_configs).await;
+    }
+
     Ok(json!({
         "platform": platform,
         "ok": configured,
@@ -1577,6 +1595,267 @@ pub(crate) async fn handle_channels_test(
         } else {
             format!("{platform} is not configured. Please add configuration in the channel settings.")
         }
+    }))
+}
+
+fn matrix_test_channel_config(
+    params: &Value,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> Option<savfox_core::config::channel_store::ChannelConfig> {
+    if let Some(config) = params.get("config").filter(|value| value.is_object()) {
+        let id = params
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("matrix-test");
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(id);
+        return Some(savfox_core::config::channel_store::ChannelConfig {
+            id: id.to_owned(),
+            kind: "matrix".to_owned(),
+            slug: id.to_owned(),
+            name: name.to_owned(),
+            enabled: true,
+            config: config.clone(),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: None,
+            updated_at: None,
+        });
+    }
+
+    saved_configs
+        .iter()
+        .find(|config| {
+            channel_platform_matches_kind(&config.kind, "matrix")
+                && config.enabled
+                && saved_channel_config_ready(config)
+        })
+        .or_else(|| {
+            saved_configs.iter().find(|config| {
+                channel_platform_matches_kind(&config.kind, "matrix") && config.enabled
+            })
+        })
+        .cloned()
+}
+
+async fn handle_matrix_channel_test(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> RpcResult {
+    let Some(raw_config) = matrix_test_channel_config(params, saved_configs) else {
+        return Ok(json!({
+            "platform": "matrix",
+            "ok": false,
+            "message": "matrix is not configured. Please add configuration in the channel settings.",
+        }));
+    };
+    let parsed = savfox_channels::matrix::MatrixChannelConfig::from_channel_config(&raw_config)
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "Matrix channel config must be an object".to_owned(),
+            )
+        })?;
+    parsed
+        .validate_auth()
+        .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+
+    let pending_invites =
+        crate::channels::matrix::MatrixInviteStore::for_savfox_home(&channel.config().savfox_home)
+            .list(false)
+            .await
+            .ok()
+            .map(|invites| {
+                invites
+                    .into_iter()
+                    .filter(|invite| invite.config_id == raw_config.id)
+                    .count() as u32
+            });
+
+    match parsed.mode {
+        savfox_channels::matrix::MatrixMode::User => {
+            let resolved = GatewayChannel::resolve_matrix_client(
+                &parsed.homeserver,
+                parsed.access_token.as_deref(),
+                parsed.user_id.as_deref(),
+                parsed.password.as_deref(),
+                parsed.device_name.as_deref(),
+            )
+            .await
+            .map_err(|err| {
+                (
+                    INTERNAL_ERROR,
+                    format!("Matrix authentication failed: {err}"),
+                )
+            })?;
+            let joined_rooms = resolved
+                .client
+                .get_joined_rooms()
+                .await
+                .map(|rooms| rooms.len() as u32)
+                .ok();
+            Ok(json!({
+                "platform": "matrix",
+                "ok": true,
+                "mode": "user",
+                "user_id": resolved.user_id,
+                "room_count": joined_rooms,
+                "pending_invites": pending_invites,
+                "message": match joined_rooms {
+                    Some(count) => format!("Matrix user connection ok ({count} joined rooms)"),
+                    None => "Matrix user connection ok".to_owned(),
+                },
+            }))
+        }
+        savfox_channels::matrix::MatrixMode::Appservice => Ok(json!({
+            "platform": "matrix",
+            "ok": true,
+            "mode": "appservice",
+            "registration": crate::channels::matrix::matrix_appservice_registration_preview(&parsed),
+            "message": "Matrix appservice configuration is valid",
+        })),
+    }
+}
+
+pub(crate) async fn handle_channels_matrix_invites(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let include_dismissed = params
+        .get("include_dismissed")
+        .or_else(|| params.get("includeDismissed"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let config_id = params
+        .get("config_id")
+        .or_else(|| params.get("configId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let store =
+        crate::channels::matrix::MatrixInviteStore::for_savfox_home(&channel.config().savfox_home);
+    let mut invites = store.list(include_dismissed).await.map_err(|err| {
+        (
+            INTERNAL_ERROR,
+            format!("failed to load Matrix invites: {err}"),
+        )
+    })?;
+    if let Some(config_id) = config_id {
+        invites.retain(|invite| invite.config_id == config_id);
+    }
+
+    Ok(json!({
+        "status": "ok",
+        "invites": invites,
+    }))
+}
+
+pub(crate) async fn handle_channels_matrix_invite_accept(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let room_id = params
+        .get("room_id")
+        .or_else(|| params.get("roomId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
+    let config_id = params
+        .get("config_id")
+        .or_else(|| params.get("configId"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    channel
+        .accept_matrix_invite(config_id, room_id)
+        .await
+        .map_err(|err| {
+            (
+                INTERNAL_ERROR,
+                format!("failed to accept Matrix invite: {err}"),
+            )
+        })?;
+
+    Ok(json!({
+        "status": "accepted",
+        "room_id": room_id,
+    }))
+}
+
+pub(crate) async fn handle_channels_matrix_invite_reject(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let room_id = params
+        .get("room_id")
+        .or_else(|| params.get("roomId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
+    let config_id = params
+        .get("config_id")
+        .or_else(|| params.get("configId"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    channel
+        .reject_matrix_invite(config_id, room_id)
+        .await
+        .map_err(|err| {
+            (
+                INTERNAL_ERROR,
+                format!("failed to reject Matrix invite: {err}"),
+            )
+        })?;
+
+    Ok(json!({
+        "status": "rejected",
+        "room_id": room_id,
+    }))
+}
+
+pub(crate) async fn handle_channels_matrix_invite_dismiss(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let room_id = params
+        .get("room_id")
+        .or_else(|| params.get("roomId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'room_id' parameter".to_owned()))?;
+    let config_id = params
+        .get("config_id")
+        .or_else(|| params.get("configId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| (INVALID_REQUEST, "missing 'config_id' parameter".to_owned()))?;
+
+    let store =
+        crate::channels::matrix::MatrixInviteStore::for_savfox_home(&channel.config().savfox_home);
+    let dismissed = store.dismiss(config_id, room_id).await.map_err(|err| {
+        (
+            INTERNAL_ERROR,
+            format!("failed to dismiss Matrix invite: {err}"),
+        )
+    })?;
+
+    Ok(json!({
+        "status": if dismissed { "dismissed" } else { "not_found" },
+        "room_id": room_id,
     }))
 }
 

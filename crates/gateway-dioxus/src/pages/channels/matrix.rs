@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use serde::Deserialize;
 
 use crate::api::types::MatrixStatus;
 use crate::api::ws::WsRpc;
@@ -54,13 +55,37 @@ pub(crate) fn registration_to_yaml(reg: &serde_json::Value) -> String {
     yaml
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct MatrixInvitesResponse {
+    invites: Vec<MatrixPendingInvite>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct MatrixPendingInvite {
+    config_id: String,
+    room_id: String,
+    invited_user_id: Option<String>,
+    inviter: Option<String>,
+    room_name: Option<String>,
+    canonical_alias: Option<String>,
+    membership_event_id: Option<String>,
+    received_at: String,
+    last_seen_at: String,
+    dismissed_at: Option<String>,
+}
+
 #[component]
 pub fn MatrixChannel() -> Element {
     let ws = use_context::<Signal<WsRpc>>();
     let mut status = use_signal(|| None::<MatrixStatus>);
+    let mut invites = use_signal(Vec::<MatrixPendingInvite>::new);
     let mut loading = use_signal(|| false);
+    let mut invite_loading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let mut action_loading = use_signal(|| false);
+    let mut invite_action = use_signal(|| None::<String>);
+    let mut test_loading = use_signal(|| false);
+    let mut test_result = use_signal(|| None::<(bool, String)>);
     let mut show_yaml = use_signal(|| false);
 
     let load_status = move || {
@@ -85,9 +110,27 @@ pub fn MatrixChannel() -> Element {
         }
     };
 
+    let load_invites = move || {
+        let ws = ws.clone();
+        async move {
+            invite_loading.set(true);
+            let result = ws
+                .read()
+                .call::<MatrixInvitesResponse>("channels.matrix.invites", None)
+                .await;
+
+            match result {
+                Ok(payload) => invites.set(payload.invites),
+                Err(e) => error.set(Some(e)),
+            }
+            invite_loading.set(false);
+        }
+    };
+
     use_effect(move || {
         spawn(async move {
             load_status().await;
+            load_invites().await;
         });
     });
 
@@ -189,6 +232,18 @@ pub fn MatrixChannel() -> Element {
                                             span { class: "channels-card__stat-value", "{count}" }
                                         }
                                     }
+                                    if let Some(count) = s.pending_invites {
+                                        div { class: "channels-card__stat",
+                                            span { class: "channels-card__stat-label", "Pending Invites" }
+                                            span { class: "channels-card__stat-value", "{count}" }
+                                        }
+                                    }
+                                    if let Some(auto_join) = &s.auto_join {
+                                        div { class: "channels-card__stat",
+                                            span { class: "channels-card__stat-label", "Auto Join" }
+                                            span { class: "channels-card__stat-value", "{auto_join}" }
+                                        }
+                                    }
                                     if let Some(appservice_url) = &s.appservice_url {
                                         div { class: "channels-card__stat",
                                             span { class: "channels-card__stat-label", "Appservice URL" }
@@ -205,6 +260,14 @@ pub fn MatrixChannel() -> Element {
 
                                 if let Some(err) = &s.last_error {
                                     div { class: "callout danger", style: "margin-top: 12px;", "{err}" }
+                                }
+
+                                if let Some((ok, msg)) = test_result.read().as_ref() {
+                                    div {
+                                        class: if *ok { "callout success" } else { "callout danger" },
+                                        style: "margin-top: 12px;",
+                                        "{msg}"
+                                    }
                                 }
 
                                 if let Some(registration_json) = registration_json {
@@ -250,6 +313,159 @@ pub fn MatrixChannel() -> Element {
                                     }
                                 }
 
+                                {
+                                    let invite_items = invites.read().clone();
+                                    let invite_count = invite_items.len();
+                                    let loading_invites = *invite_loading.read();
+                                    rsx! {
+                                        if loading_invites || !invite_items.is_empty() {
+                                            div { class: "callout", style: "margin-top: 12px;",
+                                                div { style: "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;",
+                                                    div { style: "font-weight:600;", "Pending Room Invites" }
+                                                    div { style: "font-size:11px;color:var(--text-muted);",
+                                                        if loading_invites { "Loading..." } else { "{invite_count} waiting" }
+                                                    }
+                                                }
+                                                if invite_items.is_empty() {
+                                                    div { style: "font-size:12px;color:var(--text-muted);", "No pending invites." }
+                                                } else {
+                                                    div { style: "display:flex;flex-direction:column;gap:8px;",
+                                                        for invite in invite_items {
+                                                            {
+                                                                let title = invite.room_name
+                                                                    .clone()
+                                                                    .or_else(|| invite.canonical_alias.clone())
+                                                                    .unwrap_or_else(|| invite.room_id.clone());
+                                                                let action_key_prefix = format!("{}:{}", invite.config_id, invite.room_id);
+                                                                let active_action = invite_action.read().clone();
+                                                                let action_disabled = active_action
+                                                                    .as_deref()
+                                                                    .is_some_and(|active| active.ends_with(&action_key_prefix));
+                                                                let config_id_accept = invite.config_id.clone();
+                                                                let room_id_accept = invite.room_id.clone();
+                                                                let key_accept = format!("accept:{action_key_prefix}");
+                                                                let config_id_reject = invite.config_id.clone();
+                                                                let room_id_reject = invite.room_id.clone();
+                                                                let key_reject = format!("reject:{action_key_prefix}");
+                                                                let config_id_dismiss = invite.config_id.clone();
+                                                                let room_id_dismiss = invite.room_id.clone();
+                                                                let key_dismiss = format!("dismiss:{action_key_prefix}");
+                                                                let row_key = format!("{}:{}", invite.config_id, invite.room_id);
+                                                                rsx! {
+                                                                    div { key: "{row_key}", style: "display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--border);border-radius:var(--radius);padding:10px;background:var(--bg-secondary);",
+                                                                        div { style: "min-width:0;",
+                                                                            div { style: "font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "{title}" }
+                                                                            div { style: "font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "{invite.room_id}" }
+                                                                            if let Some(inviter) = &invite.inviter {
+                                                                                div { style: "font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "Invited by {inviter}" }
+                                                                            }
+                                                                            if let Some(invited) = &invite.invited_user_id {
+                                                                                div { style: "font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "For {invited}" }
+                                                                            }
+                                                                            if let Some(event_id) = &invite.membership_event_id {
+                                                                                div { style: "font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "Event {event_id}" }
+                                                                            }
+                                                                            div { style: "font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;",
+                                                                                "Seen {invite.last_seen_at} · Received {invite.received_at}"
+                                                                            }
+                                                                            if let Some(dismissed) = &invite.dismissed_at {
+                                                                                div { style: "font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;", "Dismissed {dismissed}" }
+                                                                            }
+                                                                        }
+                                                                        div { style: "display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;",
+                                                                            button {
+                                                                                class: "btn btn-success",
+                                                                                style: "padding:5px 10px;font-size:11px;",
+                                                                                disabled: action_disabled,
+                                                                                onclick: move |_| {
+                                                                                    let ws = ws.clone();
+                                                                                    let config_id = config_id_accept.clone();
+                                                                                    let room_id = room_id_accept.clone();
+                                                                                    let action_key = key_accept.clone();
+                                                                                    spawn(async move {
+                                                                                        invite_action.set(Some(action_key));
+                                                                                        let result = ws.read()
+                                                                                            .call::<serde_json::Value>(
+                                                                                                "channels.matrix.invite.accept",
+                                                                                                Some(serde_json::json!({"config_id": config_id, "room_id": room_id})),
+                                                                                            )
+                                                                                            .await;
+                                                                                        if let Err(err) = result {
+                                                                                            error.set(Some(err));
+                                                                                        }
+                                                                                        invite_action.set(None);
+                                                                                        load_invites().await;
+                                                                                        load_status().await;
+                                                                                    });
+                                                                                },
+                                                                                "Accept"
+                                                                            }
+                                                                            button {
+                                                                                class: "btn btn-danger",
+                                                                                style: "padding:5px 10px;font-size:11px;",
+                                                                                disabled: action_disabled,
+                                                                                onclick: move |_| {
+                                                                                    let ws = ws.clone();
+                                                                                    let config_id = config_id_reject.clone();
+                                                                                    let room_id = room_id_reject.clone();
+                                                                                    let action_key = key_reject.clone();
+                                                                                    spawn(async move {
+                                                                                        invite_action.set(Some(action_key));
+                                                                                        let result = ws.read()
+                                                                                            .call::<serde_json::Value>(
+                                                                                                "channels.matrix.invite.reject",
+                                                                                                Some(serde_json::json!({"config_id": config_id, "room_id": room_id})),
+                                                                                            )
+                                                                                            .await;
+                                                                                        if let Err(err) = result {
+                                                                                            error.set(Some(err));
+                                                                                        }
+                                                                                        invite_action.set(None);
+                                                                                        load_invites().await;
+                                                                                        load_status().await;
+                                                                                    });
+                                                                                },
+                                                                                "Reject"
+                                                                            }
+                                                                            button {
+                                                                                class: "btn channels-btn",
+                                                                                style: "padding:5px 10px;font-size:11px;",
+                                                                                disabled: action_disabled,
+                                                                                onclick: move |_| {
+                                                                                    let ws = ws.clone();
+                                                                                    let config_id = config_id_dismiss.clone();
+                                                                                    let room_id = room_id_dismiss.clone();
+                                                                                    let action_key = key_dismiss.clone();
+                                                                                    spawn(async move {
+                                                                                        invite_action.set(Some(action_key));
+                                                                                        let result = ws.read()
+                                                                                            .call::<serde_json::Value>(
+                                                                                                "channels.matrix.invite.dismiss",
+                                                                                                Some(serde_json::json!({"config_id": config_id, "room_id": room_id})),
+                                                                                            )
+                                                                                            .await;
+                                                                                        if let Err(err) = result {
+                                                                                            error.set(Some(err));
+                                                                                        }
+                                                                                        invite_action.set(None);
+                                                                                        load_invites().await;
+                                                                                        load_status().await;
+                                                                                    });
+                                                                                },
+                                                                                "Dismiss"
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 div { class: "channels-card__actions", style: "margin-top: 16px;",
                                     if s.running.unwrap_or(false) {
                                         button {
@@ -263,6 +479,7 @@ pub fn MatrixChannel() -> Element {
                                                         .await;
                                                     action_loading.set(false);
                                                     load_status().await;
+                                                    load_invites().await;
                                                 }
                                             },
                                             disabled: *action_loading.read(),
@@ -280,6 +497,7 @@ pub fn MatrixChannel() -> Element {
                                                         .await;
                                                     action_loading.set(false);
                                                     load_status().await;
+                                                    load_invites().await;
                                                 }
                                             },
                                             disabled: *action_loading.read(),
@@ -289,8 +507,43 @@ pub fn MatrixChannel() -> Element {
                                     button {
                                         class: "btn channels-btn",
                                         onclick: move |_| {
+                                            let ws = ws.clone();
+                                            spawn(async move {
+                                                test_loading.set(true);
+                                                test_result.set(None);
+                                                let result = ws.read()
+                                                    .call::<serde_json::Value>(
+                                                        "channels.test",
+                                                        Some(serde_json::json!({"platform": "matrix"})),
+                                                    )
+                                                    .await;
+                                                let outcome = match result {
+                                                    Ok(value) => {
+                                                        let ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                        let message = value
+                                                            .get("message")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or(if ok { "Matrix connection ok" } else { "Matrix test failed" })
+                                                            .to_string();
+                                                        (ok, message)
+                                                    }
+                                                    Err(err) => (false, err),
+                                                };
+                                                test_result.set(Some(outcome));
+                                                test_loading.set(false);
+                                                load_status().await;
+                                                load_invites().await;
+                                            });
+                                        },
+                                        disabled: *test_loading.read(),
+                                        if *test_loading.read() { "Testing..." } else { "Test Connection" }
+                                    }
+                                    button {
+                                        class: "btn channels-btn",
+                                        onclick: move |_| {
                                             spawn(async move {
                                                 load_status().await;
+                                                load_invites().await;
                                             });
                                         },
                                         span { dangerous_inner_html: crate::utils::icons::ICON_REFRESH_CW }

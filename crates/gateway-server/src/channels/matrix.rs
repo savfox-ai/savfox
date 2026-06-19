@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -10,10 +11,12 @@ use reqwest::Method;
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 use savfox_channels::matrix::{
-    MatrixChannelConfig as MatrixPlatformConfig, MatrixCommandEvent,
-    parse_appservice_message_event_for_user, parse_inbound_payload_for_user, parse_invite_event,
+    MatrixAutoJoin, MatrixChannelConfig as MatrixPlatformConfig, MatrixCommandEvent,
+    MatrixInviteEvent, parse_appservice_message_event_for_user, parse_inbound_payload_for_user,
+    parse_invite_event,
 };
 use savfox_core::channel::{Channel, ChannelAction, RichMessage};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
@@ -21,6 +24,8 @@ use tracing::{debug, info, warn};
 use super::{obtain_channel_and_store, parse_json_body, render_error, runtime};
 use crate::channel::GatewayChannel;
 use crate::session::SessionStore;
+
+const MATRIX_INVITES_FILE: &str = "matrix-invites.json";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct MatrixRuntimeState {
@@ -30,6 +35,8 @@ pub(crate) struct MatrixRuntimeState {
     pub access_token: Option<String>,
     pub connected: bool,
     pub room_count: Option<u32>,
+    pub pending_invites: Option<u32>,
+    pub auto_join: Option<String>,
     pub appservice_url: Option<String>,
     pub sender_localpart: Option<String>,
     pub user_prefix: Option<String>,
@@ -37,6 +44,172 @@ pub(crate) struct MatrixRuntimeState {
     pub config_id: Option<String>,
     pub registration: Option<Value>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct MatrixPendingInvite {
+    pub config_id: String,
+    pub room_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invited_user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inviter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_alias: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_event_id: Option<String>,
+    pub received_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl MatrixPendingInvite {
+    pub(crate) fn from_event(config_id: &str, invite: &MatrixInviteEvent) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            config_id: config_id.to_owned(),
+            room_id: invite.room_id.clone(),
+            invited_user_id: invite.invited_user_id.clone(),
+            inviter: invite.inviter.clone(),
+            room_name: invite.room_name.clone(),
+            canonical_alias: invite.canonical_alias.clone(),
+            membership_event_id: invite.membership_event_id.clone(),
+            received_at: now,
+            last_seen_at: now,
+            dismissed_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct MatrixInviteStoreData {
+    #[serde(default)]
+    invites: Vec<MatrixPendingInvite>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MatrixInviteStore {
+    path: PathBuf,
+}
+
+impl MatrixInviteStore {
+    pub(crate) fn for_savfox_home(savfox_home: &Path) -> Self {
+        Self {
+            path: savfox_home.join("gateway").join(MATRIX_INVITES_FILE),
+        }
+    }
+
+    #[cfg(test)]
+    fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    async fn load_data(&self) -> anyhow::Result<MatrixInviteStoreData> {
+        match tokio::fs::read_to_string(&self.path).await {
+            Ok(body) => serde_json::from_str(&body).with_context(|| {
+                format!(
+                    "failed to parse Matrix invite store {}",
+                    self.path.display()
+                )
+            }),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Ok(MatrixInviteStoreData::default())
+            }
+            Err(err) => Err(err).with_context(|| {
+                format!("failed to read Matrix invite store {}", self.path.display())
+            }),
+        }
+    }
+
+    async fn save_data(&self, data: &MatrixInviteStoreData) -> anyhow::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            tokio::fs::create_dir_all(parent).await.with_context(|| {
+                format!("failed to create Matrix invite dir {}", parent.display())
+            })?;
+        }
+        let body =
+            serde_json::to_string_pretty(data).context("failed to serialize Matrix invites")?;
+        let tmp = self.path.with_extension("json.tmp");
+        tokio::fs::write(&tmp, body)
+            .await
+            .with_context(|| format!("failed to write Matrix invite store {}", tmp.display()))?;
+        tokio::fs::rename(&tmp, &self.path).await.with_context(|| {
+            format!(
+                "failed to replace Matrix invite store {}",
+                self.path.display()
+            )
+        })?;
+        Ok(())
+    }
+
+    pub(crate) async fn list(
+        &self,
+        include_dismissed: bool,
+    ) -> anyhow::Result<Vec<MatrixPendingInvite>> {
+        let mut invites = self.load_data().await?.invites;
+        if !include_dismissed {
+            invites.retain(|invite| invite.dismissed_at.is_none());
+        }
+        invites.sort_by(|left, right| right.last_seen_at.cmp(&left.last_seen_at));
+        Ok(invites)
+    }
+
+    pub(crate) async fn upsert(&self, invite: MatrixPendingInvite) -> anyhow::Result<()> {
+        let mut data = self.load_data().await?;
+        match data.invites.iter_mut().find(|existing| {
+            existing.config_id == invite.config_id
+                && existing.room_id.eq_ignore_ascii_case(&invite.room_id)
+        }) {
+            Some(existing) => {
+                let membership_changed = invite.membership_event_id.is_some()
+                    && existing.membership_event_id != invite.membership_event_id;
+                existing.invited_user_id = invite.invited_user_id;
+                existing.inviter = invite.inviter;
+                existing.room_name = invite.room_name;
+                existing.canonical_alias = invite.canonical_alias;
+                existing.membership_event_id = invite.membership_event_id;
+                existing.last_seen_at = invite.last_seen_at;
+                if membership_changed {
+                    existing.received_at = invite.received_at;
+                    existing.dismissed_at = None;
+                }
+            }
+            None => data.invites.push(invite),
+        }
+        self.save_data(&data).await
+    }
+
+    pub(crate) async fn remove(&self, config_id: &str, room_id: &str) -> anyhow::Result<bool> {
+        let mut data = self.load_data().await?;
+        let original_len = data.invites.len();
+        data.invites.retain(|invite| {
+            invite.config_id != config_id || !invite.room_id.eq_ignore_ascii_case(room_id)
+        });
+        let removed = data.invites.len() != original_len;
+        if removed {
+            self.save_data(&data).await?;
+        }
+        Ok(removed)
+    }
+
+    pub(crate) async fn dismiss(&self, config_id: &str, room_id: &str) -> anyhow::Result<bool> {
+        let mut data = self.load_data().await?;
+        let now = chrono::Utc::now();
+        let mut updated = false;
+        for invite in &mut data.invites {
+            if invite.config_id == config_id && invite.room_id.eq_ignore_ascii_case(room_id) {
+                invite.dismissed_at = Some(now);
+                updated = true;
+            }
+        }
+        if updated {
+            self.save_data(&data).await?;
+        }
+        Ok(updated)
+    }
 }
 
 fn matrix_runtime_state_store() -> &'static Mutex<HashMap<String, MatrixRuntimeState>> {
@@ -146,6 +319,47 @@ pub(crate) fn matrix_appservice_channel_for(config_id: &str) -> Option<MatrixApp
         .and_then(|store| store.get(config_id).cloned())
 }
 
+pub(crate) fn matrix_appservice_registration_preview(config: &MatrixPlatformConfig) -> Value {
+    let server_name = config.server_name.as_deref().unwrap_or_default();
+    let public_url = config.public_url.as_deref().unwrap_or_default();
+    let appservice_id = config.appservice_id.as_deref().unwrap_or_default();
+    let appservice_token = config.appservice_token.as_deref().unwrap_or_default();
+    let homeserver_token = config.homeserver_token.as_deref().unwrap_or_default();
+    let sender_localpart = config.sender_localpart.as_deref().unwrap_or_default();
+    let escaped_server_name = regex::escape(server_name);
+    let escaped_user_prefix = regex::escape(&config.user_prefix);
+    let escaped_alias_prefix = regex::escape(&config.alias_prefix);
+    let escaped_bot = regex::escape(sender_localpart);
+
+    json!({
+        "id": appservice_id,
+        "url": public_url.trim_end_matches('/'),
+        "as_token": appservice_token,
+        "hs_token": homeserver_token,
+        "sender_localpart": sender_localpart,
+        "rate_limited": false,
+        "namespaces": {
+            "users": [
+                {
+                    "exclusive": true,
+                    "regex": format!("@{}:{}$", escaped_bot, escaped_server_name),
+                },
+                {
+                    "exclusive": true,
+                    "regex": format!("@{}.*:{}$", escaped_user_prefix, escaped_server_name),
+                }
+            ],
+            "aliases": [
+                {
+                    "exclusive": true,
+                    "regex": format!("#{}.*:{}$", escaped_alias_prefix, escaped_server_name),
+                }
+            ],
+            "rooms": []
+        }
+    })
+}
+
 fn set_matrix_appservice_channel(config_id: &str, channel: MatrixAppserviceChannel) {
     if let Ok(mut store) = matrix_appservice_store().lock() {
         store.insert(config_id.to_owned(), channel);
@@ -164,6 +378,11 @@ struct MatrixSyncTask {
     homeserver: String,
     user_id: String,
     client: MatrixClient,
+    savfox_home: PathBuf,
+    rooms: Vec<String>,
+    auto_join: MatrixAutoJoin,
+    auto_join_allowlist: Vec<String>,
+    allowed_senders: HashSet<String>,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 }
@@ -175,6 +394,10 @@ pub(crate) struct MatrixChannel {
     access_token: Option<String>,
     password: Option<String>,
     device_name: Option<String>,
+    rooms: Vec<String>,
+    auto_join: MatrixAutoJoin,
+    auto_join_allowlist: Vec<String>,
+    allowed_senders: HashSet<String>,
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
     client: Mutex<Option<MatrixClient>>,
@@ -195,7 +418,10 @@ impl MatrixChannel {
             password,
             device_name,
             user_id,
-            rooms: _,
+            rooms,
+            auto_join,
+            auto_join_allowlist,
+            allowed_senders,
             server_name: _,
             public_url: _,
             appservice_id: _,
@@ -213,6 +439,14 @@ impl MatrixChannel {
             access_token,
             password,
             device_name,
+            rooms,
+            auto_join,
+            auto_join_allowlist,
+            allowed_senders: allowed_senders
+                .into_iter()
+                .map(|sender| sender.trim().to_owned())
+                .filter(|sender| !sender.is_empty())
+                .collect(),
             gateway_channel,
             session_store,
             client: Mutex::new(None),
@@ -280,6 +514,11 @@ impl Channel for MatrixChannel {
                 homeserver: self.homeserver.clone(),
                 user_id: resolved.user_id.clone(),
                 client: resolved.client.clone(),
+                savfox_home: self.gateway_channel.config().savfox_home.clone(),
+                rooms: self.rooms.clone(),
+                auto_join: self.auto_join,
+                auto_join_allowlist: self.auto_join_allowlist.clone(),
+                allowed_senders: self.allowed_senders.clone(),
                 gateway_channel: Arc::clone(&self.gateway_channel),
                 session_store: Arc::clone(&self.session_store),
             },
@@ -302,6 +541,12 @@ impl Channel for MatrixChannel {
                 access_token: Some(resolved.access_token.clone()),
                 connected: true,
                 room_count,
+                pending_invites: pending_matrix_invite_count(
+                    &self.gateway_channel.config().savfox_home,
+                    Some(&self.config_id),
+                )
+                .await,
+                auto_join: Some(self.auto_join.as_str().to_owned()),
                 appservice_url: None,
                 sender_localpart: None,
                 user_prefix: None,
@@ -321,6 +566,11 @@ impl Channel for MatrixChannel {
             homeserver: self.homeserver.clone(),
             user_id: resolved.user_id,
             client: resolved.client,
+            savfox_home: self.gateway_channel.config().savfox_home.clone(),
+            rooms: self.rooms.clone(),
+            auto_join: self.auto_join,
+            auto_join_allowlist: self.auto_join_allowlist.clone(),
+            allowed_senders: self.allowed_senders.clone(),
             gateway_channel: Arc::clone(&self.gateway_channel),
             session_store: Arc::clone(&self.session_store),
         };
@@ -1053,14 +1303,14 @@ impl MatrixAppserviceChannel {
 
         let mut rooms_to_auto_join = Vec::new();
         for event in events {
-            if let Some((room_id, invited_user_id)) = parse_invite_event(event, None)
-                && !rooms_to_auto_join.iter().any(
-                    |(existing_room_id, _): &(String, Option<String>)| {
-                        existing_room_id.eq_ignore_ascii_case(&room_id)
-                    },
-                )
+            if let Some(invite) = parse_invite_event(event, None)
+                && !rooms_to_auto_join
+                    .iter()
+                    .any(|existing: &MatrixInviteEvent| {
+                        existing.room_id.eq_ignore_ascii_case(&invite.room_id)
+                    })
             {
-                rooms_to_auto_join.push((room_id, invited_user_id));
+                rooms_to_auto_join.push(invite);
             }
         }
 
@@ -1072,11 +1322,10 @@ impl MatrixAppserviceChannel {
                 .and_then(|room_id| {
                     rooms_to_auto_join
                         .iter()
-                        .find(|(candidate_room_id, _)| {
-                            candidate_room_id.eq_ignore_ascii_case(room_id)
-                        })
-                        .and_then(|(_, invited_user_id)| {
-                            match invited_user_id
+                        .find(|candidate| candidate.room_id.eq_ignore_ascii_case(room_id))
+                        .and_then(|invite| {
+                            match invite
+                                .invited_user_id
                                 .as_deref()
                                 .and_then(|value| non_empty_trimmed(Some(value)))
                             {
@@ -1098,8 +1347,9 @@ impl MatrixAppserviceChannel {
         let mut joined_rooms = 0_u32;
         let mut skipped_invites = 0_u32;
 
-        for (room_id, invited_user_id) in &rooms_to_auto_join {
-            if let Some(invited_user_id) = invited_user_id
+        for invite in &rooms_to_auto_join {
+            if let Some(invited_user_id) = invite
+                .invited_user_id
                 .as_deref()
                 .and_then(|value| non_empty_trimmed(Some(value)))
                 && !self.matches_user_id(invited_user_id)
@@ -1107,11 +1357,12 @@ impl MatrixAppserviceChannel {
                 skipped_invites = skipped_invites.saturating_add(1);
                 debug_matrix_appservice(format!(
                     "config='{}' txn='{}' skipping invite room='{}' invited_user='{}' reason='invite_not_for_bot'",
-                    self.inner.config_id, txn_id, room_id, invited_user_id,
+                    self.inner.config_id, txn_id, invite.room_id, invited_user_id,
                 ));
                 continue;
             }
-            let join_user_id = invited_user_id
+            let join_user_id = invite
+                .invited_user_id
                 .as_deref()
                 .and_then(|value| non_empty_trimmed(Some(value)))
                 .unwrap_or(&self.inner.bot_user_id);
@@ -1119,15 +1370,16 @@ impl MatrixAppserviceChannel {
                 "config='{}' txn='{}' room='{}' invite='auto_join_planned' invited_user='{}' join_as='{}'",
                 self.inner.config_id,
                 txn_id,
-                room_id,
-                invited_user_id.as_deref().unwrap_or(""),
+                invite.room_id,
+                invite.invited_user_id.as_deref().unwrap_or(""),
                 join_user_id,
             ));
-            self.join_room_as_user(room_id, join_user_id).await?;
+            self.join_room_as_user(&invite.room_id, join_user_id)
+                .await?;
             joined_rooms = joined_rooms.saturating_add(1);
             debug_matrix_appservice(format!(
                 "config='{}' txn='{}' joined room='{}' as_user='{}'",
-                self.inner.config_id, txn_id, room_id, join_user_id
+                self.inner.config_id, txn_id, invite.room_id, join_user_id
             ));
         }
 
@@ -1284,6 +1536,12 @@ impl MatrixAppserviceChannel {
                 access_token: None,
                 connected: true,
                 room_count,
+                pending_invites: pending_matrix_invite_count(
+                    &self.inner.gateway_channel.config().savfox_home,
+                    Some(&self.inner.config_id),
+                )
+                .await,
+                auto_join: Some(MatrixAutoJoin::Always.as_str().to_owned()),
                 appservice_url: Some(self.appservice_url()),
                 sender_localpart: Some(self.inner.sender_localpart.clone()),
                 user_prefix: Some(self.inner.user_prefix.clone()),
@@ -1406,9 +1664,88 @@ async fn matrix_sync_request(
         .with_context(|| format!("Matrix sync request failed: {endpoint}"))
 }
 
-async fn handle_matrix_invites(task: &MatrixSyncTask, invites: Vec<(String, Option<String>)>) {
-    for (room_id, invited_user_id) in invites {
-        if let Some(invited_user_id) = invited_user_id
+async fn pending_matrix_invite_count(savfox_home: &Path, config_id: Option<&str>) -> Option<u32> {
+    let store = MatrixInviteStore::for_savfox_home(savfox_home);
+    let invites = store.list(false).await.ok()?;
+    let count = invites
+        .iter()
+        .filter(|invite| config_id.map(|id| invite.config_id == id).unwrap_or(true))
+        .count();
+    Some(count as u32)
+}
+
+fn matrix_invite_matches_target(invite: &MatrixInviteEvent, target: &str) -> bool {
+    let target = target.trim();
+    if target.is_empty() {
+        return false;
+    }
+    if target == "*" {
+        return true;
+    }
+    invite.room_id.eq_ignore_ascii_case(target)
+        || invite
+            .canonical_alias
+            .as_deref()
+            .is_some_and(|alias| alias.eq_ignore_ascii_case(target))
+}
+
+fn matrix_invite_auto_join_allowed(task: &MatrixSyncTask, invite: &MatrixInviteEvent) -> bool {
+    match task.auto_join {
+        MatrixAutoJoin::Off => false,
+        MatrixAutoJoin::Always => true,
+        MatrixAutoJoin::Allowlist => {
+            let targets = if task.auto_join_allowlist.is_empty() {
+                &task.rooms
+            } else {
+                &task.auto_join_allowlist
+            };
+            !targets.is_empty()
+                && targets
+                    .iter()
+                    .any(|target| matrix_invite_matches_target(invite, target))
+        }
+    }
+}
+
+async fn record_matrix_pending_invite(task: &MatrixSyncTask, invite: &MatrixInviteEvent) {
+    let store = MatrixInviteStore::for_savfox_home(&task.savfox_home);
+    if let Err(err) = store
+        .upsert(MatrixPendingInvite::from_event(&task.config_id, invite))
+        .await
+    {
+        warn!(
+            config_id = %task.config_id,
+            room_id = %invite.room_id,
+            error = %err,
+            "failed to record pending Matrix invite"
+        );
+    }
+    let pending = pending_matrix_invite_count(&task.savfox_home, Some(&task.config_id)).await;
+    update_matrix_runtime_state(&task.config_id, |state| {
+        state.pending_invites = pending;
+    });
+}
+
+async fn clear_matrix_pending_invite(task: &MatrixSyncTask, room_id: &str) {
+    let store = MatrixInviteStore::for_savfox_home(&task.savfox_home);
+    if let Err(err) = store.remove(&task.config_id, room_id).await {
+        warn!(
+            config_id = %task.config_id,
+            room_id,
+            error = %err,
+            "failed to clear pending Matrix invite"
+        );
+    }
+    let pending = pending_matrix_invite_count(&task.savfox_home, Some(&task.config_id)).await;
+    update_matrix_runtime_state(&task.config_id, |state| {
+        state.pending_invites = pending;
+    });
+}
+
+async fn handle_matrix_invites(task: &MatrixSyncTask, invites: Vec<MatrixInviteEvent>) {
+    for invite in invites {
+        if let Some(invited_user_id) = invite
+            .invited_user_id
             .as_deref()
             .and_then(|value| non_empty_trimmed(Some(value)))
             && !invited_user_id.eq_ignore_ascii_case(&task.user_id)
@@ -1416,13 +1753,19 @@ async fn handle_matrix_invites(task: &MatrixSyncTask, invites: Vec<(String, Opti
             continue;
         }
 
-        match task.client.join_room(&room_id).await {
+        if !matrix_invite_auto_join_allowed(task, &invite) {
+            record_matrix_pending_invite(task, &invite).await;
+            continue;
+        }
+
+        match task.client.join_room(&invite.room_id).await {
             Ok(_) => {
                 if let Ok(joined_rooms) = task.client.get_joined_rooms().await {
                     update_matrix_runtime_state(&task.config_id, |state| {
                         state.room_count = Some(joined_rooms.len() as u32);
                     });
                 }
+                clear_matrix_pending_invite(task, &invite.room_id).await;
             }
             Err(err) => {
                 update_matrix_runtime_state(&task.config_id, |state| {
@@ -1430,10 +1773,11 @@ async fn handle_matrix_invites(task: &MatrixSyncTask, invites: Vec<(String, Opti
                 });
                 warn!(
                     config_id = %task.config_id,
-                    room_id,
+                    room_id = %invite.room_id,
                     error = %err,
                     "Matrix invite auto-join failed"
                 );
+                record_matrix_pending_invite(task, &invite).await;
             }
         }
     }
@@ -1442,6 +1786,10 @@ async fn handle_matrix_invites(task: &MatrixSyncTask, invites: Vec<(String, Opti
 async fn dispatch_matrix_commands(task: &MatrixSyncTask, commands: Vec<MatrixCommandEvent>) {
     for command in commands {
         if command.sender.eq_ignore_ascii_case(&task.user_id) {
+            continue;
+        }
+        if !task.allowed_senders.is_empty() && !task.allowed_senders.contains(command.sender.trim())
+        {
             continue;
         }
         if runtime::should_drop_duplicate(command.dedupe_key.clone()).await {
@@ -1828,14 +2176,11 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
     if !parsed.rooms_to_auto_join.is_empty() {
         if let Ok(channel) = depot.obtain::<Arc<GatewayChannel>>() {
             let channel = channel.clone();
-            for (room_id, invited_user_id) in &parsed.rooms_to_auto_join {
-                if let Err(err) = channel
-                    .auto_join_matrix_invited_room(room_id, invited_user_id.as_deref())
-                    .await
-                {
+            for invite in &parsed.rooms_to_auto_join {
+                if let Err(err) = channel.auto_join_matrix_invited_room(invite).await {
                     warn!(
-                        room_id,
-                        invited_user_id = invited_user_id.as_deref().unwrap_or(""),
+                        room_id = %invite.room_id,
+                        invited_user_id = invite.invited_user_id.as_deref().unwrap_or(""),
                         error = %err,
                         "Matrix invite auto-join failed"
                     );
@@ -1965,5 +2310,61 @@ mod tests {
         .await;
 
         assert_eq!(res.status_code.unwrap(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn matrix_invite_store_tracks_dismiss_and_new_membership_event() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let store = MatrixInviteStore::new(temp.path().join("matrix-invites.json"));
+
+        let first_invite = MatrixInviteEvent {
+            room_id: "!Room:Example.org".to_owned(),
+            invited_user_id: Some("@bot:example.org".to_owned()),
+            inviter: Some("@alice:example.org".to_owned()),
+            room_name: Some("Ops".to_owned()),
+            canonical_alias: Some("#ops:example.org".to_owned()),
+            membership_event_id: Some("$event-1".to_owned()),
+        };
+        store
+            .upsert(MatrixPendingInvite::from_event("matrix", &first_invite))
+            .await
+            .expect("upsert first invite");
+
+        let active = store.list(false).await.expect("list active invites");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].room_id, "!Room:Example.org");
+
+        assert!(
+            store
+                .dismiss("matrix", "!room:example.org")
+                .await
+                .expect("dismiss invite")
+        );
+        assert!(store.list(false).await.expect("list active").is_empty());
+        let dismissed = store.list(true).await.expect("list dismissed invites");
+        assert_eq!(dismissed.len(), 1);
+        assert!(dismissed[0].dismissed_at.is_some());
+
+        let renewed_invite = MatrixInviteEvent {
+            membership_event_id: Some("$event-2".to_owned()),
+            ..first_invite
+        };
+        store
+            .upsert(MatrixPendingInvite::from_event("matrix", &renewed_invite))
+            .await
+            .expect("upsert renewed invite");
+
+        let active = store.list(false).await.expect("list renewed active");
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].membership_event_id.as_deref(), Some("$event-2"));
+        assert!(active[0].dismissed_at.is_none());
+
+        assert!(
+            store
+                .remove("matrix", "!room:example.org")
+                .await
+                .expect("remove invite")
+        );
+        assert!(store.list(true).await.expect("list all invites").is_empty());
     }
 }
