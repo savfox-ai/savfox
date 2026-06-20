@@ -229,11 +229,28 @@ pub(crate) fn skill_roots_from_layer_stack(
     skill_roots_from_layer_stack_inner(config_layer_stack, home_dir)
 }
 
+/// Resolve the home directory used to locate `~/.agents/skills`.
+///
+/// In production this is always the real OS home. Tests override it (via a
+/// thread-local set by their config helper) so `load_skills` does not scan the
+/// developer's real `~/.agents/skills` and stay hermetic. The override is
+/// `#[cfg(test)]`-only, so production has no extra branch or behavior change.
+fn agents_skills_home() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        if let Some(path) = tests::test_agents_home_override() {
+            return Some(path);
+        }
+    }
+    home_dir()
+}
+
 pub(crate) fn skill_roots_from_layer_stack_with_agents(
     config_layer_stack: &ConfigLayerStack,
     cwd: &Path,
 ) -> Vec<SkillRoot> {
-    let mut roots = skill_roots_from_layer_stack_inner(config_layer_stack, home_dir().as_deref());
+    let mut roots =
+        skill_roots_from_layer_stack_inner(config_layer_stack, agents_skills_home().as_deref());
     roots.extend(repo_agents_skill_roots(config_layer_stack, cwd));
     dedupe_skill_roots_by_path(&mut roots);
     roots
@@ -775,11 +792,32 @@ mod tests {
 
     const REPO_ROOT_CONFIG_DIR_NAME: &str = ".savfox";
 
+    thread_local! {
+        /// Per-test override for the `~/.agents/skills` home so `load_skills`
+        /// stays hermetic. Set by `make_config`. Cargo runs each test on its own
+        /// thread, so this never races between parallel tests.
+        static TEST_AGENTS_HOME: std::cell::RefCell<Option<PathBuf>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn test_agents_home_override() -> Option<PathBuf> {
+        TEST_AGENTS_HOME.with(|cell| cell.borrow().clone())
+    }
+
+    fn set_test_agents_home(path: &Path) {
+        TEST_AGENTS_HOME.with(|cell| *cell.borrow_mut() = Some(path.to_path_buf()));
+    }
+
     async fn make_config(savfox_home: &TempDir) -> Config {
         make_config_for_cwd(savfox_home, savfox_home.path().to_path_buf()).await
     }
 
     async fn make_config_for_cwd(savfox_home: &TempDir, cwd: PathBuf) -> Config {
+        // Isolate the `~/.agents/skills` scan to this tempdir (which has no
+        // `.agents/skills`) so `load_skills` does not pick up the developer's
+        // real user-installed skills and the assertions stay hermetic.
+        set_test_agents_home(savfox_home.path());
+
         let trust_root = cwd
             .ancestors()
             .find(|ancestor| ancestor.join(".git").exists())

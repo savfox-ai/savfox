@@ -183,6 +183,20 @@
 - [x] `cargo test -p savfox-core --lib spec::`（28 passed）
 - [x] `cargo fmt -p savfox-core -- --check`
 
-## 本轮新发现（既有 bug，非本次改动引入，待方向确认）
+## 本轮新发现（既有 bug，非本次改动引入）
 
-- [ ] `crates/core/src/skills/loader.rs`：基于 `load_skills` 的测试（如 `respects_max_scan_depth_for_user_scope`）**非隔离**——`skill_roots_from_layer_stack_with_agents` 直接用真实 OS `home_dir()` 扫 `~/.agents/skills`，开发机若装了用户技能（如 `smithery-ai-cli`）该测试就会因混入真实技能而失败。`loader.rs` 在本次所有轮次均未改动，确认为既有问题。修复需要一个生产路径上的 home 注入点（env 回退会在并行测试下竞争；沿 `Config` 串 home override 干净但要动庞大 Config），属设计决策，未在 main 上擅自改。
+- [x] `crates/core/src/skills/loader.rs`：基于 `load_skills` 的多个测试（`respects_max_scan_depth_for_user_scope`、`loads_valid_skill` 等十余个）**非隔离**——`skill_roots_from_layer_stack_with_agents` 直接用真实 OS `home_dir()` 扫 `~/.agents/skills`，开发机装了用户技能（如 `smithery-ai-cli`）即失败。已用 `#[cfg(test)]` thread-local override（`agents_skills_home()`，由 `make_config` 设为 tempdir）隔离：生产零开销/零行为变化，cargo 每测试独立线程→无竞争。改后 `skills::loader` 27、`skills::` 48 测试全过。
+
+---
+
+# 第六轮（2026-06-20，直接在 main 上）
+
+## 本轮已处理
+
+- [x] `crates/core/src/skills/loader.rs`：修复上一轮记录的 `load_skills` 测试非隔离问题（见上，thread-local seam）。
+- [x] `crates/api-client/src/sse/responses.rs`：清理 `#[allow(dead_code)]` 掩盖——`Error` 删除真正未用的 `r#type`/`plan_type`/`resets_at`（serde 默认忽略未知字段，删除安全），`ResponseCompleted` 的 `id`/`usage` 均已被使用，移除失效的 `#[allow(dead_code)]`。
+
+## 本轮验证
+
+- [x] `cargo check -p savfox-core -p savfox-api-client`
+- [x] `cargo test -p savfox-core --lib skills::`（48 passed）

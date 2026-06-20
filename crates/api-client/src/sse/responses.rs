@@ -87,17 +87,14 @@ pub fn spawn_response_stream(
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct Error {
-    r#type: Option<String>,
+    // Only `code` and `message` are consumed; other fields the API may send
+    // (type, plan_type, resets_at) are ignored by serde's default behavior.
     code: Option<String>,
     message: Option<String>,
-    plan_type: Option<String>,
-    resets_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ResponseCompleted {
     id: String,
     #[serde(default)]
