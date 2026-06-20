@@ -171,7 +171,7 @@ fn is_dangerous_to_call_with_exec(command: &[String]) -> bool {
             "rm" => rm_is_force(&command[1..]),
             // Unconditionally destructive, low-level disk/file destroyers that
             // take effect immediately and are rarely benign in an agent run.
-            "dd" | "shred" => true,
+            "dd" | "shred" | "truncate" => true,
             name if name == "mkfs" || name.starts_with("mkfs.") => true,
             _ => false,
         },
@@ -462,6 +462,9 @@ mod tests {
             "/bin/shred",
             "-u",
             "f"
+        ])));
+        assert!(command_might_be_dangerous(&vec_str(&[
+            "truncate", "-s", "0", "f"
         ])));
         assert!(command_might_be_dangerous(&vec_str(&[
             "/sbin/mkfs.ext4",

