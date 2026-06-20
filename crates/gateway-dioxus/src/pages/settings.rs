@@ -15,6 +15,9 @@ pub fn Settings() -> Element {
     let mut saved_msg = use_signal(|| Option::<String>::None);
     let mut models_list = use_signal(|| Vec::<String>::new());
     let mut log_level = use_signal(|| "info".to_string());
+    // Custom RUST_LOG filter input — kept separate from the dropdown so typing a
+    // free-form filter doesn't desync the <select> (and vice-versa).
+    let mut custom_filter = use_signal(|| String::new());
     let mut log_status = use_signal(|| Option::<String>::None);
 
     // Load settings from localStorage on mount
@@ -202,13 +205,13 @@ pub fn Settings() -> Element {
                             class: "form-input",
                             r#type: "text",
                             placeholder: "e.g. savfox_gateway_server=debug,info",
-                            value: "{log_level}",
-                            oninput: move |e| log_level.set(e.value()),
+                            value: "{custom_filter}",
+                            oninput: move |e| custom_filter.set(e.value()),
                             onkeydown: {
                                 let ws = ws.clone();
                                 move |e: Event<KeyboardData>| {
                                     if e.key() == Key::Enter {
-                                        let filter = log_level();
+                                        let filter = custom_filter();
                                         let ws = ws.clone();
                                         log_status.set(None);
                                         spawn(async move {
@@ -236,12 +239,16 @@ pub fn Settings() -> Element {
                         span { class: "shortcut-desc", "Open command palette" }
                     }
                     div { class: "shortcut-row",
-                        span { class: "shortcut-key", "Ctrl+N" }
-                        span { class: "shortcut-desc", "New session" }
+                        span { class: "shortcut-key", "Ctrl+/" }
+                        span { class: "shortcut-desc", "Go to Sessions" }
                     }
                     div { class: "shortcut-row",
-                        span { class: "shortcut-key", "Ctrl+/" }
-                        span { class: "shortcut-desc", "Focus chat input" }
+                        span { class: "shortcut-key", "Ctrl+," }
+                        span { class: "shortcut-desc", "Go to Config" }
+                    }
+                    div { class: "shortcut-row",
+                        span { class: "shortcut-key", "Ctrl+Shift+L" }
+                        span { class: "shortcut-desc", "Go to Logs" }
                     }
                     div { class: "shortcut-row",
                         span { class: "shortcut-key", "Escape" }

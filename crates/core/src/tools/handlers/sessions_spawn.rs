@@ -45,27 +45,21 @@ impl ToolHandler for SessionsSpawnHandler {
         };
         let args: SessionsSpawnArgs = parse_arguments(&arguments)?;
 
-        // Build spawn config similar to collab.rs spawn_agent.
-        // For now, use a UUID v4 as the agent identifier.
-        let agent_id = uuid::Uuid::new_v4().to_string();
-
-        // In a full implementation, this would:
-        // 1. Build AgentSpawnConfig from args (model, instructions overrides)
-        // 2. Call session.services.agent_control.spawn_agent()
-        // 3. Send the prompt to the spawned agent
-        // 4. Wait for completion or timeout
-        let _ = &args.instructions; // acknowledge field for future use
-
-        let result = serde_json::json!({
-            "agent_id": agent_id,
-            "status": "spawned",
-            "model": args.model.unwrap_or_else(|| "default".to_owned()),
-            "prompt": args.prompt,
-            "timeout_secs": args.timeout_secs,
-            "cleanup": args.cleanup,
-            "note": "Sub-agent session spawned. Use sessions_send to interact and session_status to check progress."
-        });
-
-        Ok(ToolOutput::ok(result.to_string()))
+        // Sub-agent spawning is not yet wired to `agent_control.spawn_agent()`.
+        // Previously this returned a fabricated `agent_id` with status "spawned"
+        // and told the model to drive it via `sessions_send`/`session_status`
+        // (which are likewise unimplemented) — a success-shaped response that
+        // sent the model down a broken workflow. Fail explicitly instead.
+        let _ = (
+            &args.prompt,
+            &args.model,
+            &args.instructions,
+            args.timeout_secs,
+            args.cleanup,
+        );
+        model_err(
+            "sessions_spawn is not implemented yet: sub-agent spawning is not wired up. \
+             Do not rely on sessions_send/session_status either.",
+        )
     }
 }

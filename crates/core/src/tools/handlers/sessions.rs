@@ -53,6 +53,15 @@ mod defaults {
     }
 }
 
+/// Minimal percent-encoding for a query-string value (mirrors `browser.rs`).
+fn encode_query(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('&', "%26")
+        .replace('=', "%3D")
+        .replace('#', "%23")
+}
+
 #[async_trait]
 impl ToolHandler for SessionsHandler {
     fn kind(&self) -> ToolKind {
@@ -99,9 +108,10 @@ impl SessionsHandler {
                 FunctionCallError::RespondToModel(format!("failed to build HTTP client: {err}"))
             })?;
 
-        let url = match args.filter {
-            Some(filter) if !filter.trim().is_empty() => {
-                format!("{gateway_url}/api/sessions?filter={filter}")
+        let url = match args.filter.as_deref().map(str::trim) {
+            Some(filter) if !filter.is_empty() => {
+                // Percent-encode so the filter can't break out of the query string.
+                format!("{gateway_url}/api/sessions?filter={}", encode_query(filter))
             }
             _ => format!("{gateway_url}/api/sessions"),
         };
@@ -151,13 +161,14 @@ impl SessionsHandler {
             return model_err("session_id must not be empty");
         }
 
-        // Sending to a session would go through the SessionManager's message routing.
-        // For now, return a placeholder.
-        Ok(ToolOutput::ok(format!(
-            "Message queued for session {} ({} chars; direct session messaging requires SessionManager integration)",
-            args.session_id,
-            args.message.chars().count()
-        )))
+        // Direct session messaging is not wired to SessionManager routing yet.
+        // Previously this claimed the message was "queued" while dropping it —
+        // report the gap honestly instead.
+        let _ = &args.message;
+        model_err(format!(
+            "sessions_send is not implemented yet: cannot deliver to session {}; SessionManager message routing is not wired up",
+            args.session_id
+        ))
     }
 
     async fn handle_status(

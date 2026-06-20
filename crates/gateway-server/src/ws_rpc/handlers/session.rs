@@ -7,7 +7,9 @@ use savfox_protocol::SessionId;
 use serde_json::{Value, json};
 use tracing::debug;
 
-use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
+use super::super::types::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
+};
 use super::agent::apply_agent_permission_policy_to_config;
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{
@@ -1243,22 +1245,22 @@ pub(crate) async fn handle_chat_inject(
         ));
     }
 
-    // Check session exists and touch its timestamp
-    let entry = session_store
+    // Validate the session exists so the caller gets a meaningful error.
+    let _entry = session_store
         .get(session_id)
         .await
         .or(session_store.get_by_session_id(session_id).await)
         .ok_or((INVALID_PARAMS, format!("session not found: {session_id}")))?;
 
-    // Touch session's updated_at via update
-    session_store.update(&entry.session_id, |e| e.touch()).await;
-
-    Ok(json!({
-        "status": "injected",
-        "session_id": entry.session_id,
-        "role": role,
-        "content_length": content.len(),
-    }))
+    // Injecting into a live session's message history is not yet implemented:
+    // the conversation transcript is owned by the running agent/channel runtime,
+    // not the SessionStore. Return an explicit error instead of reporting a
+    // success that silently does nothing.
+    let _ = content;
+    Err((
+        METHOD_NOT_FOUND,
+        "chat.inject is not implemented: message injection into session history is not supported yet".to_owned(),
+    ))
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
@@ -2158,21 +2160,19 @@ pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
         ));
     }
 
-    // Validate event patterns (support wildcards like "agent.*")
-    let valid: Vec<&str> = events.iter().map(|s| s.as_str()).collect();
-    let invalid: Vec<&&str> = valid
+    // Unknown event names (non-wildcard, not in EVENT_TYPES) are surfaced to the
+    // caller for visibility but still accepted, for forward compatibility.
+    let unknown: Vec<&str> = events
         .iter()
+        .map(String::as_str)
         .filter(|e| !e.contains('*') && !EVENT_TYPES.contains(e))
         .collect();
-
-    if !invalid.is_empty() {
-        // Allow unknown events too (for forward compat), just note them
-    }
 
     Ok(json!({
         "status": "subscribed",
         "events": events,
         "count": events.len(),
+        "unknown": unknown,
     }))
 }
 

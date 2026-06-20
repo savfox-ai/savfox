@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 
-use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
+use super::super::types::{
+    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
+};
 use super::browser::handle_config_snapshot;
 use super::model::model_test_default_base_url;
 use crate::channel::GatewayChannel;
@@ -612,14 +614,14 @@ pub(crate) async fn handle_reactions_add(params: &Value, _channel: &GatewayChann
     if message_id.is_empty() || emoji.is_empty() {
         return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
     }
+    let _ = channel;
 
-    Ok(json!({
-        "status": "ok",
-        "action": "add_reaction",
-        "message_id": message_id,
-        "emoji": emoji,
-        "channel": channel,
-    }))
+    // No channel adapter currently dispatches reactions; returning success here
+    // would falsely report that the emoji was delivered.
+    Err((
+        METHOD_NOT_FOUND,
+        "reactions.add is not implemented: no channel adapter dispatches reactions yet".to_owned(),
+    ))
 }
 
 pub(crate) async fn handle_reactions_remove(
@@ -636,12 +638,12 @@ pub(crate) async fn handle_reactions_remove(
         return Err((INVALID_PARAMS, "missing 'message_id' or 'emoji'".to_owned()));
     }
 
-    Ok(json!({
-        "status": "ok",
-        "action": "remove_reaction",
-        "message_id": message_id,
-        "emoji": emoji,
-    }))
+    // See handle_reactions_add: reaction dispatch is not wired to any channel yet.
+    Err((
+        METHOD_NOT_FOUND,
+        "reactions.remove is not implemented: no channel adapter dispatches reactions yet"
+            .to_owned(),
+    ))
 }
 
 // ── Streaming Config (#36) ──────────────────────────────────────────────────

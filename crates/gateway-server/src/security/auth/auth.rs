@@ -374,7 +374,9 @@ pub fn required_scope(method: &str) -> Scope {
         return Scope::Read;
     }
     if method == "security.rotate" {
-        return Scope::Write;
+        // Rotates the gateway bearer token + webhook signing secrets and rewrites
+        // the config file — credential-touching, so require Admin like config.*.
+        return Scope::Admin;
     }
 
     // ── Chat / send ──────────────────────────────────────────────────

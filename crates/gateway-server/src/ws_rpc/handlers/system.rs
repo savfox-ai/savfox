@@ -152,12 +152,12 @@ pub(crate) async fn handle_usage_export(
     let data: Value = if format == "csv" {
         let mut lines = Vec::with_capacity(count + 1);
         lines.push(
-            "session_id,session_id,model,input_tokens,output_tokens,total_tokens,created_at,updated_at".to_owned(),
+            "session_id,model,input_tokens,output_tokens,total_tokens,created_at,updated_at"
+                .to_owned(),
         );
         for s in &filtered {
             lines.push(format!(
-                "{},{},{},{},{},{},{},{}",
-                s.session_id,
+                "{},{},{},{},{},{},{}",
                 s.session_id,
                 s.model.as_deref().unwrap_or(""),
                 s.input_tokens,

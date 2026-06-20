@@ -49,12 +49,17 @@ impl ToolHandler for ImageGenerateHandler {
         ToolKind::Function
     }
 
-    async fn handle(&self, _invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError> {
-        let arguments = match &_invocation.payload {
+    async fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
+        true
+    }
+
+    async fn handle(&self, invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError> {
+        let arguments = match &invocation.payload {
             ToolPayload::Function { arguments } => arguments.clone(),
             _ => return model_err("ImageGenerateHandler received unsupported payload"),
         };
         let args: ImageGenerateArgs = parse_arguments(&arguments)?;
+        let turn = &invocation.turn;
 
         let api_base = std::env::var("OPENAI_API_BASE")
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_owned());
@@ -114,18 +119,19 @@ impl ToolHandler for ImageGenerateHandler {
             .await
             .or_else(|err| model_err(format!("failed to read image: {err}")))?;
 
-        // Save to the specified output path.
-        let output_path = std::path::Path::new(&args.output_path);
+        // Resolve the output path through the turn sandbox to prevent writes
+        // outside the workspace (path traversal / absolute-path escape).
+        let output_path = turn.resolve_path(Some(args.output_path));
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent)
                 .or_else(|err| model_err(format!("failed to create directory: {err}")))?;
         }
-        std::fs::write(output_path, &image_bytes)
+        std::fs::write(&output_path, &image_bytes)
             .or_else(|err| model_err(format!("failed to save image: {err}")))?;
 
         let result = serde_json::json!({
             "status": "success",
-            "path": args.output_path,
+            "path": output_path.display().to_string(),
             "size": args.size,
             "model": args.model,
             "bytes": image_bytes.len(),

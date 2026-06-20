@@ -1118,6 +1118,7 @@ fn more_sheet_link(
         Link {
             to: target,
             class: "{class}",
+            onclick: move |_| more_open.set(false),
             span { class: "more-sheet__link-icon", {icon} }
             "{label}"
         }

@@ -27,3 +27,53 @@
 - [x] `cargo check -p savfox-gateway-server`
 - [x] `cargo fmt --all`
 - [x] `cargo fmt --all -- --check`
+
+---
+
+# 第二轮（2026-06-20）
+
+对 `channels`、`gateway-server` RPC handlers、`core/tools` 其余部分、`gateway-dioxus` 四个子系统做了一次新审查。下面按"已处理/待继续"分组。
+
+## 本轮已处理
+
+### 安全
+
+- [x] `crates/core/src/tools/handlers/image_generate.rs`：图片生成结果直接 `std::fs::write(Path::new(&output_path))` 写盘，未经 turn 沙箱解析，模型可传 `../../` 或绝对路径越权覆盖工作区外文件，且未实现 `is_mutating` 而绕过工具调用 gate。已改为 `turn.resolve_path(...)` 解析路径，并实现 `is_mutating -> true` 接入审批 gate，返回值改用解析后路径。
+- [x] `crates/gateway-server/src/security/auth/auth.rs`：`security.rotate`（轮换网关 bearer token + webhook 签名密钥并重写配置）只要求 `Scope::Write`，与其它改密/改配置一律 Admin 的策略不一致，普通 OperatorWrite token 即可轮换网关自身认证。已提升为 `Scope::Admin`。
+- [x] `crates/core/src/tools/handlers/sessions.rs`：`sessions_list` 把 `filter` 原样拼进 `?filter=` query，存在 query 注入。已补本地百分号编码 helper（与 `browser.rs` 一致）。
+
+### 半成品 / success-shaped 谎言（向模型/调用方谎报成功）
+
+- [x] `crates/gateway-server/src/ws_rpc/handlers/session.rs`：`chat.inject` 校验后只 `touch()` 时间戳、从不写入任何历史，却回 `{"status":"injected"}`。已改为显式返回 `METHOD_NOT_FOUND` 未实现错误（仍校验 session 存在以给出可读报错）。
+- [x] `crates/core/src/tools/handlers/sessions_spawn.rs`：返回伪造的 `agent_id` 和 `"status":"spawned"`，并指示模型用同样未实现的 `sessions_send`/`session_status`，把模型引向无效流程。已改为 `model_err` 显式报"未实现"。
+- [x] `crates/core/src/tools/handlers/sessions.rs`：`sessions_send` 谎称 `"Message queued for session ..."` 实则丢弃消息。已改为 `model_err` 显式报"未实现"。
+- [x] `crates/gateway-server/src/ws_rpc/handlers/config.rs`：`reactions.add` / `reactions.remove` 从不向任何渠道投递表情却回 `"status":"ok"`。已改为返回 `METHOD_NOT_FOUND` 未实现错误。
+
+### 死代码 / 写了没用
+
+- [x] `crates/gateway-server/src/ws_rpc/handlers/session.rs`：`handle_events_subscribe` 计算 `valid`/`invalid` 后进入空 `if` 块、结果全丢弃。已清理为 `unknown` 列表并在响应中回传（保留向前兼容的"接受未知事件"语义）。
+- [x] `crates/gateway-server/src/ws_rpc/handlers/system.rs`：`usage.export` CSV 表头与每行都重复输出 `session_id` 两列。已去掉重复列。
+
+### 前端（gateway-dioxus）
+
+- [x] `crates/gateway-dioxus/src/components/layout.rs`：`more_sheet_link` 接收 `more_open: Signal<bool>` 但从不使用，移动端"More"底部弹层导航后不关闭、盖住整屏。已在 `Link` 上加 `onclick` 关闭弹层。
+- [x] `crates/gateway-dioxus/src/pages/settings.rs`：日志的下拉 `<select>` 和"Custom filter"输入框绑定到同一个 `log_level` signal，互相串改导致下拉空值或自定义文本被覆盖。已为自定义输入框拆分独立 `custom_filter` signal。
+- [x] `crates/gateway-dioxus/src/pages/settings.rs`：键盘快捷键卡片宣传 `Ctrl+N`（无此绑定）和 `Ctrl+/ Focus chat input`（实际是跳转 Sessions）。已对照 `layout.rs` 实际绑定改为 `Ctrl+/`→Sessions、`Ctrl+,`→Config、`Ctrl+Shift+L`→Logs。
+
+## 待继续处理（需更大改动或属已知占位，本轮未动）
+
+- [ ] `crates/gateway-server/src/ws_rpc/handlers/session.rs`：`events.subscribe`/`events.unsubscribe` 仍未持久化任何订阅状态（handler 拿不到连接/session），服务端事件过滤实为 no-op。需把连接订阅集穿进来再落地。
+- [ ] `crates/core/src/tools/handlers/{agents_list,process,cron}.rs`、`sessions.rs` 的 `sessions_history`/`session_status`：仍是返回空/canned JSON 的占位（带 note 说明），spec 仍把它们当成可用工具宣传给模型。需要么真正接入 SessionManager/调度器，么像 `nodes` 一样在 spec 描述里如实标注占位。
+- [ ] `crates/channels/src/cokret/applet/runtime_bridge.rs`：整套 runtime-bridge（`build_outbound_edge`/`applet_runtime_config`/`SavfoxAppletResolver`）只有自身测试在用，gateway-server 出站走 `CokretHttpClient` 直连，inbound rx 建好即丢。需接线或删除。
+- [ ] `crates/channels/src/cokret/session.rs`：`CokretSession` 的 `expires_at`/`is_near_expiry` 计算后被所有调用方 `let (_, _session)` 丢弃，无 session 刷新；`Unauthorized` 时直接停流而非重登。需落地刷新逻辑或移除过期机制。
+- [ ] `crates/channels/src/cokret/applet/outbound.rs`：未配置 `key_ref` 时出站事件 `proofs[]` 为空，docstring 自承认"生产服务端会以 `event_proofs_empty` 拒绝"。需强制签名或在无 signer 时 fail-fast。
+- [ ] `crates/core/src/tools/handlers/image_generate.rs`、`memory.rs`、`md_memory.rs`：除 `image_generate` 已补 `is_mutating` 外，`memory`/`md_memory` 的写/删动作仍未实现 `is_mutating`，绕过工具调用 gate。需为其 mutating action 补 `is_mutating`。
+- [ ] `crates/gateway-server/src/ws_rpc/handlers/config.rs`：`config.export` 默认 `redacted=false`，导出/分享场景默认明文带出密钥。建议默认 `redacted=true`。
+
+## 本轮验证
+
+- [x] `cargo check -p savfox-core`
+- [x] `cargo check -p savfox-gateway-server`
+- [x] `cargo check -p savfox-gateway-dioxus`
+- [x] `cargo fmt -p savfox-core -p savfox-gateway-server -p savfox-gateway-dioxus -- --check`
+- [x] `cargo test -p savfox-gateway-server --lib auth`
