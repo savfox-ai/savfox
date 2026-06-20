@@ -248,14 +248,10 @@ mod windows_impl {
         unsafe {
             for p in &allow {
                 if let Ok(added) = add_allow_ace(p, psid_to_use) {
-                    if added {
-                        if persist_aces {
-                            if p.is_dir() {
-                                // best-effort seeding omitted intentionally
-                            }
-                        } else {
-                            guards.push((p.clone(), psid_to_use));
-                        }
+                    if added && !persist_aces {
+                        // Non-persistent ACEs are reverted on drop via the guards;
+                        // persistent (workspace-write) ACEs are left in place.
+                        guards.push((p.clone(), psid_to_use));
                     }
                 }
             }

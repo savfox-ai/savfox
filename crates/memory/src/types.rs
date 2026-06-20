@@ -117,7 +117,3 @@ pub struct MemoryIndexMeta {
 
 pub const SNIPPET_MAX_CHARS: usize = 700;
 pub const EMBEDDING_BATCH_MAX_TOKENS: usize = 8000;
-pub const EMBEDDING_INDEX_CONCURRENCY: usize = 4;
-pub const EMBEDDING_RETRY_MAX_ATTEMPTS: usize = 3;
-pub const EMBEDDING_RETRY_BASE_DELAY_MS: u64 = 500;
-pub const EMBEDDING_RETRY_MAX_DELAY_MS: u64 = 8000;

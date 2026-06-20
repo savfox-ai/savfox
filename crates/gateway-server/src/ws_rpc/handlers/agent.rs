@@ -2063,11 +2063,13 @@ pub(crate) async fn handle_agents_files_get(
         return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
-    // Sanitize path to prevent directory traversal.
-    let safe_name = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(file_path);
+    // Sanitize path to prevent directory traversal. Reject (rather than
+    // silently rewrite) anything that isn't a single safe filename segment —
+    // the previous `file_name().unwrap_or(file_path)` fell back to the raw,
+    // unsanitized value for inputs like `..`, `foo/..`, or an absolute path.
+    let Some(safe_name) = crate::security::path_safety::safe_filename_segment(file_path) else {
+        return Err((INVALID_PARAMS, "invalid 'path' parameter".to_owned()));
+    };
 
     let dir = resolve_agent_files_dir(channel, agent_ref).await;
     let path = dir.join(safe_name);
@@ -2091,11 +2093,13 @@ pub(crate) async fn handle_agents_files_set(
         return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
-    // Sanitize path to prevent directory traversal.
-    let safe_name = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(file_path);
+    // Sanitize path to prevent directory traversal. Reject (rather than
+    // silently rewrite) anything that isn't a single safe filename segment —
+    // the previous `file_name().unwrap_or(file_path)` fell back to the raw,
+    // unsanitized value for inputs like `..`, `foo/..`, or an absolute path.
+    let Some(safe_name) = crate::security::path_safety::safe_filename_segment(file_path) else {
+        return Err((INVALID_PARAMS, "invalid 'path' parameter".to_owned()));
+    };
 
     let dir = resolve_agent_files_dir(channel, agent_ref).await;
     let _ = tokio::fs::create_dir_all(&dir).await;
@@ -2121,11 +2125,13 @@ pub(crate) async fn handle_agents_files_delete(
         return Err((INVALID_REQUEST, "missing 'path' parameter".to_owned()));
     }
 
-    // Sanitize path to prevent directory traversal.
-    let safe_name = std::path::Path::new(file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(file_path);
+    // Sanitize path to prevent directory traversal. Reject (rather than
+    // silently rewrite) anything that isn't a single safe filename segment —
+    // the previous `file_name().unwrap_or(file_path)` fell back to the raw,
+    // unsanitized value for inputs like `..`, `foo/..`, or an absolute path.
+    let Some(safe_name) = crate::security::path_safety::safe_filename_segment(file_path) else {
+        return Err((INVALID_PARAMS, "invalid 'path' parameter".to_owned()));
+    };
 
     let dir = resolve_agent_files_dir(channel, agent_ref).await;
     let path = dir.join(safe_name);

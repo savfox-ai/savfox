@@ -74,25 +74,32 @@ impl MessageProcessor {
                 self.handle_ping(request_id).await;
             }
             ClientRequest::ListResourcesRequest(params) => {
-                self.handle_list_resources(params.params);
+                self.reply_unimplemented(request_id, "resources/list", &params.params)
+                    .await;
             }
             ClientRequest::ListResourceTemplatesRequest(params) => {
-                self.handle_list_resource_templates(params.params);
+                self.reply_unimplemented(request_id, "resources/templates/list", &params.params)
+                    .await;
             }
             ClientRequest::ReadResourceRequest(params) => {
-                self.handle_read_resource(params.params);
+                self.reply_unimplemented(request_id, "resources/read", &params.params)
+                    .await;
             }
             ClientRequest::SubscribeRequest(params) => {
-                self.handle_subscribe(params.params);
+                self.reply_unimplemented(request_id, "resources/subscribe", &params.params)
+                    .await;
             }
             ClientRequest::UnsubscribeRequest(params) => {
-                self.handle_unsubscribe(params.params);
+                self.reply_unimplemented(request_id, "resources/unsubscribe", &params.params)
+                    .await;
             }
             ClientRequest::ListPromptsRequest(params) => {
-                self.handle_list_prompts(params.params);
+                self.reply_unimplemented(request_id, "prompts/list", &params.params)
+                    .await;
             }
             ClientRequest::GetPromptRequest(params) => {
-                self.handle_get_prompt(params.params);
+                self.reply_unimplemented(request_id, "prompts/get", &params.params)
+                    .await;
             }
             ClientRequest::ListToolsRequest(params) => {
                 self.handle_list_tools(request_id, params.params).await;
@@ -101,10 +108,12 @@ impl MessageProcessor {
                 self.handle_call_tool(request_id, params.params).await;
             }
             ClientRequest::SetLevelRequest(params) => {
-                self.handle_set_level(params.params);
+                self.reply_unimplemented(request_id, "logging/setLevel", &params.params)
+                    .await;
             }
             ClientRequest::CompleteRequest(params) => {
-                self.handle_complete(params.params);
+                self.reply_unimplemented(request_id, "completion/complete", &params.params)
+                    .await;
             }
             ClientRequest::CustomRequest(custom) => {
                 let method = custom.method.clone();
@@ -252,32 +261,29 @@ impl MessageProcessor {
         self.outgoing.send_response(id, json!({})).await;
     }
 
-    fn handle_list_resources(&self, params: Option<rmcp::model::PaginatedRequestParam>) {
-        tracing::info!("resources/list -> params: {:?}", params);
-    }
-
-    fn handle_list_resource_templates(&self, params: Option<rmcp::model::PaginatedRequestParam>) {
-        tracing::info!("resources/templates/list -> params: {:?}", params);
-    }
-
-    fn handle_read_resource(&self, params: rmcp::model::ReadResourceRequestParam) {
-        tracing::info!("resources/read -> params: {:?}", params);
-    }
-
-    fn handle_subscribe(&self, params: rmcp::model::SubscribeRequestParam) {
-        tracing::info!("resources/subscribe -> params: {:?}", params);
-    }
-
-    fn handle_unsubscribe(&self, params: rmcp::model::UnsubscribeRequestParam) {
-        tracing::info!("resources/unsubscribe -> params: {:?}", params);
-    }
-
-    fn handle_list_prompts(&self, params: Option<rmcp::model::PaginatedRequestParam>) {
-        tracing::info!("prompts/list -> params: {:?}", params);
-    }
-
-    fn handle_get_prompt(&self, params: rmcp::model::GetPromptRequestParam) {
-        tracing::info!("prompts/get -> params: {:?}", params);
+    /// Reply to a request whose MCP method this server does not implement.
+    ///
+    /// These methods (resources/*, prompts/*, logging/setLevel,
+    /// completion/complete) were previously only logged, leaving the client to
+    /// block forever waiting for a response. Sending an explicit
+    /// `METHOD_NOT_FOUND` error keyed to the request id unblocks the caller.
+    async fn reply_unimplemented(
+        &self,
+        id: RequestId,
+        method: &str,
+        params: &impl std::fmt::Debug,
+    ) {
+        tracing::info!("{method} -> params: {params:?} (unimplemented)");
+        self.outgoing
+            .send_error(
+                id,
+                ErrorData::new(
+                    ErrorCode::METHOD_NOT_FOUND,
+                    format!("method not implemented: {method}"),
+                    Some(json!({ "method": method })),
+                ),
+            )
+            .await;
     }
 
     async fn handle_list_tools(
@@ -458,14 +464,6 @@ impl MessageProcessor {
                 .await;
             }
         });
-    }
-
-    fn handle_set_level(&self, params: rmcp::model::SetLevelRequestParam) {
-        tracing::info!("logging/setLevel -> params: {:?}", params);
-    }
-
-    fn handle_complete(&self, params: rmcp::model::CompleteRequestParam) {
-        tracing::info!("completion/complete -> params: {:?}", params);
     }
 
     // ---------------------------------------------------------------------

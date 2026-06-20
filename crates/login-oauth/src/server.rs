@@ -110,7 +110,10 @@ pub fn run_login_server(opts: ServerOptions) -> io::Result<LoginServer> {
     };
     let server = Arc::new(server);
 
-    let redirect_uri = format!("http://localhost:{actual_port}/auth/callback");
+    // RFC 8252 §8.3 recommends the loopback IP literal (127.0.0.1) over the
+    // "localhost" hostname so the redirect cannot be hijacked via /etc/hosts or
+    // a DNS resolver. The listener already binds 127.0.0.1.
+    let redirect_uri = format!("http://127.0.0.1:{actual_port}/auth/callback");
     let auth_url = build_authorize_url(
         &opts.issuer,
         &opts.client_id,
@@ -561,7 +564,7 @@ pub(crate) async fn persist_tokens_async(
 
 fn compose_success_url(port: u16, provider_name: &str) -> String {
     let encoded_name = urlencoding::encode(provider_name);
-    format!("http://localhost:{port}/success?provider={encoded_name}")
+    format!("http://127.0.0.1:{port}/success?provider={encoded_name}")
 }
 
 fn jwt_auth_claims(jwt: &str) -> serde_json::Map<String, serde_json::Value> {

@@ -291,6 +291,12 @@ pub async fn ensure_channels_dir(savfox_home: &PathBuf) -> std::io::Result<()> {
     let dir = channels_dir(savfox_home);
     if !dir.exists() {
         tokio::fs::create_dir_all(&dir).await?;
+        // The directory holds credential files; keep it owner-only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = tokio::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).await;
+        }
         info!("Created channels directory: {}", dir.display());
     }
     Ok(())
@@ -408,7 +414,11 @@ pub async fn save_channel_config(
     let content = serde_json::to_string_pretty(&normalized)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    tokio::fs::write(&target_path, content).await?;
+    // Channel configs hold credentials (bot_token / access_token / app_secret /
+    // password). Write atomically with owner-only (0600) permissions so they are
+    // not world-readable like a plain `fs::write` (default umask) would leave them.
+    savfox_utils::fs::write_atomically_async(&target_path, content.into_bytes(), Some(0o600))
+        .await?;
 
     for existing in stale_paths {
         if let Err(err) = tokio::fs::remove_file(&existing).await {

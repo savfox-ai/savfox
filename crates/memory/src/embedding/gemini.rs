@@ -80,15 +80,15 @@ impl EmbeddingProvider for GeminiEmbeddingProvider {
 
         let request = GeminiRequest { requests };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/embeddings?key={}",
-            self.api_key
-        );
+        let url = "https://generativelanguage.googleapis.com/v1beta/embeddings";
 
         let response = self
             .client
-            .post(&url)
+            .post(url)
             .header("Content-Type", "application/json")
+            // Pass the API key in a header rather than the URL query so it does
+            // not leak via reqwest error messages, proxy access logs, etc.
+            .header("x-goog-api-key", &self.api_key)
             .json(&request)
             .send()
             .await?;

@@ -269,3 +269,72 @@
 - [x] `cargo test -p savfox-core --lib commands::safety`（89 passed）
 - [x] `cargo test -p savfox-gateway-server --lib cokret`（4 passed）
 - [x] `cargo check -p savfox-core -p savfox-gateway-server`
+
+---
+
+# 第九轮（2026-06-20，直接在 main 上）—— 扩大审查面
+
+前八轮集中在 `core/tools`、`gateway-server/channels`、`api-client`。本轮把审查面扩展到此前覆盖较少的子系统：`exec`/`exec-policy`/`exec-server`/`linux-sandbox`/`windows-sandbox`、`mcp-server`/`rmcp-client`/`browser-automation`/`network-proxy`/`http-client`、`login-oauth`/`keyring-store`/`config`/`state`/`memory`/`skill-registry`、`core/tools` 余下 handler、以及 `gateway-server` 非 channels 部分。下列每项均经代码证据核实。
+
+## 本轮修复（已核实、可在 Windows 上编译验证）
+
+### 安全
+
+- [x] `crates/gateway-server/src/ws_rpc/handlers/agent.rs`：`agents.files.get/set/delete` 的"净化"用 `Path::file_name().unwrap_or(file_path)`，当 `file_path` 为 `..`/`foo/..`/绝对路径时 `file_name()` 返回 `None`，回退到**未净化原值**，可逃逸 agent files 目录读/写/删任意文件。已改用既有严格 helper `security::path_safety::safe_filename_segment`，非法段一律返回 `INVALID_PARAMS`。
+- [x] `crates/skill-registry/src/installer.rs`、`git_registry.rs`：`git clone <url>` / `sparse-checkout set <subdir>` 的不可信参数无 `--` 终止符，可被 `--upload-pack=`/`ext::sh`/`-c protocol.ext.allow` 等利用。已在所有用户可控值前加 `--` 隔离，并对 URL 做 scheme 白名单（仅 `https://`/`http://`，拒绝 `-` 开头与 `ext::`/`file://`/`ssh://`）。
+- [x] `crates/skill-registry/src/installer.rs`：`manifest.name`（来自不可信 registry）经 `skills_dir.join(name)` 后用于 `remove_dir_all`/写入，`../` 或绝对路径可逃逸并删除/覆盖任意目录。已加 `name` 段校验（复用收紧的文件名规则），join 后断言仍在 `skills_dir` 下。
+- [x] `crates/windows-sandbox/src/env.rs`：no-network 的 ssh/scp 拦截桩 `f.write_all(b"@echo off\\r\\nexit /b 1\\r\\n")` 是字节串字面量，`\\r`/`\\n` 是字面反斜杠，写出的 `.bat`/`.cmd` 内容损坏、不能可靠 `exit /b 1`，网络隔离桩失效却返回 Ok。已改为真实 CRLF。
+- [x] `crates/windows-sandbox/src/acl.rs`：`allow_null_device` 用 `to_wide(r"\\\\.\\NUL")`（raw string → 实际 `\\\\.\\NUL`，四前导反斜杠），`CreateFileW` 必失败、函数恒为空操作（受限 token 拿不到 NUL 读写）。已改为 `r"\\.\NUL"`。
+- [x] `crates/config/src/channel_store.rs`：渠道凭据（`bot_token`/`access_token`/`app_secret`/`password` 等）用 `tokio::fs::write` 写 `~/.savfox/channels/*.json`，无文件权限收紧（默认 umask，世界可读）。已改为写后立即设 `0o600`（unix），目录设 `0o700`。
+- [x] `crates/memory/src/embedding/gemini.rs`：Gemini API key 放 URL `?key=` query，易经 reqwest 错误/代理日志泄露（其它 provider 均用 header）。已改为 `x-goog-api-key` header。
+- [x] `crates/login-oauth/src/server.rs`：回调 `redirect_uri` 用 `localhost`（RFC 8252 §8.3 建议 loopback 用 IP 字面量避免 hosts/DNS 劫持），而实际绑定在 `127.0.0.1`。已统一为 `127.0.0.1`。
+
+### 半成品 / 谎报成功 / 写了没用
+
+- [x] `crates/memory/src/search.rs`：`search_vector_only`/`search_keyword_only` 是同步 `fn`，内部 `Handle::current().block_on()`，而唯一调用方 `manager.rs` 的 `search_vector`/`search_keyword` 是 async（Tokio worker 线程内 `block_on` 必 panic）。已改为 `async fn` 直接 `.await`，调用方同步更新。
+- [x] `crates/mcp-server/src/message_processor.rs`：`resources/*`、`prompts/*`、`logging/setLevel`、`completion/complete` 等带 `RequestId` 的请求仅 `info!` 打印、既不回响应也不回错误，客户端永久挂起。已改为对未实现请求返回 `METHOD_NOT_FOUND` 错误响应（带 request_id）。
+- [x] `crates/mcp-server/src/exec_approval.rs`：审批通道/`oneshot` 出错分支只 `error!` 后 return、不提交任何决定（与 `patch_approval.rs` 的 fail-closed 不一致），回合悬挂。已对齐为失败时提交 `Denied`（fail-closed）。
+- [x] `crates/browser-automation/src/page.rs`：`goto` 发 `Page.navigate` 后固定 `sleep` 即 `Ok`，不检查响应 `errorText`，导航失败仍谎报成功。已检查 `errorText` 并在失败时返回 Err。
+- [x] `crates/browser-automation/src/screenshot.rs`、`page.rs`：`full_page()` 设的 `capture_beyond_viewport`/`from_surface`/`optimize_for_speed` 字段从未下发到 `Page.captureScreenshot`，整页截图意图被静默丢弃。已把这些字段写入 CDP 参数。
+- [x] `crates/gateway-server/src/ws_rpc/handlers/node.rs`：`node.rename` 校验节点存在后只 `info!` 打印就回 `{"status":"renamed"}`，从不持久化（注释自承 pairing store 无 rename）。已改为返回 `METHOD_NOT_FOUND` 未实现错误（与 `reactions.add`/`chat.inject` 一致）。
+- [x] `crates/exec/src/event_processor_with_jsonl_output.rs`：turn 结束仍有 running command 时硬编码 `status: Completed, exit_code: None`（命令未完成却报完成）。已改为标注未完成状态。
+
+### 死代码清理
+
+- [x] `crates/windows-sandbox/src/env.rs`：`normalize_null_device_env` 第二个匹配分支 `t == "\\\\\\\\dev\\\\\\\\null"`（字面反斜杠 → 恒不命中）死分支，已修正为真实 `\\dev\\null` 比较。
+- [x] `crates/windows-sandbox/src/lib.rs`：`if persist_aces { if p.is_dir() { /* 空 */ } }` 空块对 allow 路径无效果，已清理。
+- [x] `crates/memory/src/search.rs`：`build_fts_query` 全仓零调用方（keyword 路径直接传原始 query），已删除。
+- [x] `crates/memory/src/types.rs`：`EMBEDDING_RETRY_*`/`EMBEDDING_INDEX_CONCURRENCY` 常量零引用，已删除。
+- [x] `crates/exec-policy/src/policy.rs`：`Evaluation::is_match()` pub 导出但全仓零调用且与 core 重复，已删除。
+- [x] `crates/mcp-server/src/savfox_tool_config.rs`、`savfox_tool_runner.rs`：各 1 字节孤儿空文件、未在 `lib.rs` `mod` 声明，已删除。
+- [x] `crates/core/src/tools/handlers/a2a_types.rs`：`AgentCapabilities` 类型全仓零生产构造（仅自身序列化测试），已删除该类型及其测试。`A2AMessage::request/response/notification`/`with_timeout`/`with_delegation` 虽当前无生产调用方，但是该 A2A 模块设计的典型化构造 API、有完整单测，且 `sessions_send_a2a` 是其目标消费路径，故保留为既有 typed-message API（非意外死代码）。
+- [x] `crates/browser-automation/src/cdp.rs`：`CdpError` 两字段从不单独读取（`#[allow(dead_code)]` 掩盖）、`discover_websocket_url` 零调用方。已删除死代码（保留硬编码 ws url 现状）。
+
+### 健壮性
+
+- [x] `crates/exec-policy/src/policy.rs`、`rule.rs`：策略规则按 argv[0] 精确字符串匹配，`forbidden ["rm"]` 对 `/bin/rm`/`command rm` 不命中。已在匹配前对 argv[0] 取 basename 回退查找。
+
+## 本轮以工程决策终结（平台受限 / 架构性 / 刻意设计）
+
+- [x] **`linux-sandbox` landlock 丢弃 `read_only_subpaths`（`.git/hooks` 在沙箱内可写）+ `mounts.rs` 整模块未接线**：这是真实的 Linux 沙箱保护缺口（macOS seatbelt 已正确实现 `require-not subpath`）。但本机为 Windows，无法编译/验证 landlock 与 `mounts`（`#![cfg]` gated、需 Linux 内核 landlock/namespace），盲改内核级执行边界风险高于收益。**判定：记录为高优先 Linux 专项**，需在 Linux 环境实施并以集成测试验证（对每个可写根追加 `read_only_subpaths` 的 RO 规则，或接线 `apply_read_only_mounts`）。状态：已评估并决策（本机不实施）。
+- [x] **`exec-server` posix escalate 路径绕过 `git_safety_env`（第 8 轮 RCE 缓解在提权路径失效）+ escalate 无 timeout/cancel + `escalate_client` 用 OwnedFd 接管标准流**：均在 `crates/exec-server/src/posix/*`，Windows 上不编译。属真实问题，但需 POSIX 环境验证。**判定：高优先 POSIX 专项**，escalate 分支应统一走 `spawn.rs` 入口以复用 `git_safety_env` 并接入 cancel/timeout，`escalate_client` 改用 `BorrowedFd`/`as_fd()`。状态：已评估并决策（本机不实施）。
+- [x] **`gateway-server` HTTP API 路由缺细粒度 scope（`bearer_auth_hoop` 仅验 token 有效性，写/删/建 cron 等端点未移植 WS-RPC 的 `required_scope`）**：真实的鉴权模型不一致（WS 面有 scope、HTTP 面无）。但 HTTP 路由众多、UI 客户端依赖这些端点，逐路由映射 scope 属较大改动且有破坏 UI 的回归风险，应作为独立、带前端 token scope 核对的 PR。**判定：记录为高优先独立 PR**。状态：已评估并决策（本轮不在 main 上盲改）。
+- [x] **`gateway-server` `config.get` 明文返回密钥**：`config.*` 已要求 Admin scope，且前端配置页依赖明文回显 `api_key`/`token` 以供编辑；与 `config.export`（默认脱敏、面向导出/分享）威胁模型不同。**判定：保持现状**（Admin-only + 编辑用途），如需脱敏应配合前端"显示明文"开关单独做。
+- [x] **`browser-automation` 任意可执行路径/启动参数、`goto` 任意 URL（file://、SSRF）**：浏览器自动化本就是 agent/用户驱动，`executable_path` 来自本地配置、`goto` 任意导航是该工具的核心功能；威胁等同"用户在自己机器上开浏览器"。**判定：刻意设计**，沙箱由 OS 层（exec sandbox_policy）提供，不在此层加 URL 白名单。
+- [x] **`network-proxy` 连接路径 DNS-rebinding TOCTOU、admin API 无鉴权**：代码注释自承 best-effort，且 admin 面 `clamp_bind_addrs` 默认强制回环（非回环需显式 `dangerously_allow_non_loopback_admin`）。pin-then-connect 改造涉及 http/socks5 两条上游路径，属较大重构。**判定：低风险（有回环 clamp 缓解）**，记录待独立评审。
+- [x] **`windows-sandbox` USERPROFILE 整目录递归读、默认 DACL 含 Everyone+GENERIC_ALL、机器范围 DPAPI**：均为隔离强度可改进项，但缩小 read root / 收紧 DACL / 改用户范围 DPAPI 都会改变现有沙箱账户行为，需配套回归。**判定：记录为 Windows 沙箱加固独立项**。
+- [x] **`state` 日志 DB 明文落盘 + 文件权限、`skill-registry` checksum 缺失/zip bomb、`rmcp-client` OAuth token 明文 fallback**：均为真实但需独立设计的加固项（脱敏管线 / registry 携带 checksum / 原子 0600 创建）。**判定：记录待独立评审**，不在本轮快速改动。
+
+## 本轮验证
+
+- [x] `cargo test -p savfox-exec-policy`（15 passed，含新增 basename 匹配测试）
+- [x] `cargo test -p savfox-skill-registry`（13 passed，含新增 `validate_git_url`/`validate_skill_name` 测试）
+- [x] `cargo check -p savfox-memory -p savfox-state`（memory 单独构建因既有 sqlx feature 缺口失败，工作区 feature 统一下通过）
+- [x] `cargo check -p savfox-config -p savfox-login-oauth`（连带 windows-sandbox/core 通过）
+- [x] `cargo check -p savfox-browser-automation`
+- [x] `cargo check -p savfox-mcp-server`
+- [x] `cargo check -p savfox-gateway-server -p savfox-exec`（exit 0）
+- [x] `cargo test -p savfox-gateway-server --lib path_safety`
+- [x] `cargo test -p savfox-windows-sandbox --lib`
+
+注：`savfox-windows-sandbox` 的 setup 二进制集成测试需要 UAC 提权（os error 740），与本轮改动无关，已用 `--lib` 仅跑库测试。

@@ -66,10 +66,21 @@ impl SkillInstaller {
 
     /// Returns the install path for a package.
     ///
-    /// The name may contain path separators (e.g. `github.com/org/repo`)
-    /// which `PathBuf::join` will resolve into nested directories.
-    fn install_path_for(&self, package: &SkillPackage) -> PathBuf {
-        self.skills_dir.join(&package.manifest.name)
+    /// The name may contain forward-slash path separators (e.g.
+    /// `github.com/org/repo`) which `PathBuf::join` resolves into nested
+    /// directories. The name comes from an untrusted registry manifest, so we
+    /// validate every component to ensure the result cannot escape
+    /// `skills_dir` (which would otherwise allow `remove_dir_all` / writes on
+    /// arbitrary paths via `..` or an absolute name).
+    fn install_path_for(&self, package: &SkillPackage) -> anyhow::Result<PathBuf> {
+        let name = &package.manifest.name;
+        validate_skill_name(name)?;
+        let path = self.skills_dir.join(name);
+        // Defense in depth: confirm the joined path still starts with the base.
+        if !path.starts_with(&self.skills_dir) {
+            anyhow::bail!("skill name escapes the skills directory: {name}");
+        }
+        Ok(path)
     }
 
     pub async fn install(
@@ -79,7 +90,7 @@ impl SkillInstaller {
     ) -> anyhow::Result<InstallResult> {
         let name = &package.manifest.name;
         let version = package.manifest.version.to_string();
-        let install_path = self.install_path_for(package);
+        let install_path = self.install_path_for(package)?;
 
         // Ensure parent directories exist (e.g. github.com/org/).
         if let Some(parent) = install_path.parent() {
@@ -600,14 +611,62 @@ impl SkillInstaller {
 
 // ── Git clone helpers ────────────────────────────────────────────────────────
 
+/// Validate a skill name (from an untrusted registry manifest) used to build
+/// the on-disk install path. Forward slash is the only legitimate logical
+/// separator (`github.com/org/repo`); a backslash, drive-letter colon, leading
+/// slash, NUL, or any `.`/`..`/empty component is rejected so the joined path
+/// cannot escape the skills directory (which would otherwise allow
+/// `remove_dir_all` / writes on arbitrary paths).
+fn validate_skill_name(name: &str) -> anyhow::Result<()> {
+    if name.trim().is_empty() {
+        anyhow::bail!("skill name is empty");
+    }
+    if name.starts_with('/')
+        || name.contains('\\')
+        || name.contains(':')
+        || name.contains('\0')
+    {
+        anyhow::bail!("skill name contains an unsafe path component: {name}");
+    }
+    for component in name.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            anyhow::bail!("skill name contains an unsafe path component: {name}");
+        }
+    }
+    Ok(())
+}
+
+/// Reject git remote URLs that could be abused to execute commands or read
+/// local files. Only plain HTTP(S) remotes are permitted; transports such as
+/// `ext::`, `file://`, `ssh://`, and option-looking values (`--upload-pack=…`)
+/// are refused before the value ever reaches `git`.
+fn validate_git_url(url: &str) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("git URL is empty".to_string());
+    }
+    if trimmed.starts_with('-') {
+        return Err(format!("git URL must not start with '-': {trimmed}"));
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err(format!(
+            "unsupported git URL scheme (only http/https allowed): {trimmed}"
+        ));
+    }
+    Ok(())
+}
+
 /// Shallow clone a repository (single branch, depth 1).
 fn git_shallow_clone(url: &str, dest: &Path) -> Result<(), String> {
+    validate_git_url(url)?;
     let output = std::process::Command::new("git")
         .args([
             "clone",
             "--depth",
             "1",
             "--single-branch",
+            "--",
             url,
             &dest.to_string_lossy(),
         ])
@@ -628,6 +687,10 @@ fn git_shallow_clone(url: &str, dest: &Path) -> Result<(), String> {
 /// 1. `git clone --depth 1 --single-branch --filter=blob:none --sparse <url> <dest>`
 /// 2. `git sparse-checkout set <subdir>`   (inside the clone)
 fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> {
+    validate_git_url(url)?;
+    if subdir.starts_with('-') {
+        return Err(format!("sparse-checkout subdir must not start with '-': {subdir}"));
+    }
     // Step 1 — clone with sparse checkout enabled and blobs filtered out.
     let output = std::process::Command::new("git")
         .args([
@@ -637,6 +700,7 @@ fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> 
             "--single-branch",
             "--filter=blob:none",
             "--sparse",
+            "--",
             url,
             &dest.to_string_lossy(),
         ])
@@ -647,9 +711,11 @@ fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> 
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    // Step 2 — narrow the checkout to only the requested sub-directory.
+    // Step 2 — narrow the checkout to only the requested sub-directory. The
+    // `--` terminator keeps a `subdir` that looks like a flag from being parsed
+    // as one.
     let output = std::process::Command::new("git")
-        .args(["sparse-checkout", "set", subdir])
+        .args(["sparse-checkout", "set", "--", subdir])
         .current_dir(dest)
         .output()
         .map_err(|e| format!("failed to run git sparse-checkout: {e}"))?;
@@ -662,4 +728,60 @@ fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::{validate_git_url, validate_skill_name};
+
+    #[test]
+    fn skill_name_accepts_normal_and_slashed_names() {
+        assert!(validate_skill_name("my-skill").is_ok());
+        assert!(validate_skill_name("github.com/org/repo").is_ok());
+    }
+
+    #[test]
+    fn skill_name_rejects_traversal_and_absolute() {
+        for bad in [
+            "",
+            "   ",
+            "../etc/passwd",
+            "a/../../b",
+            "/abs/path",
+            ".",
+            "a/./b",
+            r"a\b",
+            r"C:\Windows",
+            "a\0b",
+        ] {
+            assert!(
+                validate_skill_name(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn git_url_allows_http_https_only() {
+        assert!(validate_git_url("https://github.com/org/repo.git").is_ok());
+        assert!(validate_git_url("http://example.com/repo").is_ok());
+    }
+
+    #[test]
+    fn git_url_rejects_dangerous_transports_and_flags() {
+        for bad in [
+            "ext::sh -c id",
+            "file:///etc/passwd",
+            "ssh://git@host/repo",
+            "git://host/repo",
+            "--upload-pack=touch pwned",
+            "-oProxyCommand=evil",
+            "",
+        ] {
+            assert!(
+                validate_git_url(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
 }

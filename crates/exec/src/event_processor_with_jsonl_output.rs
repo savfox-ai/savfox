@@ -751,8 +751,11 @@ impl EventProcessorWithJsonOutput {
                     details: SessionItemDetails::CommandExecution(CommandExecutionItem {
                         command: running.command,
                         aggregated_output: running.aggregated_output,
+                        // The turn ended before this command reported an end
+                        // event, so it did not complete — report Failed rather
+                        // than a misleading Completed/exit_code:None.
                         exit_code: None,
-                        status: CommandExecutionStatus::Completed,
+                        status: CommandExecutionStatus::Failed,
                     }),
                 };
                 items.push(SessionEvent::ItemCompleted(ItemCompletedEvent { item }));

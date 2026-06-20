@@ -108,24 +108,23 @@ async fn on_exec_approval_response(
     receiver: tokio::sync::oneshot::Receiver<serde_json::Value>,
     savfox: Arc<SavfoxSession>,
 ) {
-    let response = receiver.await;
-    let value = match response {
-        Ok(value) => value,
+    // Resolve the decision, failing closed (Denied) on any error. If the
+    // elicitation channel drops we must still submit a decision, otherwise the
+    // exec call hangs forever waiting on approval (matches patch_approval.rs).
+    let response = match receiver.await {
+        Ok(value) => serde_json::from_value::<ExecApprovalResponse>(value).unwrap_or_else(|err| {
+            error!("failed to deserialize ExecApprovalResponse: {err}");
+            ExecApprovalResponse {
+                decision: ReviewDecision::Denied,
+            }
+        }),
         Err(err) => {
-            error!("request failed: {err:?}");
-            return;
+            error!("exec approval request channel closed without a response: {err:?}");
+            ExecApprovalResponse {
+                decision: ReviewDecision::Denied,
+            }
         }
     };
-
-    // Try to deserialize `value` and then make the appropriate call to `savfox`.
-    let response = serde_json::from_value::<ExecApprovalResponse>(value).unwrap_or_else(|err| {
-        error!("failed to deserialize ExecApprovalResponse: {err}");
-        // If we cannot deserialize the response, we deny the request to be
-        // conservative.
-        ExecApprovalResponse {
-            decision: ReviewDecision::Denied,
-        }
-    });
 
     if let Err(err) = savfox
         .submit(Op::ExecApproval {

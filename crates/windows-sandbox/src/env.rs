@@ -11,7 +11,7 @@ pub fn normalize_null_device_env(env_map: &mut HashMap<String, String>) {
     for k in keys {
         if let Some(v) = env_map.get(&k).cloned() {
             let t = v.trim().to_ascii_lowercase();
-            if t == "/dev/null" || t == "\\\\\\\\dev\\\\\\\\null" {
+            if t == "/dev/null" || t == "\\dev\\null" {
                 env_map.insert(k, "NUL".to_string());
             }
         }
@@ -113,7 +113,7 @@ fn ensure_denybin(tools: &[&str], denybin_dir: Option<&Path>) -> Result<PathBuf>
             let path = base.join(format!("{}{}", tool, ext));
             if !path.exists() {
                 let mut f = File::create(&path)?;
-                f.write_all(b"@echo off\\r\\nexit /b 1\\r\\n")?;
+                f.write_all(b"@echo off\r\nexit /b 1\r\n")?;
             }
         }
     }

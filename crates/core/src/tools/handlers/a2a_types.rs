@@ -116,23 +116,6 @@ impl A2AMessage {
     }
 }
 
-// ─── Agent Capabilities ─────────────────────────────────────────────────────
-
-/// Describes the capabilities advertised by an agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentCapabilities {
-    /// Agent identifier (session ID or agent name).
-    pub agent: String,
-    /// Tool names this agent can invoke.
-    pub tools: Vec<String>,
-    /// Skill names installed for this agent.
-    pub skills: Vec<String>,
-    /// Channel IDs this agent is connected to.
-    pub channels: Vec<String>,
-    /// Current status of the agent (e.g. "active", "idle", "offline").
-    pub status: String,
-}
-
 // ─── Delegation Chain Tracking ──────────────────────────────────────────────
 
 /// A single entry in the delegation chain recording a parent-child spawn.
@@ -315,24 +298,5 @@ mod tests {
 
         let removed = remove_delegation("test-child-unique").await;
         assert!(removed);
-    }
-
-    #[test]
-    fn agent_capabilities_serialization() {
-        let caps = AgentCapabilities {
-            agent: "my-agent".to_owned(),
-            tools: vec!["shell".to_owned(), "read_file".to_owned()],
-            skills: vec!["code-review".to_owned()],
-            channels: vec!["discord:12345".to_owned()],
-            status: "active".to_owned(),
-        };
-
-        let json = serde_json::to_string(&caps).unwrap();
-        assert!(json.contains("my-agent"));
-        assert!(json.contains("code-review"));
-
-        let deserialized: AgentCapabilities = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.tools.len(), 2);
-        assert_eq!(deserialized.status, "active");
     }
 }

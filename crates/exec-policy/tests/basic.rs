@@ -120,6 +120,27 @@ prefix_rule(
 }
 
 #[test]
+fn forbidden_rule_matches_absolute_path_via_basename() -> Result<()> {
+    // A rule keyed on the bare program name must still apply when the command
+    // is invoked through an absolute / qualified path (e.g. `/bin/rm`), so the
+    // forbidden classification cannot be bypassed by spelling out the path.
+    let policy_src = r#"
+prefix_rule(
+    pattern = ["rm"],
+    decision = "forbidden",
+    justification = "destructive command",
+)
+    "#;
+    let mut parser = PolicyParser::new();
+    parser.parse("test.rules", policy_src)?;
+    let policy = parser.build();
+
+    let evaluation = policy.check(&tokens(&["/bin/rm", "-rf", "/data"]), &allow_all);
+    assert_eq!(Decision::Forbidden, evaluation.decision);
+    Ok(())
+}
+
+#[test]
 fn justification_can_be_used_with_allow_decision() -> Result<()> {
     let policy_src = r#"
 prefix_rule(

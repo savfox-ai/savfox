@@ -53,19 +53,16 @@ impl HybridSearch {
         Ok(merged)
     }
 
-    pub fn search_vector_only(
+    pub async fn search_vector_only(
         &self,
         storage: &VectorStorage,
         query_embedding: &[f32],
         limit: usize,
     ) -> Result<Vec<MemorySearchResult>, SearchError> {
-        let rt = tokio::runtime::Handle::current();
-        let results = rt.block_on(async {
-            storage
-                .search_similar(query_embedding, limit)
-                .await
-                .map_err(|e| SearchError::StorageError(e.to_string()))
-        })?;
+        let results = storage
+            .search_similar(query_embedding, limit)
+            .await
+            .map_err(|e| SearchError::StorageError(e.to_string()))?;
 
         Ok(results
             .into_iter()
@@ -77,19 +74,16 @@ impl HybridSearch {
             .collect())
     }
 
-    pub fn search_keyword_only(
+    pub async fn search_keyword_only(
         &self,
         storage: &VectorStorage,
         query: &str,
         limit: usize,
     ) -> Result<Vec<MemorySearchResult>, SearchError> {
-        let rt = tokio::runtime::Handle::current();
-        let results = rt.block_on(async {
-            storage
-                .search_fts(query, limit)
-                .await
-                .map_err(|e| SearchError::StorageError(e.to_string()))
-        })?;
+        let results = storage
+            .search_fts(query, limit)
+            .await
+            .map_err(|e| SearchError::StorageError(e.to_string()))?;
 
         Ok(results
             .into_iter()
@@ -189,9 +183,3 @@ pub enum SearchError {
     StorageError(String),
 }
 
-#[must_use]
-pub fn build_fts_query(query: &str) -> String {
-    let terms: Vec<&str> = query.split_whitespace().filter(|t| t.len() > 2).collect();
-
-    terms.join(" ")
-}

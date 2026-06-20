@@ -237,6 +237,7 @@ impl MemoryManager {
         let results = self
             .search
             .search_vector_only(&storage, &query_embedding, self.config.max_results)
+            .await
             .map_err(|e| MemoryError::SearchError(e.to_string()))?;
 
         Ok(results)
@@ -250,6 +251,7 @@ impl MemoryManager {
         let results = self
             .search
             .search_keyword_only(&storage, query, self.config.max_results)
+            .await
             .map_err(|e| MemoryError::SearchError(e.to_string()))?;
 
         Ok(results)

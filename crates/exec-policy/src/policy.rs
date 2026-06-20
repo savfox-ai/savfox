@@ -119,11 +119,27 @@ impl Policy {
         heuristics_fallback: HeuristicsFallback<'_>,
     ) -> Vec<RuleMatch> {
         let matched_rules: Vec<RuleMatch> = match cmd.first() {
-            Some(first) => self
-                .rules_by_program
-                .get_vec(first)
-                .map(|rules| rules.iter().filter_map(|rule| rule.matches(cmd)).collect())
-                .unwrap_or_default(),
+            Some(first) => {
+                if let Some(rules) = self.rules_by_program.get_vec(first) {
+                    rules.iter().filter_map(|rule| rule.matches(cmd)).collect()
+                } else if let Some(base) =
+                    program_basename(first).filter(|base| *base != first.as_str())
+                    && let Some(rules) = self.rules_by_program.get_vec(base)
+                {
+                    // Fall back to the program's basename so absolute / qualified
+                    // paths (e.g. `/bin/rm`, `C:\Windows\System32\cmd.exe`) still
+                    // match rules keyed on the bare program name. Prefix rules pin
+                    // argv[0], so re-spell it as the basename before matching.
+                    let mut normalized = cmd.to_vec();
+                    normalized[0] = base.to_owned();
+                    rules
+                        .iter()
+                        .filter_map(|rule| rule.matches(&normalized))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
             None => Vec::new(),
         };
 
@@ -137,6 +153,17 @@ impl Policy {
         } else {
             matched_rules
         }
+    }
+}
+
+/// Returns the final path component of a program token, handling both `/` and
+/// `\` separators so the same logic applies to POSIX and Windows paths.
+fn program_basename(program: &str) -> Option<&str> {
+    let base = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    if base.is_empty() {
+        None
+    } else {
+        Some(base)
     }
 }
 
@@ -156,13 +183,6 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
-    #[must_use]
-    pub fn is_match(&self) -> bool {
-        self.matched_rules
-            .iter()
-            .any(|rule_match| !matches!(rule_match, RuleMatch::HeuristicsRuleMatch { .. }))
-    }
-
     /// Caller is responsible for ensuring that `matched_rules` is non-empty.
     fn from_matches(matched_rules: Vec<RuleMatch>) -> Self {
         let decision = matched_rules.iter().map(RuleMatch::decision).max();

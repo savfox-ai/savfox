@@ -57,13 +57,23 @@ impl Page {
     pub async fn goto(&self, url: &str) -> Result<()> {
         debug!(url = %url, "Navigating to URL");
 
-        self.cdp
+        let result = self
+            .cdp
             .send_request_to_session(
                 "Page.navigate",
                 serde_json::json!({ "url": url }),
                 &self.session_id,
             )
             .await?;
+
+        // Page.navigate returns an `errorText` field when the navigation could
+        // not be started (bad scheme, DNS failure, blocked by client, …). Treat
+        // that as an error rather than reporting a success the caller can't trust.
+        if let Some(error_text) = result.get("errorText").and_then(|v| v.as_str()) {
+            if !error_text.is_empty() {
+                return Err(anyhow!("navigation to {url} failed: {error_text}"));
+            }
+        }
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
@@ -384,6 +394,9 @@ impl Page {
     pub async fn screenshot(&self, options: ScreenshotOptions) -> Result<Vec<u8>> {
         let mut params = serde_json::json!({
             "format": format!("{:?}", options.format).to_lowercase(),
+            "fromSurface": options.from_surface,
+            "captureBeyondViewport": options.capture_beyond_viewport,
+            "optimizeForSpeed": options.optimize_for_speed,
         });
 
         if let Some(quality) = options.quality {
