@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use chrono::{DateTime, Utc};
 use savfox_app_server_protocol::AuthMode;
@@ -237,6 +239,22 @@ pub fn load_provider_store_file(savfox_home: &Path, account_id: &str) -> Provide
     ProviderStoreFile::empty(account_id)
 }
 
+/// Per-account-id lock serializing the load→mutate→save critical section so
+/// concurrent writers within this process (e.g. two `models.import` RPC calls)
+/// don't lose each other's updates. NOTE: this is intra-process only; a separate
+/// process (e.g. the TUI) writing the same account concurrently would still need
+/// an OS file lock — acceptable since the gateway server is the primary writer.
+fn provider_store_lock(account_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let registry = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = registry.lock().unwrap_or_else(|e| e.into_inner());
+    Arc::clone(
+        guard
+            .entry(sanitize_account_component(account_id))
+            .or_default(),
+    )
+}
+
 pub fn save_provider_store_file(
     savfox_home: &Path,
     account_id: &str,
@@ -346,14 +364,20 @@ pub fn update_provider_store_models(
 ) -> std::io::Result<()> {
     let canonical = crate::canonical_provider_id(target_provider_id);
     let now = Utc::now();
-    for mut file in list_provider_store_files(savfox_home) {
-        let file_canonical = crate::canonical_provider_id(&file.provider_id);
+    for listed in list_provider_store_files(savfox_home) {
+        let file_canonical = crate::canonical_provider_id(&listed.provider_id);
         if file_canonical != canonical {
             continue;
         }
+        let account_id = listed.account_id().to_owned();
+        let lock = provider_store_lock(&account_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // Re-load under the lock so a concurrent auth/models update isn't
+        // clobbered by stale data captured during `list_provider_store_files`.
+        let mut file = load_provider_store_file(savfox_home, &account_id);
         file.models = models.to_vec();
         file.models_fetched_at = Some(now);
-        save_provider_store_file(savfox_home, file.account_id(), &file)?;
+        save_provider_store_file(savfox_home, &account_id, &file)?;
     }
     Ok(())
 }
@@ -367,6 +391,9 @@ pub fn persist_provider_connection(
     env_key: Option<&str>,
     api_key: Option<&str>,
 ) -> std::io::Result<()> {
+    let lock = provider_store_lock(account_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
     let mut file = load_provider_store_file(savfox_home, account_id);
     file.version = PROVIDER_STORE_FILE_VERSION;
     file.id = account_id.to_owned();
