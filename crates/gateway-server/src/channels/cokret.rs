@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use cokret_core::AccountSubscribeFrameKind;
 use cokret_identifiers::{DeviceId, Did};
 use savfox_channels::cokret::{
@@ -35,6 +36,9 @@ struct CokretRuntimeState {
 }
 
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
+
+/// Refresh a DID-proof session grant this many seconds before it expires.
+const SESSION_REFRESH_SKEW_SECS: i64 = 60;
 
 struct EventDedupe {
     seen: HashSet<String>,
@@ -174,8 +178,9 @@ async fn run_account_subscribe_loop(
     // obtain a session grant; otherwise fall back to bare-bearer mode
     // (Phase 1-7 behavior). Login failure is fatal — we don't silently
     // downgrade.
-    let mut client = match construct_account_client(&channel, &account).await {
-        Ok(client) => client,
+    let (mut client, mut session_expiry) = match construct_account_client(&channel, &account).await
+    {
+        Ok(pair) => pair,
         Err(err) => {
             warn!(
                 "cokret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
@@ -187,6 +192,30 @@ async fn run_account_subscribe_loop(
 
     loop {
         runtime::record_channel_probe("cokret", "tick").await;
+
+        // Proactively refresh the DID-proof session grant before it expires so a
+        // long-lived stream doesn't have to wait for an Unauthorized to recover.
+        if let Some(expiry) = session_expiry
+            && Utc::now() >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)
+        {
+            info!(
+                "cokret: account '{}' session grant near expiry ({expiry}) — refreshing",
+                account.id
+            );
+            match construct_account_client(&channel, &account).await {
+                Ok((fresh, fresh_expiry)) => {
+                    client = fresh;
+                    session_expiry = fresh_expiry;
+                }
+                Err(err) => {
+                    warn!(
+                        "cokret: account '{}' proactive refresh failed: {err:#}; continuing until Unauthorized",
+                        account.id
+                    );
+                }
+            }
+        }
+
         let initial = cursor.is_none();
         match client
             .account_subscribe_stream(cursor.as_deref(), initial)
@@ -222,8 +251,9 @@ async fn run_account_subscribe_loop(
                         );
                         sleep_with_backoff(&mut backoff).await;
                         match construct_account_client(&channel, &account).await {
-                            Ok(fresh) => {
+                            Ok((fresh, fresh_expiry)) => {
                                 client = fresh;
+                                session_expiry = fresh_expiry;
                                 cursor = None;
                                 dedupe.clear();
                                 backoff = Duration::from_secs(1);
@@ -390,10 +420,14 @@ async fn sleep_with_backoff(backoff: &mut Duration) {
 /// account. If `account.key_ref` is set, runs DID-proof login (S-2) to
 /// obtain a `ck.session.grant`; otherwise builds a bare-bearer client
 /// from the static `access_token`.
+///
+/// Returns the client and, for DID-proof logins, the session grant's
+/// `expires_at` so the caller can refresh proactively (bare-bearer has no
+/// expiry and returns `None`).
 async fn construct_account_client(
     channel: &CokretChannelConfig,
     account: &CokretAccountConfig,
-) -> anyhow::Result<CokretHttpClient> {
+) -> anyhow::Result<(CokretHttpClient, Option<DateTime<Utc>>)> {
     if let Some(key_ref) = &account.key_ref {
         let vm = account
             .verification_method
@@ -421,7 +455,7 @@ async fn construct_account_client(
             .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
         let device = DeviceId::new(account.device_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid device_id: {err}"))?;
-        let (client, _session) = CokretHttpClient::login(
+        let (client, session) = CokretHttpClient::login(
             &channel.base_url,
             &signer,
             principal,
@@ -431,12 +465,15 @@ async fn construct_account_client(
         )
         .await?;
         info!(
-            "cokret: account '{}' logged in via DID-proof; audience='{}'",
-            account.id, audience
+            "cokret: account '{}' logged in via DID-proof; audience='{}' expires_at='{}'",
+            account.id, audience, session.expires_at
         );
-        Ok(client)
+        Ok((client, Some(session.expires_at)))
     } else {
-        CokretHttpClient::new(&channel.base_url, &account.access_token)
+        Ok((
+            CokretHttpClient::new(&channel.base_url, &account.access_token)?,
+            None,
+        ))
     }
 }
 
@@ -499,8 +536,9 @@ pub(crate) async fn send_to_cokret_account(
         })?;
 
     // Phase 8 (T8.D): same auth flow as the sync loop — login when
-    // key_ref is set, bare bearer otherwise.
-    let client = construct_account_client(&channel, &account).await?;
+    // key_ref is set, bare bearer otherwise. (One-shot send: the session
+    // expiry isn't tracked here.)
+    let (client, _session_expiry) = construct_account_client(&channel, &account).await?;
     // Monotonic, restart-safe actor sequence (parity with the applet path).
     let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
         .alloc()
