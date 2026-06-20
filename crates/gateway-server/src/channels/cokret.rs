@@ -329,6 +329,14 @@ async fn dispatch_to_agent(
     let flow_id = event.flow_id.clone();
     let thread_id = event.thread_root_id.clone();
     let body = event.body;
+    // DIDs carry no external-bot localpart convention, but we can at least mark
+    // the account's own DID as SelfBot so the runtime never replies to its own
+    // echoed messages.
+    let sender_kind = if sender.eq_ignore_ascii_case(account.principal_id.trim()) {
+        runtime::SenderKind::SelfBot
+    } else {
+        runtime::SenderKind::Human
+    };
 
     tokio::spawn(async move {
         runtime::spawn_start_thread_pipeline_with_meta_coordinated(
@@ -346,6 +354,7 @@ async fn dispatch_to_agent(
                 chat_type: Some("group".to_owned()),
                 saved_channel_config_id: Some(config_id),
                 forced_agent_id: agent_id,
+                sender_kind,
                 ..runtime::StartThreadMeta::default()
             }),
         )

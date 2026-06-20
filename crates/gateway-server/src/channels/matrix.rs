@@ -986,15 +986,10 @@ impl MatrixAppserviceChannel {
         if self.should_ignore_sender(user_id) {
             return runtime::SenderKind::OwnAgentGhost;
         }
-        let Some(localpart) = matrix_localpart(user_id) else {
+        if matrix_localpart(user_id).is_none() {
             return runtime::SenderKind::Unknown;
-        };
-        let localpart = localpart.to_ascii_lowercase();
-        if localpart.ends_with("bot")
-            || localpart.starts_with("bot")
-            || localpart.contains("_bot")
-            || localpart.contains("bot_")
-        {
+        }
+        if matrix_localpart_looks_like_bot(user_id) {
             runtime::SenderKind::ExternalBot
         } else {
             runtime::SenderKind::Human
@@ -1634,6 +1629,39 @@ fn matrix_localpart(user_id: &str) -> Option<&str> {
     }
 }
 
+/// Heuristic: does this Matrix user id's localpart look like a bot account?
+fn matrix_localpart_looks_like_bot(user_id: &str) -> bool {
+    let Some(localpart) = matrix_localpart(user_id) else {
+        return false;
+    };
+    let localpart = localpart.to_ascii_lowercase();
+    localpart.ends_with("bot")
+        || localpart.starts_with("bot")
+        || localpart.contains("_bot")
+        || localpart.contains("bot_")
+}
+
+/// Classify an inbound Matrix sender for the user-mode and webhook paths, which
+/// lack the appservice namespace context. `self_user_id` is the bot's own
+/// Matrix id so its own echoes classify as `SelfBot`. Mirrors the appservice
+/// `sender_kind_for_user` so `ExternalBotPolicy` applies consistently across all
+/// three Matrix ingest paths.
+fn matrix_user_mode_sender_kind(sender: &str, self_user_id: Option<&str>) -> runtime::SenderKind {
+    if let Some(self_id) = self_user_id
+        && sender.eq_ignore_ascii_case(self_id)
+    {
+        return runtime::SenderKind::SelfBot;
+    }
+    if matrix_localpart(sender).is_none() {
+        return runtime::SenderKind::Unknown;
+    }
+    if matrix_localpart_looks_like_bot(sender) {
+        runtime::SenderKind::ExternalBot
+    } else {
+        runtime::SenderKind::Human
+    }
+}
+
 fn matrix_alias_localpart(alias: &str) -> Option<&str> {
     let trimmed = alias.trim();
     let without_hash = trimmed.strip_prefix('#').unwrap_or(trimmed);
@@ -1820,6 +1848,7 @@ async fn dispatch_matrix_commands(task: &MatrixSyncTask, commands: Vec<MatrixCom
         let gateway_channel = Arc::clone(&task.gateway_channel);
         let session_store = Arc::clone(&task.session_store);
         let config_id = task.config_id.clone();
+        let sender_kind = matrix_user_mode_sender_kind(&command.sender, Some(&task.user_id));
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gateway_channel,
@@ -1833,6 +1862,7 @@ async fn dispatch_matrix_commands(task: &MatrixSyncTask, commands: Vec<MatrixCom
                     group_id: Some(command.room_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id: Some(config_id),
+                    sender_kind,
                     is_mentioned: command.is_mentioned,
                     used_plain_text_fallback: command.used_plain_text_fallback,
                     ..runtime::StartThreadMeta::default()
@@ -2247,6 +2277,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
         let saved_channel_config_id = outbound_config.map(|config| config.id);
+        let sender_kind = matrix_user_mode_sender_kind(&command.sender, self_user_id.as_deref());
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gateway_channel,
@@ -2260,6 +2291,7 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
                     group_id: Some(command.room_id),
                     chat_type: Some("group".to_owned()),
                     saved_channel_config_id,
+                    sender_kind,
                     is_mentioned: command.is_mentioned,
                     used_plain_text_fallback: command.used_plain_text_fallback,
                     ..runtime::StartThreadMeta::default()
@@ -2281,6 +2313,37 @@ mod tests {
     use salvo::http::uri::{Scheme, Uri};
 
     use super::*;
+
+    #[test]
+    fn matrix_user_mode_sender_kind_classifies_bots_and_self() {
+        let me = "@savfox:example.org";
+        assert_eq!(
+            matrix_user_mode_sender_kind(me, Some(me)),
+            runtime::SenderKind::SelfBot
+        );
+        assert_eq!(
+            matrix_user_mode_sender_kind("@weatherbot:example.org", Some(me)),
+            runtime::SenderKind::ExternalBot
+        );
+        assert_eq!(
+            matrix_user_mode_sender_kind("@bot_helper:example.org", Some(me)),
+            runtime::SenderKind::ExternalBot
+        );
+        assert_eq!(
+            matrix_user_mode_sender_kind("@alice:example.org", Some(me)),
+            runtime::SenderKind::Human
+        );
+        // No self id configured: a normal human is still Human.
+        assert_eq!(
+            matrix_user_mode_sender_kind("@alice:example.org", None),
+            runtime::SenderKind::Human
+        );
+        // Malformed sender (empty localpart) is Unknown.
+        assert_eq!(
+            matrix_user_mode_sender_kind("@:example.org", None),
+            runtime::SenderKind::Unknown
+        );
+    }
 
     #[handler]
     async fn spa_fallback() -> &'static str {
