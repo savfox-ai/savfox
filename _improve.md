@@ -116,3 +116,34 @@
 - [x] `cargo test -p savfox-gateway-server --lib matrix`（6 passed）
 - [x] `cargo test -p savfox-gateway-server --lib auth`（40 passed）
 - [x] `cargo fmt -p savfox-core -p savfox-gateway-server -p savfox-api-client`
+
+---
+
+# 第四轮（2026-06-20）
+
+聚焦命令安全检测缺口（上一轮列为待办的最高风险项），改动均为"只会增加提示、不会减少"的方向。
+
+## 本轮已处理
+
+### 命令安全
+
+- [x] `crates/core/src/commands/safety/is_dangerous_command.rs`：`rm` 强制删除检测之前只匹配 `command[1] == "-f"|"-rf"`，漏掉 `rm --force`、`rm -fr`、`rm -rfv`、`rm dir -rf`、`rm -r -f`、`/bin/rm -rf` 等。已改为 `rm_is_force`（任意位置 + 短标志分组检测 `f`/`--force`）并按 basename 匹配（修复路径前缀绕过）。保留"仅 `-r` 非强制删除不提示"的原行为。
+- [x] `crates/core/src/commands/safety/is_dangerous_command.rs`：补充明确破坏性命令 `dd`、`shred`、`mkfs`/`mkfs.*` 为危险（按 basename，覆盖 `/sbin/mkfs.ext4` 等；`sudo dd ...` 经既有递归同样命中）。新增 4 个单测。
+- [x] `crates/core/src/commands/safety/is_safe_command.rs`：git 只读放行的 unsafe-flag 列表补充 `--open-files-in-pager`（会触发 core.pager 执行）。
+
+### 死代码
+
+- [x] `crates/gateway-server/src/channels/cokret.rs`：删除零调用方、带 `#[allow(dead_code)]` 的 `handle_outbound_action`，并清理随之失效的 `ChannelAction` 导入。
+
+## 待继续处理（评估后判定为不宜在本轮简单改动）
+
+- [ ] `git show/log/diff` 的 `.gitattributes` textconv / `diff.external` / `core.pager` 配置驱动 RCE：`is_known_safe_command` 只做分类、无法改写命令注入安全 flag，真正修复应在 exec 层为 git 注入安全环境（`GIT_PAGER=cat`、`GIT_EXTERNAL_DIFF=`、`-c diff.external=`、`--no-textconv`）。属架构性改动，单独评审。注：自动 exec 下 stdout 非 TTY，core.pager 通常不触发，但 textconv 不依赖 TTY，仍是实打实的风险。
+- [ ] Windows `windows_dangerous_commands.rs` 的 `Start-Process calc.exe`/`start ms-settings:`/UNC 等"非 URL"放行：该检测器**刻意**只针对"打开恶意 URL/文件"威胁模型（`has_url &&` 门控），把所有 `Start-Process` 判危险会海量误报。如要收紧 `looks_like_url` 覆盖 `file://`/scheme/UNC，需配套调整正则解析，单独评审。
+- [ ] 其余上一轮列出的待办（id_token 未验签工作区限制、provider_store TOCTOU、`fetch_account_rate_limits` 永久失败、cokret 入站 `sender_kind` 缺失、若干低优先死代码）保持不变。
+
+## 本轮验证
+
+- [x] `cargo test -p savfox-core --lib safety`（90 passed）
+- [x] `cargo test -p savfox-core --lib is_dangerous_command`（61 passed）
+- [x] `cargo test -p savfox-core --lib is_safe_command`（18 passed）
+- [x] `cargo check -p savfox-core -p savfox-gateway-server`

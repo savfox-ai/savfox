@@ -125,6 +125,20 @@ pub(crate) fn find_git_subcommand<'a>(
     None
 }
 
+/// Strip any directory prefix so `/bin/rm`, `./rm`, and `rm` all compare equal.
+fn command_basename(cmd: &str) -> &str {
+    cmd.rsplit(['/', '\\']).next().unwrap_or(cmd)
+}
+
+/// `rm` is treated as dangerous when it forces removal (`-f`/`--force`),
+/// regardless of where the flag appears or how short flags are grouped
+/// (`rm -rf`, `rm -fr`, `rm -rfv`, `rm dir --force`, `rm -r -f`, …).
+fn rm_is_force(args: &[String]) -> bool {
+    args.iter()
+        .map(String::as_str)
+        .any(|arg| arg == "--force" || short_flag_group_contains(arg, 'f'))
+}
+
 fn is_dangerous_to_call_with_exec(command: &[String]) -> bool {
     let cmd0 = command.first().map(String::as_str);
 
@@ -148,13 +162,21 @@ fn is_dangerous_to_call_with_exec(command: &[String]) -> bool {
             }
         }
 
-        Some("rm") => matches!(command.get(1).map(String::as_str), Some("-f" | "-rf")),
-
         // for sudo <cmd> simply do the check for <cmd>
         Some("sudo") => is_dangerous_to_call_with_exec(&command[1..]),
 
-        // ── anything else ─────────────────────────────────────────────────
-        _ => false,
+        // Match the rest on the command basename so a path prefix (e.g.
+        // `/bin/rm`) cannot bypass detection.
+        Some(cmd) => match command_basename(cmd) {
+            "rm" => rm_is_force(&command[1..]),
+            // Unconditionally destructive, low-level disk/file destroyers that
+            // take effect immediately and are rarely benign in an agent run.
+            "dd" | "shred" => true,
+            name if name == "mkfs" || name.starts_with("mkfs.") => true,
+            _ => false,
+        },
+
+        None => false,
     }
 }
 
@@ -403,5 +425,53 @@ mod tests {
     #[test]
     fn rm_f_is_dangerous() {
         assert!(command_might_be_dangerous(&vec_str(&["rm", "-f", "/"])));
+    }
+
+    #[test]
+    fn rm_force_variants_in_any_position_are_dangerous() {
+        for args in [
+            &["rm", "--force", "x"][..],
+            &["rm", "-fr", "x"][..],
+            &["rm", "-rfv", "x"][..],
+            &["rm", "dir", "-rf"][..],
+            &["rm", "-r", "-f", "x"][..],
+            &["/bin/rm", "-rf", "x"][..],
+        ] {
+            assert!(
+                command_might_be_dangerous(&vec_str(args)),
+                "expected dangerous: {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rm_without_force_is_not_dangerous() {
+        // Recursive-only removal keeps the prior (non-force) behavior.
+        assert!(!command_might_be_dangerous(&vec_str(&["rm", "-r", "dir"])));
+        assert!(!command_might_be_dangerous(&vec_str(&["rm", "file.txt"])));
+    }
+
+    #[test]
+    fn disk_destroyers_are_dangerous() {
+        assert!(command_might_be_dangerous(&vec_str(&[
+            "dd",
+            "if=/dev/zero",
+            "of=/dev/sda",
+        ])));
+        assert!(command_might_be_dangerous(&vec_str(&[
+            "/bin/shred",
+            "-u",
+            "f"
+        ])));
+        assert!(command_might_be_dangerous(&vec_str(&[
+            "/sbin/mkfs.ext4",
+            "/dev/sda1",
+        ])));
+        assert!(command_might_be_dangerous(&vec_str(&[
+            "sudo",
+            "dd",
+            "if=/dev/zero",
+            "of=/dev/sda",
+        ])));
     }
 }

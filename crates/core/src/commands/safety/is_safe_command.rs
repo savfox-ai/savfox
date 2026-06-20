@@ -230,6 +230,8 @@ fn git_subcommand_args_are_read_only(args: &[String]) -> bool {
         "--textconv",
         "--exec",
         "--paginate",
+        // Launches the pager on matched files — executes core.pager.
+        "--open-files-in-pager",
     ];
 
     !args.iter().map(String::as_str).any(|arg| {

@@ -22,7 +22,6 @@ use savfox_channels::cokret::{
     CokretInboundEvent, MessageCreateRequest, build_message_create_event, load_ed25519_signer,
     parse_delta_frame_for_account, resolve_cokret_outbound_account,
 };
-use savfox_core::channel::ChannelAction;
 use tracing::{debug, info, warn};
 
 use super::{ChannelRegistry, runtime};
@@ -514,17 +513,4 @@ pub(crate) async fn send_to_cokret_account(
         response.duplicate.len()
     );
     Ok(())
-}
-
-/// Convenience wrapper for the channel registry's `ChannelAction::SendToThread`.
-#[allow(dead_code)]
-pub(crate) async fn handle_outbound_action(
-    savfox_home: &std::path::PathBuf,
-    action: ChannelAction,
-) -> anyhow::Result<()> {
-    if let ChannelAction::SendToThread { thread_id, message } = action {
-        send_to_cokret_account(savfox_home, &thread_id, None, &message).await
-    } else {
-        Ok(())
-    }
 }
