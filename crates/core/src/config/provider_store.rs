@@ -155,9 +155,31 @@ pub fn provider_models_store_dir(savfox_home: &Path) -> PathBuf {
     savfox_home.join(PROVIDER_MODELS_DIR_NAME)
 }
 
+/// Defense-in-depth: account ids are used directly as filenames, and some flow
+/// from untrusted RPC input (`provider_id` on model import). Collapse to the
+/// final path component and keep only filename-safe chars so a value like
+/// `../../etc/foo` can never escape the models directory.
+fn sanitize_account_component(account_id: &str) -> String {
+    let last = Path::new(account_id.trim())
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    let safe: String = last
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .collect();
+    let safe = safe.trim_matches('.');
+    if safe.is_empty() {
+        "_invalid".to_owned()
+    } else {
+        safe.to_owned()
+    }
+}
+
 #[must_use]
 pub fn provider_store_path(savfox_home: &Path, account_id: &str) -> PathBuf {
-    provider_models_store_dir(savfox_home).join(format!("{account_id}.json"))
+    let component = sanitize_account_component(account_id);
+    provider_models_store_dir(savfox_home).join(format!("{component}.json"))
 }
 
 /// Normalize a human-readable name into a URL/filename-safe slug.
@@ -224,7 +246,9 @@ pub fn save_provider_store_file(
     std::fs::create_dir_all(&dir)?;
     let path = provider_store_path(savfox_home, account_id);
     let data = serde_json::to_string_pretty(file).map_err(std::io::Error::other)?;
-    std::fs::write(path, data)
+    // Credentials (API keys / OAuth tokens) live in this file — write atomically
+    // with 0600 so they are never world-readable, matching `auth/storage.rs`.
+    savfox_utils::fs::write_atomically(&path, data.as_bytes(), Some(0o600))
 }
 
 #[must_use]
@@ -466,6 +490,37 @@ fn apply_provider_fallback(savfox_home: &Path, new_provider_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_store_path_cannot_escape_models_dir() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let savfox_home = tmp.path();
+        let models_dir = provider_models_store_dir(savfox_home);
+
+        // Traversal / absolute-path attempts must stay inside the models dir.
+        for malicious in [
+            "../../etc/passwd",
+            "..\\..\\windows\\system32\\foo",
+            "/etc/cron.d/evil",
+            "a/b/c",
+            "..",
+            "",
+        ] {
+            let path = provider_store_path(savfox_home, malicious);
+            assert_eq!(
+                path.parent(),
+                Some(models_dir.as_path()),
+                "{malicious:?} escaped the models dir: {path:?}"
+            );
+            assert_eq!(path.extension().and_then(|e| e.to_str()), Some("json"));
+        }
+
+        // Normal account ids are preserved verbatim.
+        assert_eq!(
+            provider_store_path(savfox_home, "openai-work"),
+            models_dir.join("openai-work.json")
+        );
+    }
 
     #[test]
     fn account_id_exists_check() {

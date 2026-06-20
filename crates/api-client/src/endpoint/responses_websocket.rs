@@ -180,10 +180,10 @@ async fn connect_websocket(
 
     let (stream, response) = match response {
         Ok((stream, response)) => {
-            info!(
-                "successfully connected to websocket: {url}, headers: {:?}",
-                response.headers()
-            );
+            // Log only header names, never values — server handshake responses
+            // can carry sensitive headers (e.g. set-cookie).
+            let header_names: Vec<&str> = response.headers().keys().map(|k| k.as_str()).collect();
+            info!("successfully connected to websocket: {url}, headers: {header_names:?}");
             (stream, response)
         }
         Err(err) => {

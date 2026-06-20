@@ -640,7 +640,12 @@ async fn try_refresh_token(
         Ok(refresh_response)
     } else {
         let body = response.text().await.unwrap_or_default();
-        tracing::error!("Failed to refresh token: {status}: {body}");
+        // Log only the parsed error message, not the raw response body, to avoid
+        // surfacing potentially sensitive token-endpoint content in logs.
+        tracing::error!(
+            "Failed to refresh token: {status}: {}",
+            try_parse_error_message(&body)
+        );
         if status == StatusCode::UNAUTHORIZED {
             let failed = classify_refresh_token_failure(&body);
             Err(RefreshTokenError::Permanent(failed))
@@ -667,7 +672,6 @@ fn classify_refresh_token_failure(body: &str) -> RefreshTokenFailedError {
     if reason == RefreshTokenFailedReason::Other {
         tracing::warn!(
             backend_code = normalized_code.as_deref(),
-            backend_body = body,
             "Encountered unknown 401 response while refreshing token"
         );
     }

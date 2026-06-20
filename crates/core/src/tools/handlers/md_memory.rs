@@ -105,6 +105,22 @@ impl ToolHandler for MdMemoryHandler {
         ToolKind::Function
     }
 
+    async fn is_mutating(&self, invocation: &ToolInvocation) -> bool {
+        // `create`/`update`/`delete`/`promote` write or remove `.md` files;
+        // route them through the tool-call gate. `list`/`get`/`search` are reads.
+        match &invocation.payload {
+            ToolPayload::Function { arguments } => serde_json::from_str::<MdMemoryArgs>(arguments)
+                .map(|args| {
+                    matches!(
+                        args.action.as_str(),
+                        "create" | "update" | "delete" | "promote"
+                    )
+                })
+                .unwrap_or(true),
+            _ => true,
+        }
+    }
+
     async fn handle(&self, _invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError> {
         let arguments = match &_invocation.payload {
             ToolPayload::Function { arguments } => arguments.clone(),

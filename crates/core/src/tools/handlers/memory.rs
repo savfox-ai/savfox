@@ -140,6 +140,17 @@ impl ToolHandler for MemoryHandler {
         ToolKind::Function
     }
 
+    async fn is_mutating(&self, invocation: &ToolInvocation) -> bool {
+        // `add`/`delete` write `$SAVFOX_HOME/memory/entries.json`; route those
+        // through the tool-call gate. Reads (search/get/list) are not mutating.
+        match &invocation.payload {
+            ToolPayload::Function { arguments } => serde_json::from_str::<MemoryArgs>(arguments)
+                .map(|args| matches!(args.action.as_str(), "add" | "delete"))
+                .unwrap_or(true),
+            _ => true,
+        }
+    }
+
     async fn handle(&self, _invocation: ToolInvocation) -> Result<ToolOutput, FunctionCallError> {
         let arguments = match &_invocation.payload {
             ToolPayload::Function { arguments } => arguments.clone(),

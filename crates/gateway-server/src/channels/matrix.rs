@@ -644,6 +644,10 @@ struct MatrixAppserviceInner {
     user_prefix: String,
     alias_prefix: String,
     bot_user_id: String,
+    /// Optional allowlist of Matrix user ids permitted to drive the agent. When
+    /// non-empty, transactions from any other sender are dropped. Mirrors the
+    /// user-mode `MatrixSyncTask::allowed_senders` enforcement.
+    allowed_senders: HashSet<String>,
     client: MatrixClient,
     room_users: Mutex<HashMap<String, String>>,
     gateway_channel: Arc<GatewayChannel>,
@@ -703,6 +707,12 @@ impl MatrixAppserviceChannel {
         let homeserver_url = url::Url::parse(&config.homeserver)
             .with_context(|| format!("invalid Matrix homeserver URL: {}", config.homeserver))?;
         let bot_user_id = format!("@{sender_localpart}:{server_name}");
+        let allowed_senders: HashSet<String> = config
+            .allowed_senders
+            .iter()
+            .map(|sender| sender.trim().to_owned())
+            .filter(|sender| !sender.is_empty())
+            .collect();
         let auth = MatrixAuth::new(appservice_token.clone()).with_user_id(bot_user_id.clone());
         let client = MatrixClient::new(homeserver_url, auth);
 
@@ -731,6 +741,7 @@ impl MatrixAppserviceChannel {
                 user_prefix: config.user_prefix,
                 alias_prefix: config.alias_prefix,
                 bot_user_id,
+                allowed_senders,
                 client,
                 room_users: Mutex::new(HashMap::new()),
                 gateway_channel,
@@ -1442,6 +1453,16 @@ impl MatrixAppserviceChannel {
                 ignored_senders = ignored_senders.saturating_add(1);
                 debug_matrix_appservice(format!(
                     "config='{}' txn='{}' ignoring command room='{}' sender='{}' reason='sender_in_appservice_namespace'",
+                    self.inner.config_id, txn_id, command.room_id, command.sender,
+                ));
+                continue;
+            }
+            if !self.inner.allowed_senders.is_empty()
+                && !self.inner.allowed_senders.contains(command.sender.trim())
+            {
+                ignored_senders = ignored_senders.saturating_add(1);
+                debug_matrix_appservice(format!(
+                    "config='{}' txn='{}' ignoring command room='{}' sender='{}' reason='sender_not_in_allowlist'",
                     self.inner.config_id, txn_id, command.room_id, command.sender,
                 ));
                 continue;
@@ -2201,12 +2222,31 @@ pub(crate) async fn webhook_handler(req: &mut Request, depot: &mut Depot, res: &
         let Some((gateway_channel, session_store)) = obtain_channel_and_store(depot, res) else {
             return;
         };
-        let saved_channel_config_id = gateway_channel
+        let outbound_config = gateway_channel
             .resolve_matrix_outbound_config(&command.room_id)
             .await
             .ok()
-            .flatten()
-            .map(|config| config.id);
+            .flatten();
+        // Enforce the per-channel `allowed_senders` allowlist on this public
+        // ingest path too — without this the webhook route bypassed the
+        // allowlist that user-mode sync and appservice mode enforce.
+        if let Some(config) = outbound_config.as_ref()
+            && !config.allowed_senders.is_empty()
+            && !config
+                .allowed_senders
+                .iter()
+                .any(|allowed| allowed.trim() == command.sender.trim())
+        {
+            warn!(
+                sender = %command.sender,
+                room_id = %command.room_id,
+                "Matrix webhook sender not in allowed_senders; dropping command"
+            );
+            res.status_code(StatusCode::OK);
+            res.render(Json(json!({ "status": "sender_not_allowed" })));
+            return;
+        }
+        let saved_channel_config_id = outbound_config.map(|config| config.id);
         tokio::spawn(async move {
             runtime::spawn_start_thread_pipeline_with_meta_coordinated(
                 gateway_channel,

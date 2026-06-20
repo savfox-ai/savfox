@@ -77,3 +77,42 @@
 - [x] `cargo check -p savfox-gateway-dioxus`
 - [x] `cargo fmt -p savfox-core -p savfox-gateway-server -p savfox-gateway-dioxus -- --check`
 - [x] `cargo test -p savfox-gateway-server --lib auth`
+
+---
+
+# 第三轮（2026-06-20）
+
+新审查覆盖 `core` 的 exec/safety/auth/config、`app-server`、`api-client`、以及 channels runtime/matrix。下面是本轮处理结果。
+
+## 本轮已处理
+
+### 安全
+
+- [x] `crates/core/src/config/provider_store.rs`：`provider_id`/`account_id`（部分来自不可信 RPC `models.import`）直接拼成 `{account_id}.json` 文件名，`../../` 或绝对路径可越权读写凭据文件。已加 `sanitize_account_component`（收敛到末段路径分量 + 仅保留文件名安全字符），并补单测 `provider_store_path_cannot_escape_models_dir`。
+- [x] `crates/core/src/config/provider_store.rs`：凭据文件用 `std::fs::write` 写盘（默认 0644，世界可读）。已改用 `savfox_utils::fs::write_atomically(.., Some(0o600))`，与 `auth/storage.rs` 一致（原子 + 0600）。
+- [x] `crates/gateway-server/src/channels/matrix.rs`：**`allowed_senders` 允许名单只在 user-mode sync 强制**，appservice 模式 `handle_transaction` 与公开 `/webhooks/matrix` 路由完全不校验，任意房间成员都能驱动 agent。已在两条路径补齐过滤（appservice 给 `MatrixAppserviceInner` 加 `allowed_senders` 字段并在派发循环拦截；webhook 用 `resolve_matrix_outbound_config` 取回 config 后过滤）。
+- [x] `crates/core/src/auth.rs`：刷新 token 失败时在 `error!`/`warn!` 原样打印响应体。已改为只记录解析后的错误消息 / 错误码，不再 dump 原始 body。
+- [x] `crates/api-client/src/endpoint/responses_websocket.rs`：连接成功在 `info!` 打印完整响应 header（可能含 set-cookie 等敏感头）。已改为只记录 header 名称。
+- [x] `crates/gateway-server/src/ws_rpc/handlers/config.rs`：`config.export` 默认 `redacted=false`，导出默认带出明文密钥。已改为默认 `redacted=true`（确认前端无调用方依赖旧默认）。
+
+### 半成品 / 写了没用
+
+- [x] `crates/core/src/tools/handlers/memory.rs`、`md_memory.rs`：写/删动作未实现 `is_mutating`，绕过工具调用 gate。已分别为 `add|delete` 和 `create|update|delete|promote` 实现 `is_mutating`（读操作仍为非 mutating）。
+
+## 待继续处理（确认存在但需更大改动 / 单独评审）
+
+- [ ] `crates/core/src/commands/safety/is_safe_command.rs`：`git show/log/diff` 被列入"已知安全命令"直接放行，但 `git show <path>` 仍会走仓库本地 `.gitattributes` 的 `textconv` 过滤和 `core.pager`，不可信仓库可借此无提示执行代码。需把 show/log/diff 移出安全名单，或强制 `-c core.pager=cat -c diff.external= --no-textconv`。（安全改动，影响面广，单独评审）
+- [ ] `crates/core/src/commands/safety/{windows_dangerous_commands,is_dangerous_command}.rs`：危险命令检测覆盖不全——Windows 漏 `Start-Process calc.exe`/`start ms-settings:`/UNC、且危险侧用 POSIX shlex 解析 PowerShell；Unix 漏 `mv/dd/chmod/kill/truncate/mkfs/tee/重定向` 与 `rm --force/-fr/-rfv`。需扩充 verb 列表并复用 AST 解析。
+- [ ] `crates/core/src/auth.rs`：`enforce_login_restrictions` 依据未验签的 `id_token.chatgpt_account_id` 做工作区限制，用户改本地 `openai.json` 即可绕过。需改用服务端校验过的 account_id 或先验签。
+- [ ] `crates/core/src/config/provider_store.rs`：凭据文件 load→mutate→save 无锁/版本校验（TOCTOU），RPC 与 TUI 并发写会互相覆盖。需原子写 + 乐观并发版本号（`config/service.rs` 已有范式）。
+- [ ] `crates/app-server/src/savfox_message_processor/auth_handler.rs`：`fetch_account_rate_limits` 永远返回 Err（`account/getRateLimits` 永不可用）。需实现或在 API 层标注不支持。
+- [ ] channels：cokret 入站从不设置 `sender_kind`，导致 `ExternalBotPolicy` 对 cokret/matrix-webhook 路径全程不可达（bot 被当人回复）。需在入站边界计算 `SenderKind`。
+- [ ] 死代码（低优先）：`crates/core/src/sandboxing/mod.rs` `SandboxPreference`、`windows_sandbox.rs` 两个 free-function、`cokret.rs:520` `handle_outbound_action`、`api-client/src/sse/responses.rs` 几个 `#[allow(dead_code)]` 字段。
+
+## 本轮验证
+
+- [x] `cargo check -p savfox-core -p savfox-gateway-server -p savfox-api-client`
+- [x] `cargo test -p savfox-core provider_store --lib`（11 passed，含新增遍历测试）
+- [x] `cargo test -p savfox-gateway-server --lib matrix`（6 passed）
+- [x] `cargo test -p savfox-gateway-server --lib auth`（40 passed）
+- [x] `cargo fmt -p savfox-core -p savfox-gateway-server -p savfox-api-client`

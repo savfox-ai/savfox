@@ -377,10 +377,12 @@ pub(crate) async fn handle_config_export(
         .get("format")
         .and_then(|v| v.as_str())
         .unwrap_or(doc.format.as_str());
+    // Default to redacting secrets — exports are meant for sharing/backup, so
+    // callers must explicitly opt into including cleartext API keys/tokens.
     let redacted = params
         .get("redacted")
         .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     let valid = ["json", "yaml", "toml"];
     if !valid.contains(&requested) {
