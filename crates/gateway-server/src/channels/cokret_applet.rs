@@ -1059,6 +1059,15 @@ async fn sign_applet_event_if_keyed(
     event: &mut cokret_core::Event,
 ) -> anyhow::Result<()> {
     let Some(key_ref) = &cfg.key_ref else {
+        // No signer configured: the event goes out with empty `proofs[]`, which
+        // spec-compliant production servers reject with `event_proofs_empty`.
+        // Don't fail (bare-bearer dev deployments rely on this), but make the
+        // misconfiguration visible instead of silently submitting a doomed event.
+        warn!(
+            "cokret applet '{}': no key_ref configured — submitting UNSIGNED outbound event \
+             (production servers will reject with event_proofs_empty)",
+            cfg.id
+        );
         return Ok(());
     };
     let vm = cfg
