@@ -440,6 +440,38 @@ async fn construct_account_client(
     }
 }
 
+/// Build the restart-safe monotonic `actor_seq` allocator for an outbound
+/// account, mirroring the applet allocator. The backing file store lives under
+/// `{savfox_home}/gateway/cokret-account-seq/{account_id}.seq`, keyed
+/// `account:{account_id}:actor_seq`, so each account has an independent
+/// monotonic counter that survives restarts (the previous `timestamp_millis()`
+/// source was neither monotonic across rapid sends nor restart-safe).
+fn build_account_seq_allocator(
+    savfox_home: &std::path::Path,
+    account_id: &str,
+) -> anyhow::Result<cokret_bridge_runtime::SeqAllocator> {
+    let dir = savfox_home
+        .join(savfox_utils::home_dir::GATEWAY_SUBDIR)
+        .join("cokret-account-seq");
+    let safe_id: String = account_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let path = dir.join(format!("{safe_id}.seq"));
+    let store = savfox_channels::cokret::FileSeqStore::shared(path)
+        .map_err(|e| anyhow::anyhow!("cokret account seq store: {e}"))?;
+    Ok(cokret_bridge_runtime::SeqAllocator::new(
+        store,
+        format!("account:{account_id}:actor_seq"),
+    ))
+}
+
 /// Send a `ck.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
@@ -469,12 +501,16 @@ pub(crate) async fn send_to_cokret_account(
     // Phase 8 (T8.D): same auth flow as the sync loop — login when
     // key_ref is set, bare bearer otherwise.
     let client = construct_account_client(&channel, &account).await?;
+    // Monotonic, restart-safe actor sequence (parity with the applet path).
+    let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?
+        .alloc()
+        .map_err(|e| anyhow::anyhow!("cokret account seq alloc: {e}"))?;
     let request = MessageCreateRequest {
         realm_id: realm_id.to_owned(),
         flow_id: flow,
         body: body.to_owned(),
         principal_id: account.principal_id.clone(),
-        actor_seq: chrono::Utc::now().timestamp_millis().max(0) as u64,
+        actor_seq,
         thread_root_id: None,
     };
     let mut event = build_message_create_event(&request)?;
