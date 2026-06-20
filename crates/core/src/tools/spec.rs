@@ -214,7 +214,7 @@ fn create_cron_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "cron",
-        description: "Manage scheduled cron jobs. Supports listing, adding, removing, and querying next run times for periodic tasks.",
+        description: "Register/list/remove cron job definitions and compute next run times. NOTE: jobs are stored in memory for the current session only and are NOT executed by any scheduler yet, so the `command` never actually runs.",
         properties,
         required: &["action"],
     })
@@ -296,7 +296,9 @@ fn create_process_tool() -> ToolSpec {
             "action".to_owned(),
             JsonSchema::String {
                 description: Some(
-                    "Action to perform: \"list\", \"poll\", \"read_log\", \"write\", \"send_keys\", \"kill\".".to_owned(),
+                    "Action to perform: \"poll\", \"read_log\", \"write\", \"send_keys\" (working). \
+                     \"list\" and \"kill\" are placeholders (not integrated) — use exec_command to \
+                     enumerate or terminate processes instead.".to_owned(),
                 ),
             },
         ),
@@ -333,7 +335,7 @@ fn create_process_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "process",
-        description: "Manage background processes: list active processes, read their output, write to stdin, send key sequences, or terminate them.",
+        description: "Interact with background processes started via exec_command: poll/read their output, write to stdin, and send key sequences. (Note: \"list\" and \"kill\" are not integrated — use exec_command for those.)",
         properties,
         required: &["action"],
     })

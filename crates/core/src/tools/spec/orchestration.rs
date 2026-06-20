@@ -38,7 +38,7 @@ pub(super) fn create_sessions_history_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "sessions_history",
-        description: "Get the message history for a specific session.",
+        description: "Placeholder: cross-session history retrieval is not integrated yet and currently returns an empty list. Do not rely on it.",
         properties,
         required: &["session_id"],
     })
@@ -62,7 +62,7 @@ pub(super) fn create_sessions_send_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "sessions_send",
-        description: "Send a message to another active session.",
+        description: "Placeholder: direct session-to-session messaging is not wired up yet and currently returns an error. Do not rely on it.",
         properties,
         required: &["session_id", "message"],
     })
@@ -78,7 +78,7 @@ pub(super) fn create_session_status_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "session_status",
-        description: "Get metadata and status information for a specific session.",
+        description: "Placeholder: per-session status lookup is not integrated yet and currently reports an unknown status. Do not rely on it.",
         properties,
         required: &["session_id"],
     })
@@ -207,7 +207,7 @@ pub(super) fn create_sessions_spawn_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "sessions_spawn",
-        description: "Spawn a new sub-agent session with an optional model override and custom instructions. The agent processes the given prompt and returns results.",
+        description: "Placeholder: sub-agent spawning is not wired up yet and currently returns an error. Do not rely on it.",
         properties,
         required: &["prompt"],
     })

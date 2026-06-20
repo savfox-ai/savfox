@@ -258,7 +258,7 @@ pub(super) fn create_agents_list_tool() -> ToolSpec {
 
     function_tool(FunctionToolDecl {
         name: "agents_list",
-        description: "List all active agents and their status, model, and session information.",
+        description: "Placeholder: agent enumeration is not integrated yet (requires SessionManager) and currently returns an empty list. Do not rely on it.",
         properties,
         required: &[],
     })

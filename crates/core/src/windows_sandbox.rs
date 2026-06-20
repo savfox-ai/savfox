@@ -29,16 +29,6 @@ impl WindowsSandboxLevelExt for WindowsSandboxLevel {
     }
 }
 
-#[must_use]
-pub fn windows_sandbox_level_from_config(config: &Config) -> WindowsSandboxLevel {
-    WindowsSandboxLevel::from_config(config)
-}
-
-#[must_use]
-pub fn windows_sandbox_level_from_features(features: &Features) -> WindowsSandboxLevel {
-    WindowsSandboxLevel::from_features(features)
-}
-
 #[cfg(target_os = "windows")]
 #[must_use]
 pub fn sandbox_setup_is_complete(savfox_home: &Path) -> bool {

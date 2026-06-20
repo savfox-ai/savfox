@@ -48,12 +48,6 @@ pub struct ExecEnv {
     pub arg0: Option<String>,
 }
 
-pub enum SandboxPreference {
-    Auto,
-    Require,
-    Forbid,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum SandboxTransformError {
     #[error("missing savfox-linux-sandbox executable path")]

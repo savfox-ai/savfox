@@ -147,3 +147,38 @@
 - [x] `cargo test -p savfox-core --lib is_dangerous_command`（61 passed）
 - [x] `cargo test -p savfox-core --lib is_safe_command`（18 passed）
 - [x] `cargo check -p savfox-core -p savfox-gateway-server`
+
+---
+
+# 第五轮（2026-06-20，直接在 main 上）
+
+挑选剩余待办中"安全、无行为风险"的项处理：占位工具的诚实标注 + 已确认死代码清理。
+
+## 本轮已处理
+
+### 占位工具诚实标注（避免向模型谎报能力）
+
+- [x] `crates/core/src/tools/spec/orchestration.rs`：`sessions_history`、`sessions_send`、`session_status`、`sessions_spawn` 的 spec 描述改为明确标注"Placeholder / 未接入 / 当前返回空/报错，勿依赖"。
+- [x] `crates/core/src/tools/spec/agents.rs`：`agents_list` 描述标注占位（需 SessionManager，当前返回空列表）。
+- [x] `crates/core/src/tools/spec.rs`：`cron` 描述标注"仅内存登记、无调度器执行，command 不会真正运行"；`process` 描述/action 列表标注 `list`/`kill` 为占位、`poll`/`read_log`/`write`/`send_keys` 可用。
+
+### 死代码清理
+
+- [x] `crates/core/src/sandboxing/mod.rs`：删除全仓零引用的 `pub enum SandboxPreference`。
+- [x] `crates/core/src/windows_sandbox.rs`：删除零调用方的 `windows_sandbox_level_from_config` / `windows_sandbox_level_from_features`（调用方都直接用 `WindowsSandboxLevelExt` trait 方法）。
+
+## 停止原因（剩余待办均不宜在 main 上无确认地直接改）
+
+下列剩余项经评估都属于"架构性 / 安全敏感 / 会改变默认行为"，需单独评审而非快速 round，故本轮在此停止：
+
+- [ ] **会改变默认行为**：cokret/matrix user-mode/webhook 补 `sender_kind` → `ExternalBotPolicy::default()` 是 `Ignore`，未配置策略的渠道会开始**静默丢弃** localpart 含 "bot" 的发送者消息（appservice 路径已是此行为，但 user-mode/webhook 对齐会改变现状）。需产品确认。
+- [ ] **架构性**：`git show/log/diff` 的 textconv/external-diff/pager 配置驱动 RCE，需在 exec 层为 git 注入安全环境，非分类器可解决。
+- [ ] **刻意设计**：Windows `Start-Process` 非 URL 放行（威胁模型只针对恶意 URL/文件）；`fetch_account_rate_limits` 永久返回 Err（测试断言其错误，明确未支持）。
+- [ ] **安全敏感 / 较大重构**：`id_token` 未验签即用于工作区限制；`provider_store` load→mutate→save 的 TOCTOU 并发覆盖（需乐观并发版本号，涉及多调用方）。
+- [ ] **意图不明 / 较大**：cokret `runtime_bridge` 整套未接线（删除 vs 接线需产品判断）；`CokretSession` 过期刷新；cokret 无 `key_ref` 出站空签名。
+
+## 本轮验证
+
+- [x] `cargo check -p savfox-core`
+- [x] `cargo test -p savfox-core --lib spec::`（28 passed）
+- [x] `cargo fmt -p savfox-core -- --check`
