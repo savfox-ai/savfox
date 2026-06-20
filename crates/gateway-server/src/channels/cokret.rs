@@ -174,7 +174,7 @@ async fn run_account_subscribe_loop(
     // obtain a session grant; otherwise fall back to bare-bearer mode
     // (Phase 1-7 behavior). Login failure is fatal — we don't silently
     // downgrade.
-    let client = match construct_account_client(&channel, &account).await {
+    let mut client = match construct_account_client(&channel, &account).await {
         Ok(client) => client,
         Err(err) => {
             warn!(
@@ -213,11 +213,29 @@ async fn run_account_subscribe_loop(
                         backoff = Duration::from_secs(1);
                     }
                     StreamOutcome::Unauthorized => {
+                        // The session grant/bearer expired or was revoked. Rather
+                        // than killing the channel permanently, back off and try a
+                        // fresh login (re-running DID-proof S-2 if `key_ref` is set).
                         warn!(
-                            "cokret: account '{}' became unauthorized mid-stream — stopping",
+                            "cokret: account '{}' became unauthorized mid-stream — re-logging in",
                             account.id
                         );
-                        return;
+                        sleep_with_backoff(&mut backoff).await;
+                        match construct_account_client(&channel, &account).await {
+                            Ok(fresh) => {
+                                client = fresh;
+                                cursor = None;
+                                dedupe.clear();
+                                backoff = Duration::from_secs(1);
+                                info!("cokret: account '{}' re-login succeeded", account.id);
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "cokret: account '{}' re-login failed: {err:#}; will retry with backoff",
+                                    account.id
+                                );
+                            }
+                        }
                     }
                     StreamOutcome::Backoff => {
                         sleep_with_backoff(&mut backoff).await;
