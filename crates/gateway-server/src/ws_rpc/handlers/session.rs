@@ -2168,11 +2168,16 @@ pub(crate) async fn handle_events_subscribe(params: &Value) -> RpcResult {
         .filter(|e| !e.contains('*') && !EVENT_TYPES.contains(e))
         .collect();
 
+    // NOTE: the server currently pushes all event streams to every connection;
+    // there is no per-connection subscription filtering yet. This call validates
+    // and acknowledges the request but is advisory — clients should still filter
+    // received events by name. `advisory: true` makes that explicit.
     Ok(json!({
         "status": "subscribed",
         "events": events,
         "count": events.len(),
         "unknown": unknown,
+        "advisory": true,
     }))
 }
 
@@ -2187,10 +2192,13 @@ pub(crate) async fn handle_events_unsubscribe(params: &Value) -> RpcResult {
         })
         .unwrap_or_default();
 
+    // Advisory like `events.subscribe`: no server-side subscription state is
+    // tracked, so this acknowledges the request without changing delivery.
     Ok(json!({
         "status": "unsubscribed",
         "events": events,
         "count": events.len(),
+        "advisory": true,
     }))
 }
 
