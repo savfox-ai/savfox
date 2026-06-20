@@ -200,3 +200,33 @@
 
 - [x] `cargo check -p savfox-core -p savfox-api-client`
 - [x] `cargo test -p savfox-core --lib skills::`（48 passed）
+
+---
+
+# 第七轮（2026-06-20，直接在 main 上，激进推进）
+
+用户指示"不在乎安全性（指不要因行为变更/风险而保守），激进推进"。本轮把之前因"会改默认行为/较大改动"而搁置的**功能补全与正确性修复**直接落地并补测试。注意：未做任何削弱真实安全的改动。
+
+## 本轮已处理
+
+- [x] `crates/gateway-server/src/channels/matrix.rs`、`cokret.rs`：**补全 `sender_kind`，让 `ExternalBotPolicy` 真正生效**。此前只有 appservice 模式计算 sender_kind，matrix user-mode/webhook 与 cokret 入站都默认 `Human`，导致 `ExternalBotPolicy` 不可达。抽出 `matrix_localpart_looks_like_bot` + `matrix_user_mode_sender_kind`（与 appservice 共用判定）并接入 user-mode 派发与 webhook；cokret 把账号自身 DID 标为 `SelfBot` 防自我回复环。新增单测。**注意：这使默认 `Ignore` 策略生效，bot-like 发送者在这些路径会被默认丢弃（预期行为）。**
+- [x] `crates/gateway-server/src/channels/cokret.rs`：`Unauthorized` 不再直接停掉渠道，改为带退避**重新登录**（key_ref 时重跑 DID-proof）并重置 cursor/dedupe 续跑，token 过期变为可恢复。
+- [x] `crates/gateway-server/src/channels/cokret.rs`：账号出站 `actor_seq` 从 `timestamp_millis()`（可回退/重复）改为文件支撑的单调 `SeqAllocator`（与 applet 路径一致，按账号持久化、重启安全）。
+- [x] `crates/core/src/config/provider_store.rs`：`persist_provider_connection` / `update_provider_store_models` 的 load→mutate→save 加按 account_id 的进程内互斥锁，防并发写丢更新；`update_provider_store_models` 在锁内重新加载。跨进程仍需 OS 文件锁（已注明）。
+- [x] `crates/gateway-server/src/channels/cokret_applet.rs`：无 `key_ref` 时出站事件空 `proofs[]`（生产服务端会以 `event_proofs_empty` 拒绝）由静默改为**显著警告**，保留 dev/bare-bearer 可用。
+
+## 评估后明确不做（激进模式下仍判定不宜）
+
+- [ ] git `show/log/diff` 的 textconv/pager/external-diff RCE：完整修复要在**所有** exec spawn 路径（sandbox/seatbelt/raw）一致注入 `GIT_CONFIG_*`/`GIT_PAGER`，属跨切面高风险改动，且威胁面窄（需不可信仓库+恶意 `.gitattributes`）。
+- [ ] Windows `Start-Process` 非 URL 放行：检测器刻意只针对"打开恶意 URL/文件"威胁模型，扩成"所有 Start-Process 危险"会海量误报。
+- [ ] `id_token` 未验签做工作区限制：需引入 JWKS 验签（外部依赖+较大改动）。
+- [ ] `fetch_account_rate_limits` 永久 Err：测试断言其错误，明确为"未支持"占位。
+- [ ] cokret `runtime_bridge`（`build_outbound_edge`/`SavfoxAppletResolver`/`applet_runtime_config`）：虽无内部调用方，但经 `cokret/mod.rs` 公开 re-export，属公共 API 脚手架（edge 集成预留），删除会改公共接口，非明确 bug。
+
+## 本轮验证
+
+- [x] `cargo check -p savfox-core -p savfox-gateway-server`
+- [x] `cargo test -p savfox-gateway-server --lib channels::`（47 passed）
+- [x] `cargo test -p savfox-gateway-server --lib matrix`（7 passed，含新增 sender_kind 单测）
+- [x] `cargo test -p savfox-gateway-server --lib cokret`（4 passed）
+- [x] `cargo test -p savfox-core --lib config::provider_store`（11 passed）
