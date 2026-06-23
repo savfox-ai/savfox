@@ -480,7 +480,7 @@ impl GatewayChannel {
                     config.id, homeserver
                 )
             })?;
-            let auth = if let Some(uid) = configured_user_id.as_deref() {
+            let auth = if let Some(uid) = configured_user_id {
                 MatrixAuth::new(access_token.to_owned()).with_user_id(uid.to_owned())
             } else {
                 MatrixAuth::new(access_token.to_owned())

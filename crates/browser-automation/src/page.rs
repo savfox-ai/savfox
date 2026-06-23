@@ -69,10 +69,10 @@ impl Page {
         // Page.navigate returns an `errorText` field when the navigation could
         // not be started (bad scheme, DNS failure, blocked by client, …). Treat
         // that as an error rather than reporting a success the caller can't trust.
-        if let Some(error_text) = result.get("errorText").and_then(|v| v.as_str()) {
-            if !error_text.is_empty() {
-                return Err(anyhow!("navigation to {url} failed: {error_text}"));
-            }
+        if let Some(error_text) = result.get("errorText").and_then(|v| v.as_str())
+            && !error_text.is_empty()
+        {
+            return Err(anyhow!("navigation to {url} failed: {error_text}"));
         }
 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

@@ -621,11 +621,7 @@ fn validate_skill_name(name: &str) -> anyhow::Result<()> {
     if name.trim().is_empty() {
         anyhow::bail!("skill name is empty");
     }
-    if name.starts_with('/')
-        || name.contains('\\')
-        || name.contains(':')
-        || name.contains('\0')
-    {
+    if name.starts_with('/') || name.contains('\\') || name.contains(':') || name.contains('\0') {
         anyhow::bail!("skill name contains an unsafe path component: {name}");
     }
     for component in name.split('/') {
@@ -643,7 +639,7 @@ fn validate_skill_name(name: &str) -> anyhow::Result<()> {
 fn validate_git_url(url: &str) -> Result<(), String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
-        return Err("git URL is empty".to_string());
+        return Err("git URL is empty".to_owned());
     }
     if trimmed.starts_with('-') {
         return Err(format!("git URL must not start with '-': {trimmed}"));
@@ -689,7 +685,9 @@ fn git_shallow_clone(url: &str, dest: &Path) -> Result<(), String> {
 fn git_sparse_clone(url: &str, dest: &Path, subdir: &str) -> Result<(), String> {
     validate_git_url(url)?;
     if subdir.starts_with('-') {
-        return Err(format!("sparse-checkout subdir must not start with '-': {subdir}"));
+        return Err(format!(
+            "sparse-checkout subdir must not start with '-': {subdir}"
+        ));
     }
     // Step 1 — clone with sparse checkout enabled and blobs filtered out.
     let output = std::process::Command::new("git")

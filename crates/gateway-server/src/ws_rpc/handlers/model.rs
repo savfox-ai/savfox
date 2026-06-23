@@ -1057,10 +1057,10 @@ pub(crate) async fn handle_models_account_delete(
 
     // Load the file first so we can clear the auth overrides it injected.
     let file = load_provider_file(channel, &account_id).await;
-    if let Some(auth) = &file.auth {
-        if let Some(env_key) = auth.env_key.as_deref().filter(|k| !k.is_empty()) {
-            savfox_core::remove_env_override(env_key);
-        }
+    if let Some(auth) = &file.auth
+        && let Some(env_key) = auth.env_key.as_deref().filter(|k| !k.is_empty())
+    {
+        savfox_core::remove_env_override(env_key);
     }
     savfox_core::remove_bearer_token_override(&account_id);
 

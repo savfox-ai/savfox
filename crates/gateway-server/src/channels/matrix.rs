@@ -153,7 +153,7 @@ impl MatrixInviteStore {
         if !include_dismissed {
             invites.retain(|invite| invite.dismissed_at.is_none());
         }
-        invites.sort_by(|left, right| right.last_seen_at.cmp(&left.last_seen_at));
+        invites.sort_by_key(|invite| std::cmp::Reverse(invite.last_seen_at));
         Ok(invites)
     }
 
