@@ -23,6 +23,15 @@
 - [x] T4B applet-mode 测试：覆盖 encrypted content block、spec `encrypted_content` carrier。
 - [x] T5 验证：运行 targeted fmt/check/test/clippy。
 
+## 管理面闭环任务
+
+- [x] U1 前端频道入口：`gateway-dioxus` Add Channel picker 注册 Cokret，并提供 `/channels/cokret` 状态页。
+- [x] U2 前端配置表单：区分 Cokret account/applet 模式，支持 `keyRef`、grant、trusted verification methods、namespace helper 与默认开关。
+- [x] U3 配置序列化：account/applet 可见字段生成 runtime 可解析 JSON；applet namespace helper 保存为 `namespaces.{actors,realms,handles}`。
+- [x] U4 后端 ready/status：保存的 Cokret 配置走 Cokret parser/validator，状态接口返回 configured/running/metadata。
+- [x] U5 后端 test/login/logout：`channels.test` 校验 Cokret draft/saved config，`channels.login` 可即时启动 account listener 或注册 applet，logout 可停止两种 runtime。
+- [x] U6 回归测试：覆盖 Cokret picker、account/applet patch、后端 ready 判断，并重建同步 gateway 静态资源。
+
 ## 完整 E2EE 后续任务与工作量
 
 - [x] E1 依赖与 feature 图确认（S）：启用 Cokret `mls`、`device-runtime`；当前 account/appet 入口暂不需要 `sync-runtime` / `timeline-runtime`，避免额外运行时体积。

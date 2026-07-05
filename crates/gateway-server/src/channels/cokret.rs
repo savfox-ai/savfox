@@ -150,6 +150,19 @@ pub(crate) fn stop_cokret_account_listeners(channel_id: &str) -> usize {
     stopped
 }
 
+pub(crate) fn cokret_account_listener_count(channel_id: &str) -> usize {
+    let prefix = format!("{channel_id}::");
+    let Ok(state) = runtime_state().lock() else {
+        warn!("cokret: runtime state mutex poisoned; cannot inspect listeners for '{channel_id}'");
+        return 0;
+    };
+    state
+        .handles
+        .keys()
+        .filter(|key| key.starts_with(&prefix))
+        .count()
+}
+
 fn spawn_account_listener(
     savfox_home: PathBuf,
     channel: CokretChannelConfig,

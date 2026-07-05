@@ -1,3 +1,4 @@
+pub mod cokret;
 pub mod common;
 pub mod dingtalk;
 pub mod discord;
@@ -69,7 +70,7 @@ enum FieldType {
     Select(Vec<String>),
 }
 
-/// Cached channel metadata. The full set of 21 channel descriptors is fully
+/// Cached channel metadata. The full set of channel descriptors is fully
 /// `'static` (only `String` / `&'static str` fields), so we build it once via
 /// `LazyLock` instead of rebuilding+cloning it on every render.
 static CHANNEL_TYPES: std::sync::LazyLock<Vec<ChannelTypeInfo>> =
@@ -542,6 +543,311 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     secret: false,
                     required: false,
                     help: "Prefix for room aliases managed by the appservice",
+                },
+            ],
+        },
+        ChannelTypeInfo {
+            id: "cokret".into(),
+            name: "Cokret".into(),
+            icon: "Ck".into(),
+            description: "Connect a Cokret account or registered applet".into(),
+            config_fields: vec![
+                ConfigField {
+                    key: "mode".into(),
+                    label: "Mode".into(),
+                    field_type: FieldType::Select(vec!["account".into(), "applet".into()]),
+                    placeholder: "account".into(),
+                    secret: false,
+                    required: true,
+                    help: "Account mode controls a Cokret account; applet mode registers Savfox as a Cokret Applet endpoint",
+                },
+                ConfigField {
+                    key: "baseUrl".into(),
+                    label: "Base URL".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "Account: https://cokret.example.org; Applet: https://savfox.example/appservices/cokret/cokret-default".into(),
+                    secret: false,
+                    required: true,
+                    help: "Account mode uses the Cokret server URL. Applet mode uses the public Savfox URL that Cokret calls.",
+                },
+                ConfigField {
+                    key: "serviceDid".into(),
+                    label: "Service DID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:webvh:cokret.example.org or did:web:savfox.example".into(),
+                    secret: false,
+                    required: false,
+                    help: "Cokret service DID for account mode, or this applet service DID in applet mode",
+                },
+                ConfigField {
+                    key: "accessToken".into(),
+                    label: "Access Token / Bearer".into(),
+                    field_type: FieldType::Password,
+                    placeholder: "ck.session.grant or applet bearer token".into(),
+                    secret: true,
+                    required: false,
+                    help: "Static session grant for account mode or inbound applet bearer token. A keyRef can replace this for DID-proof login.",
+                },
+                ConfigField {
+                    key: "deviceId".into(),
+                    label: "Device ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:device:...".into(),
+                    secret: false,
+                    required: false,
+                    help: "Cokret device id used for MLS/E2EE state and recovery planning",
+                },
+                ConfigField {
+                    key: "principalId".into(),
+                    label: "Principal DID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:web:agent.example".into(),
+                    secret: false,
+                    required: true,
+                    help: "Controlled actor DID for account mode",
+                },
+                ConfigField {
+                    key: "defaultRealmId".into(),
+                    label: "Default Realm ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:realm:...".into(),
+                    secret: false,
+                    required: false,
+                    help: "Realm used for outbound sends and optional inbound filtering",
+                },
+                ConfigField {
+                    key: "defaultFlowId".into(),
+                    label: "Default Flow ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:flow:...".into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional Cokret flow id for outbound account messages",
+                },
+                ConfigField {
+                    key: "agentId".into(),
+                    label: "Agent ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "default".into(),
+                    secret: false,
+                    required: false,
+                    help: "Savfox agent routed for inbound Cokret account messages",
+                },
+                ConfigField {
+                    key: "listen".into(),
+                    label: "Listen for inbound account events".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Start the account subscribe listener for incoming Cokret events",
+                },
+                ConfigField {
+                    key: "send".into(),
+                    label: "Allow outbound replies".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Allow Savfox to send replies through this account",
+                },
+                ConfigField {
+                    key: "scopes".into(),
+                    label: "Scopes".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "ck.message.create\nck.message.read".into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional requested or documented account scopes, one per line or comma-separated",
+                },
+                ConfigField {
+                    key: "appletId".into(),
+                    label: "Applet ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:applet:...".into(),
+                    secret: false,
+                    required: true,
+                    help: "Registered Cokret applet identifier",
+                },
+                ConfigField {
+                    key: "controllerDid".into(),
+                    label: "Controller DID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:webvh:cokret.example.org".into(),
+                    secret: false,
+                    required: true,
+                    help: "Controller DID that owns/signs the applet registration",
+                },
+                ConfigField {
+                    key: "botActorId".into(),
+                    label: "Bot Actor DID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:web:savfox.example:bot".into(),
+                    secret: false,
+                    required: false,
+                    help: "Visible applet bot actor DID; defaults to serviceDid:bot",
+                },
+                ConfigField {
+                    key: "cokretServerUrl".into(),
+                    label: "Cokret Server URL".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "https://cokret.example.org".into(),
+                    secret: false,
+                    required: false,
+                    help: "Cokret server used by the applet for outbound event submission",
+                },
+                ConfigField {
+                    key: "cokretServerDid".into(),
+                    label: "Cokret Server DID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:webvh:cokret.example.org".into(),
+                    secret: false,
+                    required: false,
+                    help: "Trusted Cokret server DID for DID-proof login and HTTP Message Signature verification",
+                },
+                ConfigField {
+                    key: "protocols".into(),
+                    label: "Applet Protocols".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "slack\ndiscord".into(),
+                    secret: false,
+                    required: false,
+                    help: "External protocols bridged by this applet, one per line or comma-separated",
+                },
+                ConfigField {
+                    key: "namespaceActors".into(),
+                    label: "Actor Namespaces".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "did:web:savfox.example:ghost:*".into(),
+                    secret: false,
+                    required: false,
+                    help: "Applet actor namespace patterns. Saved as Cokret namespaces.actors[].",
+                },
+                ConfigField {
+                    key: "namespaceRealms".into(),
+                    label: "Realm Namespaces".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "slack:team:*:channel:*".into(),
+                    secret: false,
+                    required: false,
+                    help: "Applet realm namespace patterns. Saved as Cokret namespaces.realms[].",
+                },
+                ConfigField {
+                    key: "namespaceHandles".into(),
+                    label: "Handle Namespaces".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "slack.example/*".into(),
+                    secret: false,
+                    required: false,
+                    help: "Applet third-party handle namespace patterns. Saved as Cokret namespaces.handles[].",
+                },
+                ConfigField {
+                    key: "ghostDidPrefix".into(),
+                    label: "Ghost DID Prefix".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ghost:".into(),
+                    secret: false,
+                    required: false,
+                    help: "Prefix used when minting ghost actor DIDs for external users",
+                },
+                ConfigField {
+                    key: "requestedScopes".into(),
+                    label: "Requested Scopes".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: "ck.message.create\nck.flow.create".into(),
+                    secret: false,
+                    required: false,
+                    help: "Requested applet scopes, one per line or comma-separated",
+                },
+                ConfigField {
+                    key: "receiveEvents".into(),
+                    label: "Receive Events".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Allow Cokret to push event transactions to this applet",
+                },
+                ConfigField {
+                    key: "receiveEphemeral".into(),
+                    label: "Receive Ephemeral".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Allow ephemeral Cokret events such as typing/presence",
+                },
+                ConfigField {
+                    key: "rateLimited".into(),
+                    label: "Allow Rate Limiting".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Permit the Cokret server to rate-limit applet transaction pushes",
+                },
+                ConfigField {
+                    key: "authorizationGrantId".into(),
+                    label: "Authorization Grant ID".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:event:...".into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional capability grant event id attached to outbound applet events",
+                },
+                ConfigField {
+                    key: "registrationEpoch".into(),
+                    label: "Registration Epoch".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "sha256:<hex>".into(),
+                    secret: false,
+                    required: false,
+                    help: "Operator supplied registration evidence hash",
+                },
+                ConfigField {
+                    key: "trustedVerificationMethods".into(),
+                    label: "Trusted Verification Methods JSON".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"[{"verificationMethod":"did:webvh:cokret.example.org#key-1","publicKeyMultibase":"z..."}]"#.into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional array of Cokret server HTTP Message Signature public keys",
+                },
+                ConfigField {
+                    key: "loginChallenge".into(),
+                    label: "Login Challenge".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "challenge-from-cokret".into(),
+                    secret: false,
+                    required: false,
+                    help: "Server-issued challenge required when keyRef is used for DID-proof login",
+                },
+                ConfigField {
+                    key: "verificationMethod".into(),
+                    label: "Signing Verification Method".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "did:web:agent.example#key-1".into(),
+                    secret: false,
+                    required: false,
+                    help: "Verification method id for the local Ed25519 signer",
+                },
+                ConfigField {
+                    key: "grantEventPath".into(),
+                    label: "Grant Event Path".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "C:\\secrets\\cokret-grant.json".into(),
+                    secret: false,
+                    required: false,
+                    help: "Path to a pre-signed ck.capability.grant Event JSON",
+                },
+                ConfigField {
+                    key: "keyRef".into(),
+                    label: "Key Ref JSON".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"kind":"env","var":"SAVFOX_COKRET_BOT_KEY"}"#.into(),
+                    secret: true,
+                    required: false,
+                    help: "Optional signer key reference for DID-proof login and event signing",
                 },
             ],
         },
@@ -1099,6 +1405,52 @@ fn value_to_field_text(value: &Value) -> Option<String> {
     }
 }
 
+fn split_config_list(value: &str) -> Vec<String> {
+    value
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn namespace_patterns_to_text(value: Option<&Value>) -> String {
+    let Some(Value::Array(items)) = value else {
+        return String::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            if let Some(pattern) = item.as_str() {
+                return Some(pattern.trim().to_owned());
+            }
+            item.as_object()
+                .and_then(|obj| obj.get("pattern"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .map(str::to_owned)
+        })
+        .filter(|pattern| !pattern.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn namespace_patterns_from_text(value: &str, exclusive: bool) -> Vec<Value> {
+    split_config_list(value)
+        .into_iter()
+        .map(|pattern| {
+            json!({
+                "pattern": pattern,
+                "exclusive": exclusive,
+            })
+        })
+        .collect()
+}
+
+fn parse_json_config_field(label: &str, value: &str) -> Result<Value, String> {
+    serde_json::from_str::<Value>(value).map_err(|err| format!("{label} must be valid JSON: {err}"))
+}
+
 fn field_value_key(channel_id: &str, field_key: &str) -> String {
     format!("{channel_id}.{field_key}")
 }
@@ -1195,6 +1547,10 @@ fn restore_channel_values(
                 restored.insert(field_value_key(channel_id, &field.key), text);
             }
         }
+
+        if is_cokret_channel(fields) {
+            restore_cokret_derived_values(channel_id, &mut restored, config_obj);
+        }
     }
 
     restore_router_values(channel_id, &mut restored, saved.get("router"));
@@ -1205,6 +1561,35 @@ fn restore_channel_values(
         saved.get("group_policy"),
     );
     restored
+}
+
+fn restore_cokret_derived_values(
+    channel_id: &str,
+    restored: &mut std::collections::HashMap<String, String>,
+    config_obj: &serde_json::Map<String, Value>,
+) {
+    let namespaces = config_obj.get("namespaces").and_then(Value::as_object);
+    if let Some(namespaces) = namespaces {
+        let actors = namespace_patterns_to_text(namespaces.get("actors"));
+        if !actors.is_empty() {
+            restored.insert(field_value_key(channel_id, "namespaceActors"), actors);
+        }
+        let realms = namespace_patterns_to_text(namespaces.get("realms"));
+        if !realms.is_empty() {
+            restored.insert(field_value_key(channel_id, "namespaceRealms"), realms);
+        }
+        let handles = namespace_patterns_to_text(namespaces.get("handles"));
+        if !handles.is_empty() {
+            restored.insert(field_value_key(channel_id, "namespaceHandles"), handles);
+        }
+    }
+
+    for key in ["keyRef", "trustedVerificationMethods"] {
+        if let Some(raw) = config_obj.get(key) {
+            let rendered = serde_json::to_string_pretty(raw).unwrap_or_else(|_| raw.to_string());
+            restored.insert(field_value_key(channel_id, key), rendered);
+        }
+    }
 }
 
 fn current_router_mode(
@@ -1477,6 +1862,12 @@ fn is_matrix_channel(fields: &[ConfigField]) -> bool {
         && fields.iter().any(|field| field.key == "homeserver")
 }
 
+fn is_cokret_channel(fields: &[ConfigField]) -> bool {
+    fields.iter().any(|field| field.key == "mode")
+        && fields.iter().any(|field| field.key == "appletId")
+        && fields.iter().any(|field| field.key == "principalId")
+}
+
 fn current_matrix_mode(
     channel_id: &str,
     values: &std::collections::HashMap<String, String>,
@@ -1519,17 +1910,81 @@ fn is_matrix_appservice_only_field(field_key: &str) -> bool {
     )
 }
 
+fn current_cokret_mode(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    values
+        .get(&field_value_key(channel_id, "mode"))
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| value == "applet")
+        .unwrap_or_else(|| "account".to_string())
+}
+
+fn is_cokret_account_only_field(field_key: &str) -> bool {
+    matches!(
+        field_key,
+        "principalId"
+            | "defaultRealmId"
+            | "defaultFlowId"
+            | "agentId"
+            | "listen"
+            | "send"
+            | "scopes"
+    )
+}
+
+fn is_cokret_applet_only_field(field_key: &str) -> bool {
+    matches!(
+        field_key,
+        "appletId"
+            | "controllerDid"
+            | "botActorId"
+            | "cokretServerUrl"
+            | "protocols"
+            | "requestedScopes"
+            | "namespaceActors"
+            | "namespaceRealms"
+            | "namespaceHandles"
+            | "ghostDidPrefix"
+            | "receiveEvents"
+            | "receiveEphemeral"
+            | "rateLimited"
+            | "authorizationGrantId"
+            | "registrationEpoch"
+            | "trustedVerificationMethods"
+    )
+}
+
+fn is_cokret_helper_field(field_key: &str) -> bool {
+    matches!(
+        field_key,
+        "namespaceActors" | "namespaceRealms" | "namespaceHandles"
+    )
+}
+
 fn field_is_visible(
     channel_id: &str,
     field: &ConfigField,
     values: &std::collections::HashMap<String, String>,
 ) -> bool {
-    let matrix_mode = current_matrix_mode(channel_id, values);
-    if is_matrix_user_only_field(&field.key) {
-        return matrix_mode != "appservice";
+    if channel_id == "matrix" {
+        let matrix_mode = current_matrix_mode(channel_id, values);
+        if is_matrix_user_only_field(&field.key) {
+            return matrix_mode != "appservice";
+        }
+        if is_matrix_appservice_only_field(&field.key) {
+            return matrix_mode == "appservice";
+        }
     }
-    if is_matrix_appservice_only_field(&field.key) {
-        return matrix_mode == "appservice";
+    if channel_id == "cokret" {
+        let cokret_mode = current_cokret_mode(channel_id, values);
+        if is_cokret_account_only_field(&field.key) {
+            return cokret_mode != "applet";
+        }
+        if is_cokret_applet_only_field(&field.key) {
+            return cokret_mode == "applet";
+        }
     }
     true
 }
@@ -1538,7 +1993,11 @@ fn build_channel_patch(
     channel_id: &str,
     fields: &[ConfigField],
     values: &std::collections::HashMap<String, String>,
-) -> Value {
+) -> Result<Value, String> {
+    if is_cokret_channel(fields) {
+        return build_cokret_channel_patch(channel_id, fields, values);
+    }
+
     let mut patch = json!({});
     let matrix_channel = is_matrix_channel(fields);
     for field in fields {
@@ -1562,7 +2021,126 @@ fn build_channel_patch(
             }
         }
     }
-    patch
+    Ok(patch)
+}
+
+fn build_cokret_channel_patch(
+    channel_id: &str,
+    fields: &[ConfigField],
+    values: &std::collections::HashMap<String, String>,
+) -> Result<Value, String> {
+    let mut patch = json!({});
+    let mode = current_cokret_mode(channel_id, values);
+    patch["mode"] = json!(mode);
+
+    for field in fields {
+        if field.key == "mode" {
+            continue;
+        }
+
+        if !field_is_visible(channel_id, field, values) {
+            if !is_cokret_helper_field(&field.key) {
+                patch[&field.key] = Value::Null;
+            }
+            continue;
+        }
+
+        if is_cokret_helper_field(&field.key) {
+            continue;
+        }
+
+        let key = field_value_key(channel_id, &field.key);
+        let value = values
+            .get(&key)
+            .map(|value| value.trim())
+            .unwrap_or_default();
+        if value.is_empty() {
+            patch[&field.key] = Value::Null;
+            continue;
+        }
+
+        match field.key.as_str() {
+            "keyRef" => {
+                let parsed = parse_json_config_field("Key Ref JSON", value)?;
+                if !parsed.is_object() {
+                    return Err("Key Ref JSON must be a JSON object.".to_string());
+                }
+                patch[&field.key] = parsed;
+            }
+            "trustedVerificationMethods" => {
+                let parsed = parse_json_config_field("Trusted Verification Methods JSON", value)?;
+                if !parsed.is_array() {
+                    return Err(
+                        "Trusted Verification Methods JSON must be a JSON array.".to_string()
+                    );
+                }
+                patch[&field.key] = parsed;
+            }
+            _ if matches!(field.field_type, FieldType::Toggle) => {
+                patch[&field.key] = json!(value == "true");
+            }
+            _ => {
+                patch[&field.key] = json!(value);
+            }
+        }
+    }
+
+    if mode == "applet" {
+        let actors = values
+            .get(&field_value_key(channel_id, "namespaceActors"))
+            .map(|value| namespace_patterns_from_text(value, true))
+            .unwrap_or_default();
+        let realms = values
+            .get(&field_value_key(channel_id, "namespaceRealms"))
+            .map(|value| namespace_patterns_from_text(value, true))
+            .unwrap_or_default();
+        let handles = values
+            .get(&field_value_key(channel_id, "namespaceHandles"))
+            .map(|value| namespace_patterns_from_text(value, false))
+            .unwrap_or_default();
+        if actors.is_empty() && realms.is_empty() && handles.is_empty() {
+            patch["namespaces"] = Value::Null;
+        } else {
+            patch["namespaces"] = json!({
+                "actors": actors,
+                "realms": realms,
+                "handles": handles,
+            });
+        }
+    } else {
+        patch["namespaces"] = Value::Null;
+    }
+
+    Ok(patch)
+}
+
+fn default_channel_values(
+    channel_id: &str,
+    fields: &[ConfigField],
+) -> std::collections::HashMap<String, String> {
+    let mut values = std::collections::HashMap::new();
+    if is_cokret_channel(fields) {
+        values.insert(field_value_key(channel_id, "mode"), "account".to_string());
+        values.insert(field_value_key(channel_id, "listen"), "true".to_string());
+        values.insert(field_value_key(channel_id, "send"), "true".to_string());
+        values.insert(
+            field_value_key(channel_id, "receiveEvents"),
+            "true".to_string(),
+        );
+        values.insert(
+            field_value_key(channel_id, "receiveEphemeral"),
+            "false".to_string(),
+        );
+        values.insert(
+            field_value_key(channel_id, "rateLimited"),
+            "true".to_string(),
+        );
+        values.insert(
+            field_value_key(channel_id, "ghostDidPrefix"),
+            "ghost:".to_string(),
+        );
+    }
+    values
 }
 
 enum ChannelDeepLink {
@@ -1648,7 +2226,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
     let channel_types = get_channel_types();
 
     let ws_config_get = ws.clone();
-    let modal_channel_types = channel_types.clone();
+    let modal_channel_types = channel_types;
     use_effect(move || {
         let modal_open = show_add_modal();
         let selected = selected_channel();
@@ -1675,6 +2253,7 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
             .map(|channel_type| channel_type.config_fields.clone())
             .unwrap_or_default();
         add_channel_name.set(default_name);
+        config_values.set(default_channel_values(&channel_id, &selected_fields));
 
         let ws = ws_config_get.clone();
         spawn(async move {
@@ -1694,7 +2273,8 @@ fn channels_inner(deep_link: ChannelDeepLink) -> Element {
                 return;
             }
 
-            let restored = restore_channel_values(&channel_id, &selected_fields, saved);
+            let mut restored = default_channel_values(&channel_id, &selected_fields);
+            restored.extend(restore_channel_values(&channel_id, &selected_fields, saved));
             if let Some(name) = saved.get("name").and_then(Value::as_str) {
                 add_channel_name.set(name.to_string());
             }
@@ -2502,7 +3082,9 @@ fn ChannelConfigModal(
             let Some(saved) = payload.get("config") else {
                 return;
             };
-            inline_values.set(restore_channel_values(&ch_id, &fields, saved));
+            let mut restored = default_channel_values(&ch_id, &fields);
+            restored.extend(restore_channel_values(&ch_id, &fields, saved));
+            inline_values.set(restored);
         });
     });
 
@@ -2594,7 +3176,13 @@ fn ChannelConfigModal(
                                     .cloned()
                                     .unwrap_or_else(|| "default".to_string());
                                 let channel_computed_id = compute_channel_id(&channel_name, &ch_id);
-                                let patch = build_channel_patch(&ch_id, &fields, &vals);
+                                let patch = match build_channel_patch(&ch_id, &fields, &vals) {
+                                    Ok(patch) => patch,
+                                    Err(err) => {
+                                        inline_msg.set(Some((false, err)));
+                                        return;
+                                    }
+                                };
                                 let router = match build_router_value(&ch_id, &vals) {
                                     Ok(router) => router,
                                     Err(err) => {
@@ -2678,7 +3266,14 @@ fn ChannelConfigModal(
                                                 .cloned()
                                                 .unwrap_or_else(|| "default".to_string());
                                             let channel_computed_id = compute_channel_id(&channel_name, &platform);
-                                            let config_patch = build_channel_patch(&platform, &fields, &vals);
+                                            let config_patch = match build_channel_patch(&platform, &fields, &vals) {
+                                                Ok(patch) => patch,
+                                                Err(err) => {
+                                                    testing_channel.set(None);
+                                                    test_result.set(Some((name, false, err)));
+                                                    return;
+                                                }
+                                            };
                                             testing_channel.set(Some(platform.clone()));
                                             test_result.set(None);
                                             spawn(async move {
@@ -3309,7 +3904,7 @@ fn render_add_modal(
 
     let search_query = add_channel_search().trim().to_ascii_lowercase();
     let popular_ids: &[&str] = &[
-        "discord", "telegram", "slack", "whatsapp", "signal", "matrix",
+        "discord", "telegram", "slack", "whatsapp", "signal", "matrix", "cokret",
     ];
     let filtered_types: Vec<&ChannelTypeInfo> = if search_query.is_empty() {
         channel_types.iter().collect()
@@ -3391,7 +3986,7 @@ fn render_add_modal(
                                     label { class: "channels-field__label", "Name" }
                                     input {
                                         r#type: "text",
-                                        placeholder: "My Matrix Channel",
+                                        placeholder: "My Channel",
                                         value: "{current_name}",
                                         oninput: move |e| channel_name.set(e.value()),
                                         class: "channels-field__input",
@@ -3432,7 +4027,13 @@ fn render_add_modal(
                                             return;
                                         }
                                         let config = config_values.read();
-                                        let patch = build_channel_patch(&ch_id, &fields, &config);
+                                        let patch = match build_channel_patch(&ch_id, &fields, &config) {
+                                            Ok(patch) => patch,
+                                            Err(err) => {
+                                                save_msg.set(Some(err));
+                                                return;
+                                            }
+                                        };
                                         let router = match build_router_value(&ch_id, &config) {
                                             Ok(router) => router,
                                             Err(err) => {
@@ -3564,6 +4165,154 @@ fn render_add_modal(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn cokret_fields() -> Vec<ConfigField> {
+        build_channel_types()
+            .into_iter()
+            .find(|channel| channel.id == "cokret")
+            .expect("cokret channel type")
+            .config_fields
+    }
+
+    #[test]
+    fn channel_types_include_cokret() {
+        let cokret = build_channel_types()
+            .into_iter()
+            .find(|channel| channel.id == "cokret")
+            .expect("cokret channel type");
+
+        assert_eq!(cokret.name, "Cokret");
+        assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "keyRef")
+        );
+        assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "trustedVerificationMethods")
+        );
+    }
+
+    #[test]
+    fn cokret_account_patch_builds_flat_account_config() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "baseUrl"),
+            "https://cokret.example.org".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "serviceDid"),
+            "did:webvh:cokret.example.org".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "principalId"),
+            "did:webvh:example.org:agents:support".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "deviceId"),
+            "ck:device:01904100-0000-7000-8000-000000000001".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "accessToken"),
+            "token-1".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "defaultRealmId"),
+            "ck:realm:abc".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "scopes"),
+            "ck.message.create\nck.message.read".to_owned(),
+        );
+
+        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+
+        assert_eq!(patch["mode"], json!("account"));
+        assert_eq!(patch["listen"], json!(true));
+        assert_eq!(patch["send"], json!(true));
+        assert_eq!(
+            patch["principalId"],
+            json!("did:webvh:example.org:agents:support")
+        );
+        assert_eq!(patch["defaultRealmId"], json!("ck:realm:abc"));
+        assert!(patch["appletId"].is_null());
+        assert!(patch["namespaces"].is_null());
+    }
+
+    #[test]
+    fn cokret_applet_patch_builds_structured_namespaces() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(field_value_key("cokret", "mode"), "applet".to_owned());
+        values.insert(
+            field_value_key("cokret", "baseUrl"),
+            "https://savfox.example/appservices/cokret/cokret-default".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "serviceDid"),
+            "did:web:slack-bridge.example".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "accessToken"),
+            "applet-bearer-1".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "appletId"),
+            "ck:applet:21532600-0000-7000-8000-000000000000".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "controllerDid"),
+            "did:webvh:example.com:admin".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "cokretServerUrl"),
+            "https://cokret.example.org".to_owned(),
+        );
+        values.insert(field_value_key("cokret", "protocols"), "slack".to_owned());
+        values.insert(
+            field_value_key("cokret", "namespaceActors"),
+            "did:web:slack-bridge.example:ghost:*".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "namespaceRealms"),
+            "slack:team:*:channel:*".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "namespaceHandles"),
+            "slack.acme.example/*".to_owned(),
+        );
+
+        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+
+        assert_eq!(patch["mode"], json!("applet"));
+        assert_eq!(patch["receiveEvents"], json!(true));
+        assert!(patch["principalId"].is_null());
+        assert_eq!(
+            patch["namespaces"]["actors"][0],
+            json!({
+                "pattern": "did:web:slack-bridge.example:ghost:*",
+                "exclusive": true
+            })
+        );
+        assert_eq!(
+            patch["namespaces"]["handles"][0],
+            json!({
+                "pattern": "slack.acme.example/*",
+                "exclusive": false
+            })
+        );
     }
 }
 

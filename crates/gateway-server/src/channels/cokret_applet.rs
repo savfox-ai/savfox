@@ -137,6 +137,13 @@ pub(crate) fn remove_cokret_applet_channel(config_id: &str) -> anyhow::Result<bo
     Ok(reg.remove(config_id).is_some())
 }
 
+pub(crate) fn is_cokret_applet_registered(config_id: &str) -> bool {
+    let Ok(reg) = applet_registry().lock() else {
+        return false;
+    };
+    reg.contains_key(config_id)
+}
+
 fn lookup_by_config_id(config_id: &str) -> anyhow::Result<Option<Arc<AppletChannelState>>> {
     let reg = applet_registry()
         .lock()

@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::components::layout::Layout;
 use crate::pages::agents::{Agents, AgentsDetail, AgentsDetailTab, AgentsNew};
 use crate::pages::approvals::Approvals;
+use crate::pages::channels::cokret::CokretChannel;
 use crate::pages::channels::dingtalk::DingtalkChannel;
 use crate::pages::channels::discord::DiscordChannel;
 use crate::pages::channels::feishu::FeishuChannel;
@@ -81,6 +82,8 @@ pub enum Route {
         SignalChannel {},
         #[route("/channels/matrix")]
         MatrixChannel {},
+        #[route("/channels/cokret")]
+        CokretChannel {},
         #[route("/channels/mattermost")]
         MattermostChannel {},
         #[route("/channels/googlechat")]

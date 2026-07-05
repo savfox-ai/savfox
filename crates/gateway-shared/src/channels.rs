@@ -152,6 +152,25 @@ pub struct MatrixStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct CokretStatus {
+    pub configured: Option<bool>,
+    pub running: Option<bool>,
+    pub connected: Option<bool>,
+    pub mode: Option<String>,
+    pub base_url: Option<String>,
+    pub service_did: Option<String>,
+    pub account_id: Option<String>,
+    pub principal_id: Option<String>,
+    pub default_realm_id: Option<String>,
+    pub applet_id: Option<String>,
+    pub bot_actor_id: Option<String>,
+    pub protocol_count: Option<u32>,
+    pub namespace_count: Option<u32>,
+    pub last_activity: Option<i64>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct MattermostStatus {
     pub configured: Option<bool>,
     pub running: Option<bool>,

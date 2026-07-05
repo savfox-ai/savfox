@@ -70,6 +70,7 @@ pub(crate) async fn handle_channels_list(_channel: &Arc<GatewayChannel>) -> RpcR
         json!({"platform": "msteams", "endpoint": "/webhooks/msteams", "type": "channel"}),
         json!({"platform": "webhook", "endpoint": "/webhooks/webhook", "type": "generic"}),
         json!({"platform": "matrix", "endpoint": "/webhooks/matrix", "type": "channel"}),
+        json!({"platform": "cokret", "endpoint": "/_cokret/edge/applet/transactions", "type": "channel"}),
         json!({"platform": "mattermost", "endpoint": "/webhooks/mattermost", "type": "webhook"}),
         json!({"platform": "googlechat", "endpoint": "/webhooks/googlechat", "type": "webhook"}),
         json!({"platform": "line", "endpoint": "/webhooks/line", "type": "webhook"}),
@@ -150,6 +151,34 @@ fn channel_config_collection_len(
     })
 }
 
+fn cokret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
+    first_non_empty_channel_config_string(map, &["mode"])
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| value == "applet")
+        .unwrap_or_else(|| "account".to_owned())
+}
+
+fn cokret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
+    let namespaces = map.get("namespaces").and_then(Value::as_object)?;
+    let count = ["actors", "realms", "handles"]
+        .into_iter()
+        .filter_map(|key| namespaces.get(key).and_then(Value::as_array))
+        .map(|items| items.len() as u32)
+        .sum::<u32>();
+    (count > 0).then_some(count)
+}
+
+fn cokret_saved_config_running(config: &savfox_core::config::channel_store::ChannelConfig) -> bool {
+    let Some(raw) = config.config.as_object() else {
+        return false;
+    };
+    if cokret_mode_from_config_obj(raw) == "applet" {
+        crate::channels::cokret_applet::is_cokret_applet_registered(&config.id)
+    } else {
+        crate::channels::cokret::cokret_account_listener_count(&config.id) > 0
+    }
+}
+
 pub(crate) fn saved_channel_config_ready(
     config: &savfox_core::config::channel_store::ChannelConfig,
 ) -> bool {
@@ -200,6 +229,15 @@ pub(crate) fn saved_channel_config_ready(
             }),
         "matrix" => savfox_channels::matrix::MatrixChannelConfig::from_channel_config(config)
             .is_some_and(|parsed| parsed.is_ready()),
+        "cokret" => {
+            if cokret_mode_from_config_obj(raw) == "applet" {
+                savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(config)
+                    .is_some_and(|parsed| parsed.validate().is_ok())
+            } else {
+                savfox_channels::cokret::CokretChannelConfig::from_channel_config(config)
+                    .is_some_and(|parsed| parsed.validate().is_ok())
+            }
+        }
         "mattermost" => {
             first_non_empty_channel_config_string(raw, &["server_url", "serverUrl"]).is_some()
                 && first_non_empty_channel_config_string(raw, &["bot_token", "botToken", "token"])
@@ -539,6 +577,74 @@ fn insert_saved_channel_metadata(
                 info.insert("appservice_url".to_owned(), json!(public_url));
             }
         }
+        "cokret" => {
+            let mode = cokret_mode_from_config_obj(config_obj);
+            info.insert("mode".to_owned(), json!(&mode));
+            if let Some(base_url) =
+                first_non_empty_channel_config_string(config_obj, &["baseUrl", "base_url", "url"])
+            {
+                info.insert("base_url".to_owned(), json!(base_url));
+            }
+            if let Some(service_did) =
+                first_non_empty_channel_config_string(config_obj, &["serviceDid", "service_did"])
+            {
+                info.insert("service_did".to_owned(), json!(service_did));
+            }
+            if let Some(config) = saved_state.config.as_ref() {
+                if mode == "applet" {
+                    if let Some(parsed) =
+                        savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(
+                            config,
+                        )
+                    {
+                        info.insert("applet_id".to_owned(), json!(&parsed.applet_id));
+                        info.insert("bot_actor_id".to_owned(), json!(&parsed.bot_actor_id));
+                        info.insert("base_url".to_owned(), json!(&parsed.base_url));
+                        info.insert("service_did".to_owned(), json!(&parsed.service_did));
+                        info.insert("protocol_count".to_owned(), json!(parsed.protocols.len()));
+                        let namespace_count = parsed.namespaces.actors.len()
+                            + parsed.namespaces.realms.len()
+                            + parsed.namespaces.handles.len();
+                        info.insert("namespace_count".to_owned(), json!(namespace_count));
+                    } else {
+                        if let Some(applet_id) = first_non_empty_channel_config_string(
+                            config_obj,
+                            &["appletId", "applet_id"],
+                        ) {
+                            info.insert("applet_id".to_owned(), json!(applet_id));
+                        }
+                        if let Some(bot_actor_id) = first_non_empty_channel_config_string(
+                            config_obj,
+                            &["botActorId", "bot_actor_id"],
+                        ) {
+                            info.insert("bot_actor_id".to_owned(), json!(bot_actor_id));
+                        }
+                        if let Some(protocol_count) =
+                            channel_config_collection_len(config_obj, &["protocols"])
+                        {
+                            info.insert("protocol_count".to_owned(), json!(protocol_count));
+                        }
+                        if let Some(namespace_count) = cokret_namespace_count(config_obj) {
+                            info.insert("namespace_count".to_owned(), json!(namespace_count));
+                        }
+                    }
+                } else if let Some(parsed) =
+                    savfox_channels::cokret::CokretChannelConfig::from_channel_config(config)
+                {
+                    info.insert("base_url".to_owned(), json!(&parsed.base_url));
+                    if let Some(service_did) = parsed.service_did.as_deref() {
+                        info.insert("service_did".to_owned(), json!(service_did));
+                    }
+                    if let Some(account) = parsed.accounts.first() {
+                        info.insert("account_id".to_owned(), json!(&account.id));
+                        info.insert("principal_id".to_owned(), json!(&account.principal_id));
+                        if let Some(default_realm_id) = account.default_realm_id.as_deref() {
+                            info.insert("default_realm_id".to_owned(), json!(default_realm_id));
+                        }
+                    }
+                }
+            }
+        }
         "mattermost" => {
             if let Some(server_url) =
                 first_non_empty_channel_config_string(config_obj, &["server_url", "serverUrl"])
@@ -714,6 +820,13 @@ pub(crate) async fn handle_channels_status(
         .as_ref()
         .map(|state| state.connected)
         .unwrap_or(matrix_running);
+    let cokret_configured =
+        channel_is_configured("cokret", &runtime, &saved_configs, nostr_configured);
+    let cokret_saved = saved_channel_state(&saved_configs, "cokret");
+    let cokret_running = cokret_saved
+        .config
+        .as_ref()
+        .is_some_and(cokret_saved_config_running);
     let whatsapp_configured =
         channel_is_configured("whatsapp", &runtime, &saved_configs, nostr_configured);
     let signal_configured =
@@ -772,6 +885,11 @@ pub(crate) async fn handle_channels_status(
             "running": matrix_running,
             "connected": matrix_connected,
             "pending_invites": matrix_pending_invites,
+        },
+        "cokret": {
+            "configured": cokret_configured,
+            "running": cokret_running,
+            "connected": cokret_running,
         },
         "whatsapp": {
             "configured": whatsapp_configured,
@@ -1276,6 +1394,119 @@ pub(crate) async fn handle_channels_login(
         }));
     }
 
+    if platform == "cokret" {
+        if !is_configured {
+            return Ok(json!({
+                "platform": platform,
+                "status": "needs_config",
+                "configured": false,
+                "message": "Please configure cokret in the channel settings",
+            }));
+        }
+
+        let registry = channel.channel_registry();
+        let mut started = 0_u32;
+        let mut already_running = 0_u32;
+        let mut ready_configs = 0_u32;
+        let mut applet_configs = 0_u32;
+        let mut account_configs = 0_u32;
+
+        for saved in &saved_configs {
+            if !channel_platform_matches_kind(&saved.kind, "cokret")
+                || !saved.enabled
+                || !saved_channel_config_ready(saved)
+            {
+                continue;
+            }
+
+            ready_configs = ready_configs.saturating_add(1);
+            let mode = saved
+                .config
+                .as_object()
+                .map(cokret_mode_from_config_obj)
+                .unwrap_or_else(|| "account".to_owned());
+
+            if mode == "applet" {
+                applet_configs = applet_configs.saturating_add(1);
+                if crate::channels::cokret_applet::is_cokret_applet_registered(&saved.id) {
+                    already_running = already_running.saturating_add(1);
+                    continue;
+                }
+                crate::channels::cokret_applet::start_cokret_applet_channel(
+                    saved,
+                    channel,
+                    session_store,
+                )
+                .await
+                .map_err(|err| {
+                    (
+                        INTERNAL_ERROR,
+                        format!(
+                            "failed to start Cokret applet channel '{}': {err}",
+                            saved.id
+                        ),
+                    )
+                })?;
+            } else {
+                account_configs = account_configs.saturating_add(1);
+                if crate::channels::cokret::cokret_account_listener_count(&saved.id) > 0 {
+                    already_running = already_running.saturating_add(1);
+                    continue;
+                }
+                crate::channels::cokret::start_cokret_channel(
+                    saved,
+                    &registry,
+                    channel,
+                    session_store,
+                )
+                .await
+                .map_err(|err| {
+                    (
+                        INTERNAL_ERROR,
+                        format!(
+                            "failed to start Cokret account channel '{}': {err}",
+                            saved.id
+                        ),
+                    )
+                })?;
+            }
+
+            started = started.saturating_add(1);
+        }
+
+        let (status, message) = if started > 0 {
+            ("started", format!("Started {started} Cokret channel(s)"))
+        } else if already_running > 0 {
+            (
+                "already_running",
+                format!("{already_running} Cokret channel(s) already running"),
+            )
+        } else if ready_configs > 0 {
+            (
+                "configured",
+                format!(
+                    "Cokret is configured (account: {account_configs}, applet: {applet_configs}), but no runtime was started"
+                ),
+            )
+        } else {
+            (
+                "needs_config",
+                "No enabled Cokret channel has a valid account or applet config".to_owned(),
+            )
+        };
+
+        return Ok(json!({
+            "platform": platform,
+            "status": status,
+            "configured": true,
+            "started": started,
+            "already_running": already_running,
+            "account_configs": account_configs,
+            "applet_configs": applet_configs,
+            "message": message,
+        }));
+    }
+
     if platform == "feishu" {
         if !is_configured {
             return Ok(json!({
@@ -1545,9 +1776,9 @@ pub(crate) async fn handle_channels_logout(
 
     Ok(json!({
         "platform": platform,
-        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix") && stopped > 0 {
+        "status": if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "cokret") && stopped > 0 {
             "stopped"
-        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix") {
+        } else if matches!(platform.as_str(), "discord" | "feishu" | "matrix" | "cokret") {
             "already_stopped"
         } else {
             "logged_out"
@@ -1582,6 +1813,9 @@ pub(crate) async fn handle_channels_test(
     if platform == "matrix" {
         return handle_matrix_channel_test(params, channel, &saved_configs).await;
     }
+    if platform == "cokret" {
+        return handle_cokret_channel_test(params, &saved_configs).await;
+    }
 
     Ok(json!({
         "platform": platform,
@@ -1591,6 +1825,139 @@ pub(crate) async fn handle_channels_test(
         } else {
             format!("{platform} is not configured. Please add configuration in the channel settings.")
         }
+    }))
+}
+
+fn cokret_test_channel_config(
+    params: &Value,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> Option<savfox_core::config::channel_store::ChannelConfig> {
+    if let Some(config) = params.get("config").filter(|value| value.is_object()) {
+        let id = params
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("cokret-test");
+        let name = params
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(id);
+        return Some(savfox_core::config::channel_store::ChannelConfig {
+            id: id.to_owned(),
+            kind: "cokret".to_owned(),
+            slug: id.to_owned(),
+            name: name.to_owned(),
+            enabled: true,
+            config: object_without_null_fields(config),
+            router: None,
+            dm_policy: None,
+            group_policy: None,
+            created_at: None,
+            updated_at: None,
+        });
+    }
+
+    saved_configs
+        .iter()
+        .find(|config| {
+            channel_platform_matches_kind(&config.kind, "cokret")
+                && config.enabled
+                && saved_channel_config_ready(config)
+        })
+        .or_else(|| {
+            saved_configs.iter().find(|config| {
+                channel_platform_matches_kind(&config.kind, "cokret") && config.enabled
+            })
+        })
+        .cloned()
+}
+
+fn object_without_null_fields(value: &Value) -> Value {
+    let Some(obj) = value.as_object() else {
+        return value.clone();
+    };
+    Value::Object(
+        obj.iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| {
+                let value = if value.is_object() {
+                    object_without_null_fields(value)
+                } else {
+                    value.clone()
+                };
+                (key.clone(), value)
+            })
+            .collect(),
+    )
+}
+
+async fn handle_cokret_channel_test(
+    params: &Value,
+    saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
+) -> RpcResult {
+    let Some(raw_config) = cokret_test_channel_config(params, saved_configs) else {
+        return Ok(json!({
+            "platform": "cokret",
+            "ok": false,
+            "message": "cokret is not configured. Please add configuration in the channel settings.",
+        }));
+    };
+    let mode = raw_config
+        .config
+        .as_object()
+        .map(cokret_mode_from_config_obj)
+        .unwrap_or_else(|| "account".to_owned());
+
+    if mode == "applet" {
+        let parsed =
+            savfox_channels::cokret::applet::CokretAppletConfig::from_channel_config(&raw_config)
+                .ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "Cokret applet channel config must be an object with mode='applet'".to_owned(),
+                )
+            })?;
+        parsed
+            .validate()
+            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+        let namespace_count = parsed.namespaces.actors.len()
+            + parsed.namespaces.realms.len()
+            + parsed.namespaces.handles.len();
+        return Ok(json!({
+            "platform": "cokret",
+            "ok": true,
+            "mode": "applet",
+            "applet_id": parsed.applet_id.as_str(),
+            "service_did": parsed.service_did.as_str(),
+            "protocol_count": parsed.protocols.len(),
+            "namespace_count": namespace_count,
+            "message": "Cokret applet configuration is valid",
+        }));
+    }
+
+    let parsed = savfox_channels::cokret::CokretChannelConfig::from_channel_config(&raw_config)
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "Cokret account channel config must include baseUrl plus at least one account auth path"
+                    .to_owned(),
+            )
+        })?;
+    parsed
+        .validate()
+        .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+    Ok(json!({
+        "platform": "cokret",
+        "ok": true,
+        "mode": "account",
+        "base_url": parsed.base_url.as_str(),
+        "service_did": parsed.service_did.as_deref(),
+        "account_count": parsed.accounts.len(),
+        "listener_count": parsed.accounts.iter().filter(|account| account.listen).count(),
+        "message": "Cokret account configuration is valid",
     }))
 }
 
@@ -2580,5 +2947,82 @@ mod tests {
 
         assert!(saved_channel_config_ready(&qq));
         assert!(saved_channel_config_ready(&wechat));
+    }
+
+    #[test]
+    fn cokret_account_ready_requires_valid_account_config() {
+        let ready = channel_config(
+            "cokret",
+            json!({
+                "mode": "account",
+                "baseUrl": "https://cokret.example.org",
+                "serviceDid": "did:webvh:cokret.example.org",
+                "principalId": "did:webvh:example.org:agents:support",
+                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
+                "accessToken": "token-1",
+                "defaultRealmId": "ck:realm:abc"
+            }),
+        );
+        let missing_realm = channel_config(
+            "cokret",
+            json!({
+                "mode": "account",
+                "baseUrl": "https://cokret.example.org",
+                "principalId": "did:webvh:example.org:agents:support",
+                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
+                "accessToken": "token-1",
+                "send": true
+            }),
+        );
+
+        assert!(saved_channel_config_ready(&ready));
+        assert!(!saved_channel_config_ready(&missing_realm));
+    }
+
+    #[test]
+    fn cokret_applet_ready_requires_valid_applet_config() {
+        let ready = channel_config(
+            "cokret",
+            json!({
+                "mode": "applet",
+                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+                "serviceDid": "did:web:slack-bridge.example",
+                "controllerDid": "did:webvh:example.com:admin",
+                "baseUrl": "https://savfox.example/appservices/cokret/cokret-default",
+                "botActorId": "did:web:slack-bridge.example:bot",
+                "cokretServerUrl": "https://cokret.example.org",
+                "cokretServerDid": "did:webvh:cokret.example.org",
+                "accessToken": "applet-bearer-1",
+                "protocols": ["slack"],
+                "namespaces": {
+                    "actors": [
+                        { "pattern": "did:web:slack-bridge.example:ghost:*", "exclusive": true }
+                    ],
+                    "realms": [
+                        { "pattern": "slack:team:*:channel:*", "exclusive": true }
+                    ],
+                    "handles": [
+                        { "pattern": "slack.acme.example/*", "exclusive": false }
+                    ]
+                }
+            }),
+        );
+        let missing_namespaces = channel_config(
+            "cokret",
+            json!({
+                "mode": "applet",
+                "appletId": "ck:applet:21532600-0000-7000-8000-000000000000",
+                "serviceDid": "did:web:slack-bridge.example",
+                "controllerDid": "did:webvh:example.com:admin",
+                "baseUrl": "https://savfox.example/appservices/cokret/cokret-default",
+                "botActorId": "did:web:slack-bridge.example:bot",
+                "cokretServerUrl": "https://cokret.example.org",
+                "accessToken": "applet-bearer-1",
+                "protocols": ["slack"]
+            }),
+        );
+
+        assert!(saved_channel_config_ready(&ready));
+        assert!(!saved_channel_config_ready(&missing_namespaces));
     }
 }
