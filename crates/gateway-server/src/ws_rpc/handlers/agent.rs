@@ -1139,6 +1139,113 @@ fn default_agent_stub() -> Value {
     })
 }
 
+fn trimmed_string_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn legacy_primary_model(config: &Value) -> Option<String> {
+    trimmed_string_at(config, "model")
+        .or_else(|| {
+            config
+                .get("models")
+                .and_then(|models| trimmed_string_at(models, "primary"))
+        })
+        .map(str::to_owned)
+}
+
+fn provider_for_model(model: &str) -> String {
+    model
+        .split_once('/')
+        .map(|(provider, _)| provider.trim())
+        .filter(|provider| !provider.is_empty())
+        .unwrap_or("default")
+        .to_owned()
+}
+
+fn legacy_fallback_models(config: &Value) -> Option<Value> {
+    let fallbacks = config
+        .get("models")
+        .and_then(|models| {
+            models
+                .get("fallback_models")
+                .or_else(|| models.get("fallbacks"))
+                .or_else(|| models.get("fallback"))
+        })
+        .or_else(|| config.get("fallback_models"))?;
+
+    match fallbacks {
+        Value::Array(items) => {
+            let models: Vec<_> = items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|model| !model.is_empty())
+                .map(|model| json!(model))
+                .collect();
+            (!models.is_empty()).then(|| Value::Array(models))
+        }
+        Value::String(model) => {
+            let model = model.trim();
+            (!model.is_empty()).then(|| json!([model]))
+        }
+        _ => None,
+    }
+}
+
+fn normalize_native_agent_config(config: &mut Value) {
+    let legacy_model = legacy_primary_model(config);
+    let legacy_fallbacks = legacy_fallback_models(config);
+
+    if !config.get("native").is_some_and(Value::is_object) {
+        let model = legacy_model.clone().unwrap_or_else(|| "default".to_owned());
+        config["native"] = json!({
+            "provider": provider_for_model(&model),
+            "model": model,
+        });
+    }
+
+    if let Some(native) = config.get_mut("native").and_then(Value::as_object_mut) {
+        let model = native
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| legacy_model.clone())
+            .unwrap_or_else(|| "default".to_owned());
+        native.insert("model".to_owned(), json!(model.clone()));
+
+        let provider_missing = native
+            .get("provider")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_none_or(|provider| provider.is_empty());
+        if provider_missing {
+            native.insert("provider".to_owned(), json!(provider_for_model(&model)));
+        }
+
+        if !native.contains_key("fallback_models")
+            && let Some(fallbacks) = legacy_fallbacks
+        {
+            native.insert("fallback_models".to_owned(), fallbacks);
+        }
+    }
+}
+
+fn has_enabled_terminal_config(config: &Value) -> bool {
+    let terminal = config
+        .get("terminal")
+        .or_else(|| config.get("terminal_delegate"));
+    terminal.is_some_and(|terminal| {
+        terminal.get("enabled").and_then(Value::as_bool) == Some(true)
+            && trimmed_string_at(terminal, "command").is_some()
+    })
+}
+
 pub(crate) fn normalized_agent_name_key(name: &str) -> Option<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -1176,20 +1283,29 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         config["name"] = json!(default_name);
     }
 
+    if !config.get("terminal").is_some_and(Value::is_object)
+        && let Some(terminal_delegate) = config.get("terminal_delegate").cloned()
+        && terminal_delegate.is_object()
+    {
+        config["terminal"] = terminal_delegate;
+    }
+
     let kind = config
         .get("kind")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| matches!(*value, "native" | "terminal"))
         .map(ToOwned::to_owned)
-        .or_else(|| builtin.then(|| "native".to_owned()));
-    if let Some(kind) = kind {
-        config["kind"] = json!(kind.as_str());
-        if kind == "native" && builtin && !config.get("native").is_some_and(Value::is_object) {
-            config["native"] = json!({
-                "provider": "default",
-                "model": "default",
-            });
+        .or_else(|| has_enabled_terminal_config(config).then(|| "terminal".to_owned()))
+        .unwrap_or_else(|| "native".to_owned());
+    config["kind"] = json!(kind.as_str());
+    if kind == "native" {
+        normalize_native_agent_config(config);
+    } else if kind == "terminal"
+        && let Some(terminal) = config.get_mut("terminal").and_then(Value::as_object_mut)
+    {
+        if !terminal.contains_key("runtime") {
+            terminal.insert("runtime".to_owned(), json!("codex"));
         }
     }
 
@@ -1200,10 +1316,7 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
             .is_some_and(|kind| kind == "native")
         && !config.get("native").is_some_and(Value::is_object)
     {
-        config["native"] = json!({
-            "provider": "default",
-            "model": "default",
-        });
+        normalize_native_agent_config(config);
     }
 
     if !builtin {
@@ -2410,9 +2523,65 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        parse_pty_size, parse_string_array, parse_string_map, terminal_cleanup_targets,
-        terminal_pty_key_from_params,
+        normalize_agent_config, parse_pty_size, parse_string_array, parse_string_map,
+        terminal_cleanup_targets, terminal_pty_key_from_params,
     };
+
+    fn assert_agents_response_deserializes(config: &serde_json::Value) {
+        let response: savfox_gateway_shared::AgentsResponse =
+            serde_json::from_value(json!({ "agents": [config.clone()] }))
+                .expect("normalized agent should match frontend wire type");
+        assert_eq!(response.agents.len(), 1);
+    }
+
+    #[test]
+    fn normalize_agent_config_fills_legacy_native_defaults() {
+        let mut config = json!({
+            "id": "019cad1c-d58e-7e20-a16e-dd1b1f0d382f",
+            "name": "sdd",
+            "status": "active",
+            "updated_at": "2026-03-09T12:54:35.359578700+00:00"
+        });
+
+        normalize_agent_config(&mut config, "019cad1c-d58e-7e20-a16e-dd1b1f0d382f", false);
+
+        assert_eq!(config["kind"], json!("native"));
+        assert_eq!(config["native"]["provider"], json!("default"));
+        assert_eq!(config["native"]["model"], json!("default"));
+        assert_agents_response_deserializes(&config);
+    }
+
+    #[test]
+    fn normalize_agent_config_migrates_legacy_model_fields() {
+        let mut config = json!({
+            "id": "default",
+            "name": "Savfox Agent",
+            "description": "Default Savfox assistant agent",
+            "builtin": true,
+            "status": "active",
+            "is_default": true,
+            "model": "deepseek-chris/deepseek-v4-flash",
+            "models": {
+                "primary": "deepseek-chris/deepseek-v4-flash",
+                "fallback": ["openai/gpt-5-mini"]
+            }
+        });
+
+        normalize_agent_config(&mut config, "default", true);
+
+        assert_eq!(config["kind"], json!("native"));
+        assert_eq!(config["native"]["provider"], json!("deepseek-chris"));
+        assert_eq!(
+            config["native"]["model"],
+            json!("deepseek-chris/deepseek-v4-flash")
+        );
+        assert_eq!(
+            config["native"]["fallback_models"],
+            json!(["openai/gpt-5-mini"])
+        );
+        assert_eq!(config["builtin"], json!(true));
+        assert_agents_response_deserializes(&config);
+    }
 
     #[tokio::test]
     async fn terminal_cleanup_targets_can_find_session_across_agents() {

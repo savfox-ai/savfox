@@ -1358,15 +1358,24 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
         let _t = refresh_tick();
         let ws = ws_list.clone();
         async move {
+            ws.wait_connected().await;
             ws.call::<AgentsResponse>("agents.list", None)
                 .await
                 .map(|r| r.agents)
-                .unwrap_or_default()
         }
     });
 
-    let agents: Vec<AgentEntry> = agents_data.read().as_ref().cloned().unwrap_or_default();
-    let is_loading = agents_data.read().is_none();
+    let agents_state = agents_data.read().as_ref().cloned();
+    let agents: Vec<AgentEntry> = agents_state
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned()
+        .unwrap_or_default();
+    let agents_error = agents_state
+        .as_ref()
+        .and_then(|result| result.as_ref().err())
+        .cloned();
+    let is_loading = agents_state.is_none();
 
     let selected_entry: Option<AgentEntry> = selected_agent()
         .and_then(|selected| agents.iter().find(|a| agent_ref(a) == selected).cloned());
@@ -1738,6 +1747,11 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                     if is_loading {
                         div { style: "padding:16px;",
                             SkeletonLines { count: 3 }
+                        }
+                    } else if let Some(ref error) = agents_error {
+                        p {
+                            style: "padding:16px;color:var(--danger);font-size:14px;line-height:1.5;",
+                            "Failed to load agents: {error}"
                         }
                     } else if agents.is_empty() {
                         p { style: "padding:16px;color:var(--text-muted);font-size:14px;", "No agents configured" }
