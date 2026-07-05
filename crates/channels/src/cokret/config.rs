@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
+use cokret_identifiers::{DeviceId, Did};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::signer::CokretKeyRef;
 
@@ -60,8 +62,8 @@ impl CokretChannelConfig {
         let service_did = first_non_empty(raw, &["serviceDid", "service_did"]);
 
         let accounts = match raw.get("accounts") {
-            Some(value) => parse_accounts(value, raw),
-            None => parse_accounts(&Value::Null, raw),
+            Some(value) => parse_accounts(value, raw, &config.id),
+            None => parse_accounts(&Value::Null, raw, &config.id),
         };
 
         Some(Self {
@@ -76,6 +78,15 @@ impl CokretChannelConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.base_url.trim().is_empty() {
             anyhow::bail!("Cokret channel '{}' missing base_url", self.id);
+        }
+        if let Some(service_did) = self.service_did.as_deref() {
+            Did::new(service_did.to_owned()).map_err(|err| {
+                anyhow::anyhow!(
+                    "Cokret channel '{}' service_did must be a valid DID URI, got '{}': {err}",
+                    self.id,
+                    service_did
+                )
+            })?;
         }
         if self.accounts.is_empty() {
             anyhow::bail!(
@@ -125,9 +136,23 @@ impl CokretAccountConfig {
         if self.principal_id.trim().is_empty() {
             anyhow::bail!("Cokret account '{}' missing principal_id (DID)", self.id);
         }
+        Did::new(self.principal_id.clone()).map_err(|err| {
+            anyhow::anyhow!(
+                "Cokret account '{}' principal_id must be a valid DID URI, got '{}': {err}",
+                self.id,
+                self.principal_id
+            )
+        })?;
         if self.device_id.trim().is_empty() {
             anyhow::bail!("Cokret account '{}' missing device_id", self.id);
         }
+        DeviceId::new(self.device_id.clone()).map_err(|err| {
+            anyhow::anyhow!(
+                "Cokret account '{}' device_id must be a valid Cokret device id, got '{}': {err}",
+                self.id,
+                self.device_id
+            )
+        })?;
         // Phase 8: either a static access_token OR a key_ref MUST be set.
         // Both is allowed; key_ref takes precedence at startup.
         if self.access_token.trim().is_empty() && self.key_ref.is_none() {
@@ -170,16 +195,17 @@ impl CokretAccountConfig {
 fn parse_accounts(
     accounts_value: &Value,
     parent_raw: &serde_json::Map<String, Value>,
+    channel_id: &str,
 ) -> Vec<CokretAccountConfig> {
     match accounts_value {
         Value::Array(items) => items
             .iter()
-            .filter_map(|item| parse_account_entry(item.as_object()?))
+            .filter_map(|item| parse_account_entry(item.as_object()?, channel_id))
             .collect(),
         Value::Object(_) | Value::Null => {
             // Allow single-account flat form where principal_id / access_token live at
             // the top of the channel config object — convenient for one-account setups.
-            if let Some(account) = parse_account_entry(parent_raw) {
+            if let Some(account) = parse_account_entry(parent_raw, channel_id) {
                 vec![account]
             } else {
                 Vec::new()
@@ -189,7 +215,10 @@ fn parse_accounts(
     }
 }
 
-fn parse_account_entry(map: &serde_json::Map<String, Value>) -> Option<CokretAccountConfig> {
+fn parse_account_entry(
+    map: &serde_json::Map<String, Value>,
+    channel_id: &str,
+) -> Option<CokretAccountConfig> {
     let principal_id = first_non_empty(map, &["principalId", "principal_id", "did", "user_id"])?;
     let access_token = first_non_empty(
         map,
@@ -207,7 +236,8 @@ fn parse_account_entry(map: &serde_json::Map<String, Value>) -> Option<CokretAcc
     }
     let id = first_non_empty(map, &["id", "accountId", "account_id"])
         .unwrap_or_else(|| principal_id.clone());
-    let device_id = first_non_empty(map, &["deviceId", "device_id"]).unwrap_or_default();
+    let device_id = first_non_empty(map, &["deviceId", "device_id"])
+        .unwrap_or_else(|| derive_cokret_device_id(&[channel_id, &id, &principal_id]));
     let default_realm_id = first_non_empty(map, &["defaultRealmId", "default_realm_id", "realmId"]);
     let default_flow_id = first_non_empty(map, &["defaultFlowId", "default_flow_id", "flowId"]);
     let agent_id = first_non_empty(map, &["agentId", "agent_id", "agent"]);
@@ -245,6 +275,24 @@ fn parse_account_entry(map: &serde_json::Map<String, Value>) -> Option<CokretAcc
         send,
         scopes,
     })
+}
+
+/// Derive a stable protocol-valid Cokret device id for a locally managed
+/// Savfox runtime identity.
+#[must_use]
+pub fn derive_cokret_device_id(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"savfox.cokret.device.v1");
+    for part in parts {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    format!("ck:device:{}", uuid::Uuid::from_bytes(bytes))
 }
 
 fn first_non_empty(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -385,14 +433,43 @@ mod tests {
         let cfg = make_channel_config(json!({
             "baseUrl": "https://cokret.example.org",
             "principalId": "did:webvh:example.org:bot",
-            "deviceId": "ck:device:bot-1",
             "accessToken": "tok",
             "defaultRealmId": "ck:realm:r1"
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(parsed.accounts.len(), 1);
         assert_eq!(parsed.accounts[0].principal_id, "did:webvh:example.org:bot");
+        assert!(cokret_identifiers::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn derives_stable_device_id_when_user_omits_it() {
+        let cfg = make_channel_config(json!({
+            "baseUrl": "https://cokret.example.org",
+            "principalId": "did:webvh:example.org:bot",
+            "accessToken": "tok",
+            "defaultRealmId": "ck:realm:r1"
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let again = CokretChannelConfig::from_channel_config(&cfg).expect("parse again");
+
+        assert_eq!(parsed.accounts[0].device_id, again.accounts[0].device_id);
+        assert!(cokret_identifiers::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
+    }
+
+    #[test]
+    fn explicit_bad_device_id_rejects_validation() {
+        let cfg = make_channel_config(json!({
+            "baseUrl": "https://cokret.example.org",
+            "principalId": "did:webvh:example.org:bot",
+            "deviceId": "ck:device:bot-1",
+            "accessToken": "tok",
+            "defaultRealmId": "ck:realm:r1"
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed.validate().expect_err("bad device id should fail");
+        assert!(format!("{err:#}").contains("device_id"));
     }
 
     #[test]

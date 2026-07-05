@@ -550,115 +550,124 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
             id: "cokret".into(),
             name: "Cokret".into(),
             icon: "Ck".into(),
-            description: "Connect a Cokret account or registered applet".into(),
+            description: "Connect a Cokret AI agent or registered applet".into(),
             config_fields: vec![
                 ConfigField {
                     key: "mode".into(),
-                    label: "Mode".into(),
+                    label: "Connection Type".into(),
                     field_type: FieldType::Select(vec!["account".into(), "applet".into()]),
                     placeholder: "account".into(),
                     secret: false,
                     required: true,
-                    help: "Account mode controls a Cokret account; applet mode registers Savfox as a Cokret Applet endpoint",
+                    help: "Account connects a Yougen-created AI agent. Applet exposes Savfox as a registered Cokret Applet endpoint.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
-                    label: "Base URL".into(),
+                    label: "Cokret / Applet URL".into(),
                     field_type: FieldType::Text,
                     placeholder: "Account: https://cokret.example.org; Applet: https://savfox.example/appservices/cokret/cokret-default".into(),
                     secret: false,
                     required: true,
-                    help: "Account mode uses the Cokret server URL. Applet mode uses the public Savfox URL that Cokret calls.",
+                    help: "Account mode uses the Cokret server URL. Applet mode uses the public Savfox callback URL registered in Cokret.",
                 },
                 ConfigField {
                     key: "serviceDid".into(),
-                    label: "Service DID".into(),
+                    label: "Service / Audience DID".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:webvh:cokret.example.org or did:web:savfox.example".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret service DID for account mode, or this applet service DID in applet mode",
+                    help: "Applet service DID, or the DID-proof login audience when account advanced auth is enabled.",
                 },
                 ConfigField {
                     key: "accessToken".into(),
-                    label: "Access Token / Bearer".into(),
+                    label: "Session Grant / Bearer Token".into(),
                     field_type: FieldType::Password,
                     placeholder: "ck.session.grant or applet bearer token".into(),
                     secret: true,
                     required: false,
-                    help: "Static session grant for account mode or inbound applet bearer token. A keyRef can replace this for DID-proof login.",
+                    help: "Session grant produced by Cokret/Yougen pairing, or the inbound applet bearer token. Device IDs are generated automatically.",
                 },
                 ConfigField {
                     key: "deviceId".into(),
-                    label: "Device ID".into(),
+                    label: "Device ID (internal)".into(),
                     field_type: FieldType::Text,
                     placeholder: "ck:device:...".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret device id used for MLS/E2EE state and recovery planning",
+                    help: "Internal Cokret runtime device id. Savfox derives this automatically.",
                 },
                 ConfigField {
                     key: "principalId".into(),
-                    label: "Principal DID".into(),
+                    label: "Agent DID".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:web:agent.example".into(),
                     secret: false,
                     required: true,
-                    help: "Controlled actor DID for account mode",
+                    help: "AI agent principal DID created in Yougen.",
                 },
                 ConfigField {
                     key: "defaultRealmId".into(),
-                    label: "Default Realm ID".into(),
+                    label: "Realm ID".into(),
                     field_type: FieldType::Text,
                     placeholder: "ck:realm:...".into(),
                     secret: false,
                     required: false,
-                    help: "Realm used for outbound sends and optional inbound filtering",
+                    help: "Realm where this AI agent reads and writes. Required when outbound replies are enabled.",
                 },
                 ConfigField {
                     key: "defaultFlowId".into(),
-                    label: "Default Flow ID".into(),
+                    label: "Flow ID".into(),
                     field_type: FieldType::Text,
                     placeholder: "ck:flow:...".into(),
                     secret: false,
                     required: false,
-                    help: "Optional Cokret flow id for outbound account messages",
+                    help: "Optional flow id attached to outbound account messages.",
                 },
                 ConfigField {
                     key: "agentId".into(),
-                    label: "Agent ID".into(),
+                    label: "Savfox Agent".into(),
                     field_type: FieldType::Text,
                     placeholder: "default".into(),
                     secret: false,
                     required: false,
-                    help: "Savfox agent routed for inbound Cokret account messages",
+                    help: "Savfox agent that handles inbound Cokret messages.",
                 },
                 ConfigField {
                     key: "listen".into(),
-                    label: "Listen for inbound account events".into(),
+                    label: "Receive messages".into(),
                     field_type: FieldType::Toggle,
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Start the account subscribe listener for incoming Cokret events",
+                    help: "Start the account listener for incoming Cokret events.",
                 },
                 ConfigField {
                     key: "send".into(),
-                    label: "Allow outbound replies".into(),
+                    label: "Send replies".into(),
                     field_type: FieldType::Toggle,
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Allow Savfox to send replies through this account",
+                    help: "Allow Savfox to send replies through this account.",
+                },
+                ConfigField {
+                    key: "advanced".into(),
+                    label: "Advanced settings".into(),
+                    field_type: FieldType::Toggle,
+                    placeholder: String::new(),
+                    secret: false,
+                    required: false,
+                    help: "Show low-level Cokret auth, scope, signing, and applet runtime fields.",
                 },
                 ConfigField {
                     key: "scopes".into(),
-                    label: "Scopes".into(),
+                    label: "Permission Scopes".into(),
                     field_type: FieldType::Textarea,
                     placeholder: "ck.message.create\nck.message.read".into(),
                     secret: false,
                     required: false,
-                    help: "Optional requested or documented account scopes, one per line or comma-separated",
+                    help: "Optional account scopes, one per line or comma-separated.",
                 },
                 ConfigField {
                     key: "appletId".into(),
@@ -667,7 +676,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "ck:applet:...".into(),
                     secret: false,
                     required: true,
-                    help: "Registered Cokret applet identifier",
+                    help: "Registered Cokret applet identifier.",
                 },
                 ConfigField {
                     key: "controllerDid".into(),
@@ -676,7 +685,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:webvh:cokret.example.org".into(),
                     secret: false,
                     required: true,
-                    help: "Controller DID that owns/signs the applet registration",
+                    help: "Controller DID that owns or signs the applet registration.",
                 },
                 ConfigField {
                     key: "botActorId".into(),
@@ -685,7 +694,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:web:savfox.example:bot".into(),
                     secret: false,
                     required: false,
-                    help: "Visible applet bot actor DID; defaults to serviceDid:bot",
+                    help: "Visible applet bot actor DID. Defaults to serviceDid:bot.",
                 },
                 ConfigField {
                     key: "cokretServerUrl".into(),
@@ -694,7 +703,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "https://cokret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Cokret server used by the applet for outbound event submission",
+                    help: "Cokret server used by the applet for outbound event submission.",
                 },
                 ConfigField {
                     key: "cokretServerDid".into(),
@@ -703,7 +712,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:webvh:cokret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Trusted Cokret server DID for DID-proof login and HTTP Message Signature verification",
+                    help: "Trusted Cokret server DID for DID-proof login and HTTP Message Signature verification.",
                 },
                 ConfigField {
                     key: "protocols".into(),
@@ -712,7 +721,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "slack\ndiscord".into(),
                     secret: false,
                     required: false,
-                    help: "External protocols bridged by this applet, one per line or comma-separated",
+                    help: "External protocols bridged by this applet, one per line or comma-separated.",
                 },
                 ConfigField {
                     key: "namespaceActors".into(),
@@ -1590,6 +1599,61 @@ fn restore_cokret_derived_values(
             restored.insert(field_value_key(channel_id, key), rendered);
         }
     }
+
+    if cokret_config_has_advanced_values(config_obj) {
+        restored.insert(field_value_key(channel_id, "advanced"), "true".to_string());
+    }
+}
+
+fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>) -> bool {
+    let mode = config_obj
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "account".to_string());
+    let account_advanced = [
+        "serviceDid",
+        "cokretServerDid",
+        "defaultFlowId",
+        "scopes",
+        "loginChallenge",
+        "verificationMethod",
+        "grantEventPath",
+        "keyRef",
+    ];
+    let applet_advanced = [
+        "botActorId",
+        "cokretServerDid",
+        "ghostDidPrefix",
+        "requestedScopes",
+        "receiveEvents",
+        "receiveEphemeral",
+        "rateLimited",
+        "authorizationGrantId",
+        "registrationEpoch",
+        "trustedVerificationMethods",
+        "loginChallenge",
+        "verificationMethod",
+        "grantEventPath",
+        "keyRef",
+    ];
+    let keys: &[&str] = if mode == "applet" {
+        &applet_advanced
+    } else {
+        &account_advanced
+    };
+    keys.iter()
+        .any(|key| config_obj.get(*key).is_some_and(cokret_value_is_present))
+}
+
+fn cokret_value_is_present(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::String(value) => !value.trim().is_empty(),
+        Value::Array(values) => !values.is_empty(),
+        Value::Object(values) => !values.is_empty(),
+        Value::Bool(_) | Value::Number(_) => true,
+    }
 }
 
 fn current_router_mode(
@@ -1921,6 +1985,20 @@ fn current_cokret_mode(
         .unwrap_or_else(|| "account".to_string())
 }
 
+fn cokret_advanced_enabled(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> bool {
+    values
+        .get(&field_value_key(channel_id, "advanced"))
+        .map(|value| value == "true")
+        .unwrap_or(false)
+}
+
+fn is_cokret_internal_field(field_key: &str) -> bool {
+    matches!(field_key, "deviceId")
+}
+
 fn is_cokret_account_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
@@ -1959,7 +2037,34 @@ fn is_cokret_applet_only_field(field_key: &str) -> bool {
 fn is_cokret_helper_field(field_key: &str) -> bool {
     matches!(
         field_key,
-        "namespaceActors" | "namespaceRealms" | "namespaceHandles"
+        "advanced" | "namespaceActors" | "namespaceRealms" | "namespaceHandles"
+    )
+}
+
+fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
+    matches!(
+        field_key,
+        "cokretServerDid" | "loginChallenge" | "verificationMethod" | "grantEventPath" | "keyRef"
+    ) || (mode != "applet" && matches!(field_key, "serviceDid" | "defaultFlowId" | "scopes"))
+        || (mode == "applet"
+            && matches!(
+                field_key,
+                "botActorId"
+                    | "ghostDidPrefix"
+                    | "requestedScopes"
+                    | "receiveEvents"
+                    | "receiveEphemeral"
+                    | "rateLimited"
+                    | "authorizationGrantId"
+                    | "registrationEpoch"
+                    | "trustedVerificationMethods"
+            ))
+}
+
+fn should_skip_hidden_cokret_field(field_key: &str) -> bool {
+    matches!(
+        field_key,
+        "deviceId" | "receiveEvents" | "receiveEphemeral" | "rateLimited" | "ghostDidPrefix"
     )
 }
 
@@ -1979,11 +2084,17 @@ fn field_is_visible(
     }
     if channel_id == "cokret" {
         let cokret_mode = current_cokret_mode(channel_id, values);
-        if is_cokret_account_only_field(&field.key) {
-            return cokret_mode != "applet";
+        if is_cokret_internal_field(&field.key) {
+            return false;
         }
-        if is_cokret_applet_only_field(&field.key) {
-            return cokret_mode == "applet";
+        if is_cokret_account_only_field(&field.key) && cokret_mode == "applet" {
+            return false;
+        }
+        if is_cokret_applet_only_field(&field.key) && cokret_mode != "applet" {
+            return false;
+        }
+        if is_cokret_advanced_field(&field.key, &cokret_mode) {
+            return cokret_advanced_enabled(channel_id, values);
         }
     }
     true
@@ -2038,8 +2149,12 @@ fn build_cokret_channel_patch(
             continue;
         }
 
+        if is_cokret_internal_field(&field.key) {
+            continue;
+        }
+
         if !field_is_visible(channel_id, field, values) {
-            if !is_cokret_helper_field(&field.key) {
+            if !is_cokret_helper_field(&field.key) && !should_skip_hidden_cokret_field(&field.key) {
                 patch[&field.key] = Value::Null;
             }
             continue;
@@ -4202,6 +4317,77 @@ mod tests {
                 .iter()
                 .any(|field| field.key == "trustedVerificationMethods")
         );
+        assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "advanced")
+        );
+    }
+
+    #[test]
+    fn cokret_simple_account_hides_low_level_fields() {
+        let fields = cokret_fields();
+        let values = default_channel_values("cokret", &fields);
+        let visible = |key: &str| {
+            let field = fields.iter().find(|field| field.key == key).expect(key);
+            field_is_visible("cokret", field, &values)
+        };
+
+        assert!(visible("principalId"));
+        assert!(visible("defaultRealmId"));
+        assert!(visible("agentId"));
+        assert!(visible("advanced"));
+        assert!(!visible("deviceId"));
+        assert!(!visible("serviceDid"));
+        assert!(!visible("keyRef"));
+        assert!(!visible("scopes"));
+    }
+
+    #[test]
+    fn cokret_advanced_account_reveals_auth_fields() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
+        let visible = |key: &str| {
+            let field = fields.iter().find(|field| field.key == key).expect(key);
+            field_is_visible("cokret", field, &values)
+        };
+
+        assert!(visible("serviceDid"));
+        assert!(visible("keyRef"));
+        assert!(visible("loginChallenge"));
+        assert!(visible("grantEventPath"));
+        assert!(visible("scopes"));
+        assert!(!visible("deviceId"));
+    }
+
+    #[test]
+    fn cokret_saved_advanced_config_restores_advanced_toggle() {
+        let fields = cokret_fields();
+        let saved = json!({
+            "name": "Cokret",
+            "config": {
+                "mode": "account",
+                "baseUrl": "https://cokret.example.org",
+                "principalId": "did:webvh:example.org:agents:support",
+                "accessToken": "token-1",
+                "defaultRealmId": "ck:realm:abc",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_BOT_KEY" },
+                "loginChallenge": "challenge-from-cokret"
+            }
+        });
+
+        let restored = restore_channel_values("cokret", &fields, &saved);
+
+        assert_eq!(
+            restored.get(&field_value_key("cokret", "advanced")),
+            Some(&"true".to_owned())
+        );
+        assert_eq!(
+            restored.get(&field_value_key("cokret", "keyRef")),
+            Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_COKRET_BOT_KEY\"\n}".to_owned())
+        );
     }
 
     #[test]
@@ -4242,6 +4428,9 @@ mod tests {
         assert_eq!(patch["mode"], json!("account"));
         assert_eq!(patch["listen"], json!(true));
         assert_eq!(patch["send"], json!(true));
+        assert!(patch["deviceId"].is_null());
+        assert!(patch["serviceDid"].is_null());
+        assert!(patch["scopes"].is_null());
         assert_eq!(
             patch["principalId"],
             json!("did:webvh:example.org:agents:support")
@@ -4297,7 +4486,7 @@ mod tests {
         let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("applet"));
-        assert_eq!(patch["receiveEvents"], json!(true));
+        assert!(patch["receiveEvents"].is_null());
         assert!(patch["principalId"].is_null());
         assert_eq!(
             patch["namespaces"]["actors"][0],

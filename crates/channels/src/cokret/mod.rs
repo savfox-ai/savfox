@@ -47,7 +47,7 @@ pub use applet::{
 };
 pub use client::{CokretFrameStream, CokretHttpClient};
 pub use config::{
-    CokretAccountConfig, CokretChannelConfig, load_cokret_channel_configs,
+    CokretAccountConfig, CokretChannelConfig, derive_cokret_device_id, load_cokret_channel_configs,
     resolve_cokret_outbound_account,
 };
 pub use crypto_state::{

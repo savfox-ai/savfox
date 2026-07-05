@@ -1584,12 +1584,18 @@ async fn construct_applet_client(
         let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
         let principal = cokret_identifiers::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
-        // applet bot doesn't carry a device id; mint a stable synthetic one.
-        let device = cokret_identifiers::DeviceId::new(format!(
-            "ck:device:applet-{}",
-            cfg.applet_id.trim_start_matches("ck:applet:")
-        ))
-        .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
+        // Applet configs keep the bot device optional for bearer-only mode.
+        // DID-proof login still needs a protocol-valid runtime device id.
+        let device =
+            cokret_identifiers::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
+                savfox_channels::cokret::derive_cokret_device_id(&[
+                    "applet",
+                    &cfg.id,
+                    &cfg.applet_id,
+                    &cfg.bot_actor_id,
+                ])
+            }))
+            .map_err(|err| anyhow::anyhow!("synth device_id: {err}"))?;
         let (client, _session) = CokretHttpClient::login(
             &cfg.cokret_server_url,
             &signer,
