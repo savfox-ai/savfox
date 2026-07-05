@@ -196,6 +196,17 @@ reference these values with:
 | `{{agent_home}}`      | Isolated home/config directory for the terminal agent |
 | `{{workspace_dir}}`   | Session workspace directory reserved for terminal runtime use |
 | `{{log_dir}}`         | Directory where terminal stdout/stderr logs are written |
+| `{{conversation_context}}` | Recent user/assistant turns from the current Savfox session |
+| `{{attachment_manifest}}` | Current-turn attachment manifest with filename, MIME type, size, and local path |
+| `{{terminal_input_json}}` | Structured input JSON with session, agent, current request, history, and attachments |
+
+`{{prompt}}` now renders as a complete terminal input package containing the
+system prompt, session identifiers, recent conversation, current user request,
+attachment manifest, and structured JSON. Use `{{user_prompt}}` when a command
+needs only the raw user text. Image attachments sent from the Sessions UI are
+written under `logs/attachments/`, and their local file paths are exposed to
+Codex, Claude, or custom CLIs through the attachment manifest. Large base64
+image payloads are not inserted directly into shell arguments.
 
 `metadata.json` records the terminal profile, mode, session scope, I/O protocol,
 resolved paths, command, cwd, workspace mode/base/path, cleanup status, patch
@@ -204,11 +215,14 @@ code, errors, and the Savfox rollout path when one is persisted. Session ids
 passed into the terminal runtime must be UUID v7 values.
 
 During WS-RPC session turns, terminal agents emit the same user-facing stream
-topics as model agents plus terminal-specific markers: `started`, `log`,
-`status`, `message`, `completed`, and `error`. The complete payload also carries
-the parsed terminal event list so clients can build a more detailed timeline.
-The Sessions UI uses that payload for terminal-agent turns instead of dropping
-the one-shot event stream on the floor.
+topics as model agents plus terminal-specific markers: `started`, `delta`,
+`log`, `status`, `message`, `completed`, and `error`. While a one-shot process
+is running, stdout/stderr are broadcast as they are read: stdout deltas are
+assistant text stream chunks and stderr deltas are terminal logs. The complete
+payload still carries the parsed terminal event list so clients can build a
+more detailed timeline. The Sessions UI updates the current terminal-agent
+reply from live stdout deltas and reconciles with the final parsed response on
+completion.
 
 For output parsing, `io_protocol = "plain_text"` treats stdout as the reply and
 stderr as logs. `io_protocol = "jsonl"` accepts line-delimited events with

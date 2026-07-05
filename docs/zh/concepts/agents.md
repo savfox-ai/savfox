@@ -160,6 +160,15 @@ git root 下手动执行 `git worktree remove --force <workspace_path>`。如果
 | `{{agent_home}}` | terminal agent 的隔离 home/config 目录 |
 | `{{workspace_dir}}` | 为 terminal runtime 预留的 session 工作目录 |
 | `{{log_dir}}` | stdout/stderr 日志目录 |
+| `{{conversation_context}}` | 当前 Savfox session 中最近的 user/assistant turns |
+| `{{attachment_manifest}}` | 本轮附件清单，包含文件名、MIME、大小和本地路径 |
+| `{{terminal_input_json}}` | 结构化输入包 JSON，包含 session、agent、当前请求、历史和附件 |
+
+`{{prompt}}` 现在渲染为完整 terminal 输入包：system prompt、session 标识、最近
+对话、当前用户请求、附件 manifest 和结构化 JSON 都会包含进去。需要裸用户文本时
+使用 `{{user_prompt}}`。Sessions UI 传入的图片附件会写入
+`logs/attachments/`，并通过 attachment manifest 把本地文件路径暴露给 Codex、
+Claude 或自定义 CLI。当前不会把大 base64 图片直接塞进命令参数。
 
 `metadata.json` 会记录 profile、mode、session scope、I/O protocol、解析后的路径、
 命令、cwd、workspace mode/base/path、cleanup status、patch path、diff summary path、
@@ -167,10 +176,12 @@ git root 下手动执行 `git worktree remove --force <workspace_path>`。如果
 路径。传入 terminal runtime 的 session id 必须是 UUID v7。
 
 通过 WS-RPC session 调用 terminal agent 时，它会沿用现有 agent stream topic，
-并带上 terminal 专用标记：`started`、`log`、`status`、`message`、`completed`、
-`error`。complete payload 也会携带解析后的 terminal event 列表，便于客户端构建
-更细的 timeline。Sessions UI 会使用这个 payload 展示 terminal-agent turn 的
-timeline，不再只把 one-shot 输出折叠成普通文本。
+并带上 terminal 专用标记：`started`、`delta`、`log`、`status`、`message`、
+`completed`、`error`。one-shot 进程运行期间，stdout/stderr 会被边读边广播：
+stdout delta 用作 assistant text stream，stderr delta 作为 terminal log。complete
+payload 仍会携带解析后的 terminal event 列表，便于客户端构建更细的 timeline。
+Sessions UI 会使用实时 stdout delta 更新当前 terminal-agent 回复，并在 complete 时
+用最终解析结果收敛。
 
 输出解析方面，`io_protocol = "plain_text"` 会把 stdout 当作回复、stderr 当作日志。
 `io_protocol = "jsonl"` 支持按行 JSON 事件，`event`/`type`/`kind` 可为

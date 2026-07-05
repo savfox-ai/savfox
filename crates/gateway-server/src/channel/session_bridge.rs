@@ -179,7 +179,14 @@ impl GatewayChannel {
         }
 
         if let Some(invocation) = self
-            .invoke_terminal_delegate_agent(prompt, model, model, requested_session_id.as_deref())
+            .invoke_terminal_delegate_agent(
+                prompt,
+                model,
+                model,
+                requested_session_id.as_deref(),
+                &[],
+                None,
+            )
             .await?
         {
             on_delta(&invocation.result.reply);

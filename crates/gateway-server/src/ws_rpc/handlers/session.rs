@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use savfox_gateway_shared::ChatAttachment;
 use savfox_protocol::SessionId;
 use serde_json::{Value, json};
 use tracing::debug;
@@ -11,6 +12,7 @@ use super::super::types::{
     INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, RpcResult,
 };
 use super::agent::apply_agent_permission_policy_to_config;
+use crate::agent_terminal_delegate::TerminalEventSink;
 use crate::channel::GatewayChannel;
 use crate::channels::policy::{
     DmScopePolicyConfig, load_dm_scope_policy, parse_dm_scope, write_dm_scope_policy,
@@ -198,6 +200,38 @@ fn terminal_event_stream_payload(
     log_dir: &str,
 ) -> Option<(&'static str, Value)> {
     match event {
+        TerminalAgentEvent::OutputDelta { stream, text } if stream == "stdout" => Some((
+            "agent.stream",
+            json!({
+                "request_id": request_id,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "kind": "text",
+                "stream": stream,
+                "terminal_event": "delta",
+                "delta": text,
+                "truncated": stdout_truncated,
+                "log_dir": log_dir,
+            }),
+        )),
+        TerminalAgentEvent::OutputDelta { stream, text } => Some((
+            "agent.stream",
+            json!({
+                "request_id": request_id,
+                "session_id": session_id,
+                "thread_id": thread_id,
+                "kind": "log",
+                "stream": stream,
+                "terminal_event": "delta",
+                "delta": text,
+                "truncated": match stream.as_str() {
+                    "stdout" => stdout_truncated,
+                    "stderr" => stderr_truncated,
+                    _ => false,
+                },
+                "log_dir": log_dir,
+            }),
+        )),
         TerminalAgentEvent::Log { stream, text } => Some((
             "agent.stream",
             json!({
@@ -268,8 +302,14 @@ pub(crate) async fn handle_chat_send(
     let requested_session_id =
         validate_uuid_v7_session_id(params.get("session_id").and_then(|v| v.as_str()))
             .map_err(|message| (INVALID_PARAMS, message))?;
+    let attachments: Vec<ChatAttachment> = params
+        .get("attachments")
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .map_err(|err| (INVALID_PARAMS, format!("invalid 'attachments': {err}")))?
+        .unwrap_or_default();
 
-    if message.is_empty() {
+    if message.is_empty() && attachments.is_empty() {
         return Err((INVALID_REQUEST, "missing 'message' parameter".to_owned()));
     }
 
@@ -286,6 +326,11 @@ pub(crate) async fn handle_chat_send(
         .map(|s| s.trim())
         .unwrap_or(&prompt)
         .to_owned();
+    let prompt = if prompt.is_empty() && !attachments.is_empty() {
+        "Please inspect the attached image(s).".to_owned()
+    } else {
+        prompt
+    };
     if prompt.is_empty() {
         return Err((
             INVALID_REQUEST,
@@ -414,17 +459,45 @@ pub(crate) async fn handle_chat_send(
             )
             .await;
 
-        let invocation = match channel
+        let (terminal_stream_tx, mut terminal_stream_rx) =
+            tokio::sync::mpsc::unbounded_channel::<TerminalAgentEvent>();
+        let stream_request_id = request_id.clone();
+        let stream_session_id = logical_session_id.clone();
+        let stream_thread_id = thread_id.clone();
+        let stream_session_mgr = Arc::clone(session_mgr);
+        let stream_task = tokio::spawn(async move {
+            while let Some(event) = terminal_stream_rx.recv().await {
+                if let Some((topic, payload)) = terminal_event_stream_payload(
+                    &stream_request_id,
+                    &stream_session_id,
+                    &stream_thread_id,
+                    &event,
+                    false,
+                    false,
+                    "",
+                ) {
+                    stream_session_mgr.broadcast_to_all(topic, payload).await;
+                }
+            }
+        });
+        let terminal_stream_sink: TerminalEventSink = Arc::new(move |event| {
+            let _ = terminal_stream_tx.send(event);
+        });
+
+        let invocation_result = channel
             .invoke_terminal_delegate_agent(
                 &prompt,
                 agent,
                 &effective_model,
                 Some(logical_session_id.as_str()),
+                &attachments,
+                Some(terminal_stream_sink),
             )
-            .await
-        {
+            .await;
+        let invocation = match invocation_result {
             Ok(Some(invocation)) => invocation,
             Ok(None) => {
+                let _ = stream_task.await;
                 let message = "terminal delegate disappeared during invocation".to_owned();
                 session_mgr
                     .broadcast_to_all(
@@ -440,6 +513,7 @@ pub(crate) async fn handle_chat_send(
                 return Err((INTERNAL_ERROR, message));
             }
             Err(err) => {
+                let _ = stream_task.await;
                 let message = format!("terminal delegate error: {err}");
                 session_mgr
                     .broadcast_to_all(
@@ -455,6 +529,7 @@ pub(crate) async fn handle_chat_send(
                 return Err((INTERNAL_ERROR, message));
             }
         };
+        let _ = stream_task.await;
         let reply = invocation.result.reply;
         let rollout_path = invocation.result.rollout_path;
         let model = invocation.model;
@@ -570,6 +645,7 @@ pub(crate) async fn handle_chat_send(
                         "stderr_truncated": terminal.stderr_truncated,
                         "pid": terminal.pid,
                         "exit_code": terminal.exit_code,
+                        "attachments": terminal.attachments,
                         "events": terminal.events,
                     },
                     "aborted": false,
@@ -597,6 +673,7 @@ pub(crate) async fn handle_chat_send(
                 "stderr_truncated": terminal.stderr_truncated,
                 "pid": terminal.pid,
                 "exit_code": terminal.exit_code,
+                "attachments": terminal.attachments,
                 "events": terminal.events,
             },
             "session_id": logical_session_id,

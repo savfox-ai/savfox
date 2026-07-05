@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -48,6 +48,7 @@ pub(crate) struct TerminalAgentHealth {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub(crate) enum TerminalAgentEvent {
+    OutputDelta { stream: String, text: String },
     Log { stream: String, text: String },
     Message { text: String },
     Status { status: String },
@@ -77,6 +78,9 @@ pub(crate) struct TerminalTemplateValues {
     pub(crate) prompt: String,
     pub(crate) full_prompt: String,
     pub(crate) system_prompt: String,
+    pub(crate) conversation_context: String,
+    pub(crate) attachment_manifest: String,
+    pub(crate) terminal_input_json: String,
     pub(crate) agent_id: String,
     pub(crate) agent_name: String,
     pub(crate) model: String,
@@ -196,6 +200,8 @@ pub(crate) struct TerminalWorkspaceFinalization {
 
 pub(crate) struct TerminalSupervisor;
 pub(crate) struct TerminalWorkspaceManager;
+
+pub(crate) type TerminalOutputCallback = Arc<dyn Fn(&'static str, String) + Send + Sync>;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub(crate) struct TerminalRuntimeMetrics {
@@ -445,6 +451,9 @@ pub(crate) fn render_terminal_template(template: &str, values: &TerminalTemplate
         .replace("{{prompt}}", &values.full_prompt)
         .replace("{{user_prompt}}", &values.prompt)
         .replace("{{system_prompt}}", &values.system_prompt)
+        .replace("{{conversation_context}}", &values.conversation_context)
+        .replace("{{attachment_manifest}}", &values.attachment_manifest)
+        .replace("{{terminal_input_json}}", &values.terminal_input_json)
         .replace("{{agent_id}}", &values.agent_id)
         .replace("{{agent_name}}", &values.agent_name)
         .replace("{{model}}", &values.model)
@@ -797,6 +806,18 @@ impl TerminalSupervisor {
         F: FnOnce(Option<u32>) -> Fut,
         Fut: Future<Output = ()>,
     {
+        Self::run_with_spawn_and_output_callback(spec, on_spawn, None).await
+    }
+
+    pub(crate) async fn run_with_spawn_and_output_callback<F, Fut>(
+        spec: TerminalCommandSpec,
+        on_spawn: F,
+        on_output: Option<TerminalOutputCallback>,
+    ) -> TerminalSupervisorResult
+    where
+        F: FnOnce(Option<u32>) -> Fut,
+        Fut: Future<Output = ()>,
+    {
         let program = spec.program.trim().to_owned();
         if program.is_empty() {
             return TerminalSupervisorResult {
@@ -892,10 +913,22 @@ impl TerminalSupervisor {
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        let stdout_task =
-            stdout.map(|stdout| tokio::spawn(read_pipe_limited(stdout, spec.max_output_bytes)));
-        let stderr_task =
-            stderr.map(|stderr| tokio::spawn(read_pipe_limited(stderr, spec.max_output_bytes)));
+        let stdout_task = stdout.map(|stdout| {
+            tokio::spawn(read_pipe_limited(
+                stdout,
+                spec.max_output_bytes,
+                "stdout",
+                on_output.clone(),
+            ))
+        });
+        let stderr_task = stderr.map(|stderr| {
+            tokio::spawn(read_pipe_limited(
+                stderr,
+                spec.max_output_bytes,
+                "stderr",
+                on_output,
+            ))
+        });
 
         let wait_result = tokio::time::timeout(spec.timeout, child.wait()).await;
         let (exit_reason, exit_code, wait_error) = match wait_result {
@@ -961,16 +994,38 @@ impl TerminalSupervisor {
     }
 }
 
-async fn read_pipe_limited<R>(reader: R, max_output_bytes: usize) -> std::io::Result<(String, bool)>
+async fn read_pipe_limited<R>(
+    mut reader: R,
+    max_output_bytes: usize,
+    stream: &'static str,
+    on_output: Option<TerminalOutputCallback>,
+) -> std::io::Result<(String, bool)>
 where
     R: AsyncRead + Unpin,
 {
-    let mut reader = reader.take((max_output_bytes + 1) as u64);
     let mut bytes = Vec::new();
-    reader.read_to_end(&mut bytes).await?;
-    let truncated = bytes.len() > max_output_bytes;
-    if truncated {
-        bytes.truncate(max_output_bytes);
+    let mut truncated = false;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let n = reader.read(&mut buffer).await?;
+        if n == 0 {
+            break;
+        }
+
+        let remaining = max_output_bytes.saturating_sub(bytes.len());
+        if remaining == 0 {
+            truncated = true;
+            continue;
+        }
+        let keep = remaining.min(n);
+        let chunk = &buffer[..keep];
+        bytes.extend_from_slice(chunk);
+        if let Some(callback) = on_output.as_ref() {
+            callback(stream, String::from_utf8_lossy(chunk).to_string());
+        }
+        if keep < n {
+            truncated = true;
+        }
     }
     Ok((String::from_utf8_lossy(&bytes).to_string(), truncated))
 }
@@ -1221,12 +1276,13 @@ fn parse_sentinel_output(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use super::{
         TerminalAgentEvent, TerminalCommandResolver, TerminalCommandSpec, TerminalCommandTemplate,
-        TerminalExitReason, TerminalSupervisor, TerminalTemplateValues, TerminalWorkspaceManager,
-        TerminalWorkspaceRequest, command_health, parse_terminal_output,
+        TerminalExitReason, TerminalOutputCallback, TerminalSupervisor, TerminalTemplateValues,
+        TerminalWorkspaceManager, TerminalWorkspaceRequest, command_health, parse_terminal_output,
         record_terminal_runtime_metrics, run_git, terminal_profile_preset,
         terminal_profile_presets, terminal_runtime_metrics_snapshot,
     };
@@ -1497,6 +1553,48 @@ mod tests {
         assert_eq!(result.stderr, "warn");
         assert_eq!(result.exit_code, Some(0));
         assert!(result.pid.is_some());
+    }
+
+    #[tokio::test]
+    async fn terminal_supervisor_streams_output_chunks_and_keeps_final_output() {
+        let cwd = tempfile::tempdir().expect("create temp dir");
+        #[cfg(windows)]
+        let spec = shell_output_spec(
+            cwd.path().to_path_buf(),
+            "[Console]::Out.Write('hello'); [Console]::Error.Write('warn')",
+        );
+        #[cfg(not(windows))]
+        let spec = shell_output_spec(cwd.path().to_path_buf(), "printf hello; printf warn >&2");
+        let chunks = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let chunks_for_callback = Arc::clone(&chunks);
+        let callback: TerminalOutputCallback = Arc::new(move |stream, text| {
+            chunks_for_callback
+                .lock()
+                .expect("lock chunks")
+                .push((stream.to_owned(), text));
+        });
+
+        let result = TerminalSupervisor::run_with_spawn_and_output_callback(
+            spec,
+            |_| async {},
+            Some(callback),
+        )
+        .await;
+
+        assert_eq!(result.exit_reason, TerminalExitReason::Completed);
+        assert_eq!(result.stdout, "hello");
+        assert_eq!(result.stderr, "warn");
+        let chunks = chunks.lock().expect("lock chunks");
+        assert!(
+            chunks
+                .iter()
+                .any(|(stream, text)| stream == "stdout" && text.contains("hello"))
+        );
+        assert!(
+            chunks
+                .iter()
+                .any(|(stream, text)| stream == "stderr" && text.contains("warn"))
+        );
     }
 
     #[tokio::test]

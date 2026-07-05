@@ -312,6 +312,7 @@ pub fn Sessions() -> Element {
     let mut loading_session = use_signal(|| false);
     let mut ambient_loading = use_signal(|| false);
     let mut idle_loading = use_signal(|| false);
+    let mut active_terminal_request_id = use_signal(|| Option::<String>::None);
 
     let mut sidebar_content = use_signal(|| Option::<String>::None);
     let mut session_search_query = use_signal(String::new);
@@ -433,11 +434,47 @@ pub fn Sessions() -> Element {
         }
     });
 
+    let ws_terminal_notifications = ws.clone();
+    use_effect(move || {
+        let mut terminal_messages = messages;
+        let active_request = active_terminal_request_id;
+        let current_session = current_session_id;
+        ws_terminal_notifications.on_notification_mut("agent.stream", move |payload| {
+            let request_id = payload.get("request_id").and_then(Value::as_str);
+            if request_id != active_request().as_deref() {
+                return;
+            }
+            let session_id = payload.get("session_id").and_then(Value::as_str);
+            if session_id != current_session().as_deref() {
+                return;
+            }
+            if payload.get("terminal_event").and_then(Value::as_str) != Some("delta") {
+                return;
+            }
+            if payload.get("kind").and_then(Value::as_str) != Some("text") {
+                return;
+            }
+            let Some(delta) = payload
+                .get("delta")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+            else {
+                return;
+            };
+            if let Some(last) = terminal_messages.write().last_mut()
+                && last.role == "assistant"
+            {
+                last.content.push_str(delta);
+            }
+        });
+    });
+
     let on_new_session = move |_| {
         if let Some(controller) = abort_ctl.write().take() {
             controller.abort();
         }
         streaming.set(false);
+        active_terminal_request_id.set(None);
         loading_session.set(false);
         current_session_id.set(None);
         messages.write().clear();
@@ -587,20 +624,8 @@ pub fn Sessions() -> Element {
             streaming.set(true);
 
             if use_terminal_ws {
-                if !attachments.is_empty() {
-                    if let Some(last) = messages.write().last_mut() {
-                        last.content = "Error: terminal agents do not accept image attachments yet"
-                            .to_string();
-                    }
-                    streaming.set(false);
-                    if let Some(key) = session_id {
-                        session_buffers.write().insert(key, messages.read().clone());
-                        session_refresh_tick += 1;
-                    }
-                    return;
-                }
-
                 let request_id = format!("terminal_{}", js_sys::Date::now() as u64);
+                active_terminal_request_id.set(Some(request_id.clone()));
                 let result = ws_send
                     .call::<Value>(
                         "chat.send",
@@ -609,6 +634,7 @@ pub fn Sessions() -> Element {
                             "agent": active_agent,
                             "request_id": request_id,
                             "session_id": session_id,
+                            "attachments": attachments,
                         })),
                     )
                     .await;
@@ -646,6 +672,7 @@ pub fn Sessions() -> Element {
                     }
                 }
 
+                active_terminal_request_id.set(None);
                 streaming.set(false);
                 if let Some(key) = session_id {
                     session_buffers.write().insert(key, messages.read().clone());

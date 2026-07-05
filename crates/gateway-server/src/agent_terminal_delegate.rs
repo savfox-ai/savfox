@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use savfox_core::config::Config;
+use savfox_gateway_shared::ChatAttachment;
 use savfox_protocol::SessionId;
 use savfox_protocol::protocol::{
     AgentMessageEvent, EventMsg, RolloutItem, RolloutLine, SessionMeta, SessionMetaLine,
@@ -17,14 +21,18 @@ use uuid::Uuid;
 use crate::channel::{AgentInvocationResult, GatewayChannel};
 use crate::terminal_agent::{
     TerminalAgentEvent, TerminalCommandResolver, TerminalCommandTemplate, TerminalExitReason,
-    TerminalSupervisor, TerminalSupervisorResult, TerminalTemplateValues, TerminalWorkspaceManager,
-    TerminalWorkspaceRequest, TerminalWorkspaceState, parse_terminal_output,
-    record_terminal_runtime_metrics, render_terminal_template, resolve_cwd,
+    TerminalOutputCallback, TerminalSupervisor, TerminalSupervisorResult, TerminalTemplateValues,
+    TerminalWorkspaceManager, TerminalWorkspaceRequest, TerminalWorkspaceState,
+    parse_terminal_output, record_terminal_runtime_metrics, render_terminal_template, resolve_cwd,
 };
 
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 const MIN_TIMEOUT_SECS: u64 = 5;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const TERMINAL_HISTORY_LIMIT: usize = 20;
+const MAX_TERMINAL_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
+
+pub(crate) type TerminalEventSink = Arc<dyn Fn(TerminalAgentEvent) + Send + Sync>;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct AgentTerminalDelegateConfig {
@@ -157,6 +165,20 @@ struct TerminalSessionMetadata<'a> {
     workspace_diff_summary: Option<&'a str>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct TerminalAttachmentMetadata {
+    pub(crate) filename: String,
+    pub(crate) mime_type: String,
+    pub(crate) path: String,
+    pub(crate) size_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct TerminalContextMessage {
+    role: String,
+    text: String,
+}
+
 #[derive(Debug, Clone)]
 struct TerminalRunResult {
     reply: String,
@@ -168,6 +190,7 @@ struct TerminalRunResult {
     exit_code: Option<i32>,
     metadata_state: TerminalSessionMetadataState,
     events: Vec<TerminalAgentEvent>,
+    attachments: Vec<TerminalAttachmentMetadata>,
 }
 
 #[derive(Debug, Clone)]
@@ -187,6 +210,7 @@ pub(crate) struct TerminalInvocationMetadata {
     pub(crate) pid: Option<u32>,
     pub(crate) exit_code: Option<i32>,
     pub(crate) events: Vec<TerminalAgentEvent>,
+    pub(crate) attachments: Vec<TerminalAttachmentMetadata>,
 }
 
 fn default_include_system_prompt() -> bool {
@@ -352,6 +376,8 @@ fn build_prompt_values(
     prompt: &str,
     model: &str,
     terminal_context: &TerminalSessionContext,
+    history: &[TerminalContextMessage],
+    attachments: &[TerminalAttachmentMetadata],
 ) -> TerminalTemplateValues {
     build_prompt_values_with_workspace(
         delegate,
@@ -359,6 +385,8 @@ fn build_prompt_values(
         model,
         terminal_context,
         &terminal_context.workspace_dir,
+        history,
+        attachments,
     )
 }
 
@@ -368,22 +396,36 @@ fn build_prompt_values_with_workspace(
     model: &str,
     terminal_context: &TerminalSessionContext,
     workspace_dir: &Path,
+    history: &[TerminalContextMessage],
+    attachments: &[TerminalAttachmentMetadata],
 ) -> TerminalTemplateValues {
-    let full_prompt =
-        if delegate.config.include_system_prompt && !delegate.system_prompt.trim().is_empty() {
-            format!(
-                "{}\n\nUser request:\n{}",
-                delegate.system_prompt.trim(),
-                prompt.trim()
-            )
-        } else {
-            prompt.to_owned()
-        };
+    let conversation_context = format_conversation_context(history);
+    let attachment_manifest = format_attachment_manifest(attachments);
+    let terminal_input_json = format_terminal_input_json(
+        delegate,
+        prompt,
+        model,
+        terminal_context,
+        workspace_dir,
+        history,
+        attachments,
+    );
+    let full_prompt = format_terminal_full_prompt(
+        delegate,
+        prompt,
+        terminal_context,
+        &conversation_context,
+        &attachment_manifest,
+        &terminal_input_json,
+    );
 
     TerminalTemplateValues {
         prompt: prompt.to_owned(),
         full_prompt,
         system_prompt: delegate.system_prompt.clone(),
+        conversation_context,
+        attachment_manifest,
+        terminal_input_json,
         agent_id: delegate.agent_id.clone(),
         agent_name: delegate.agent_name.clone(),
         model: model.to_owned(),
@@ -392,6 +434,105 @@ fn build_prompt_values_with_workspace(
         workspace_dir: workspace_dir.to_string_lossy().into_owned(),
         log_dir: terminal_context.log_dir.to_string_lossy().into_owned(),
     }
+}
+
+fn format_conversation_context(history: &[TerminalContextMessage]) -> String {
+    if history.is_empty() {
+        return "No previous turns in this Savfox session.".to_owned();
+    }
+
+    let mut out = String::new();
+    for (index, message) in history.iter().enumerate() {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(&format!(
+            "{}. {}:\n{}",
+            index + 1,
+            message.role,
+            message.text.trim()
+        ));
+    }
+    out
+}
+
+fn format_attachment_manifest(attachments: &[TerminalAttachmentMetadata]) -> String {
+    if attachments.is_empty() {
+        return "No attachments for this turn.".to_owned();
+    }
+
+    attachments
+        .iter()
+        .enumerate()
+        .map(|(index, attachment)| {
+            format!(
+                "{}. {} ({}, {} bytes)\n   path: {}",
+                index + 1,
+                attachment.filename,
+                attachment.mime_type,
+                attachment.size_bytes,
+                attachment.path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_terminal_input_json(
+    delegate: &ResolvedTerminalDelegate,
+    prompt: &str,
+    model: &str,
+    terminal_context: &TerminalSessionContext,
+    workspace_dir: &Path,
+    history: &[TerminalContextMessage],
+    attachments: &[TerminalAttachmentMetadata],
+) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "session_id": terminal_context.session_id,
+        "agent": {
+            "id": delegate.agent_id,
+            "name": delegate.agent_name,
+            "profile": configured_profile(delegate),
+            "mode": configured_mode(delegate),
+        },
+        "model": model,
+        "current_user_request": prompt,
+        "system_prompt": delegate.system_prompt,
+        "workspace_dir": workspace_dir.to_string_lossy(),
+        "conversation": history,
+        "attachments": attachments,
+    }))
+    .unwrap_or_else(|_| "{}".to_owned())
+}
+
+fn format_terminal_full_prompt(
+    delegate: &ResolvedTerminalDelegate,
+    prompt: &str,
+    terminal_context: &TerminalSessionContext,
+    conversation_context: &str,
+    attachment_manifest: &str,
+    terminal_input_json: &str,
+) -> String {
+    let mut sections = Vec::new();
+    if delegate.config.include_system_prompt && !delegate.system_prompt.trim().is_empty() {
+        sections.push(format!(
+            "System instructions:\n{}",
+            delegate.system_prompt.trim()
+        ));
+    }
+    sections.push(format!(
+        "Savfox terminal session:\n- session_id: {}\n- agent_id: {}\n- agent_name: {}",
+        terminal_context.session_id, delegate.agent_id, delegate.agent_name
+    ));
+    sections.push(format!("Previous conversation:\n{conversation_context}"));
+    sections.push(format!("Current user request:\n{}", prompt.trim()));
+    sections.push(format!(
+        "Attachments:\n{attachment_manifest}\n\nUse the listed local file paths when you need to inspect attached images."
+    ));
+    sections.push(format!(
+        "Structured input JSON:\n```json\n{terminal_input_json}\n```"
+    ));
+    sections.join("\n\n")
 }
 
 fn configured_mode(delegate: &ResolvedTerminalDelegate) -> &str {
@@ -714,6 +855,143 @@ async fn apply_terminal_session_cleanup(
     }
 }
 
+async fn load_terminal_context_history(
+    config: &Config,
+    session_id: &str,
+    limit: usize,
+) -> Vec<TerminalContextMessage> {
+    let rollout_path = config
+        .savfox_home
+        .join("sessions")
+        .join(format!("{session_id}.jsonl"));
+    let Ok(raw) = tokio::fs::read_to_string(&rollout_path).await else {
+        return Vec::new();
+    };
+
+    let mut messages = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(line) = serde_json::from_str::<RolloutLine>(line) else {
+            continue;
+        };
+        match line.item {
+            RolloutItem::EventMsg(EventMsg::UserMessage(message)) => {
+                if !message.message.trim().is_empty() {
+                    messages.push(TerminalContextMessage {
+                        role: "user".to_owned(),
+                        text: message.message,
+                    });
+                }
+            }
+            RolloutItem::EventMsg(EventMsg::AgentMessage(message)) => {
+                if !message.message.trim().is_empty() {
+                    messages.push(TerminalContextMessage {
+                        role: "assistant".to_owned(),
+                        text: message.message,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    if messages.len() > limit {
+        messages.split_off(messages.len() - limit)
+    } else {
+        messages
+    }
+}
+
+async fn persist_terminal_attachments(
+    log_dir: &Path,
+    attachments: &[ChatAttachment],
+) -> anyhow::Result<Vec<TerminalAttachmentMetadata>> {
+    if attachments.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let attachment_dir = log_dir.join("attachments");
+    tokio::fs::create_dir_all(&attachment_dir).await?;
+    let mut out = Vec::with_capacity(attachments.len());
+    for (index, attachment) in attachments.iter().enumerate() {
+        let mime_type = attachment.mime_type.trim();
+        if !mime_type.starts_with("image/") {
+            anyhow::bail!(
+                "terminal agents only support image attachments right now; got `{mime_type}`"
+            );
+        }
+        let bytes = BASE64_STANDARD
+            .decode(attachment.data_base64.trim())
+            .map_err(|err| anyhow::anyhow!("invalid base64 for terminal attachment: {err}"))?;
+        if bytes.len() > MAX_TERMINAL_ATTACHMENT_BYTES {
+            anyhow::bail!(
+                "terminal attachment `{}` is too large: {} bytes (limit {})",
+                attachment.filename,
+                bytes.len(),
+                MAX_TERMINAL_ATTACHMENT_BYTES
+            );
+        }
+
+        let filename = terminal_attachment_filename(&attachment.filename, mime_type, index);
+        let path = attachment_dir.join(&filename);
+        tokio::fs::write(&path, &bytes).await?;
+        out.push(TerminalAttachmentMetadata {
+            filename,
+            mime_type: mime_type.to_owned(),
+            path: path.to_string_lossy().into_owned(),
+            size_bytes: bytes.len(),
+        });
+    }
+    Ok(out)
+}
+
+fn terminal_attachment_filename(raw: &str, mime_type: &str, index: usize) -> String {
+    let fallback = format!("attachment-{}", index + 1);
+    let stem = sanitize_terminal_attachment_filename(raw)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback);
+    let extension = terminal_attachment_extension(mime_type);
+    if Path::new(&stem).extension().is_some() {
+        format!("{:02}-{stem}", index + 1)
+    } else {
+        format!("{:02}-{stem}.{extension}", index + 1)
+    }
+}
+
+fn sanitize_terminal_attachment_filename(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        let mapped = match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            _ => ch,
+        };
+        out.push(mapped);
+    }
+    let out = out.trim_matches([' ', '.']).to_owned();
+    if out.is_empty() || out == "." || out == ".." {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn terminal_attachment_extension(mime_type: &str) -> &'static str {
+    match mime_type {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "img",
+    }
+}
+
 fn rendered_args(
     delegate: &ResolvedTerminalDelegate,
     values: &TerminalTemplateValues,
@@ -762,8 +1040,22 @@ async fn run_command(
     terminal_context: &TerminalSessionContext,
     prompt: &str,
     model: &str,
+    attachments: &[ChatAttachment],
+    stream_sink: Option<TerminalEventSink>,
 ) -> anyhow::Result<TerminalRunResult> {
-    let initial_values = build_prompt_values(delegate, prompt, model, terminal_context);
+    let persisted_attachments =
+        persist_terminal_attachments(&terminal_context.log_dir, attachments).await?;
+    let history =
+        load_terminal_context_history(config, &terminal_context.session_id, TERMINAL_HISTORY_LIMIT)
+            .await;
+    let initial_values = build_prompt_values(
+        delegate,
+        prompt,
+        model,
+        terminal_context,
+        &history,
+        &persisted_attachments,
+    );
     let requested_cwd =
         resolve_rendered_cwd(config, delegate.config.cwd.as_deref(), &initial_values);
     let workspace_base = resolve_rendered_cwd(
@@ -792,6 +1084,8 @@ async fn run_command(
         model,
         terminal_context,
         &workspace_state.workspace_path,
+        &history,
+        &persisted_attachments,
     );
     let command = delegate
         .config
@@ -831,8 +1125,17 @@ async fn run_command(
     let mut running_state = metadata_state.clone();
     running_state.status = "running".to_owned();
     let supervisor_started = Instant::now();
-    let supervised =
-        TerminalSupervisor::run_with_spawn_callback(resolved_command.spec, move |pid| {
+    let output_callback = stream_sink.map(|sink| {
+        Arc::new(move |stream: &'static str, text: String| {
+            sink(TerminalAgentEvent::OutputDelta {
+                stream: stream.to_owned(),
+                text,
+            });
+        }) as TerminalOutputCallback
+    });
+    let supervised = TerminalSupervisor::run_with_spawn_and_output_callback(
+        resolved_command.spec,
+        move |pid| {
             let delegate_for_spawn = delegate_for_spawn.clone();
             let context_for_spawn = context_for_spawn.clone();
             let mut running_state = running_state;
@@ -848,8 +1151,10 @@ async fn run_command(
                     warn!("failed to write terminal delegate metadata: {err}");
                 }
             }
-        })
-        .await;
+        },
+        output_callback,
+    )
+    .await;
     record_terminal_runtime_metrics(&supervised.exit_reason, supervisor_started.elapsed());
 
     append_terminal_log(&terminal_context.log_dir, "stdout.log", &supervised.stdout).await;
@@ -902,6 +1207,7 @@ async fn run_command(
         exit_code: metadata_state.exit_code,
         metadata_state,
         events,
+        attachments: persisted_attachments,
     })
 }
 
@@ -964,6 +1270,7 @@ async fn persist_terminal_delegate_rollout(
     session_id: &str,
     model: &str,
     provider: &str,
+    attachments: &[TerminalAttachmentMetadata],
 ) -> std::io::Result<PathBuf> {
     let session_id_string = validate_terminal_session_id(session_id)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
@@ -1013,7 +1320,10 @@ async fn persist_terminal_delegate_rollout(
         RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
             message: prompt.to_owned(),
             images: None,
-            local_images: Vec::new(),
+            local_images: attachments
+                .iter()
+                .map(|attachment| PathBuf::from(&attachment.path))
+                .collect(),
             text_elements: Vec::new(),
         })),
     )
@@ -1044,6 +1354,8 @@ impl GatewayChannel {
         agent_ref: &str,
         model: &str,
         session_id: Option<&str>,
+        attachments: &[ChatAttachment],
+        stream_sink: Option<TerminalEventSink>,
     ) -> anyhow::Result<Option<TerminalDelegateInvocation>> {
         let Some(delegate) = self.resolve_terminal_delegate(agent_ref).await else {
             return Ok(None);
@@ -1052,7 +1364,16 @@ impl GatewayChannel {
         let session_id = normalize_terminal_session_id(session_id)?;
         let terminal_context =
             build_terminal_session_context(self.config(), &delegate, &session_id).await?;
-        let run = run_command(self.config(), &delegate, &terminal_context, prompt, model).await?;
+        let run = run_command(
+            self.config(),
+            &delegate,
+            &terminal_context,
+            prompt,
+            model,
+            attachments,
+            stream_sink,
+        )
+        .await?;
         let model = format!("terminal/{}", delegate.agent_id);
         let provider = "terminal".to_owned();
         let rollout_path = match persist_terminal_delegate_rollout(
@@ -1062,6 +1383,7 @@ impl GatewayChannel {
             &session_id,
             &model,
             &provider,
+            &run.attachments,
         )
         .await
         {
@@ -1103,6 +1425,7 @@ impl GatewayChannel {
             pid: run.pid,
             exit_code: run.exit_code,
             events: run.events,
+            attachments: run.attachments,
         };
 
         Ok(Some(TerminalDelegateInvocation {
@@ -1119,6 +1442,7 @@ mod tests {
     use std::path::PathBuf;
 
     use savfox_core::config::ConfigBuilder;
+    use savfox_gateway_shared::ChatAttachment;
     use savfox_protocol::protocol::{AgentMessageEvent, EventMsg, RolloutItem};
     use serde_json::json;
 
@@ -1198,6 +1522,9 @@ mod tests {
             prompt: "hello".to_owned(),
             full_prompt: "system\n\nUser request:\nhello".to_owned(),
             system_prompt: "system".to_owned(),
+            conversation_context: "No previous turns.".to_owned(),
+            attachment_manifest: "No attachments.".to_owned(),
+            terminal_input_json: "{}".to_owned(),
             agent_id: "cli".to_owned(),
             agent_name: "CLI".to_owned(),
             model: "default".to_owned(),
@@ -1217,11 +1544,11 @@ mod tests {
         );
         assert_eq!(
             render_template(
-                "{{session_id}} {{agent_home}} {{workspace_dir}} {{log_dir}}",
+                "{{session_id}} {{agent_home}} {{workspace_dir}} {{log_dir}} {{conversation_context}} {{attachment_manifest}} {{terminal_input_json}}",
                 &values
             ),
             format!(
-                "018f0000-0000-7000-8000-000000000000 {} {} {}",
+                "018f0000-0000-7000-8000-000000000000 {} {} {} No previous turns. No attachments. {{}}",
                 agent_home.display(),
                 workspace_dir.display(),
                 log_dir.display()
@@ -1260,6 +1587,9 @@ mod tests {
             prompt: "hello".to_owned(),
             full_prompt: "hello".to_owned(),
             system_prompt: String::new(),
+            conversation_context: String::new(),
+            attachment_manifest: String::new(),
+            terminal_input_json: String::new(),
             agent_id: "cli".to_owned(),
             agent_name: "CLI".to_owned(),
             model: "default".to_owned(),
@@ -1502,9 +1832,17 @@ mod tests {
         assert!(workspace_dir.is_dir());
         assert!(agent_home.is_dir());
 
-        let result = run_command(&config, &delegate, &context, "cleanup", "default")
-            .await
-            .expect("run fake terminal delegate");
+        let result = run_command(
+            &config,
+            &delegate,
+            &context,
+            "cleanup",
+            "default",
+            &[],
+            None,
+        )
+        .await
+        .expect("run fake terminal delegate");
 
         assert!(result.reply.contains("cleanup"));
         assert!(!workspace_dir.exists());
@@ -1561,11 +1899,23 @@ mod tests {
         .await
         .expect("build terminal context");
 
-        let result = run_command(&config, &delegate, &context, "hello terminal", "default")
-            .await
-            .expect("run fake terminal delegate");
+        let result = run_command(
+            &config,
+            &delegate,
+            &context,
+            "hello terminal",
+            "default",
+            &[],
+            None,
+        )
+        .await
+        .expect("run fake terminal delegate");
 
-        assert!(result.reply.contains("reply: hello terminal"));
+        assert!(
+            result
+                .reply
+                .contains("Current user request:\nhello terminal")
+        );
         assert_eq!(result.exit_code, Some(0));
         assert!(context.log_dir.join("stdout.log").is_file());
         let metadata = tokio::fs::read_to_string(&context.metadata_path)
@@ -1629,6 +1979,8 @@ mod tests {
             &context,
             "hello from gateway",
             "default",
+            &[],
+            None,
         )
         .await
         .expect("run fake terminal delegate");
@@ -1639,6 +1991,7 @@ mod tests {
             session_id,
             "terminal/cli",
             "terminal",
+            &result.attachments,
         )
         .await
         .expect("persist rollout");
@@ -1648,7 +2001,11 @@ mod tests {
             .await
             .expect("write rollout metadata");
 
-        assert!(result.reply.contains("reply: hello from gateway"));
+        assert!(
+            result
+                .reply
+                .contains("Current user request:\nhello from gateway")
+        );
         assert!(rollout_path.is_file());
         let metadata_path = config
             .savfox_home
@@ -1667,6 +2024,81 @@ mod tests {
             metadata["rollout_path"].as_str(),
             Some(rollout_path.as_ref())
         );
+    }
+
+    #[tokio::test]
+    async fn run_command_packages_history_and_image_attachments() {
+        let home = tempfile::tempdir().expect("create temp dir");
+        let mut config = ConfigBuilder::default()
+            .savfox_home(home.path().to_path_buf())
+            .build()
+            .await
+            .expect("load config");
+        config.cwd = home.path().to_path_buf();
+        let (command, args, stdin) = fake_terminal_echo_command();
+        let delegate = terminal_delegate_from_agent_config(
+            "cli".to_owned(),
+            json!({
+                "id": "cli",
+                "name": "CLI",
+                "system_prompt": "Be precise.",
+                "terminal_delegate": {
+                    "enabled": true,
+                    "command": command,
+                    "args": args,
+                    "stdin": stdin,
+                    "timeout_secs": 5
+                }
+            }),
+        )
+        .expect("terminal delegate config should resolve");
+        let session_id = "018f0000-0000-7000-8000-000000000401";
+        let previous_rollout = persist_terminal_delegate_rollout(
+            &config,
+            "previous question",
+            "previous answer",
+            session_id,
+            "terminal/cli",
+            "terminal",
+            &[],
+        )
+        .await
+        .expect("persist previous rollout");
+        assert!(previous_rollout.is_file());
+        let context = build_terminal_session_context(&config, &delegate, session_id)
+            .await
+            .expect("build terminal context");
+        let attachments = vec![ChatAttachment {
+            filename: "screen.png".to_owned(),
+            mime_type: "image/png".to_owned(),
+            data_base64: "iVBORw0KGgo=".to_owned(),
+        }];
+
+        let result = run_command(
+            &config,
+            &delegate,
+            &context,
+            "what changed?",
+            "default",
+            &attachments,
+            None,
+        )
+        .await
+        .expect("run terminal delegate with attachments");
+
+        assert!(result.reply.contains("System instructions:\nBe precise."));
+        assert!(result.reply.contains("previous question"));
+        assert!(result.reply.contains("previous answer"));
+        assert!(
+            result
+                .reply
+                .contains("Current user request:\nwhat changed?")
+        );
+        assert!(result.reply.contains("screen.png"));
+        assert_eq!(result.attachments.len(), 1);
+        let attachment_path = PathBuf::from(&result.attachments[0].path);
+        assert!(attachment_path.is_file());
+        assert!(attachment_path.ends_with("01-screen.png"));
     }
 
     #[tokio::test]
