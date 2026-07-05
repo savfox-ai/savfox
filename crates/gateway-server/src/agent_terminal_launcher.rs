@@ -71,12 +71,15 @@ pub(crate) fn resolve_launch(
     file_stem: String,
     raw: Value,
 ) -> Result<ResolvedLaunch> {
+    if raw.get("kind").and_then(|value| value.as_str()) != Some("terminal") {
+        bail!("agent is not a terminal agent");
+    }
     let delegate_value = raw
-        .get("terminal_delegate")
-        .ok_or_else(|| anyhow!("agent has no `terminal_delegate` configuration"))?;
+        .get("terminal")
+        .ok_or_else(|| anyhow!("agent has no `terminal` configuration"))?;
 
-    let spec: LaunchSpec = serde_json::from_value(delegate_value.clone())
-        .context("invalid terminal_delegate configuration")?;
+    let spec: LaunchSpec =
+        serde_json::from_value(delegate_value.clone()).context("invalid terminal configuration")?;
 
     let agent_id = raw
         .get("id")
@@ -101,7 +104,7 @@ pub(crate) fn resolve_launch(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
             anyhow!(
-                "agent `terminal_delegate` is missing a `command` (and `interactive_command`) — nothing to launch"
+                "terminal agent is missing a `command` (and `interactive_command`) — nothing to launch"
             )
         })?
         .to_owned();
@@ -497,7 +500,8 @@ mod tests {
         let raw = json!({
             "id": "codex",
             "name": "Codex",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "command": "codex",
                 "args": ["exec", "{{prompt}}"],
                 "interactive_command": "codex",
@@ -517,7 +521,8 @@ mod tests {
         let cwd = PathBuf::from("/tmp");
         let raw = json!({
             "id": "claude",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "command": "claude"
             }
         });
@@ -535,7 +540,8 @@ mod tests {
         let cwd = PathBuf::from("/tmp");
         let raw = json!({
             "id": "broken",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "args": ["foo"]
             }
         });
@@ -548,11 +554,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_launch_errors_when_no_terminal_delegate() {
+    fn resolve_launch_errors_when_not_terminal_agent() {
         let cwd = PathBuf::from("/tmp");
         let raw = json!({ "id": "plain" });
         let err = resolve_launch(&cwd, "plain".to_owned(), raw).unwrap_err();
-        assert!(err.to_string().contains("terminal_delegate"));
+        assert!(err.to_string().contains("not a terminal agent"));
     }
 
     #[test]
@@ -560,7 +566,8 @@ mod tests {
         let cwd = PathBuf::from("/work");
         let raw = json!({
             "id": "x",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "command": "x",
                 "cwd": "sub/dir"
             }
@@ -575,7 +582,8 @@ mod tests {
         let raw = json!({
             "id": "x",
             "name": "X Agent",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "command": "x",
                 "interactive_args": ["--agent", "{{agent_id}}"],
                 "cwd": "sessions/{{agent_id}}",

@@ -69,10 +69,10 @@ fn find_agent_entry<'a>(agents: &'a [AgentEntry], selected: &str) -> Option<&'a 
 
 fn primary_model_for_agent(entry: &AgentEntry) -> Option<String> {
     entry
-        .models
+        .native
         .as_ref()
-        .and_then(|models| models.primary.clone())
-        .or_else(|| entry.model.clone())
+        .map(|native| native.model.clone())
+        .filter(|model| !model.trim().is_empty())
 }
 
 fn parse_history_messages(payload: &Value) -> Vec<ChatMessage> {
@@ -116,8 +116,9 @@ fn parse_history_message(item: &Value) -> Option<ChatMessage> {
 
 fn agent_has_terminal_delegate(agents: &[AgentEntry], selected: &str) -> bool {
     find_agent_entry(agents, selected)
-        .and_then(|entry| entry.terminal_delegate.as_ref())
-        .and_then(|delegate| delegate.enabled)
+        .filter(|entry| entry.kind.as_str() == "terminal")
+        .and_then(|entry| entry.terminal.as_ref())
+        .and_then(|terminal| terminal.delegate.enabled)
         .unwrap_or(false)
 }
 
@@ -346,12 +347,20 @@ pub fn Sessions() -> Element {
         let preserve_draft_model =
             current_session_id().is_none() && pending_session_model().is_some();
         if let Some(agent) = find_agent_entry(&agents_snapshot, "default") {
-            if let Some(level) = agent.thinking.as_deref() {
+            if let Some(level) = agent
+                .native
+                .as_ref()
+                .and_then(|native| native.thinking.as_deref())
+            {
                 if THINKING_LEVELS.contains(&level) {
                     thinking_level.set(level.to_string());
                 }
             }
-            if let Some(mode) = agent.verbose.as_deref() {
+            if let Some(mode) = agent
+                .native
+                .as_ref()
+                .and_then(|native| native.verbose.as_deref())
+            {
                 verbose_mode.set(normalize_verbose_mode(mode));
             }
             if !preserve_draft_model {

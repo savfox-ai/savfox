@@ -140,9 +140,9 @@ async fn resolve_terminal_pty_spawn_spec(
             .unwrap_or(&key.agent_id)
             .to_owned();
         raw_agent = Some(file_stem);
-        if let Some(delegate) = raw_config.get("terminal_delegate") {
+        if let Some(delegate) = raw_config.get("terminal") {
             spec = serde_json::from_value::<ManagedPtyDelegateSpec>(delegate.clone())
-                .map_err(|err| format!("invalid terminal_delegate for managed PTY: {err}"))?;
+                .map_err(|err| format!("invalid terminal config for managed PTY: {err}"))?;
         }
     }
 
@@ -162,7 +162,7 @@ async fn resolve_terminal_pty_spawn_spec(
         })
         .ok_or_else(|| {
             format!(
-                "agent `{}` has no managed PTY command; configure terminal_delegate.command or pass command",
+                "agent `{}` has no managed PTY command; configure terminal.command or pass command",
                 key.agent_id
             )
         })?;
@@ -336,7 +336,7 @@ pub(crate) async fn handle_agent_terminal_health(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("custom")
+        .unwrap_or("codex")
         .to_owned();
     let mut command = params
         .get("command")
@@ -370,22 +370,23 @@ pub(crate) async fn handle_agent_terminal_health(
             crate::agent_terminal_delegate::resolve_agent_config(channel.config(), agent)
                 .await
                 .ok_or_else(|| (INVALID_REQUEST, format!("agent `{agent}` not found")))?;
-        let delegate = raw_config.get("terminal_delegate").ok_or_else(|| {
+        let delegate = raw_config.get("terminal").ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                format!("agent `{agent}` has no terminal_delegate configuration"),
+                format!("agent `{agent}` has no terminal configuration"),
             )
         })?;
         let delegate: crate::agent_terminal_delegate::AgentTerminalDelegateConfig =
             serde_json::from_value(delegate.clone()).map_err(|err| {
                 (
                     INVALID_REQUEST,
-                    format!("invalid terminal_delegate configuration for `{file_stem}`: {err}"),
+                    format!("invalid terminal configuration for `{file_stem}`: {err}"),
                 )
             })?;
         if let Some(value) = delegate
             .profile
             .as_deref()
+            .or(delegate.runtime.as_deref())
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
@@ -1127,6 +1128,11 @@ fn default_agent_stub() -> Value {
     json!({
         "id": "default",
         "name": "Savvy fox",
+        "kind": "native",
+        "native": {
+            "provider": "default",
+            "model": "default"
+        },
         "description": "Default Savfox assistant agent",
         "builtin": true,
         "status": "active",
@@ -1139,51 +1145,6 @@ pub(crate) fn normalized_agent_name_key(name: &str) -> Option<String> {
         None
     } else {
         Some(trimmed.to_ascii_lowercase())
-    }
-}
-
-fn normalize_agent_model_fields(config: &mut Value) {
-    let primary = config
-        .get("models")
-        .and_then(|models| models.get("primary"))
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
-
-    if let Some(primary) = primary {
-        let model_missing = config
-            .get("model")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .is_none_or(|value| value.is_empty());
-        if model_missing {
-            config["model"] = json!(primary);
-        }
-    }
-
-    let fallback_missing = config.get("fallback_models").is_none();
-    if !fallback_missing {
-        return;
-    }
-
-    let Some(fallbacks) = config
-        .get("models")
-        .and_then(|models| models.get("fallbacks"))
-        .and_then(|value| value.as_array())
-    else {
-        return;
-    };
-
-    let normalized: Vec<String> = fallbacks
-        .iter()
-        .filter_map(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if !normalized.is_empty() {
-        config["fallback_models"] = json!(normalized);
     }
 }
 
@@ -1215,7 +1176,35 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         config["name"] = json!(default_name);
     }
 
-    normalize_agent_model_fields(config);
+    let kind = config
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| matches!(*value, "native" | "terminal"))
+        .map(ToOwned::to_owned)
+        .or_else(|| builtin.then(|| "native".to_owned()));
+    if let Some(kind) = kind {
+        config["kind"] = json!(kind.as_str());
+        if kind == "native" && builtin && !config.get("native").is_some_and(Value::is_object) {
+            config["native"] = json!({
+                "provider": "default",
+                "model": "default",
+            });
+        }
+    }
+
+    if builtin
+        && config
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind == "native")
+        && !config.get("native").is_some_and(Value::is_object)
+    {
+        config["native"] = json!({
+            "provider": "default",
+            "model": "default",
+        });
+    }
 
     if !builtin {
         return;
@@ -1232,6 +1221,62 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
     }
     if config.get("status").is_none() {
         config["status"] = json!("active");
+    }
+}
+
+fn required_non_empty_string<'a>(
+    object: &'a Value,
+    path: &'static str,
+) -> std::result::Result<&'a str, String> {
+    object
+        .as_object()
+        .and_then(|object| object.get(path))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("missing `{path}`"))
+}
+
+fn validate_agent_shape(config: &Value) -> std::result::Result<(), String> {
+    let kind = config
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "missing `kind`".to_owned())?;
+    match kind {
+        "native" => {
+            let native = config
+                .get("native")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| "missing `native` configuration for native agent".to_owned())?;
+            required_non_empty_string(native, "provider")
+                .map_err(|err| format!("invalid native agent: {err}"))?;
+            required_non_empty_string(native, "model")
+                .map_err(|err| format!("invalid native agent: {err}"))?;
+            Ok(())
+        }
+        "terminal" => {
+            let terminal = config
+                .get("terminal")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| "missing `terminal` configuration for terminal agent".to_owned())?;
+            let runtime = required_non_empty_string(terminal, "runtime")
+                .map_err(|err| format!("invalid terminal agent: {err}"))?;
+            if !matches!(runtime, "codex" | "claude") {
+                return Err(
+                    "invalid terminal agent: `terminal.runtime` must be `codex` or `claude`"
+                        .to_owned(),
+                );
+            }
+            if terminal.get("enabled").and_then(Value::as_bool) != Some(true) {
+                return Err("invalid terminal agent: terminal agents must be enabled".to_owned());
+            }
+            required_non_empty_string(terminal, "command")
+                .map_err(|err| format!("invalid terminal agent: {err}"))?;
+            Ok(())
+        }
+        _ => Err("invalid `kind`; expected `native` or `terminal`".to_owned()),
     }
 }
 
@@ -1664,40 +1709,55 @@ pub(crate) async fn handle_agents_create(
         .get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let model = params.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let system_prompt = params
         .get("system_prompt")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-
-    // Support new `models` object format
-    let models_obj = params.get("models");
+    let kind = params
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| matches!(*value, "native" | "terminal"))
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "missing or invalid 'kind' parameter; expected 'native' or 'terminal'".to_owned(),
+            )
+        })?;
 
     let mut agent_config = json!({
         "id": id,
         "name": name,
+        "kind": kind,
         "description": description,
         "system_prompt": system_prompt,
         "created_at": chrono::Utc::now().to_rfc3339(),
     });
 
-    // Store models in new format, with backward compat for flat `model` field
-    if let Some(models) = models_obj {
-        agent_config["models"] = models.clone();
-    }
-    if !model.is_empty() {
-        agent_config["model"] = json!(model);
-        // Also set as models.primary if models wasn't provided
-        if models_obj.is_none() {
-            agent_config["models"] = json!({ "primary": model });
+    match kind {
+        "terminal" => {
+            let terminal = params.get("terminal").ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "missing 'terminal' configuration for terminal agent".to_owned(),
+                )
+            })?;
+            agent_config["terminal"] = terminal.clone();
+        }
+        _ => {
+            let native = params.get("native").ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "missing 'native' configuration for native agent".to_owned(),
+                )
+            })?;
+            agent_config["native"] = native.clone();
         }
     }
+    validate_agent_shape(&agent_config).map_err(|message| (INVALID_REQUEST, message))?;
 
     // Per-agent config overrides
     for key in &[
-        "provider",
-        "thinking",
-        "verbose",
         "memory",
         "compaction",
         "sandbox",
@@ -1712,7 +1772,6 @@ pub(crate) async fn handle_agents_create(
         "dm_scope",
         "identity",
         "permission_policy",
-        "terminal_delegate",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {
@@ -1809,29 +1868,39 @@ pub(crate) async fn handle_agents_update(
     if let Some(desc) = params.get("description").and_then(|v| v.as_str()) {
         config["description"] = json!(desc);
     }
-    if let Some(model) = params.get("model").and_then(|v| v.as_str()) {
-        config["model"] = json!(model);
-    }
-    if let Some(provider) = params.get("provider").and_then(|v| v.as_str()) {
-        config["provider"] = json!(provider);
-    }
     if let Some(prompt) = params.get("system_prompt").and_then(|v| v.as_str()) {
         config["system_prompt"] = json!(prompt);
     }
-    if let Some(models) = params.get("models") {
-        config["models"] = models.clone();
-    }
-    if let Some(fallbacks) = params.get("fallback_models") {
-        // Legacy: also store in models.fallbacks
-        if config.get("models").is_none() {
-            config["models"] = json!({});
+    if let Some(kind_value) = params.get("kind") {
+        let kind = kind_value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| matches!(*value, "native" | "terminal"))
+            .ok_or_else(|| {
+                (
+                    INVALID_REQUEST,
+                    "invalid 'kind' parameter; expected 'native' or 'terminal'".to_owned(),
+                )
+            })?;
+        config["kind"] = json!(kind);
+        if kind == "native" {
+            if let Some(object) = config.as_object_mut() {
+                object.remove("terminal");
+            }
+        } else {
+            if let Some(object) = config.as_object_mut() {
+                object.remove("native");
+            }
         }
-        config["models"]["fallbacks"] = fallbacks.clone();
+    }
+    if let Some(native) = params.get("native") {
+        config["native"] = native.clone();
+    }
+    if let Some(terminal) = params.get("terminal") {
+        config["terminal"] = terminal.clone();
     }
     // Per-agent config overrides
     for key in &[
-        "thinking",
-        "verbose",
         "memory",
         "compaction",
         "sandbox",
@@ -1846,7 +1915,6 @@ pub(crate) async fn handle_agents_update(
         "dm_scope",
         "identity",
         "permission_policy",
-        "terminal_delegate",
         "matrix_auto_user_channels",
     ] {
         if let Some(val) = params.get(*key) {
@@ -1865,6 +1933,7 @@ pub(crate) async fn handle_agents_update(
         &resolved_id,
         resolved_id.eq_ignore_ascii_case("default"),
     );
+    validate_agent_shape(&config).map_err(|message| (INVALID_REQUEST, message))?;
 
     let _ = tokio::fs::create_dir_all(&dir).await;
     if let Err(err) = write_agent_config(&path, &config).await {

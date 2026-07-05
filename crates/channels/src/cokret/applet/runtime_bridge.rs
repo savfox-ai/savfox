@@ -8,13 +8,12 @@
 //! *signer* (loaded from a [`CokretKeyRef`] via [`load_ed25519_signer`]), so the
 //! glue here is purely:
 //!
-//! * [`applet_runtime_config`] — translate a savfox applet config into the
-//!   runtime's [`Config`](cokret_bridge_runtime::Config). The pure mapping
-//!   leaves the signing seed empty; [`build_outbound_edge`] fills it from the
-//!   configured [`CokretKeyRef`](crate::cokret::CokretKeyRef) before handing the
-//!   config to the runtime.
-//! * [`SavfoxAppletResolver`] — answer `resolve_actor` / `resolve_realm` probes
-//!   from the applet's declared namespaces.
+//! * [`applet_runtime_config`] — translate a savfox applet config into the runtime's
+//!   [`Config`](cokret_bridge_runtime::Config). The pure mapping leaves the signing seed empty;
+//!   [`build_outbound_edge`] fills it from the configured
+//!   [`CokretKeyRef`](crate::cokret::CokretKeyRef) before handing the config to the runtime.
+//! * [`SavfoxAppletResolver`] — answer `resolve_actor` / `resolve_realm` probes from the applet's
+//!   declared namespaces.
 //! * [`build_outbound_edge`] — assemble a ready-to-use
 //!   [`CokretEdge`](cokret_bridge_runtime::CokretEdge).
 

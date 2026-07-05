@@ -48,7 +48,7 @@ fn agent_status_color(entry: &AgentEntry) -> &'static str {
         None => {
             // Derive status from config: if agent has no model configured, show gray (offline)
             if entry_has_terminal_delegate(entry)
-                || !entry.model.as_deref().unwrap_or("").trim().is_empty()
+                || !native_model_for_entry(entry).trim().is_empty()
             {
                 "#22c55e"
             } else {
@@ -66,7 +66,7 @@ fn agent_status_label(entry: &AgentEntry) -> &'static str {
         Some(_) => "Offline",
         None => {
             if entry_has_terminal_delegate(entry)
-                || !entry.model.as_deref().unwrap_or("").trim().is_empty()
+                || !native_model_for_entry(entry).trim().is_empty()
             {
                 "Online"
             } else {
@@ -77,17 +77,50 @@ fn agent_status_label(entry: &AgentEntry) -> &'static str {
 }
 
 fn entry_has_terminal_delegate(entry: &AgentEntry) -> bool {
-    entry
-        .terminal_delegate
-        .as_ref()
-        .and_then(|config| config.enabled)
-        .unwrap_or(false)
+    entry.kind.as_str() == "terminal"
         && entry
-            .terminal_delegate
+            .terminal
             .as_ref()
+            .map(|terminal| &terminal.delegate)
+            .and_then(|config| config.enabled)
+            .unwrap_or(false)
+        && entry
+            .terminal
+            .as_ref()
+            .map(|terminal| &terminal.delegate)
             .and_then(|config| config.command.as_deref())
             .map(str::trim)
             .is_some_and(|command| !command.is_empty())
+}
+
+fn agent_kind_value(kind: &crate::api::types::AgentKind) -> &'static str {
+    match kind.as_str() {
+        "terminal" => "terminal",
+        _ => "native",
+    }
+}
+
+fn terminal_delegate_for_detail(detail: &AgentDetail) -> Option<&AgentTerminalDelegateConfig> {
+    detail.terminal.as_ref().map(|terminal| &terminal.delegate)
+}
+
+fn terminal_config_raw(detail_raw: Option<&Value>) -> Option<&Value> {
+    detail_raw.and_then(|detail| detail.get("terminal"))
+}
+
+fn native_model_for_entry(entry: &AgentEntry) -> String {
+    entry
+        .native
+        .as_ref()
+        .map(|native| native.model.clone())
+        .unwrap_or_default()
+}
+
+fn native_provider_for_model(model: &str) -> String {
+    model
+        .split_once('/')
+        .map(|(provider, _)| provider.to_string())
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
@@ -687,7 +720,7 @@ fn json_terminal_delegate_fields(
 fn json_terminal_runtime_fields(value: Option<&Value>) -> (String, String, String, String) {
     let Some(config) = value.and_then(Value::as_object) else {
         return (
-            "custom".to_string(),
+            "codex".to_string(),
             "one_shot".to_string(),
             "per_session".to_string(),
             "plain_text".to_string(),
@@ -698,7 +731,7 @@ fn json_terminal_runtime_fields(value: Option<&Value>) -> (String, String, Strin
         config
             .get("profile")
             .and_then(Value::as_str)
-            .unwrap_or("custom")
+            .unwrap_or("codex")
             .to_string(),
         config
             .get("mode")
@@ -816,7 +849,7 @@ fn detail_terminal_runtime_fields(
 ) -> (String, String, String, String) {
     let Some(config) = detail else {
         return (
-            "custom".to_string(),
+            "codex".to_string(),
             "one_shot".to_string(),
             "per_session".to_string(),
             "plain_text".to_string(),
@@ -828,7 +861,7 @@ fn detail_terminal_runtime_fields(
             .profile
             .as_ref()
             .map(|value| value.as_str().to_string())
-            .unwrap_or_else(|| "custom".to_string()),
+            .unwrap_or_else(|| "codex".to_string()),
         config
             .mode
             .as_ref()
@@ -1028,7 +1061,7 @@ fn terminal_delegate_payload(
         && include_system_prompt
         && interactive_command.is_empty()
         && interactive_args.is_empty()
-        && matches!(profile, "" | "custom")
+        && matches!(profile, "" | "codex")
         && matches!(mode, "" | "one_shot")
         && matches!(session_scope, "" | "per_session")
         && matches!(io_protocol, "" | "plain_text")
@@ -1189,17 +1222,12 @@ fn model_option_label(model: &AvailableModel) -> String {
 /// Both the form's initial value and the dirty-check baseline must go through
 /// this, otherwise an agent with no explicit model reads as perpetually dirty.
 fn normalized_primary_model(entry: &AgentEntry) -> String {
-    entry
-        .model
-        .clone()
-        .or_else(|| {
-            entry
-                .models
-                .as_ref()
-                .and_then(|models| models.primary.clone())
-        })
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "default".to_string())
+    let model = native_model_for_entry(entry);
+    if model.trim().is_empty() {
+        "default".to_string()
+    } else {
+        model
+    }
 }
 
 fn model_select_value(models: &[AvailableModel], model_id: &str) -> String {
@@ -1292,6 +1320,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     });
     let mut new_id = use_signal(String::new);
     let mut new_name = use_signal(String::new);
+    let mut new_agent_kind = use_signal(|| "native".to_string());
     let mut new_provider = use_signal(String::new);
     let mut new_model = use_signal(String::new);
     let mut new_prompt = use_signal(String::new);
@@ -1312,7 +1341,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
     let mut new_terminal_env = use_signal(String::new);
     let mut new_terminal_timeout = use_signal(|| "300".to_string());
     let mut new_terminal_include_system_prompt = use_signal(|| true);
-    let mut new_terminal_profile = use_signal(|| "custom".to_string());
+    let mut new_terminal_profile = use_signal(|| "codex".to_string());
     let mut new_terminal_mode = use_signal(|| "one_shot".to_string());
     let mut new_terminal_session_scope = use_signal(|| "per_session".to_string());
     let mut new_terminal_io_protocol = use_signal(|| "plain_text".to_string());
@@ -1509,7 +1538,9 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
 
                                             let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("imported-agent").to_string();
                                             let system_prompt = parsed.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let model = parsed.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                            let kind = parsed.get("kind").and_then(|v| v.as_str()).unwrap_or("native").to_string();
+                                            let native = parsed.get("native").cloned();
+                                            let terminal = parsed.get("terminal").cloned();
                                             let description = parsed.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let group_activation = parsed.get("group_activation").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                             let channel_replies = json_channel_reply_rows(parsed.get("channel_replies"));
@@ -1528,26 +1559,26 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 terminal_env,
                                                 terminal_timeout,
                                                 terminal_include_system_prompt,
-                                            ) = json_terminal_delegate_fields(parsed.get("terminal_delegate"));
+                                            ) = json_terminal_delegate_fields(parsed.get("terminal"));
                                             let (
                                                 terminal_interactive_command,
                                                 terminal_interactive_args,
-                                            ) = json_terminal_interactive_fields(parsed.get("terminal_delegate"));
+                                            ) = json_terminal_interactive_fields(parsed.get("terminal"));
                                             let (
                                                 terminal_profile,
                                                 terminal_mode,
                                                 terminal_session_scope,
                                                 terminal_io_protocol,
-                                            ) = json_terminal_runtime_fields(parsed.get("terminal_delegate"));
+                                            ) = json_terminal_runtime_fields(parsed.get("terminal"));
                                             let (
                                                 terminal_execution,
                                                 terminal_approval_bridge,
-                                            ) = json_terminal_permission_fields(parsed.get("terminal_delegate"));
+                                            ) = json_terminal_permission_fields(parsed.get("terminal"));
                                             let (
                                                 terminal_workspace_mode,
                                                 terminal_workspace_base,
                                                 terminal_workspace_cleanup_policy,
-                                            ) = json_terminal_workspace_fields(parsed.get("terminal_delegate"));
+                                            ) = json_terminal_workspace_fields(parsed.get("terminal"));
 
                                             let id_slug: String = name.chars()
                                                 .map(|c| if c.is_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
@@ -1558,13 +1589,18 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 let mut payload = json!({
                                                     "id": id_slug,
                                                     "name": name,
+                                                    "kind": if kind == "terminal" { "terminal" } else { "native" },
                                                     "system_prompt": if description.is_empty() { system_prompt.clone() } else { description },
                                                 });
-                                                if !model.is_empty() {
-                                                    payload["model"] = json!(model);
-                                                }
                                                 if !system_prompt.is_empty() {
                                                     payload["system_prompt"] = json!(system_prompt);
+                                                }
+                                                if kind == "terminal" {
+                                                    if let Some(terminal) = terminal {
+                                                        payload["terminal"] = terminal;
+                                                    }
+                                                } else if let Some(native) = native {
+                                                    payload["native"] = native;
                                                 }
                                                 if !group_activation.is_empty() {
                                                     payload["group_activation"] = json!(group_activation);
@@ -1592,7 +1628,8 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 ) {
                                                     payload["idle_reply"] = idle_reply;
                                                 }
-                                                if let Some(terminal_delegate) = terminal_delegate_payload(
+                                                if kind == "terminal" && payload.get("terminal").is_none()
+                                                    && let Some(mut terminal) = terminal_delegate_payload(
                                                     terminal_enabled,
                                                     &terminal_command,
                                                     &terminal_args,
@@ -1613,7 +1650,8 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                     &terminal_workspace_base,
                                                     &terminal_workspace_cleanup_policy,
                                                 ) {
-                                                    payload["terminal_delegate"] = terminal_delegate;
+                                                    terminal["runtime"] = json!(terminal_profile);
+                                                    payload["terminal"] = terminal;
                                                 }
                                                 let _ = ws_spawn.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                                 refresh_tick += 1;
@@ -1651,6 +1689,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 selected_agent.set(None);
                                 new_id.set(String::new());
                                 new_name.set(String::new());
+                                new_agent_kind.set("native".to_string());
                                 new_provider.set(String::new());
                                 new_model.set(String::new());
                                 new_prompt.set(String::new());
@@ -1671,7 +1710,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                 new_terminal_env.set(String::new());
                                 new_terminal_timeout.set("300".to_string());
                                 new_terminal_include_system_prompt.set(true);
-                                new_terminal_profile.set("custom".to_string());
+                                new_terminal_profile.set("codex".to_string());
                                 new_terminal_mode.set("one_shot".to_string());
                                 new_terminal_session_scope.set("per_session".to_string());
                                 new_terminal_io_protocol.set("plain_text".to_string());
@@ -1755,16 +1794,27 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                                 }
                                                 if entry_has_terminal_delegate(agent) {
                                                     {
-                                                        let command = agent.terminal_delegate
+                                                        let command = agent
+                                                            .terminal
                                                             .as_ref()
+                                                            .map(|terminal| &terminal.delegate)
                                                             .and_then(|config| config.command.as_deref())
                                                             .unwrap_or("terminal");
                                                         rsx! {
                                                             div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "Terminal Agent: {command}" }
                                                         }
                                                     }
-                                                } else if let Some(ref model) = agent.model {
-                                                    div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "{model}" }
+                                                } else {
+                                                    {
+                                                        let model = native_model_for_entry(agent);
+                                                        if !model.trim().is_empty() {
+                                                            rsx! {
+                                                                div { style: "font-size:12px;color:var(--text-muted);margin-top:2px;", "{model}" }
+                                                            }
+                                                        } else {
+                                                            rsx! {}
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1792,6 +1842,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                         show_create,
                         new_id,
                         new_name,
+                        new_agent_kind,
                         new_provider,
                         new_model,
                         new_prompt,
@@ -1888,6 +1939,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     selected_agent.set(None);
                                     new_id.set(String::new());
                                     new_name.set(String::new());
+                                    new_agent_kind.set("native".to_string());
                                     new_provider.set(String::new());
                                     new_model.set(String::new());
                                     new_prompt.set(String::new());
@@ -1908,7 +1960,7 @@ fn agents_inner(deep_link: AgentDeepLink) -> Element {
                                     new_terminal_env.set(String::new());
                                     new_terminal_timeout.set("300".to_string());
                                     new_terminal_include_system_prompt.set(true);
-                                    new_terminal_profile.set("custom".to_string());
+                                    new_terminal_profile.set("codex".to_string());
                                     new_terminal_mode.set("one_shot".to_string());
                                     new_terminal_session_scope.set("per_session".to_string());
                                     new_terminal_io_protocol.set("plain_text".to_string());
@@ -1940,6 +1992,7 @@ fn AgentCreateForm(
     mut show_create: Signal<bool>,
     mut new_id: Signal<String>,
     mut new_name: Signal<String>,
+    mut new_agent_kind: Signal<String>,
     mut new_provider: Signal<String>,
     mut new_model: Signal<String>,
     mut new_prompt: Signal<String>,
@@ -2043,6 +2096,7 @@ fn AgentCreateForm(
     });
     let providers = provider_data.read().0.clone();
     let selected_provider = new_provider();
+    let is_terminal_agent = new_agent_kind() == "terminal";
     let model_options = provider_data
         .read()
         .1
@@ -2123,89 +2177,91 @@ fn AgentCreateForm(
                     }
                 }
                 div {
-                    label { class: "{LABEL}", "Model Provider" }
-                    select {
-                        value: "{new_provider}",
-                        onchange: move |e| {
-                            new_provider.set(e.value());
-                            // Keep model in sync with selected provider options.
-                            new_model.set(String::new());
-                        },
-                        class: "{INPUT}",
-                        option { value: "", "-- Select provider --" }
-                        for provider_id in providers.iter() {
-                            {
-                                let label = provider_display_name(provider_id);
-                                rsx! {
-                                    option { key: "{provider_id}", value: "{provider_id}", "{label} ({provider_id})" }
-                                }
-                            }
+                    label { class: "{LABEL}", "Agent Type" }
+                    div { style: "display:flex;gap:8px;flex-wrap:wrap;",
+                        button {
+                            class: if is_terminal_agent { TOOL_BTN } else { "tool-btn tool-btn--primary" },
+                            onclick: move |_| {
+                                new_agent_kind.set("native".to_string());
+                                new_terminal_enabled.set(false);
+                            },
+                            "Native Agent"
                         }
-                    }
-                    if providers.is_empty() {
-                        p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
-                            "No configured providers found. Add models/providers in Models page first."
+                        button {
+                            class: if is_terminal_agent { "tool-btn tool-btn--primary" } else { TOOL_BTN },
+                            onclick: move |_| {
+                                new_agent_kind.set("terminal".to_string());
+                                new_terminal_enabled.set(true);
+                                if new_terminal_profile() == "claude" {
+                                    new_terminal_command.set("claude".to_string());
+                                    new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                } else {
+                                    new_terminal_profile.set("codex".to_string());
+                                    new_terminal_command.set("codex".to_string());
+                                    new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                }
+                            },
+                            "Terminal Agent"
                         }
                     }
                 }
-                div {
-                    label { class: "{LABEL}", "Model" }
-                    select {
-                        value: "{new_model}",
-                        onchange: move |e| new_model.set(e.value()),
-                        class: "{INPUT}",
-                        disabled: selected_provider.is_empty(),
-                        option { value: "", "{model_placeholder}" }
-                        for model in model_options.iter() {
-                            {
-                                let model_id = model.0.as_str();
-                                let model_label = model.1.as_str();
-                                rsx! {
-                                    option { key: "{model_id}", value: "{model_id}", "{model_label}" }
+                if !is_terminal_agent {
+                    div {
+                        label { class: "{LABEL}", "Model Provider" }
+                        select {
+                            value: "{new_provider}",
+                            onchange: move |e| {
+                                new_provider.set(e.value());
+                                new_model.set(String::new());
+                            },
+                            class: "{INPUT}",
+                            option { value: "", "-- Select provider --" }
+                            for provider_id in providers.iter() {
+                                {
+                                    let label = provider_display_name(provider_id);
+                                    rsx! {
+                                        option { key: "{provider_id}", value: "{provider_id}", "{label} ({provider_id})" }
+                                    }
                                 }
                             }
                         }
+                        if providers.is_empty() {
+                            p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                                "No configured providers found. Add models/providers in Models page first."
+                            }
+                        }
                     }
-                    if !selected_provider.is_empty() && model_options.is_empty() {
-                        p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
-                            "No models available for selected provider."
+                    div {
+                        label { class: "{LABEL}", "Model" }
+                        select {
+                            value: "{new_model}",
+                            onchange: move |e| new_model.set(e.value()),
+                            class: "{INPUT}",
+                            disabled: selected_provider.is_empty(),
+                            option { value: "", "{model_placeholder}" }
+                            for model in model_options.iter() {
+                                {
+                                    let model_id = model.0.as_str();
+                                    let model_label = model.1.as_str();
+                                    rsx! {
+                                        option { key: "{model_id}", value: "{model_id}", "{model_label}" }
+                                    }
+                                }
+                            }
+                        }
+                        if !selected_provider.is_empty() && model_options.is_empty() {
+                            p { style: "font-size:11px;color:var(--text-muted);margin-top:4px;",
+                                "No models available for selected provider."
+                            }
                         }
                     }
                 }
+                if is_terminal_agent {
                 div { class: "{SECTION_CARD}", style: "padding:12px;margin-top:4px;",
                     h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
-                    ToggleSwitch {
-                        label: "Use Terminal Agent".to_string(),
-                        description: Some("Run a local CLI as this agent while preserving the CLI's own login, quota, context, and plugins.".to_string()),
-                        checked: new_terminal_enabled(),
-                        on_toggle: move |value| new_terminal_enabled.set(value),
-                    }
                     div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
                         button {
-                            class: "{TOOL_BTN}",
-                            onclick: move |_| {
-                                new_terminal_enabled.set(false);
-                                new_terminal_command.set(String::new());
-                                new_terminal_args.set("{{prompt}}".to_string());
-                                new_terminal_stdin.set(String::new());
-                                new_terminal_cwd.set(String::new());
-                                new_terminal_env.set(String::new());
-                                new_terminal_timeout.set("300".to_string());
-                                new_terminal_include_system_prompt.set(true);
-                                new_terminal_profile.set("custom".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
-                                new_terminal_session_scope.set("per_session".to_string());
-                                new_terminal_io_protocol.set("plain_text".to_string());
-                                new_terminal_execution.set("native_terminal".to_string());
-                                new_terminal_approval_bridge.set("disabled".to_string());
-                                new_terminal_workspace_mode.set("shared".to_string());
-                                new_terminal_workspace_base.set(String::new());
-                                new_terminal_workspace_cleanup_policy.set("per_session".to_string());
-                            },
-                            "Savfox"
-                        }
-                        button {
-                            class: "{TOOL_BTN}",
+                            class: if new_terminal_profile() == "claude" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("claude".to_string());
@@ -2221,7 +2277,7 @@ fn AgentCreateForm(
                             "Claude"
                         }
                         button {
-                            class: "{TOOL_BTN}",
+                            class: if new_terminal_profile() == "codex" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                             onclick: move |_| {
                                 new_terminal_enabled.set(true);
                                 new_terminal_command.set("codex".to_string());
@@ -2236,41 +2292,26 @@ fn AgentCreateForm(
                             },
                             "Codex"
                         }
-                        button {
-                            class: "{TOOL_BTN}",
-                            onclick: move |_| {
-                                new_terminal_enabled.set(true);
-                                new_terminal_command.set(String::new());
-                                new_terminal_args.set(String::new());
-                                new_terminal_stdin.set("{{prompt}}".to_string());
-                                new_terminal_cwd.set(String::new());
-                                new_terminal_env.set(String::new());
-                                new_terminal_timeout.set("300".to_string());
-                                new_terminal_include_system_prompt.set(true);
-                                new_terminal_profile.set("custom".to_string());
-                                new_terminal_mode.set("one_shot".to_string());
-                                new_terminal_session_scope.set("per_session".to_string());
-                                new_terminal_io_protocol.set("plain_text".to_string());
-                                new_terminal_execution.set("native_terminal".to_string());
-                                new_terminal_approval_bridge.set("disabled".to_string());
-                                new_terminal_workspace_mode.set("shared".to_string());
-                                new_terminal_workspace_base.set(String::new());
-                                new_terminal_workspace_cleanup_policy.set("per_session".to_string());
-                            },
-                            "Custom CLI"
-                        }
                     }
                     div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
                         div {
-                            label { class: "{LABEL}", "Profile" }
+                            label { class: "{LABEL}", "Runtime" }
                             select {
                                 value: "{new_terminal_profile}",
-                                onchange: move |e| new_terminal_profile.set(e.value()),
+                                onchange: move |e| {
+                                    let value = e.value();
+                                    if value == "claude" {
+                                        new_terminal_command.set("claude".to_string());
+                                        new_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    } else {
+                                        new_terminal_command.set("codex".to_string());
+                                        new_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    }
+                                    new_terminal_profile.set(value);
+                                },
                                 class: "{INPUT}",
-                                option { value: "custom", "Custom CLI" }
                                 option { value: "codex", "Codex" }
                                 option { value: "claude", "Claude" }
-                                option { value: "jsonl_custom", "JSONL Custom" }
                             }
                         }
                         div {
@@ -2436,6 +2477,7 @@ fn AgentCreateForm(
                         }
                     }
                 }
+                }
                 div {
                     label { class: "{LABEL}", "System Prompt" }
                     textarea {
@@ -2561,6 +2603,11 @@ fn AgentCreateForm(
                         onclick: move |_| {
                             let id = new_id().trim().to_string();
                             let name = new_name().trim().to_string();
+                            let agent_kind = if new_agent_kind() == "terminal" {
+                                "terminal".to_string()
+                            } else {
+                                "native".to_string()
+                            };
                             let provider = new_provider().trim().to_string();
                             let model_input = new_model().trim().to_string();
                             let model = if model_input.is_empty() {
@@ -2581,7 +2628,7 @@ fn AgentCreateForm(
                             let idle_reply_delay = new_idle_reply_delay();
                             let idle_reply_max_per_hour = new_idle_reply_max_per_hour();
                             let idle_reply_prompt = new_idle_reply_prompt();
-                            let terminal_enabled = new_terminal_enabled();
+                            let terminal_enabled = agent_kind == "terminal";
                             let terminal_command = new_terminal_command();
                             let terminal_args = new_terminal_args();
                             let terminal_stdin = new_terminal_stdin();
@@ -2608,8 +2655,22 @@ fn AgentCreateForm(
                                 toaster.error("Agent name is required");
                                 return;
                             }
+                            if agent_kind == "native" && provider.is_empty() {
+                                toaster.error("Model provider is required for native agents");
+                                return;
+                            }
+                            if agent_kind == "native" && model.is_empty() {
+                                toaster.error("Model is required for native agents");
+                                return;
+                            }
+                            if terminal_enabled
+                                && !matches!(terminal_profile.as_str(), "codex" | "claude")
+                            {
+                                toaster.error("Terminal agent runtime must be Codex or Claude");
+                                return;
+                            }
                             if terminal_enabled && terminal_command.trim().is_empty() {
-                                toaster.error("Terminal command is required when delegation is enabled");
+                                toaster.error("Terminal command is required for terminal agents");
                                 return;
                             }
                             let agents_clone = agents.clone();
@@ -2626,13 +2687,14 @@ fn AgentCreateForm(
                                 let mut payload = json!({
                                     "id": id,
                                     "name": name,
+                                    "kind": agent_kind.clone(),
                                     "system_prompt": prompt,
                                 });
-                                if !model.is_empty() {
-                                    payload["model"] = json!(model);
-                                }
-                                if !provider.is_empty() {
-                                    payload["provider"] = json!(provider);
+                                if agent_kind == "native" {
+                                    payload["native"] = json!({
+                                        "provider": provider,
+                                        "model": model,
+                                    });
                                 }
                                 if !group_activation.is_empty() {
                                     payload["group_activation"] = json!(group_activation);
@@ -2657,28 +2719,31 @@ fn AgentCreateForm(
                                 ) {
                                     payload["idle_reply"] = idle_reply;
                                 }
-                                if let Some(terminal_delegate) = terminal_delegate_payload(
-                                    terminal_enabled,
-                                    &terminal_command,
-                                    &terminal_args,
-                                    &terminal_stdin,
-                                    &terminal_cwd,
-                                    &terminal_env,
-                                    &terminal_timeout,
-                                    terminal_include_system_prompt,
-                                    "",
-                                    "",
-                                    &terminal_profile,
-                                    &terminal_mode,
-                                    &terminal_session_scope,
-                                    &terminal_io_protocol,
-                                    &terminal_execution,
-                                    &terminal_approval_bridge,
-                                    &terminal_workspace_mode,
-                                    &terminal_workspace_base,
-                                    &terminal_workspace_cleanup_policy,
-                                ) {
-                                    payload["terminal_delegate"] = terminal_delegate;
+                                if agent_kind == "terminal" {
+                                    if let Some(mut terminal) = terminal_delegate_payload(
+                                        true,
+                                        &terminal_command,
+                                        &terminal_args,
+                                        &terminal_stdin,
+                                        &terminal_cwd,
+                                        &terminal_env,
+                                        &terminal_timeout,
+                                        terminal_include_system_prompt,
+                                        "",
+                                        "",
+                                        &terminal_profile,
+                                        &terminal_mode,
+                                        &terminal_session_scope,
+                                        &terminal_io_protocol,
+                                        &terminal_execution,
+                                        &terminal_approval_bridge,
+                                        &terminal_workspace_mode,
+                                        &terminal_workspace_base,
+                                        &terminal_workspace_cleanup_policy,
+                                    ) {
+                                        terminal["runtime"] = json!(terminal_profile);
+                                        payload["terminal"] = terminal;
+                                    }
                                 }
                                 let res = ws.call::<serde_json::Value>("agents.create", Some(payload)).await;
                                 match res {
@@ -2687,6 +2752,7 @@ fn AgentCreateForm(
                                         show_create.set(false);
                                         new_id.set(String::new());
                                         new_name.set(String::new());
+                                        new_agent_kind.set("native".to_string());
                                         new_provider.set(String::new());
                                         new_model.set(String::new());
                                         new_prompt.set(String::new());
@@ -2707,7 +2773,7 @@ fn AgentCreateForm(
                                         new_terminal_env.set(String::new());
                                         new_terminal_timeout.set("300".to_string());
                                         new_terminal_include_system_prompt.set(true);
-                                        new_terminal_profile.set("custom".to_string());
+                                        new_terminal_profile.set("codex".to_string());
                                         new_terminal_mode.set("one_shot".to_string());
                                         new_terminal_session_scope.set("per_session".to_string());
                                         new_terminal_io_protocol.set("plain_text".to_string());
@@ -2729,6 +2795,7 @@ fn AgentCreateForm(
                     button {
                         onclick: move |_| {
                             show_create.set(false);
+                            new_agent_kind.set("native".to_string());
                             new_group_activation.set(String::new());
                             new_group_keywords.set(String::new());
                             new_agent_aliases.set(String::new());
@@ -2746,7 +2813,7 @@ fn AgentCreateForm(
                             new_terminal_env.set(String::new());
                             new_terminal_timeout.set("300".to_string());
                             new_terminal_include_system_prompt.set(true);
-                            new_terminal_profile.set("custom".to_string());
+                            new_terminal_profile.set("codex".to_string());
                             new_terminal_mode.set("one_shot".to_string());
                             new_terminal_session_scope.set("per_session".to_string());
                             new_terminal_io_protocol.set("plain_text".to_string());
@@ -3069,6 +3136,8 @@ fn AgentOverviewTab(
     // -- Editable fields, seeded from entry --
     let initial_name = entry.name.clone();
     let mut form_name = use_signal(move || initial_name.clone());
+    let initial_agent_kind = agent_kind_value(&entry.kind).to_string();
+    let mut form_agent_kind = use_signal(move || initial_agent_kind.clone());
 
     let initial_prompt = entry.system_prompt.clone().unwrap_or_default();
     let mut form_desc = use_signal(move || initial_prompt.clone());
@@ -3076,8 +3145,9 @@ fn AgentOverviewTab(
     let initial_model = normalized_primary_model(&entry);
     let mut form_model = use_signal(move || initial_model.clone());
     let initial_reasoning = entry
-        .thinking
-        .as_deref()
+        .native
+        .as_ref()
+        .and_then(|native| native.thinking.as_deref())
         .and_then(normalized_reasoning_level)
         .unwrap_or_default();
     let mut form_reasoning = use_signal(move || initial_reasoning.clone());
@@ -3101,7 +3171,7 @@ fn AgentOverviewTab(
     let mut form_terminal_include_system_prompt = use_signal(|| true);
     let mut form_terminal_interactive_command = use_signal(String::new);
     let mut form_terminal_interactive_args = use_signal(String::new);
-    let mut form_terminal_profile = use_signal(|| "custom".to_string());
+    let mut form_terminal_profile = use_signal(|| "codex".to_string());
     let mut form_terminal_mode = use_signal(|| "one_shot".to_string());
     let mut form_terminal_session_scope = use_signal(|| "per_session".to_string());
     let mut form_terminal_io_protocol = use_signal(|| "plain_text".to_string());
@@ -3150,16 +3220,28 @@ fn AgentOverviewTab(
         .and_then(|detail| detail.as_ref().map(|(_, raw)| raw.clone()));
     let detail_terminal_delegate_raw = detail_raw_snapshot
         .as_ref()
-        .and_then(|detail| detail.get("terminal_delegate"));
+        .and_then(|detail| detail.get("terminal"));
     if !detail_seeded() {
         if let Some(ref detail) = detail_snapshot {
+            let detail_agent_kind =
+                if detail.kind.as_str() == "terminal" || detail.terminal.is_some() {
+                    "terminal"
+                } else {
+                    "native"
+                };
+            form_agent_kind.set(detail_agent_kind.to_string());
             let detail_model = detail
-                .model
-                .as_deref()
+                .native
+                .as_ref()
+                .map(|native| native.model.as_str())
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            let fallbacks = detail.fallback_models.clone().unwrap_or_default();
+            let fallbacks = detail
+                .native
+                .as_ref()
+                .and_then(|native| native.fallback_models.clone())
+                .unwrap_or_default();
             if form_model().trim().is_empty() {
                 if let Some(detail_model) = detail_model {
                     form_model.set(detail_model);
@@ -3175,8 +3257,9 @@ fn AgentOverviewTab(
             );
             form_reasoning.set(
                 detail
-                    .thinking
-                    .as_deref()
+                    .native
+                    .as_ref()
+                    .and_then(|native| native.thinking.as_deref())
                     .and_then(normalized_reasoning_level)
                     .unwrap_or_default(),
             );
@@ -3210,7 +3293,7 @@ fn AgentOverviewTab(
                 terminal_env,
                 terminal_timeout,
                 terminal_include_system_prompt,
-            ) = detail_terminal_delegate_fields(detail.terminal_delegate.as_ref());
+            ) = detail_terminal_delegate_fields(terminal_delegate_for_detail(detail));
             form_terminal_enabled.set(terminal_enabled);
             form_terminal_command.set(terminal_command);
             form_terminal_args.set(terminal_args);
@@ -3220,11 +3303,11 @@ fn AgentOverviewTab(
             form_terminal_timeout.set(terminal_timeout);
             form_terminal_include_system_prompt.set(terminal_include_system_prompt);
             let (interactive_command, interactive_args) =
-                detail_terminal_interactive_fields(detail.terminal_delegate.as_ref());
+                detail_terminal_interactive_fields(terminal_delegate_for_detail(detail));
             form_terminal_interactive_command.set(interactive_command);
             form_terminal_interactive_args.set(interactive_args);
             let (profile, mode, session_scope, io_protocol) =
-                detail_terminal_runtime_fields(detail.terminal_delegate.as_ref());
+                detail_terminal_runtime_fields(terminal_delegate_for_detail(detail));
             form_terminal_profile.set(profile);
             form_terminal_mode.set(mode);
             form_terminal_session_scope.set(session_scope);
@@ -3308,24 +3391,45 @@ fn AgentOverviewTab(
     // Dirty tracking
     let is_dirty = {
         let orig_name = entry.name.clone();
+        let orig_agent_kind = detail_snapshot
+            .as_ref()
+            .map(|detail| {
+                if detail.kind.as_str() == "terminal" || detail.terminal.is_some() {
+                    "terminal".to_string()
+                } else {
+                    "native".to_string()
+                }
+            })
+            .unwrap_or_else(|| agent_kind_value(&entry.kind).to_string());
         let orig_model = normalized_primary_model(&entry);
         let orig_desc = entry.system_prompt.clone().unwrap_or_default();
         let current_model = model_select_value(&models, &form_model());
         let original_model = model_select_value(&models, &orig_model);
         let orig_reasoning = detail_snapshot
             .as_ref()
-            .and_then(|detail| detail.thinking.as_deref())
+            .and_then(|detail| {
+                detail
+                    .native
+                    .as_ref()
+                    .and_then(|native| native.thinking.as_deref())
+            })
             .and_then(normalized_reasoning_level)
             .or_else(|| {
                 entry
-                    .thinking
-                    .as_deref()
+                    .native
+                    .as_ref()
+                    .and_then(|native| native.thinking.as_deref())
                     .and_then(normalized_reasoning_level)
             })
             .unwrap_or_default();
         let orig_fallbacks: Vec<String> = detail_snapshot
             .as_ref()
-            .and_then(|detail| detail.fallback_models.clone())
+            .and_then(|detail| {
+                detail
+                    .native
+                    .as_ref()
+                    .and_then(|native| native.fallback_models.clone())
+            })
             .unwrap_or_default();
         let orig_group_activation = detail_snapshot
             .as_ref()
@@ -3374,13 +3478,13 @@ fn AgentOverviewTab(
         ) = detail_terminal_delegate_fields(
             detail_snapshot
                 .as_ref()
-                .and_then(|detail| detail.terminal_delegate.as_ref()),
+                .and_then(terminal_delegate_for_detail),
         );
         let (orig_terminal_interactive_command, orig_terminal_interactive_args) =
             detail_terminal_interactive_fields(
                 detail_snapshot
                     .as_ref()
-                    .and_then(|detail| detail.terminal_delegate.as_ref()),
+                    .and_then(terminal_delegate_for_detail),
             );
         let (
             orig_terminal_profile,
@@ -3390,7 +3494,7 @@ fn AgentOverviewTab(
         ) = detail_terminal_runtime_fields(
             detail_snapshot
                 .as_ref()
-                .and_then(|detail| detail.terminal_delegate.as_ref()),
+                .and_then(terminal_delegate_for_detail),
         );
         let (orig_terminal_execution, orig_terminal_approval_bridge) =
             json_terminal_permission_fields(detail_terminal_delegate_raw);
@@ -3406,6 +3510,7 @@ fn AgentOverviewTab(
             .unwrap_or_default();
 
         form_name() != orig_name
+            || form_agent_kind() != orig_agent_kind
             || current_model != original_model
             || form_desc() != orig_desc
             || form_reasoning() != orig_reasoning
@@ -3448,6 +3553,7 @@ fn AgentOverviewTab(
             &form_terminal_cwd(),
             &form_terminal_env(),
         );
+    let form_is_terminal_agent = form_agent_kind() == "terminal";
 
     let entry_id = agent_id.clone();
     let ws_save = ws.clone();
@@ -3495,32 +3601,44 @@ fn AgentOverviewTab(
                                         let base_id = agent_ref(&entry);
                                         let clone_id = format!("{}-copy-{}", base_id, uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0"));
 
-                                        let model_val = entry.model.clone()
-                                            .or_else(|| entry.models.as_ref().and_then(|m| m.primary.clone()))
-                                            .unwrap_or_default();
                                         let prompt_val = entry.system_prompt.clone().unwrap_or_default();
+                                        let agent_kind = if entry.kind.as_str() == "terminal"
+                                            || entry.terminal.is_some()
+                                        {
+                                            "terminal"
+                                        } else {
+                                            "native"
+                                        };
 
                                         let mut payload = json!({
                                             "id": clone_id,
                                             "name": clone_name,
+                                            "kind": agent_kind,
                                             "system_prompt": prompt_val,
                                         });
-                                        if !model_val.is_empty() {
-                                            payload["model"] = json!(model_val);
-                                        }
-                                        if let Some(ref thinking) = entry.thinking {
-                                            payload["thinking"] = json!(thinking);
+                                        if agent_kind == "terminal" {
+                                            if let Some(terminal) = detail_raw
+                                                .as_ref()
+                                                .and_then(|detail| detail.get("terminal"))
+                                            {
+                                                payload["terminal"] = terminal.clone();
+                                            } else if let Some(ref terminal) = entry.terminal {
+                                                payload["terminal"] = json!(terminal);
+                                            }
+                                        } else if let Some(ref detail) = detail {
+                                            if let Some(ref native) = detail.native {
+                                                payload["native"] = json!(native);
+                                            }
+                                            if payload.get("native").is_none()
+                                                && let Some(ref native) = entry.native
+                                            {
+                                                payload["native"] = json!(native);
+                                            }
+                                        } else if let Some(ref native) = entry.native {
+                                            payload["native"] = json!(native);
                                         }
                                         // Include fallback models from detail if available
                                         if let Some(ref detail) = detail {
-                                            if let Some(ref fallbacks) = detail.fallback_models {
-                                                if !fallbacks.is_empty() {
-                                                    payload["models"] = json!({
-                                                        "primary": model_val,
-                                                        "fallbacks": fallbacks,
-                                                    });
-                                                }
-                                            }
                                             if let Some(ref group_activation) = detail.group_activation {
                                                 payload["group_activation"] = json!(group_activation);
                                             }
@@ -3548,18 +3666,6 @@ fn AgentOverviewTab(
                                             if let Some(ref idle_reply) = detail.idle_reply {
                                                 payload["idle_reply"] = json!(idle_reply);
                                             }
-                                            if let Some(terminal_delegate) = detail_raw
-                                                .as_ref()
-                                                .and_then(|detail| detail.get("terminal_delegate"))
-                                            {
-                                                payload["terminal_delegate"] =
-                                                    terminal_delegate.clone();
-                                            } else if let Some(ref terminal_delegate) =
-                                                detail.terminal_delegate
-                                            {
-                                                payload["terminal_delegate"] =
-                                                    json!(terminal_delegate);
-                                            }
                                         }
 
                                         let clone_id_for_select = clone_id.clone();
@@ -3586,24 +3692,42 @@ fn AgentOverviewTab(
                             let export_detail = detail_snapshot.clone();
                             let export_detail_raw = detail_raw_snapshot.clone();
                             move |_| {
+                                let agent_kind = if export_entry.kind.as_str() == "terminal"
+                                    || export_entry.terminal.is_some()
+                                {
+                                    "terminal"
+                                } else {
+                                    "native"
+                                };
                                 let mut export_data = json!({
                                     "name": export_entry.name,
+                                    "kind": agent_kind,
                                 });
-                                if let Some(ref model) = export_entry.model {
-                                    export_data["model"] = json!(model);
+                                if agent_kind == "terminal" {
+                                    if let Some(terminal) = export_detail_raw
+                                        .as_ref()
+                                        .and_then(|detail| detail.get("terminal"))
+                                    {
+                                        export_data["terminal"] = terminal.clone();
+                                    } else if let Some(ref terminal) = export_entry.terminal {
+                                        export_data["terminal"] = json!(terminal);
+                                    }
+                                } else if let Some(ref detail) = export_detail {
+                                    if let Some(ref native) = detail.native {
+                                        export_data["native"] = json!(native);
+                                    }
+                                    if export_data.get("native").is_none()
+                                        && let Some(ref native) = export_entry.native
+                                    {
+                                        export_data["native"] = json!(native);
+                                    }
+                                } else if let Some(ref native) = export_entry.native {
+                                    export_data["native"] = json!(native);
                                 }
                                 if let Some(ref prompt) = export_entry.system_prompt {
                                     export_data["system_prompt"] = json!(prompt);
                                 }
-                                if let Some(ref thinking) = export_entry.thinking {
-                                    export_data["thinking"] = json!(thinking);
-                                }
                                 if let Some(ref detail) = export_detail {
-                                    if let Some(ref fallbacks) = detail.fallback_models {
-                                        if !fallbacks.is_empty() {
-                                            export_data["fallback_models"] = json!(fallbacks);
-                                        }
-                                    }
                                     if let Some(ref group_activation) = detail.group_activation {
                                         export_data["group_activation"] = json!(group_activation);
                                     }
@@ -3630,16 +3754,6 @@ fn AgentOverviewTab(
                                     }
                                     if let Some(ref idle_reply) = detail.idle_reply {
                                         export_data["idle_reply"] = json!(idle_reply);
-                                    }
-                                    if let Some(terminal_delegate) = export_detail_raw
-                                        .as_ref()
-                                        .and_then(|detail| detail.get("terminal_delegate"))
-                                    {
-                                        export_data["terminal_delegate"] = terminal_delegate.clone();
-                                    } else if let Some(ref terminal_delegate) =
-                                        detail.terminal_delegate
-                                    {
-                                        export_data["terminal_delegate"] = json!(terminal_delegate);
                                     }
                                     if let Some(ref pp) = detail.permission_policy {
                                         if let Some(tools) = pp.get("tool_access")
@@ -3714,7 +3828,40 @@ fn AgentOverviewTab(
                 }
             }
 
+            div { class: "{SECTION_CARD}",
+                h4 { class: "{SECTION_TITLE}", "Agent Type" }
+                div { style: "display:flex;gap:8px;flex-wrap:wrap;",
+                    button {
+                        class: if form_is_terminal_agent { TOOL_BTN } else { "tool-btn tool-btn--primary" },
+                        onclick: move |_| {
+                            form_agent_kind.set("native".to_string());
+                            form_terminal_enabled.set(false);
+                        },
+                        "Native Agent"
+                    }
+                    button {
+                        class: if form_is_terminal_agent { "tool-btn tool-btn--primary" } else { TOOL_BTN },
+                        onclick: move |_| {
+                            form_agent_kind.set("terminal".to_string());
+                            form_terminal_enabled.set(true);
+                            if form_terminal_profile() == "claude" {
+                                form_terminal_command.set("claude".to_string());
+                                form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                form_terminal_interactive_command.set("claude".to_string());
+                            } else {
+                                form_terminal_profile.set("codex".to_string());
+                                form_terminal_command.set("codex".to_string());
+                                form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                form_terminal_interactive_command.set("codex".to_string());
+                            }
+                        },
+                        "Terminal Agent"
+                    }
+                }
+            }
+
             // Primary model selector
+            if !form_is_terminal_agent {
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Primary Model" }
                 div { class: "agent-model-selector",
@@ -3755,43 +3902,14 @@ fn AgentOverviewTab(
                     }
                 }
             }
+            }
 
+            if form_is_terminal_agent {
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Terminal Agent Runtime" }
-                ToggleSwitch {
-                    label: "Use Terminal Agent".to_string(),
-                    description: Some("Run a local CLI as this agent while preserving the CLI's own login, quota, context, and plugins.".to_string()),
-                    checked: form_terminal_enabled(),
-                    on_toggle: move |value| form_terminal_enabled.set(value),
-                }
                 div { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;",
                     button {
-                        class: "{TOOL_BTN}",
-                        onclick: move |_| {
-                            form_terminal_enabled.set(false);
-                            form_terminal_command.set(String::new());
-                            form_terminal_args.set("{{prompt}}".to_string());
-                            form_terminal_stdin.set(String::new());
-                            form_terminal_cwd.set(String::new());
-                            form_terminal_env.set(String::new());
-                            form_terminal_timeout.set("300".to_string());
-                            form_terminal_include_system_prompt.set(true);
-                            form_terminal_interactive_command.set(String::new());
-                            form_terminal_interactive_args.set(String::new());
-                            form_terminal_profile.set("custom".to_string());
-                            form_terminal_mode.set("one_shot".to_string());
-                            form_terminal_session_scope.set("per_session".to_string());
-                            form_terminal_io_protocol.set("plain_text".to_string());
-                            form_terminal_execution.set("native_terminal".to_string());
-                            form_terminal_approval_bridge.set("disabled".to_string());
-                            form_terminal_workspace_mode.set("shared".to_string());
-                            form_terminal_workspace_base.set(String::new());
-                            form_terminal_workspace_cleanup_policy.set("per_session".to_string());
-                        },
-                        "Savfox"
-                    }
-                    button {
-                        class: "{TOOL_BTN}",
+                        class: if form_terminal_profile() == "claude" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
                             form_terminal_command.set("claude".to_string());
@@ -3809,7 +3927,7 @@ fn AgentOverviewTab(
                         "Claude"
                     }
                     button {
-                        class: "{TOOL_BTN}",
+                        class: if form_terminal_profile() == "codex" { "tool-btn tool-btn--primary" } else { TOOL_BTN },
                         onclick: move |_| {
                             form_terminal_enabled.set(true);
                             form_terminal_command.set("codex".to_string());
@@ -3826,43 +3944,28 @@ fn AgentOverviewTab(
                         },
                         "Codex"
                     }
-                    button {
-                        class: "{TOOL_BTN}",
-                        onclick: move |_| {
-                            form_terminal_enabled.set(true);
-                            form_terminal_command.set(String::new());
-                            form_terminal_args.set(String::new());
-                            form_terminal_stdin.set("{{prompt}}".to_string());
-                            form_terminal_cwd.set(String::new());
-                            form_terminal_env.set(String::new());
-                            form_terminal_timeout.set("300".to_string());
-                            form_terminal_include_system_prompt.set(true);
-                            form_terminal_interactive_command.set(String::new());
-                            form_terminal_interactive_args.set(String::new());
-                            form_terminal_profile.set("custom".to_string());
-                            form_terminal_mode.set("one_shot".to_string());
-                            form_terminal_session_scope.set("per_session".to_string());
-                            form_terminal_io_protocol.set("plain_text".to_string());
-                            form_terminal_execution.set("native_terminal".to_string());
-                            form_terminal_approval_bridge.set("disabled".to_string());
-                            form_terminal_workspace_mode.set("shared".to_string());
-                            form_terminal_workspace_base.set(String::new());
-                            form_terminal_workspace_cleanup_policy.set("per_session".to_string());
-                        },
-                        "Custom CLI"
-                    }
                 }
                 div { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:start;margin-top:12px;",
                     div {
-                        label { class: "{LABEL}", "Profile" }
+                        label { class: "{LABEL}", "Runtime" }
                         select {
                             value: "{form_terminal_profile}",
-                            onchange: move |e| form_terminal_profile.set(e.value()),
+                            onchange: move |e| {
+                                let value = e.value();
+                                if value == "claude" {
+                                    form_terminal_command.set("claude".to_string());
+                                    form_terminal_args.set("-p\n{{prompt}}".to_string());
+                                    form_terminal_interactive_command.set("claude".to_string());
+                                } else {
+                                    form_terminal_command.set("codex".to_string());
+                                    form_terminal_args.set("exec\n{{prompt}}".to_string());
+                                    form_terminal_interactive_command.set("codex".to_string());
+                                }
+                                form_terminal_profile.set(value);
+                            },
                             class: "{INPUT}",
-                            option { value: "custom", "Custom CLI" }
                             option { value: "codex", "Codex" }
                             option { value: "claude", "Claude" }
-                            option { value: "jsonl_custom", "JSONL Custom" }
                         }
                     }
                     div {
@@ -4176,8 +4279,10 @@ fn AgentOverviewTab(
                     }
                 }
             }
+            }
 
             // Model fallback list
+            if !form_is_terminal_agent {
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Model Fallbacks" }
                 p { style: "font-size:11px;color:var(--text-muted);margin-bottom:8px;",
@@ -4224,6 +4329,7 @@ fn AgentOverviewTab(
                         }
                     }
                 }
+            }
             }
 
             // Matrix Identity (appservice auto-user)
@@ -4410,6 +4516,7 @@ fn AgentOverviewTab(
             }
 
             // Test connectivity
+            if !form_is_terminal_agent {
             div { class: "{SECTION_CARD}",
                 h4 { class: "{SECTION_TITLE}", "Connection Test" }
                 div { style: "display:flex;gap:8px;align-items:center;",
@@ -4454,6 +4561,7 @@ fn AgentOverviewTab(
                     }
                 }
             }
+            }
 
             // Save / Reload buttons
             div { style: "display:flex;gap:8px;",
@@ -4474,6 +4582,11 @@ fn AgentOverviewTab(
                                 toaster.error("Agent with this name already exists");
                                 return;
                             }
+                            let agent_kind_val = if form_agent_kind() == "terminal" {
+                                "terminal".to_string()
+                            } else {
+                                "native".to_string()
+                            };
                             let model_val = selected_model_value.clone();
                             let desc_val = form_desc();
                             let reasoning_val = form_reasoning();
@@ -4487,7 +4600,7 @@ fn AgentOverviewTab(
                             let idle_reply_delay_val = form_idle_reply_delay();
                             let idle_reply_max_per_hour_val = form_idle_reply_max_per_hour();
                             let idle_reply_prompt_val = form_idle_reply_prompt();
-                            let terminal_enabled_val = form_terminal_enabled();
+                            let terminal_enabled_val = agent_kind_val == "terminal";
                             let terminal_command_val = form_terminal_command();
                             let terminal_args_val = form_terminal_args();
                             let terminal_stdin_val = form_terminal_stdin();
@@ -4515,8 +4628,18 @@ fn AgentOverviewTab(
                                 .filter(|s| !s.trim().is_empty() && *s != "default")
                                 .cloned()
                                 .collect();
+                            if agent_kind_val == "native" && model_val.trim().is_empty() {
+                                toaster.error("Primary model is required for native agents");
+                                return;
+                            }
+                            if terminal_enabled_val
+                                && !matches!(terminal_profile_val.as_str(), "codex" | "claude")
+                            {
+                                toaster.error("Terminal agent runtime must be Codex or Claude");
+                                return;
+                            }
                             if terminal_enabled_val && terminal_command_val.trim().is_empty() {
-                                toaster.error("Terminal command is required when delegation is enabled");
+                                toaster.error("Terminal command is required for terminal agents");
                                 return;
                             }
                             spawn(async move {
@@ -4525,23 +4648,22 @@ fn AgentOverviewTab(
                                 let mut params = json!({
                                     "id": id,
                                     "name": name,
-                                    "model": model_val.clone(),
+                                    "kind": agent_kind_val.clone(),
                                     "system_prompt": desc_val,
                                 });
-                                // New format: models.primary/fallbacks
-                                let mut models_obj = json!({});
-                                if !model_val.is_empty() {
-                                    models_obj["primary"] = json!(model_val);
+                                if agent_kind_val == "native" {
+                                    let mut native = json!({
+                                        "provider": native_provider_for_model(&model_val),
+                                        "model": model_val.clone(),
+                                    });
+                                    if !fallback_list.is_empty() {
+                                        native["fallback_models"] = json!(fallback_list.clone());
+                                    }
+                                    if !reasoning_val.trim().is_empty() {
+                                        native["thinking"] = json!(reasoning_val);
+                                    }
+                                    params["native"] = native;
                                 }
-                                if !fallback_list.is_empty() {
-                                    models_obj["fallbacks"] = json!(fallback_list.clone());
-                                }
-                                params["models"] = models_obj;
-                                params["thinking"] = if reasoning_val.trim().is_empty() {
-                                    serde_json::Value::Null
-                                } else {
-                                    json!(reasoning_val)
-                                };
                                 params["group_activation"] = if group_activation_val.trim().is_empty()
                                 {
                                     serde_json::Value::Null
@@ -4582,32 +4704,31 @@ fn AgentOverviewTab(
                                 } else {
                                     serde_json::Value::Null
                                 };
-                                params["terminal_delegate"] = if let Some(terminal_delegate) =
-                                    terminal_delegate_payload(
-                                        terminal_enabled_val,
-                                        &terminal_command_val,
-                                        &terminal_args_val,
-                                        &terminal_stdin_val,
-                                        &terminal_cwd_val,
-                                        &terminal_env_val,
-                                        &terminal_timeout_val,
-                                        terminal_include_system_prompt_val,
-                                        &terminal_interactive_command_val,
-                                        &terminal_interactive_args_val,
-                                        &terminal_profile_val,
-                                        &terminal_mode_val,
-                                        &terminal_session_scope_val,
-                                        &terminal_io_protocol_val,
-                                        &terminal_execution_val,
-                                        &terminal_approval_bridge_val,
-                                        &terminal_workspace_mode_val,
-                                        &terminal_workspace_base_val,
-                                        &terminal_workspace_cleanup_policy_val,
-                                    ) {
-                                    terminal_delegate
-                                } else {
-                                    serde_json::Value::Null
-                                };
+                                if agent_kind_val == "terminal"
+                                    && let Some(mut terminal) = terminal_delegate_payload(
+                                    true,
+                                    &terminal_command_val,
+                                    &terminal_args_val,
+                                    &terminal_stdin_val,
+                                    &terminal_cwd_val,
+                                    &terminal_env_val,
+                                    &terminal_timeout_val,
+                                    terminal_include_system_prompt_val,
+                                    &terminal_interactive_command_val,
+                                    &terminal_interactive_args_val,
+                                    &terminal_profile_val,
+                                    &terminal_mode_val,
+                                    &terminal_session_scope_val,
+                                    &terminal_io_protocol_val,
+                                    &terminal_execution_val,
+                                    &terminal_approval_bridge_val,
+                                    &terminal_workspace_mode_val,
+                                    &terminal_workspace_base_val,
+                                    &terminal_workspace_cleanup_policy_val,
+                                ) {
+                                    terminal["runtime"] = json!(terminal_profile_val);
+                                    params["terminal"] = terminal;
+                                }
                                 {
                                     let channels: Vec<String> = form_matrix_channels.read().iter().cloned().collect();
                                     if channels.is_empty() {

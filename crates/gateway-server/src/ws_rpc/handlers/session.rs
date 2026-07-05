@@ -411,12 +411,38 @@ pub(crate) async fn handle_chat_send(
         }));
     }
 
+    let agent_config =
+        crate::agent_terminal_delegate::resolve_agent_config(channel.config(), agent)
+            .await
+            .map(|(_, config)| config);
+
+    let native_model = agent_config
+        .as_ref()
+        .filter(|config| config.get("kind").and_then(Value::as_str) == Some("native"))
+        .and_then(|config| config.get("native"))
+        .and_then(|native| native.get("model"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let native_provider = agent_config
+        .as_ref()
+        .filter(|config| config.get("kind").and_then(Value::as_str) == Some("native"))
+        .and_then(|config| config.get("native"))
+        .and_then(|native| native.get("provider"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
     let model_directive = parsed
         .directives
         .iter()
         .rev()
         .find(|d| d.kind == DirectiveKind::Model)
         .map(|d| d.value.clone());
+    let has_model_directive = model_directive.is_some();
 
     let (effective_model, model_profile) = if let Some(raw_model) = model_directive {
         let parsed_target = parse_model_target(&raw_model);
@@ -431,10 +457,23 @@ pub(crate) async fn handle_chat_send(
             .unwrap_or(parsed_target.model);
         (resolved, parsed_target.profile)
     } else {
-        (agent.to_owned(), None)
+        (
+            native_model.unwrap_or_else(|| {
+                channel
+                    .config()
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "default".to_owned())
+            }),
+            None,
+        )
     };
 
-    let provider = provider_from_model(&effective_model);
+    let provider = if has_model_directive {
+        provider_from_model(&effective_model)
+    } else {
+        native_provider.unwrap_or_else(|| provider_from_model(&effective_model))
+    };
 
     if channel.resolve_terminal_delegate(agent).await.is_some() {
         let logical_session_id = requested_session_id

@@ -82,9 +82,10 @@ Idle --> Thinking --> Executing --> Idle
 
 ## Terminal Agent Runtime
 
-Gateway agent 也可以通过 `terminal_delegate` 把一次任务交给本地终端 CLI。
-这不是临时兼容层，而是一等运行时路径，适合接入 Codex、Claude 或自定义本地
-agent。它们通常有自己的登录态、配额提示、上下文管理、插件和交互式行为。
+Gateway agent 可以通过顶层 `terminal` 分支作为 Terminal Agent 运行。
+Terminal Agent 必须声明 `kind = "terminal"`，并且
+`terminal.runtime = "codex"` 或 `"claude"`。这是一等运行时路径，适合接入
+由 vendor CLI 自己承载登录态、配额提示、上下文管理、插件和交互式行为的工具。
 
 当前 terminal runtime 保留 one-shot 流程：Savfox 启动配置中的命令，把 prompt
 渲染到参数或 stdin，捕获 stdout/stderr，把 user/assistant 交换写入 session
@@ -107,11 +108,12 @@ runtime 仍然启动的是 native terminal 进程。one-shot 后端现在已执�
 workspace 隔离能降低多个 agent 误写同一 repo 的风险，但不能单独替代 native
 terminal 的权限边界。
 
-`terminal_delegate` 支持以下可选的前向兼容字段：
+`terminal` 分支包含 runtime 判别字段和执行参数：
 
 | 字段 | 说明 |
 |------|------|
-| `profile` | 终端 agent 类型，例如 `codex`、`claude`、`custom` |
+| `runtime` | Terminal runtime，当前支持 `codex` 或 `claude` |
+| `enabled` | Terminal Agent 必须为 `true` |
 | `mode` | 运行模式，例如 `one_shot`、`managed_pty`、`interactive_launch` |
 | `session_scope` | 终端状态按 turn、session、agent 或 manual 作用域隔离 |
 | `io_protocol` | 输出解释方式，例如 plain text、JSONL、profile parser、sentinel |
@@ -119,15 +121,14 @@ terminal 的权限边界。
 | `savfox_approval_bridge` | 是否由 Savfox 桥接 vendor CLI 审批，例如 `disabled`、`prompt`、`required` |
 | `health_check_command` / `health_check_args` | 仅供 `agent.terminal.health` 使用的可选检查命令/参数 |
 | `workspace` | workspace 声明块，包含 `mode`、`base`、`cleanup_policy` |
+| `command`、`args`、`stdin`、`cwd`、`env`、`timeout_secs` | 原生 CLI 调用参数 |
 
-这些字段省略时，runtime 会按 `profile = "custom"`、`mode = "one_shot"`、
+这些字段省略时，runtime 会按 `runtime = "codex"`、`mode = "one_shot"`、
 `session_scope = "per_session"`、`io_protocol = "plain_text"`、
 `terminal_execution = "native_terminal"`、`savfox_approval_bridge = "disabled"`、
 `workspace.mode = "shared"` 处理。`workspace.base` 可省略，默认使用解析后的
-terminal cwd；`workspace.cleanup_policy` 默认是 `per_session`。只包含
-`enabled`、`command`、`args`、`stdin`、`cwd`、`env`、`timeout_secs` 的旧配置
-无需迁移即可继续运行。shared wire type 会保留未知字符串值，方便新 runtime 增加
-策略时旧 UI 仍能 roundtrip。
+terminal cwd；`workspace.cleanup_policy` 默认是 `per_session`。旧的顶层
+`terminal_delegate` 配置不再属于支持的 agent shape。
 
 `workspace` 配置块：
 
@@ -147,8 +148,8 @@ git root 下手动执行 `git worktree remove --force <workspace_path>`。如果
 `savfox_approval_bridge = "disabled"` 表示 vendor CLI 保持自己的审批提示，Savfox 不会
 逐项检查 CLI 内部的工具、文件或网络动作。`prompt` 和 `required` 是为后续 bridge
 实现预留的声明值；在 runtime 明确报告 bridge 支持前，不要把它们当作沙箱保障。
-同样，`terminal_execution` 在这个兼容切片里是策略声明；如果 runtime 还没有实现
-策略强制，禁用 terminal delegation 仍应使用 `enabled = false`。
+同样，`terminal_execution` 在这个 runtime 切片里是策略声明；需要停用终端运行时
+时应把 agent 切回 `kind = "native"`，不要把 terminal execution 当成二级开关。
 
 每次 terminal 调用都会在
 `{savfox_home}/terminal-agents/<agent_id>/sessions/<session_id>/` 下创建独立目录，
@@ -167,8 +168,8 @@ git root 下手动执行 `git worktree remove --force <workspace_path>`。如果
 `{{prompt}}` 现在渲染为完整 terminal 输入包：system prompt、session 标识、最近
 对话、当前用户请求、附件 manifest 和结构化 JSON 都会包含进去。需要裸用户文本时
 使用 `{{user_prompt}}`。Sessions UI 传入的图片附件会写入
-`logs/attachments/`，并通过 attachment manifest 把本地文件路径暴露给 Codex、
-Claude 或自定义 CLI。当前不会把大 base64 图片直接塞进命令参数。
+`logs/attachments/`，并通过 attachment manifest 把本地文件路径暴露给 Codex 或
+Claude。当前不会把大 base64 图片直接塞进命令参数。
 
 `metadata.json` 会记录 profile、mode、session scope、I/O protocol、解析后的路径、
 命令、cwd、workspace mode/base/path、cleanup status、patch path、diff summary path、
@@ -197,12 +198,13 @@ Sessions UI 会使用实时 stdout delta 更新当前 terminal-agent 回复，�
 优先。`agent.terminal.metrics` 会返回 spawn count、duration、timeout count、
 exit reason 总数等运行指标。`agent.terminal.cleanup` 可以清理
 `{savfox_home}/terminal-agents` 下的 terminal session 目录，并支持 `dry_run`
-预览。Agents UI 在交互式启动按钮旁提供了 Health Check 入口。创建/编辑 UI 也
-提供 Savfox 普通模型 agent、Codex、Claude、自定义 CLI 四类一级模板。
+预览。Agents UI 在交互式启动按钮旁提供了 Health Check 入口。创建/编辑 UI 先选择
+agent 类型，然后显示 native provider/model 字段或 Codex/Claude terminal runtime
+设置。
 
 Managed PTY 已通过公开 WS-RPC 提供长驻终端进程能力：`agent.terminal.pty.start`、
 `write`、`read`、`resize`、`close`、`list` 和 `close_idle`。start 可以显式传入
-command，也可以解析 agent 配置中的 `terminal_delegate.interactive_command` /
+command，也可以解析 agent 配置中的 `terminal.interactive_command` /
 `command`；write 支持 text、line、newline、interrupt、control sequence 和
 manual complete；read 可以按 sequence 增量读取 transcript，也可以带 timeout 等待
 指定文本。会启动/写入/关闭本地进程的 PTY 方法需要 Admin scope，`read` 和 `list`
@@ -212,9 +214,10 @@ Codex one-shot terminal agent 示例：
 
 ```json
 {
-  "terminal_delegate": {
+  "kind": "terminal",
+  "terminal": {
+    "runtime": "codex",
     "enabled": true,
-    "profile": "codex",
     "mode": "one_shot",
     "session_scope": "per_session",
     "io_protocol": "plain_text",
@@ -235,9 +238,10 @@ Claude one-shot terminal agent 示例：
 
 ```json
 {
-  "terminal_delegate": {
+  "kind": "terminal",
+  "terminal": {
+    "runtime": "claude",
     "enabled": true,
-    "profile": "claude",
     "mode": "one_shot",
     "session_scope": "per_session",
     "io_protocol": "plain_text",

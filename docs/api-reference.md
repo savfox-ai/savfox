@@ -233,12 +233,12 @@ Create a new agent definition.
 | Field          | Type   | Required | Description              |
 |----------------|--------|----------|--------------------------|
 | `name`         | string | yes      | Agent display name       |
-| `id`           | string | no       | Agent ID (auto-generated)|
+| `id`           | string | yes      | Agent ID                 |
+| `kind`         | string | yes      | `native` or `terminal`   |
+| `native`       | object | for native agents | `{ "provider": "...", "model": "...", "fallback_models": [...] }` |
+| `terminal`     | object | for terminal agents | `{ "runtime": "codex" | "claude", "enabled": true, "command": "...", ... }` |
 | `description`  | string | no       | Description text         |
-| `model`        | string | no       | Default model ID         |
 | `system_prompt`| string | no       | System prompt            |
-| `models`       | object | no       | `{ "primary": "...", "fallbacks": [...] }` |
-| `thinking`     | string | no       | Thinking level           |
 | `tools`        | object | no       | Tool allow/deny lists    |
 
 - **Response**: `{ "id": "uuid", "name": "...", "status": "created" }`
@@ -254,7 +254,10 @@ Update an existing agent's configuration.
 |-------|--------|----------|----------------------|
 | `id`  | string | yes      | Agent ID to update   |
 
-Plus any updatable fields: `name`, `description`, `model`, `system_prompt`, `models`, `thinking`, `tools`, `memory`, `compaction`, `sandbox`, `identity`.
+Plus any updatable fields: `name`, `description`, `kind`, `native`, `terminal`,
+`system_prompt`, `tools`, `memory`, `compaction`, `sandbox`, `identity`.
+Switching `kind` replaces the opposite branch; old top-level model fields are
+not accepted as agent configuration.
 
 - **Response**: `{ "id": "...", "status": "updated" }`
 
@@ -1329,4 +1332,3 @@ Set heartbeat configuration.
 | `providers.health` | Read | Check provider API health          |
 | `stt.transcribe`| Read  | Transcribe audio to text              |
 | `stt.providers` | Read  | List STT providers                    |
-

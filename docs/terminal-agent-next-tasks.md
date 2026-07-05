@@ -1,7 +1,7 @@
 # Terminal Agent Next Tasks
 
-This checklist tracks the next production slice for using external Codex,
-Claude, and custom CLI agents through `terminal_delegate`.
+This checklist tracks the next production slice for using external Codex and
+Claude terminal agents through the top-level `terminal` branch.
 
 ## Goals
 
@@ -27,11 +27,11 @@ Claude, and custom CLI agents through `terminal_delegate`.
 - [x] Pass chat image attachments from the Sessions UI to terminal agents
   instead of rejecting them client-side.
 - [x] Persist terminal user message attachments in the Savfox rollout.
-- [x] Stream stdout/stderr chunks from one-shot terminal delegates before the
+- [x] Stream stdout/stderr chunks from one-shot terminal agents before the
   process exits.
 - [x] Keep parsed final output and terminal timeline behavior backward
-  compatible.
-- [x] Document the new terminal delegate context and attachment contract.
+  stable.
+- [x] Document the new terminal agent context and attachment contract.
 - [x] Add targeted tests for context packaging, attachment persistence, and
   streaming events.
 
@@ -42,4 +42,4 @@ Claude, and custom CLI agents through `terminal_delegate`.
 - Vendor-specific Codex and Claude profile parsers beyond plain text/JSONL/
   sentinel.
 - Approval bridging for vendor CLI tool prompts.
-- Enforced read-only native sandbox for terminal delegates.
+- Enforced read-only native sandbox for terminal agents.

@@ -106,10 +106,11 @@ The gateway WS-RPC exposes delegation management methods:
 
 ## Terminal Agent Runtime
 
-Gateway agents can also delegate a turn to a local terminal CLI through
-`terminal_delegate`. This is a first-class runtime path for tools such as
-Codex, Claude, or custom local agents whose native CLI carries its own login,
-quota, context, plugins, and interactive behavior.
+Gateway agents can run as terminal agents through the top-level `terminal`
+branch. A terminal agent must declare `kind = "terminal"` and
+`terminal.runtime = "codex"` or `"claude"`. This is a first-class runtime path
+for vendor CLIs whose native process carries its own login, quota, context,
+plugins, and interactive behavior.
 
 The current terminal runtime supports the existing one-shot flow: Savfox starts
 the configured command, renders the prompt into arguments or stdin, captures
@@ -137,11 +138,12 @@ runtime reports a capability gap until a platform sandbox is wired in.
 Workspace isolation reduces accidental repo collisions, but it is not a
 replacement for the native terminal permission boundary by itself.
 
-`terminal_delegate` now accepts optional forward-compatible runtime fields:
+The `terminal` branch contains the runtime discriminator plus execution fields:
 
 | Field                    | Purpose                                      |
 |--------------------------|----------------------------------------------|
-| `profile`                | Terminal agent profile, such as `codex`, `claude`, or `custom` |
+| `runtime`                | Terminal runtime. Current values: `codex` or `claude` |
+| `enabled`                | Must be `true` for terminal agents |
 | `mode`                   | Runtime mode, such as `one_shot`, `managed_pty`, or `interactive_launch` |
 | `session_scope`          | Whether terminal state is scoped per turn, per session, per agent, or manually |
 | `io_protocol`            | How output is interpreted: plain text, JSONL, profile parser, or sentinel |
@@ -149,17 +151,15 @@ replacement for the native terminal permission boundary by itself.
 | `terminal_execution`     | Permission boundary declaration for the command: `native_terminal`, `managed_workspace`, or `disabled` |
 | `savfox_approval_bridge` | Whether Savfox should bridge vendor CLI approvals: `disabled`, `prompt`, or `required` |
 | `workspace`              | Workspace declaration with `mode`, `base`, and `cleanup_policy` |
+| `command`, `args`, `stdin`, `cwd`, `env`, `timeout_secs` | Native CLI invocation settings |
 
 When these fields are omitted, the runtime treats the agent as
-`profile = "custom"`, `mode = "one_shot"`, `session_scope = "per_session"`,
+`runtime = "codex"`, `mode = "one_shot"`, `session_scope = "per_session"`,
 `io_protocol = "plain_text"`, `terminal_execution = "native_terminal"`,
 `savfox_approval_bridge = "disabled"`, and `workspace.mode = "shared"`.
 `workspace.base` is optional and defaults to the resolved terminal cwd; the
-default `workspace.cleanup_policy` is `per_session`. Older `terminal_delegate`
-configs with only `enabled`, `command`, `args`, `stdin`, `cwd`, `env`, and
-`timeout_secs` continue to work without migration. Unknown string values are
-preserved by clients and the shared wire types so newer runtimes can introduce
-additional policies without breaking older UIs.
+default `workspace.cleanup_policy` is `per_session`. Old top-level
+`terminal_delegate` configs are no longer part of the supported agent shape.
 
 The `workspace` block is:
 
@@ -182,8 +182,8 @@ approval prompts and Savfox does not inspect each tool/file/network action
 inside that CLI. `prompt` and `required` are forward-compatible declarations for
 future bridge implementations; do not rely on them as a sandbox until the
 runtime explicitly reports bridge support. Likewise, `terminal_execution` is a
-policy declaration in this compatibility slice; use `enabled = false` to disable
-terminal delegation in runtimes that have not implemented policy enforcement.
+policy declaration in this runtime slice; switch the agent back to
+`kind = "native"` instead of treating terminal execution as a secondary toggle.
 
 For each terminal invocation, Savfox creates a session-scoped directory under
 `{savfox_home}/terminal-agents/<agent_id>/sessions/<session_id>/` with `home`,
@@ -205,7 +205,7 @@ system prompt, session identifiers, recent conversation, current user request,
 attachment manifest, and structured JSON. Use `{{user_prompt}}` when a command
 needs only the raw user text. Image attachments sent from the Sessions UI are
 written under `logs/attachments/`, and their local file paths are exposed to
-Codex, Claude, or custom CLIs through the attachment manifest. Large base64
+Codex or Claude through the attachment manifest. Large base64
 image payloads are not inserted directly into shell arguments.
 
 `metadata.json` records the terminal profile, mode, session scope, I/O protocol,
@@ -242,13 +242,13 @@ spawn count, duration, timeout count, and exit-reason totals.
 `agent.terminal.cleanup` removes terminal session directories under
 `{savfox_home}/terminal-agents` and supports `dry_run` for inspection. The
 Agents UI exposes health checks next to the interactive launch action. The
-create/edit UI also exposes first-level templates for a normal Savfox model
-agent, Codex, Claude, and a custom CLI.
+create/edit UI exposes the agent type first, then either native provider/model
+fields or Codex/Claude terminal runtime settings.
 
 Managed PTY sessions are available through WS-RPC for clients that need a
 long-lived terminal process: `agent.terminal.pty.start`, `write`, `read`,
 `resize`, `close`, `list`, and `close_idle`. Start accepts an explicit command
-or resolves the configured `terminal_delegate.interactive_command` / `command`;
+or resolves the configured `terminal.interactive_command` / `command`;
 write supports text, line, newline, interrupt, control sequence, and manual
 completion messages; read can return the transcript since a sequence number or
 wait for text with a timeout. Mutating PTY methods require Admin scope, while
@@ -258,9 +258,10 @@ Example Codex one-shot terminal agent:
 
 ```json
 {
-  "terminal_delegate": {
+  "kind": "terminal",
+  "terminal": {
+    "runtime": "codex",
     "enabled": true,
-    "profile": "codex",
     "mode": "one_shot",
     "session_scope": "per_session",
     "io_protocol": "plain_text",
@@ -281,9 +282,10 @@ Example Claude one-shot terminal agent:
 
 ```json
 {
-  "terminal_delegate": {
+  "kind": "terminal",
+  "terminal": {
+    "runtime": "claude",
     "enabled": true,
-    "profile": "claude",
     "mode": "one_shot",
     "session_scope": "per_session",
     "io_protocol": "plain_text",

@@ -39,6 +39,8 @@ pub(crate) struct AgentTerminalDelegateConfig {
     #[serde(default)]
     pub(crate) enabled: bool,
     #[serde(default)]
+    pub(crate) runtime: Option<String>,
+    #[serde(default)]
     pub(crate) profile: Option<String>,
     #[serde(default)]
     pub(crate) mode: Option<String>,
@@ -324,7 +326,10 @@ fn terminal_delegate_from_agent_config(
     file_stem: String,
     config: serde_json::Value,
 ) -> Option<ResolvedTerminalDelegate> {
-    let delegate_value = config.get("terminal_delegate")?;
+    if config.get("kind").and_then(|value| value.as_str()) != Some("terminal") {
+        return None;
+    }
+    let delegate_value = config.get("terminal")?;
     let delegate: AgentTerminalDelegateConfig =
         serde_json::from_value(delegate_value.clone()).ok()?;
     if !delegate.enabled {
@@ -550,9 +555,10 @@ fn configured_profile(delegate: &ResolvedTerminalDelegate) -> &str {
         .config
         .profile
         .as_deref()
+        .or(delegate.config.runtime.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("custom")
+        .unwrap_or("codex")
 }
 
 fn configured_session_scope(delegate: &ResolvedTerminalDelegate) -> &str {
@@ -1487,7 +1493,8 @@ mod tests {
         let config = json!({
             "id": "cli",
             "name": "CLI",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "enabled": true,
                 "command": "claude"
             }
@@ -1504,7 +1511,8 @@ mod tests {
     fn terminal_delegate_ignores_disabled_config() {
         let config = json!({
             "id": "cli",
-            "terminal_delegate": {
+            "kind": "terminal",
+            "terminal": {
                 "enabled": false,
                 "command": "claude"
             }
@@ -1561,6 +1569,7 @@ mod tests {
         let delegate = ResolvedTerminalDelegate {
             config: AgentTerminalDelegateConfig {
                 enabled: true,
+                runtime: None,
                 profile: None,
                 mode: None,
                 session_scope: None,
@@ -1614,6 +1623,7 @@ mod tests {
         let delegate = ResolvedTerminalDelegate {
             config: AgentTerminalDelegateConfig {
                 enabled: true,
+                runtime: None,
                 profile: Some("claude".to_owned()),
                 mode: Some("one_shot".to_owned()),
                 session_scope: Some("per_session".to_owned()),
@@ -1682,6 +1692,7 @@ mod tests {
         let delegate = ResolvedTerminalDelegate {
             config: AgentTerminalDelegateConfig {
                 enabled: true,
+                runtime: None,
                 profile: None,
                 mode: None,
                 session_scope: None,
@@ -1740,6 +1751,7 @@ mod tests {
         let delegate = ResolvedTerminalDelegate {
             config: AgentTerminalDelegateConfig {
                 enabled: true,
+                runtime: None,
                 profile: None,
                 mode: None,
                 session_scope: None,
@@ -1809,7 +1821,8 @@ mod tests {
             json!({
                 "id": "cli",
                 "name": "CLI",
-                "terminal_delegate": {
+                "kind": "terminal",
+                "terminal": {
                     "enabled": true,
                     "command": command,
                     "args": args,
@@ -1865,7 +1878,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_command_supports_old_config_and_updates_metadata() {
+    async fn run_command_updates_metadata() {
         let home = tempfile::tempdir().expect("create temp dir");
         let mut config = ConfigBuilder::default()
             .savfox_home(home.path().to_path_buf())
@@ -1879,7 +1892,8 @@ mod tests {
             json!({
                 "id": "cli",
                 "name": "CLI",
-                "terminal_delegate": {
+                "kind": "terminal",
+                "terminal": {
                     "enabled": true,
                     "command": command,
                     "args": args,
@@ -1888,8 +1902,8 @@ mod tests {
                 }
             }),
         )
-        .expect("old terminal delegate config should resolve");
-        assert_eq!(configured_profile(&delegate), "custom");
+        .expect("terminal config should resolve");
+        assert_eq!(configured_profile(&delegate), "codex");
         assert_eq!(configured_mode(&delegate), "one_shot");
         let context = build_terminal_session_context(
             &config,
@@ -1922,7 +1936,7 @@ mod tests {
             .await
             .expect("read metadata");
         let metadata: serde_json::Value = serde_json::from_str(&metadata).expect("metadata json");
-        assert_eq!(metadata["profile"], "custom");
+        assert_eq!(metadata["profile"], "codex");
         assert_eq!(metadata["mode"], "one_shot");
         assert_eq!(metadata["status"], "completed");
         assert_eq!(metadata["exit_code"], 0);
@@ -1950,7 +1964,8 @@ mod tests {
             serde_json::to_vec_pretty(&json!({
                 "id": "cli",
                 "name": "CLI",
-                "terminal_delegate": {
+                "kind": "terminal",
+                "terminal": {
                     "enabled": true,
                     "command": command,
                     "args": args,
@@ -2042,7 +2057,8 @@ mod tests {
                 "id": "cli",
                 "name": "CLI",
                 "system_prompt": "Be precise.",
-                "terminal_delegate": {
+                "kind": "terminal",
+                "terminal": {
                     "enabled": true,
                     "command": command,
                     "args": args,

@@ -1,16 +1,16 @@
 # Terminal Agent Release Checklist
 
-Use this before promoting `terminal_delegate` / Terminal Agent Runtime changes
-from experimental to release-ready. The checklist below reflects the current
-productionized terminal-agent slice.
+Use this before promoting Terminal Agent Runtime changes from experimental to
+release-ready. The checklist below reflects the current productionized
+terminal-agent slice.
 
 ## Configuration
 
-- [x] Old `terminal_delegate` configs with only `enabled`, `command`, `args`,
-  `stdin`, `cwd`, `env`, and `timeout_secs` still run without migration.
-- [x] Shared wire types preserve unknown string values for profile, mode,
-  session scope, I/O protocol, permission, approval bridge, workspace mode, and
-  cleanup policy.
+- [x] Agent configs use a required `kind` discriminator with either `native` or
+  `terminal` branch data.
+- [x] Terminal agents require `terminal.runtime = "codex" | "claude"`,
+  `enabled = true`, and a non-empty command.
+- [x] Native agents require `native.provider` and `native.model`.
 - [x] `health_check_command` / `health_check_args` are optional and do not make
   existing agents fail health checks when omitted.
 

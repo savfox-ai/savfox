@@ -3,13 +3,12 @@
 //! Grammar (Cokret spec [`applet-schema.md`
 //! §2](../../../../../../cokret/cokret-spec/spec/v1/zh/extensions/applet-schema.md)):
 //!
-//! * `*` matches one segment — one or more chars that are not a separator
-//!   for the domain.
-//! * `**` matches one or more `/`-separated segments but never crosses a `:`
-//!   (SDK T-SDK-7 / S-13 semantics).
+//! * `*` matches one segment — one or more chars that are not a separator for the domain.
+//! * `**` matches one or more `/`-separated segments but never crosses a `:` (SDK T-SDK-7 / S-13
+//!   semantics).
 //! * Literal `*` is escaped as `\*`.
-//! * Separators are domain-specific: actors split on `:` only; realms and
-//!   handles split on `:` and `/`. A DID `#fragment` is ignored for actors.
+//! * Separators are domain-specific: actors split on `:` only; realms and handles split on `:` and
+//!   `/`. A DID `#fragment` is ignored for actors.
 //!
 //! Delegates to the upstream SDK matcher (`cokret::namespace_pattern_matches`,
 //! added in SDK T-SDK-7). The local pub fn name is preserved so other code
@@ -169,10 +168,10 @@ fn literal_prefix(pattern: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Spec applet-schema.md §2 grammar table — all 9 rows from _cokret_todos.md.
     use AppletNamespaceDomain::{Actors, Realms};
+
+    use super::*;
 
     #[test]
     fn single_star_matches_ghost_did() {

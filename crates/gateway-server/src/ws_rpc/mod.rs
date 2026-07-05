@@ -1040,9 +1040,11 @@ mod tests {
     #[test]
     fn normalize_agent_config_populates_default_agent_fields() {
         let mut config = json!({
-            "models": {
-                "primary": "volcengine/doubao-seed-2.0-code",
-                "fallbacks": ["openai/gpt-5-mini"]
+            "kind": "native",
+            "native": {
+                "provider": "volcengine",
+                "model": "volcengine/doubao-seed-2.0-code",
+                "fallback_models": ["openai/gpt-5-mini"]
             }
         });
 
@@ -1052,8 +1054,15 @@ mod tests {
         assert_eq!(config["name"], json!("Savvy fox"));
         assert_eq!(config["builtin"], json!(true));
         assert_eq!(config["status"], json!("active"));
-        assert_eq!(config["model"], json!("volcengine/doubao-seed-2.0-code"));
-        assert_eq!(config["fallback_models"], json!(["openai/gpt-5-mini"]));
+        assert_eq!(config["kind"], json!("native"));
+        assert_eq!(
+            config["native"]["model"],
+            json!("volcengine/doubao-seed-2.0-code")
+        );
+        assert_eq!(
+            config["native"]["fallback_models"],
+            json!(["openai/gpt-5-mini"])
+        );
     }
 
     #[test]
@@ -1062,11 +1071,13 @@ mod tests {
             "id": "planner",
             "name": "Planner",
             "system_prompt": "Plan the work before execution.",
-            "models": {
-                "primary": "openai/gpt-5",
-                "fallbacks": ["openai/gpt-5-mini"]
+            "kind": "native",
+            "native": {
+                "provider": "openai",
+                "model": "openai/gpt-5",
+                "fallback_models": ["openai/gpt-5-mini"],
+                "thinking": "medium"
             },
-            "thinking": "medium",
             "status": "idle",
             "is_default": false
         });
@@ -1082,11 +1093,13 @@ mod tests {
         assert_eq!(default_config["builtin"], json!(true));
         assert_eq!(default_config["status"], json!("active"));
         assert_eq!(default_config["is_default"], json!(true));
-        assert_eq!(default_config["model"], json!("openai/gpt-5"));
+        assert_eq!(default_config["kind"], json!("native"));
+        assert_eq!(default_config["native"]["model"], json!("openai/gpt-5"));
         assert_eq!(
-            default_config["fallback_models"],
+            default_config["native"]["fallback_models"],
             json!(["openai/gpt-5-mini"])
         );
+        assert_eq!(default_config["native"]["thinking"], json!("medium"));
     }
 
     #[test]

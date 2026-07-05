@@ -54,9 +54,39 @@ macro_rules! terminal_string_enum {
 terminal_string_enum!(TerminalProfile {
     Codex => "codex",
     Claude => "claude",
-    Custom => "custom",
-    JsonlCustom => "jsonl_custom",
 });
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    Native,
+    Terminal,
+}
+
+impl AgentKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Terminal => "terminal",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalAgentRuntime {
+    Codex,
+    Claude,
+}
+
+impl TerminalAgentRuntime {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+}
 
 terminal_string_enum!(TerminalMode {
     OneShot => "one_shot",
@@ -118,15 +148,6 @@ pub struct AgentTerminalWorkspaceConfig {
     pub cleanup_policy: Option<TerminalWorkspaceCleanupPolicy>,
 }
 
-/// Optional model selection block on an [`AgentEntry`] — `primary` is the
-/// model used when the agent is invoked, `fallbacks` are tried in order
-/// when the primary is unavailable (e.g. provider 5xx, rate limit).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct AgentModels {
-    pub primary: Option<String>,
-    pub fallbacks: Option<Vec<String>>,
-}
-
 /// Per-agent "auto-reply when the user has been quiet" configuration.
 ///
 /// Used by the gateway's idle-reply scheduler: when a chat session has had
@@ -142,6 +163,22 @@ pub struct AgentIdleReplyConfig {
     pub max_per_hour: Option<u32>,
     /// The prompt the agent runs to compose the idle reply.
     pub prompt: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct NativeAgentConfig {
+    pub provider: String,
+    pub model: String,
+    pub fallback_models: Option<Vec<String>>,
+    pub thinking: Option<String>,
+    pub verbose: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct TerminalAgentConfig {
+    pub runtime: TerminalAgentRuntime,
+    #[serde(flatten)]
+    pub delegate: AgentTerminalDelegateConfig,
 }
 
 /// "Run a local CLI as the agent" configuration. Operators set this on
@@ -161,9 +198,7 @@ pub struct AgentIdleReplyConfig {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct AgentTerminalDelegateConfig {
     pub enabled: Option<bool>,
-    /// Terminal agent profile. Expected values include `codex`, `claude`,
-    /// `custom`, and `jsonl_custom`, but clients should preserve unknown
-    /// strings for forward compatibility.
+    /// Terminal agent profile. Expected values are `codex` and `claude`.
     pub profile: Option<TerminalProfile>,
     /// Runtime mode. Expected values include `one_shot`, `managed_pty`,
     /// `interactive_launch`, and `jsonl_adapter`.
@@ -216,17 +251,12 @@ pub struct AgentEntry {
     pub id: Option<String>,
     /// Human-visible label. Required.
     pub name: String,
-    /// Convenience field — single-model selection. Newer agents should
-    /// prefer the structured [`AgentModels`] block.
-    pub model: Option<String>,
-    pub models: Option<AgentModels>,
-    pub terminal_delegate: Option<AgentTerminalDelegateConfig>,
+    /// Canonical agent shape. `native` agents run through Savfox model
+    /// providers; `terminal` agents delegate to a supported local CLI runtime.
+    pub kind: AgentKind,
+    pub native: Option<NativeAgentConfig>,
+    pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
-    /// Optional reasoning-effort hint passed to the model when the agent
-    /// is invoked. Free-form string.
-    pub thinking: Option<String>,
-    /// Optional verbosity hint passed to the model.
-    pub verbose: Option<String>,
     /// Operator-set status string (e.g. `"online"` / `"draft"` /
     /// `"archived"`). Surface only — not enforced by the runtime.
     pub status: Option<String>,
@@ -266,17 +296,15 @@ pub struct AgentFilesResponse {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentDetail {
     pub name: String,
-    pub model: Option<String>,
-    pub terminal_delegate: Option<AgentTerminalDelegateConfig>,
+    pub kind: AgentKind,
+    pub native: Option<NativeAgentConfig>,
+    pub terminal: Option<TerminalAgentConfig>,
     pub system_prompt: Option<String>,
     pub status: Option<String>,
     pub created_at: Option<String>,
-    pub thinking: Option<String>,
-    pub verbose: Option<String>,
     pub emoji: Option<String>,
     pub theme_color: Option<String>,
     pub is_default: Option<bool>,
-    pub fallback_models: Option<Vec<String>>,
     pub group_activation: Option<String>,
     pub channel_replies: Option<Vec<AgentChannelReplyConfig>>,
     pub group_keywords: Option<Vec<String>>,
@@ -303,29 +331,33 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        AgentTerminalDelegateConfig, SavfoxApprovalBridge, TerminalExecution, TerminalIoProtocol,
-        TerminalMode, TerminalProfile, TerminalSessionScope, TerminalWorkspaceCleanupPolicy,
-        TerminalWorkspaceMode,
+        AgentTerminalDelegateConfig, SavfoxApprovalBridge, TerminalAgentConfig,
+        TerminalAgentRuntime, TerminalExecution, TerminalIoProtocol, TerminalMode, TerminalProfile,
+        TerminalSessionScope, TerminalWorkspaceCleanupPolicy, TerminalWorkspaceMode,
     };
 
     #[test]
-    fn terminal_delegate_old_config_deserializes_without_v2_fields() {
-        let parsed: AgentTerminalDelegateConfig = serde_json::from_value(json!({
+    fn terminal_agent_config_round_trip() {
+        let parsed: TerminalAgentConfig = serde_json::from_value(json!({
+            "runtime": "codex",
             "enabled": true,
+            "profile": "codex",
+            "mode": "one_shot",
             "command": "codex",
-            "args": ["{{prompt}}"]
+            "args": ["exec", "{{prompt}}"]
         }))
-        .expect("old terminal delegate config should deserialize");
+        .expect("terminal agent config should deserialize");
 
-        assert_eq!(parsed.enabled, Some(true));
-        assert_eq!(parsed.command.as_deref(), Some("codex"));
-        assert_eq!(parsed.profile, None);
-        assert_eq!(parsed.mode, None);
-        assert_eq!(parsed.session_scope, None);
-        assert_eq!(parsed.io_protocol, None);
-        assert_eq!(parsed.terminal_execution, None);
-        assert_eq!(parsed.savfox_approval_bridge, None);
-        assert_eq!(parsed.workspace, None);
+        assert_eq!(parsed.runtime, TerminalAgentRuntime::Codex);
+        assert_eq!(parsed.delegate.enabled, Some(true));
+        assert_eq!(parsed.delegate.profile, Some(TerminalProfile::Codex));
+        assert_eq!(parsed.delegate.mode, Some(TerminalMode::OneShot));
+        assert_eq!(parsed.delegate.command.as_deref(), Some("codex"));
+
+        let serialized = serde_json::to_value(&parsed).expect("serialize terminal agent config");
+        assert_eq!(serialized["runtime"], "codex");
+        assert_eq!(serialized["profile"], "codex");
+        assert_eq!(serialized["command"], "codex");
     }
 
     #[test]
