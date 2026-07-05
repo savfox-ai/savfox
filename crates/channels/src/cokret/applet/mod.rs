@@ -32,7 +32,9 @@ pub mod registration;
 pub mod runtime_bridge;
 pub mod transaction;
 
-pub use config::{CokretAppletConfig, load_cokret_applet_configs};
+pub use config::{
+    CokretAppletConfig, CokretAppletTrustedVerificationMethod, load_cokret_applet_configs,
+};
 #[allow(deprecated)]
 pub use ghost::build_ghost_profile;
 pub use ghost::{build_external_ref, build_ghost_profile_event, mint_ghost_did};

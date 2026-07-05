@@ -10,11 +10,18 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
-use cokret_identifiers::Did;
+use cokret::signatures::PublicKeyMaterial;
+use cokret_identifiers::{DeviceId, Did};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};
 use crate::cokret::signer::CokretKeyRef;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CokretAppletTrustedVerificationMethod {
+    pub verification_method: String,
+    pub public_key: PublicKeyMaterial,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CokretAppletConfig {
@@ -32,10 +39,17 @@ pub struct CokretAppletConfig {
     /// Bot actor DID — the visible identity of the applet in Realms it joins
     /// (usually `<service_did>:bot`).
     pub bot_actor_id: String,
+    /// Optional Cokret device id for the bot/applet local MLS member. Required
+    /// for generating precise MLS recovery plans, but kept optional for
+    /// existing bearer-only applet deployments.
+    pub device_id: Option<String>,
     /// Cokret server base URL where outbound events are POSTed.
     pub cokret_server_url: String,
     /// Cokret server service DID used as DID-proof login audience.
     pub cokret_server_did: Option<String>,
+    /// Static server verification methods accepted for inbound applet HTTP
+    /// Message Signatures and event pushes.
+    pub trusted_verification_methods: Vec<CokretAppletTrustedVerificationMethod>,
     /// Server-issued one-time challenge for DID-proof session grant issuance.
     pub login_challenge: Option<String>,
     /// Optional bearer for outbound `events_submit` calls. In a fully
@@ -107,6 +121,7 @@ impl CokretAppletConfig {
         let base_url = first_non_empty(raw, &["baseUrl", "base_url"])?;
         let bot_actor_id = first_non_empty(raw, &["botActorId", "bot_actor_id"])
             .unwrap_or_else(|| format!("{service_did}:bot"));
+        let device_id = first_non_empty(raw, &["deviceId", "device_id", "botDeviceId"]);
         let cokret_server_url =
             first_non_empty(raw, &["cokretServerUrl", "cokret_server_url", "homeserver"])
                 .unwrap_or_else(|| base_url.clone());
@@ -119,6 +134,10 @@ impl CokretAppletConfig {
                 "trusted_server_did",
             ],
         );
+        let trusted_verification_methods = parse_trusted_verification_methods(
+            raw.get("trustedVerificationMethods")
+                .or_else(|| raw.get("trusted_verification_methods")),
+        )?;
         let login_challenge = first_non_empty(raw, &["loginChallenge", "login_challenge"]);
         let cokret_bearer_token =
             first_non_empty(raw, &["accessToken", "access_token", "cokretBearerToken"]);
@@ -172,8 +191,10 @@ impl CokretAppletConfig {
             controller_did,
             base_url,
             bot_actor_id,
+            device_id,
             cokret_server_url,
             cokret_server_did,
+            trusted_verification_methods,
             login_challenge,
             cokret_bearer_token,
             namespaces,
@@ -222,6 +243,15 @@ impl CokretAppletConfig {
                 )
             })?;
         }
+        if let Some(device_id) = self.device_id.as_deref() {
+            DeviceId::new(device_id.to_owned()).map_err(|err| {
+                anyhow::anyhow!(
+                    "Cokret applet channel '{}' device_id must be a valid Cokret device id, got '{}': {err}",
+                    self.id,
+                    device_id
+                )
+            })?;
+        }
         if let Some(value) = self.cokret_server_did.as_deref() {
             Did::new(value.to_owned()).map_err(|err| {
                 anyhow::anyhow!(
@@ -235,6 +265,39 @@ impl CokretAppletConfig {
                 "Cokret applet channel '{}' has key_ref but no cokret_server_did / cokretServerDid for DID-proof audience",
                 self.id
             );
+        }
+        for method in &self.trusted_verification_methods {
+            if method.verification_method.trim().is_empty() {
+                anyhow::bail!(
+                    "Cokret applet channel '{}' has an empty trusted verification method id",
+                    self.id
+                );
+            }
+            let owner_did = verification_method_did(&method.verification_method).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Cokret applet channel '{}' trusted verification method '{}' must include a DID fragment",
+                    self.id,
+                    method.verification_method
+                )
+            })?;
+            if let Some(server_did) = self.cokret_server_did.as_deref()
+                && owner_did != server_did
+            {
+                anyhow::bail!(
+                    "Cokret applet channel '{}' trusted verification method '{}' is owned by '{}', not trusted server DID '{}'",
+                    self.id,
+                    method.verification_method,
+                    owner_did,
+                    server_did
+                );
+            }
+            method.public_key.ed25519_bytes().map_err(|err| {
+                anyhow::anyhow!(
+                    "Cokret applet channel '{}' trusted verification method '{}' public key is not valid Ed25519 material: {err}",
+                    self.id,
+                    method.verification_method
+                )
+            })?;
         }
         if self.key_ref.is_some() {
             let Some(challenge) = self.login_challenge.as_deref().map(str::trim) else {
@@ -317,6 +380,55 @@ fn parse_pattern_list(value: Option<&Value>) -> Vec<NamespacePattern> {
             Some(NamespacePattern::new(pattern.to_owned(), exclusive))
         })
         .collect()
+}
+
+fn parse_trusted_verification_methods(
+    value: Option<&Value>,
+) -> Option<Vec<CokretAppletTrustedVerificationMethod>> {
+    let Some(value) = value else {
+        return Some(Vec::new());
+    };
+    let items = value.as_array()?;
+    items
+        .iter()
+        .map(parse_trusted_verification_method)
+        .collect()
+}
+
+fn parse_trusted_verification_method(
+    value: &Value,
+) -> Option<CokretAppletTrustedVerificationMethod> {
+    let obj = value.as_object()?;
+    let verification_method = first_non_empty(
+        obj,
+        &[
+            "verificationMethod",
+            "verification_method",
+            "verificationMethodId",
+        ],
+    )?;
+    let public_key = if let Some(value) = obj.get("publicKey").or_else(|| obj.get("public_key")) {
+        serde_json::from_value(value.clone()).ok()?
+    } else if let Some(value) = obj.get("publicKeyJwk") {
+        PublicKeyMaterial::Jwk {
+            value: value.clone(),
+        }
+    } else {
+        PublicKeyMaterial::Ed25519Multibase {
+            value: obj.get("publicKeyMultibase")?.as_str()?.to_owned(),
+        }
+    };
+    Some(CokretAppletTrustedVerificationMethod {
+        verification_method,
+        public_key,
+    })
+}
+
+fn verification_method_did(verification_method: &str) -> Option<&str> {
+    verification_method
+        .rsplit_once('#')
+        .map(|(did, _)| did)
+        .filter(|did| !did.is_empty())
 }
 
 fn first_non_empty(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
@@ -448,6 +560,55 @@ mod tests {
             Some("challenge-from-cokret")
         );
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn parses_trusted_verification_methods() {
+        let mut body = valid_body();
+        body["trustedVerificationMethods"] = json!([
+            {
+                "verificationMethod": "did:webvh:cokret.example.org#key-1",
+                "publicKey": {
+                    "encoding": "ed25519_raw",
+                    "bytes": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"
+                }
+            }
+        ]);
+        let cfg = make_channel_config(body);
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        parsed.validate().expect("validate");
+        assert_eq!(parsed.trusted_verification_methods.len(), 1);
+        assert_eq!(
+            parsed.trusted_verification_methods[0].verification_method,
+            "did:webvh:cokret.example.org#key-1"
+        );
+        assert_eq!(
+            parsed.trusted_verification_methods[0]
+                .public_key
+                .ed25519_bytes()
+                .expect("test public key should decode"),
+            [8u8; 32]
+        );
+    }
+
+    #[test]
+    fn validate_rejects_trusted_verification_method_from_untrusted_did() {
+        let mut body = valid_body();
+        body["trustedVerificationMethods"] = json!([
+            {
+                "verificationMethod": "did:webvh:evil.example.org#key-1",
+                "publicKey": {
+                    "encoding": "ed25519_raw",
+                    "bytes": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"
+                }
+            }
+        ]);
+        let cfg = make_channel_config(body);
+        let parsed = CokretAppletConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed
+            .validate()
+            .expect_err("wrong trusted server DID should fail");
+        assert!(err.to_string().contains("trusted server DID"));
     }
 
     #[test]

@@ -28,6 +28,7 @@
 pub mod applet;
 mod client;
 mod config;
+mod crypto_state;
 mod grant;
 mod outbound;
 mod parse;
@@ -50,11 +51,18 @@ pub use config::{
     CokretAccountConfig, CokretChannelConfig, load_cokret_channel_configs,
     resolve_cokret_outbound_account,
 };
+pub use crypto_state::{
+    CokretBootstrapRecord, CokretContentEncryptionFloor, CokretCryptoStateFile,
+    CokretDecryptOutcome, CokretEncryptOutcome, CokretKeyBackupState, CokretRealmCryptoPolicy,
+    FileCokretCryptoStore, account_scope_id, applet_scope_id,
+    extract_encrypted_payload_from_message_content, message_content_has_encrypted_carrier,
+};
 pub use grant::{CokretGrant, load_and_verify_grant};
 pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
 pub use parse::{
-    CokretInboundEvent, CokretInboundParseResult, extract_message_event,
-    parse_delta_frame_for_account, should_dispatch_event,
+    CokretInboundEvent, CokretInboundEventOutcome, CokretInboundParseResult,
+    CokretInboundSkipReason, CokretInboundSkippedEvent, classify_message_event,
+    extract_message_event, parse_delta_frame_for_account, should_dispatch_event,
 };
 pub use seq_store::FileSeqStore;
 pub use session::{CokretSession, login_with_signer};

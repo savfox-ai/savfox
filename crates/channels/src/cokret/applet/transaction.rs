@@ -8,6 +8,7 @@
 
 use cokret_core::Event;
 
+use super::super::crypto_state::message_content_has_encrypted_carrier;
 use super::config::CokretAppletConfig;
 
 /// One dispatchable command extracted from an inbound applet transaction.
@@ -46,6 +47,10 @@ pub enum AppletDispatchSkip {
     /// The event's `kind` is not `ck.message.create` (we only dispatch text
     /// messages in Phase 6).
     KindNotMessageCreate,
+    /// The event carries `encrypted_content` / `encrypted_payload` or an
+    /// encrypted content block. Savfox does not yet maintain Cokret crypto
+    /// session state, so applet inbound decrypt must fail closed.
+    EncryptedContent,
     /// `content.kind` is not `ck.content.text`.
     ContentKindUnsupported,
     /// `content.body` is missing or empty.
@@ -83,10 +88,16 @@ pub fn classify_inbound_event(cfg: &CokretAppletConfig, event: &Event) -> Applet
     }
 
     let content = &event.content;
+    if message_content_has_encrypted_carrier(content) {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
+    }
     let content_kind = content
         .get("content")
         .and_then(|c| c.get("kind"))
         .and_then(|k| k.as_str());
+    if content_kind == Some("ck.content.encrypted") {
+        return AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent);
+    }
     if content_kind != Some("ck.content.text") {
         return AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported);
     }
@@ -136,8 +147,10 @@ mod tests {
             controller_did: "did:webvh:acme:admin".into(),
             base_url: "https://savfox.example/applet".into(),
             bot_actor_id: "did:web:bridge.example:bot".into(),
+            device_id: None,
             cokret_server_url: "https://cokret.example.org".into(),
             cokret_server_did: Some("did:webvh:cokret.example.org".into()),
+            trusted_verification_methods: Vec::new(),
             login_challenge: None,
             cokret_bearer_token: None,
             namespaces: AppletNamespaces {
@@ -283,6 +296,49 @@ mod tests {
         assert_eq!(
             outcome,
             AppletEventOutcome::Skip(AppletDispatchSkip::ContentKindUnsupported)
+        );
+    }
+
+    #[test]
+    fn skips_encrypted_content_block() {
+        let ev = make_event(
+            "did:webvh:acme:alice",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
+            json!({
+                "message_id": new_prefixed_uuid7("ck:message:"),
+                "flow_id": "ck:flow:1",
+                "track": "discussion",
+                "content": { "kind": "ck.content.encrypted", "body": "" }
+            }),
+        );
+        let outcome = classify_inbound_event(&cfg(), &ev);
+        assert_eq!(
+            outcome,
+            AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent)
+        );
+    }
+
+    #[test]
+    fn skips_spec_encrypted_content_carrier() {
+        let ev = make_event(
+            "did:webvh:acme:alice",
+            "ck:realm:01904100-0000-7000-8000-000000000456",
+            "ck.message.create",
+            json!({
+                "message_id": new_prefixed_uuid7("ck:message:"),
+                "flow_id": "ck:flow:1",
+                "track": "discussion",
+                "encrypted_content": {
+                    "scheme": "mls-rfc9420",
+                    "ciphertext": "..."
+                }
+            }),
+        );
+        let outcome = classify_inbound_event(&cfg(), &ev);
+        assert_eq!(
+            outcome,
+            AppletEventOutcome::Skip(AppletDispatchSkip::EncryptedContent)
         );
     }
 

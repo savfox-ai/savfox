@@ -187,8 +187,10 @@ mod tests {
             controller_did: "did:webvh:example.com:admin".to_owned(),
             base_url: "https://savfox.example/appservices/cokret/cokret-applet-test".to_owned(),
             bot_actor_id: "did:web:slack-bridge.example:bot".to_owned(),
+            device_id: None,
             cokret_server_url: "https://cokret.example.org".to_owned(),
             cokret_server_did: Some("did:webvh:cokret.example.org".to_owned()),
+            trusted_verification_methods: Vec::new(),
             login_challenge: None,
             cokret_bearer_token: Some("applet-bearer-1".to_owned()),
             namespaces: AppletNamespaces {

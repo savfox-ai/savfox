@@ -132,7 +132,6 @@ impl CokretHttpClient {
             after: after.map(str::to_owned),
             catchup: Some(catchup),
             filter: None,
-            set_presence: None,
             subscriptions: None,
             wait_for: None,
         };
