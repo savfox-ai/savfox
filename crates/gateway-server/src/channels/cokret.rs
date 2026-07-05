@@ -21,9 +21,10 @@ use cokret_core::AccountSubscribeFrameKind;
 use cokret_identifiers::{DeviceId, Did};
 use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
-    CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundSkipReason,
-    CokretInboundSkippedEvent, FileCokretCryptoStore, MessageCreateRequest,
-    build_message_create_event, load_ed25519_signer, parse_delta_frame_for_account,
+    CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
+    CokretInboundSkipReason, CokretInboundSkippedEvent, FileCokretCryptoStore,
+    MessageCreateRequest, build_message_create_event, load_ed25519_signer,
+    parse_delta_frame_for_account, parse_notification_delta_for_account,
     resolve_cokret_outbound_account,
 };
 use serde_json::Value;
@@ -359,52 +360,29 @@ async fn consume_stream(
                         ),
                     }
                     let parsed = parse_delta_frame_for_account(&realms_value, account);
-                    for skipped in parsed.skipped {
-                        match skipped.reason {
-                            CokretInboundSkipReason::EncryptedContent => {
-                                let decrypted = try_handle_encrypted_account_skip(
-                                    &skipped,
-                                    crypto_store,
-                                    channel,
-                                    account,
-                                    gateway_channel,
-                                    session_store,
-                                )
-                                .await;
-                                if decrypted {
-                                    continue;
-                                }
-                                warn!(
-                                    account_id = %skipped.account_id,
-                                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
-                                    realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
-                                    "cokret: encrypted account message skipped; crypto session decrypt is not wired"
-                                );
-                            }
-                            reason => {
-                                debug!(
-                                    account_id = %skipped.account_id,
-                                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
-                                    realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
-                                    ?reason,
-                                    "cokret: account event skipped"
-                                );
-                            }
-                        }
-                    }
-                    for event in parsed.events {
-                        if !dedupe.insert(event.event_id.clone()) {
-                            continue;
-                        }
-                        dispatch_to_agent(
-                            event,
-                            channel,
-                            account,
-                            Arc::clone(gateway_channel),
-                            Arc::clone(session_store),
-                        )
-                        .await;
-                    }
+                    handle_parsed_account_events(
+                        parsed,
+                        channel,
+                        account,
+                        crypto_store,
+                        dedupe,
+                        gateway_channel,
+                        session_store,
+                    )
+                    .await;
+                }
+                if let Some(notifications) = &frame.notifications {
+                    let parsed = parse_notification_delta_for_account(notifications, account);
+                    handle_parsed_account_events(
+                        parsed,
+                        channel,
+                        account,
+                        crypto_store,
+                        dedupe,
+                        gateway_channel,
+                        session_store,
+                    )
+                    .await;
                 }
             }
             AccountSubscribeFrameKind::CatchupComplete => {
@@ -438,6 +416,63 @@ async fn consume_stream(
                 );
             }
         }
+    }
+}
+
+async fn handle_parsed_account_events(
+    parsed: CokretInboundParseResult,
+    channel: &CokretChannelConfig,
+    account: &CokretAccountConfig,
+    crypto_store: &FileCokretCryptoStore,
+    dedupe: &mut EventDedupe,
+    gateway_channel: &Arc<GatewayChannel>,
+    session_store: &Arc<SessionStore>,
+) {
+    for skipped in parsed.skipped {
+        match skipped.reason {
+            CokretInboundSkipReason::EncryptedContent => {
+                let decrypted = try_handle_encrypted_account_skip(
+                    &skipped,
+                    crypto_store,
+                    channel,
+                    account,
+                    gateway_channel,
+                    session_store,
+                )
+                .await;
+                if decrypted {
+                    continue;
+                }
+                warn!(
+                    account_id = %skipped.account_id,
+                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+                    realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
+                    "cokret: encrypted account message skipped; crypto session decrypt is not wired"
+                );
+            }
+            reason => {
+                debug!(
+                    account_id = %skipped.account_id,
+                    event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+                    realm_id = skipped.realm_id.as_deref().unwrap_or("<unknown>"),
+                    ?reason,
+                    "cokret: account event skipped"
+                );
+            }
+        }
+    }
+    for event in parsed.events {
+        if !dedupe.insert(event.event_id.clone()) {
+            continue;
+        }
+        dispatch_to_agent(
+            event,
+            channel,
+            account,
+            Arc::clone(gateway_channel),
+            Arc::clone(session_store),
+        )
+        .await;
     }
 }
 
