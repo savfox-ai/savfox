@@ -22,6 +22,7 @@ pub mod webhook;
 pub mod whatsapp;
 pub mod zalo;
 
+use cokret_core::AgentPairingBootstrap;
 use dioxus::prelude::*;
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
@@ -565,7 +566,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "yougenBootstrap".into(),
                     label: "Yougen Bootstrap JSON".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"{"base_url":"https://cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","requested_scope":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit","ck.event.read","ck.message.create"]}"#.into(),
+                    placeholder: r#"{"schema":"ck.schema.agent_pairing_bootstrap.v1","cokret_base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","pairing_expires_at":"...","requested_scope":{"actions":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit","ck.event.read","ck.message.create"],"resources":[],"constraints":[]},"service_scope":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit"],"content_grant_summary":{"actions":["ck.event.read","ck.message.create"],"grant_refs":[]}}"#.into(),
                     secret: false,
                     required: false,
                     help: "Paste the Savfox bootstrap from Yougen My Agents. It must not contain private keys or long-lived session grants.",
@@ -865,7 +866,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: r#"{"pairing_request_id":"...","agent_principal_id":"did:...","verification_method":"did:...#runtime-1","public_key":{"kty":"OKP","kid":"did:...#runtime-1","alg":"Ed25519","key":"..."},"proof_of_possession":{"challenge":"...","audience":"did:...","request_canonical_digest":"sha256:...","expires_at":"...","signature":"..."}}"#.into(),
                     secret: false,
                     required: false,
-                    help: "Read-only status for the Yougen approval paste. The signed request is generated locally from runtimeKeyRef; it is not saved as channel config.",
+                    help: "Read-only status for the Yougen approval paste. The signed request is generated locally from keyRef; it is not saved as channel config.",
                 },
                 ConfigField {
                     key: "grantEventPath".into(),
@@ -1485,6 +1486,18 @@ fn namespace_patterns_from_text(value: &str, exclusive: bool) -> Vec<Value> {
 
 fn parse_json_config_field(label: &str, value: &str) -> Result<Value, String> {
     serde_json::from_str::<Value>(value).map_err(|err| format!("{label} must be valid JSON: {err}"))
+}
+
+fn parse_cokret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBootstrap, String> {
+    let bootstrap: AgentPairingBootstrap = serde_json::from_value(value)
+        .map_err(|err| format!("Yougen Bootstrap JSON must match AgentPairingBootstrap: {err}"))?;
+    if bootstrap.schema != cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA {
+        return Err(format!(
+            "Yougen Bootstrap JSON schema must be {}.",
+            cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA
+        ));
+    }
+    Ok(bootstrap)
 }
 
 fn field_value_key(channel_id: &str, field_key: &str) -> String {
@@ -2321,10 +2334,9 @@ fn build_cokret_channel_patch(
             }
             "yougenBootstrap" => {
                 let parsed = parse_json_config_field("Yougen Bootstrap JSON", value)?;
-                if !parsed.is_object() {
-                    return Err("Yougen Bootstrap JSON must be a JSON object.".to_string());
-                }
-                patch[&field.key] = parsed;
+                let bootstrap = parse_cokret_agent_pairing_bootstrap(parsed)?;
+                patch[&field.key] = serde_json::to_value(bootstrap)
+                    .map_err(|err| format!("Yougen Bootstrap JSON is invalid: {err}"))?;
             }
             "trustedVerificationMethods" => {
                 let parsed = parse_json_config_field("Trusted Verification Methods JSON", value)?;
@@ -2414,91 +2426,26 @@ fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), Str
 }
 
 fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
-    let Some(bootstrap) = patch.get("yougenBootstrap").and_then(Value::as_object) else {
+    let Some(bootstrap_value) = patch.get("yougenBootstrap").cloned() else {
         return;
     };
-    let base_url = first_non_empty_json_string(
-        bootstrap,
-        &[
-            "baseUrl",
-            "base_url",
-            "cokretBaseUrl",
-            "cokret_base_url",
-            "yougenBaseUrl",
-            "yougen_base_url",
-        ],
-    );
-    let service_did = first_non_empty_json_string(
-        bootstrap,
-        &["serviceDid", "service_did", "cokretServiceDid"],
-    );
-    let principal_id = first_non_empty_json_string(
-        bootstrap,
-        &[
-            "agentPrincipalId",
-            "agent_principal_id",
-            "principalId",
-            "principal_id",
-            "agentDid",
-            "agent_did",
-        ],
-    );
-    let requested_scope = bootstrap
-        .get("requestedScope")
-        .or_else(|| bootstrap.get("requested_scope"))
-        .or_else(|| bootstrap.get("requestedServiceScope"))
-        .or_else(|| bootstrap.get("requested_service_scope"))
-        .or_else(|| bootstrap.get("serviceScope"))
-        .or_else(|| bootstrap.get("service_scope"))
-        .map(json_string_list);
+    let Ok(bootstrap) = parse_cokret_agent_pairing_bootstrap(bootstrap_value) else {
+        return;
+    };
 
-    if patch_value_empty(patch.get("baseUrl"))
-        && let Some(value) = base_url
-    {
-        patch["baseUrl"] = json!(value);
+    if patch_value_empty(patch.get("baseUrl")) {
+        patch["baseUrl"] = json!(bootstrap.cokret_base_url);
     }
-    if patch_value_empty(patch.get("serviceDid"))
-        && let Some(value) = service_did
-    {
-        patch["serviceDid"] = json!(value);
+    if patch_value_empty(patch.get("serviceDid")) {
+        patch["serviceDid"] = json!(bootstrap.service_did.to_string());
     }
-    if patch_value_empty(patch.get("principalId"))
-        && let Some(value) = principal_id
-    {
-        patch["principalId"] = json!(value);
+    if patch_value_empty(patch.get("principalId")) {
+        patch["principalId"] = json!(bootstrap.agent_principal_id.to_string());
     }
     if patch_value_empty(patch.get("requestedScope"))
-        && let Some(scope) = requested_scope
-        && !scope.is_empty()
+        && !bootstrap.requested_scope.actions.is_empty()
     {
-        patch["requestedScope"] = json!(scope);
-    }
-}
-
-fn first_non_empty_json_string(
-    map: &serde_json::Map<String, Value>,
-    keys: &[&str],
-) -> Option<String> {
-    keys.iter().find_map(|key| {
-        map.get(*key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    })
-}
-
-fn json_string_list(value: &Value) -> Vec<String> {
-    match value {
-        Value::Array(items) => items
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::trim)
-            .filter(|entry| !entry.is_empty())
-            .map(str::to_owned)
-            .collect(),
-        Value::String(text) => split_config_list(text),
-        _ => Vec::new(),
+        patch["requestedScope"] = json!(bootstrap.requested_scope.actions);
     }
 }
 
@@ -4178,8 +4125,10 @@ fn cokret_runtime_key_request_status(
         missing.push("yougenBootstrap");
     } else {
         match serde_json::from_str::<Value>(bootstrap_raw) {
-            Ok(Value::Object(object)) => bootstrap = Some(object),
-            Ok(_) => missing.push("yougenBootstrap object"),
+            Ok(value) => match parse_cokret_agent_pairing_bootstrap(value) {
+                Ok(parsed) => bootstrap = Some(parsed),
+                Err(_) => missing.push("spec AgentPairingBootstrap JSON"),
+            },
             Err(_) => missing.push("valid yougenBootstrap JSON"),
         }
     }
@@ -4198,7 +4147,7 @@ fn cokret_runtime_key_request_status(
 
     let audience = bootstrap
         .as_ref()
-        .and_then(|object| first_non_empty_json_string(object, &["serviceDid", "service_did"]))
+        .map(|bootstrap| bootstrap.service_did.to_string())
         .or_else(|| {
             values
                 .get(&field_value_key(channel_id, "serviceDid"))
@@ -4219,19 +4168,7 @@ fn cokret_runtime_key_request_status(
 
     let agent_principal_id = bootstrap
         .as_ref()
-        .and_then(|object| {
-            first_non_empty_json_string(
-                object,
-                &[
-                    "agentPrincipalId",
-                    "agent_principal_id",
-                    "principalId",
-                    "principal_id",
-                    "agentDid",
-                    "agent_did",
-                ],
-            )
-        })
+        .map(|bootstrap| bootstrap.agent_principal_id.to_string())
         .or_else(|| {
             values
                 .get(&field_value_key(channel_id, "principalId"))
@@ -4241,21 +4178,11 @@ fn cokret_runtime_key_request_status(
         .unwrap_or_default();
     let pairing_request_id = bootstrap
         .as_ref()
-        .and_then(|object| {
-            first_non_empty_json_string(
-                object,
-                &[
-                    "pairingRequestId",
-                    "pairing_request_id",
-                    "requestId",
-                    "request_id",
-                ],
-            )
-        })
+        .map(|bootstrap| bootstrap.pairing_request_id.clone())
         .unwrap_or_default();
 
     format!(
-        "Ready for gateway-side runtime key request generation from runtimeKeyRef.\n\nThe generated JSON for Yougen approval uses:\n{{\n  \"pairing_request_id\": \"{pairing_request_id}\",\n  \"agent_principal_id\": \"{agent_principal_id}\",\n  \"verification_method\": \"{verification_method}\",\n  \"public_key\": {{ \"kty\": \"OKP\", \"kid\": \"{verification_method}\", \"alg\": \"Ed25519\", \"key\": \"<base64url raw Ed25519 public key>\" }},\n  \"proof_of_possession\": {{ \"challenge\": \"{pairing_request_id}\", \"audience\": \"{}\", \"request_canonical_digest\": \"sha256:...\", \"expires_at\": \"...\", \"signature\": \"...\" }}\n}}\n\nThis browser form does not read or store the private key; only the gateway host can sign the request from keyRef.",
+        "Ready for gateway-side runtime key request generation from keyRef.\n\nThe generated JSON for Yougen approval uses:\n{{\n  \"pairing_request_id\": \"{pairing_request_id}\",\n  \"agent_principal_id\": \"{agent_principal_id}\",\n  \"verification_method\": \"{verification_method}\",\n  \"public_key\": {{ \"kty\": \"OKP\", \"kid\": \"{verification_method}\", \"alg\": \"Ed25519\", \"key\": \"<base64url raw Ed25519 public key>\" }},\n  \"proof_of_possession\": {{ \"challenge\": \"{pairing_request_id}\", \"audience\": \"{}\", \"request_canonical_digest\": \"sha256:...\", \"expires_at\": \"...\", \"signature\": \"...\" }}\n}}\n\nThis browser form does not read or store the private key; only the gateway host can sign the request from keyRef.",
         audience.unwrap_or_default()
     )
 }
@@ -4781,6 +4708,32 @@ mod tests {
             .config_fields
     }
 
+    fn sdk_yougen_bootstrap_value() -> Value {
+        json!({
+            "schema": cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA,
+            "cokret_base_url": "https://cokret.example.org",
+            "service_did": "did:webvh:cokret.example.org",
+            "agent_principal_id": "did:webvh:example.org:agents:support",
+            "pairing_request_id": "pair-123",
+            "pairing_code": "123456",
+            "pairing_expires_at": "2026-07-06T12:00:00Z",
+            "requested_scope": {
+                "actions": ["ck.self.events.stream.subscribe", "ck.event.read"],
+                "resources": [],
+                "constraints": []
+            },
+            "service_scope": ["ck.self.events.stream.subscribe"],
+            "content_grant_summary": {
+                "actions": ["ck.event.read"],
+                "grant_refs": []
+            }
+        })
+    }
+
+    fn sdk_yougen_bootstrap_json() -> String {
+        serde_json::to_string(&sdk_yougen_bootstrap_value()).expect("bootstrap JSON")
+    }
+
     #[test]
     fn channel_types_include_cokret() {
         let cokret = build_channel_types()
@@ -4905,13 +4858,7 @@ mod tests {
             "config": {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
-                "yougenBootstrap": {
-                    "base_url": "https://cokret.example.org",
-                    "agent_principal_id": "did:webvh:example.org:agents:support",
-                    "pairing_request_id": "pair-123",
-                    "pairing_code": "123456",
-                    "requested_scope": ["ck.self.events.stream.subscribe", "ck.event.read"]
-                },
+                "yougenBootstrap": sdk_yougen_bootstrap_value(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "defaultRealmId": "ck:realm:abc",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
@@ -4937,7 +4884,7 @@ mod tests {
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
-            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+            sdk_yougen_bootstrap_json(),
         );
         values.insert(
             field_value_key("cokret", "keyRef"),
@@ -4960,12 +4907,12 @@ mod tests {
     }
 
     #[test]
-    fn cokret_agent_patch_rejects_missing_runtime_key_ref() {
+    fn cokret_agent_patch_rejects_missing_key_ref() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
-            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+            sdk_yougen_bootstrap_json(),
         );
         values.insert(
             field_value_key("cokret", "verificationMethod"),
@@ -4984,7 +4931,7 @@ mod tests {
         values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
-            r#"{"base_url":"https://cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+            sdk_yougen_bootstrap_json(),
         );
         values.insert(
             field_value_key("cokret", "baseUrl"),
@@ -5053,7 +5000,7 @@ mod tests {
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
-            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_service_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+            sdk_yougen_bootstrap_json(),
         );
         values.insert(
             field_value_key("cokret", "keyRef"),

@@ -674,7 +674,7 @@ async fn construct_account_client(
     let key_ref = account
         .key_ref
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Cokret agent '{}' missing runtimeKeyRef", account.id))?;
+        .ok_or_else(|| anyhow::anyhow!("Cokret agent '{}' missing keyRef", account.id))?;
     let verification_method = account.verification_method.as_deref().ok_or_else(|| {
         anyhow::anyhow!(
             "Cokret agent '{}' missing authorized verificationMethod",
@@ -692,7 +692,7 @@ async fn construct_account_client(
             account
                 .yougen_bootstrap
                 .as_ref()
-                .and_then(|bootstrap| bootstrap.service_did.clone())
+                .map(|bootstrap| bootstrap.service_did.to_string())
         })
         .ok_or_else(|| {
             anyhow::anyhow!(

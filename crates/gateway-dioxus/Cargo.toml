@@ -14,6 +14,7 @@ serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
+cokret-core = { path = "../../../../cokret/cokret-rust-sdk/crates/core", default-features = false }
 web-sys = { workspace = true, features = [
     "console",
     "Window",

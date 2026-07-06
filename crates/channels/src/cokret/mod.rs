@@ -7,7 +7,9 @@
 //! * **applet** — register this node as a Cokret Applet (the Matrix-AppService equivalent), with
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
-//! Still out of scope: provisioning new Cokret principals and MLS E2EE.
+//! Principal provisioning is performed by Yougen/Cokret; this adapter consumes the resulting
+//! bootstrap and runtime-key authorization. MLS/E2EE membership for agent runtimes remains a
+//! separate integration path.
 //!
 //! Layered like the other channel modules:
 //!
@@ -46,7 +48,7 @@ pub use applet::{
 };
 pub use client::{CokretFrameStream, CokretHttpClient};
 pub use config::{
-    CokretAccountConfig, CokretAccountMode, CokretChannelConfig, CokretYougenBootstrap,
+    CokretAccountConfig, CokretAccountMode, CokretChannelConfig,
     build_cokret_runtime_key_request_json, derive_cokret_device_id, load_cokret_channel_configs,
     resolve_cokret_outbound_account,
 };

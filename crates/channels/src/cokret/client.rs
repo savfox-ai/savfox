@@ -319,3 +319,45 @@ fn ndjson_event_frame_stream(
         },
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+
+    fn signing_key() -> SigningKey {
+        SigningKey::from_bytes(&[7_u8; 32])
+    }
+
+    #[test]
+    fn dpop_header_binds_access_token_ath() {
+        let header = build_dpop_header(
+            &signing_key(),
+            "GET",
+            "https://cokret.example/_cokret/self/events",
+            Some("session-grant-token"),
+        )
+        .expect("dpop header");
+        let parts: Vec<&str> = header.split('.').collect();
+        assert_eq!(parts.len(), 3);
+
+        let protected: Value =
+            serde_json::from_slice(&cokret_core::base64url_decode(parts[0]).unwrap()).unwrap();
+        let payload: Value =
+            serde_json::from_slice(&cokret_core::base64url_decode(parts[1]).unwrap()).unwrap();
+
+        assert_eq!(protected["typ"], "dpop+jwt");
+        assert_eq!(protected["alg"], "EdDSA");
+        assert_eq!(payload["htm"], "GET");
+        assert_eq!(payload["htu"], "https://cokret.example/_cokret/self/events");
+        assert_eq!(
+            payload["ath"],
+            cokret::dpop::dpop_access_token_hash("session-grant-token")
+        );
+        assert_ne!(
+            payload["ath"],
+            cokret::dpop::dpop_access_token_hash("other-token")
+        );
+    }
+}
