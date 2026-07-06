@@ -1,33 +1,35 @@
-//! Thin wrapper around [`cokret_http_client::Client`] that pre-attaches a
-//! bearer `ck.session.grant` access token for one Cokret account.
+//! Thin wrapper around [`cokret_http_client::Client`] for Cokret agent traffic.
 //!
 //! All HTTP / retry / canonical-bytes / NDJSON line splitting logic lives in
 //! the upstream SDK; this type only exists so the gateway runtime never has
 //! to think about constructing the underlying client.
 //!
-//! ### Phase 7 update
-//!
-//! Phase 6 had a local `CokretFrameStream` that did NDJSON line splitting
-//! with `tokio::io::AsyncBufReadExt::lines()` and `serde_json::from_str`.
-//! That code is now obsolete — SDK commit `bf29056` ships
-//! `Client::account_subscribe_frames(&SyncRequestBody) -> Stream<AccountSubscribeFrame>`
-//! (S-6) plus `AccountSubscribeFrame::from_ndjson_line` (S-3). We delegate
-//! directly. `CokretFrameStream` is retained as a thin newtype alias for
-//! API stability of downstream callers.
+//! Personal-agent mode uses `agent_key_proof` to mint a short-lived
+//! `ck.session.grant`, then presents that grant with a fresh DPoP proof on
+//! every protected self-surface call.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use anyhow::Context;
+use chrono::Utc;
 use cokret::Ed25519MoveSigner;
 use cokret_core::{
-    AccountSubscribeFrame, Event, EventsSubmitOutcome, ServerDescription, SyncRequestBody,
+    Event, EventsSubmitOutcome, EventsSubscribeFrame, ServerDescription,
+    SessionGrantDpopBindingProof,
 };
-use cokret_http_client::{Auth, Client, ClientBuilder};
+use cokret_http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use cokret_identifiers::{DeviceId, Did};
-use futures_util::Stream;
+use ed25519_dalek::{Signer as _, SigningKey};
+use futures_util::{Stream, StreamExt};
+use serde_json::json;
 use url::Url;
+use uuid::Uuid;
 
 use super::session::{CokretSession, login_with_signer};
+use super::signer::{CokretKeyRef, load_ed25519_signing_key};
+
+const SESSION_GRANT_PATH: &str = "/_cokret/gate/account/session-grants";
 
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
@@ -35,18 +37,24 @@ pub struct CokretHttpClient {
     inner: Client,
 }
 
-/// Stream of [`AccountSubscribeFrame`] yielded by
-/// [`CokretHttpClient::account_subscribe_stream`].
+/// Stream of [`EventsSubscribeFrame`] yielded by
+/// [`CokretHttpClient::events_subscribe_stream`].
 ///
 /// Each item is a fully-parsed frame (transient line decode errors come
 /// through as `Err` but the stream continues). Use
 /// [`futures_util::StreamExt::next`] to pull frames.
 pub type CokretFrameStream =
-    Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send>>;
 
 impl CokretHttpClient {
-    /// Build a new HTTP client bound to `base_url`, authenticated via the
-    /// given bearer access token (typically a `ck.session.grant`).
+    #[must_use]
+    pub fn inner(&self) -> &Client {
+        &self.inner
+    }
+
+    /// Build an applet HTTP client bound to `base_url`, authenticated via the
+    /// applet bearer token. Personal-agent account runtimes use
+    /// [`Self::login_agent`] instead.
     pub fn new(base_url: &str, access_token: &str) -> anyhow::Result<Self> {
         let url =
             Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
@@ -57,18 +65,127 @@ impl CokretHttpClient {
         Ok(Self { inner })
     }
 
-    #[must_use]
-    pub fn inner(&self) -> &Client {
-        &self.inner
+    /// Construct a personal-agent HTTP client by exchanging a runtime-key
+    /// `agent_key_proof` for a short-lived DPoP-bound session grant.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn login_agent(
+        base_url: &str,
+        key_ref: &CokretKeyRef,
+        principal_did: Did,
+        verification_method: &str,
+        agent_key_authorization_ref: &str,
+        requested_scope: Vec<String>,
+        audience: &str,
+        realm_id: Option<&str>,
+    ) -> anyhow::Result<(Self, CokretSession)> {
+        let url =
+            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
+        let signing_key = Arc::new(load_ed25519_signing_key(key_ref)?);
+        let grant_htu = joined_htu(&url, SESSION_GRANT_PATH)?;
+        let binding_proof = build_dpop_header(&signing_key, "POST", grant_htu.clone(), None)?;
+        let bootstrap = ClientBuilder::new(url.clone())
+            .auth(Auth::Dpop(DpopAuth::proof_only({
+                let expected_htu = grant_htu.clone();
+                let proof_jwt = binding_proof.clone();
+                move |request| {
+                    if request.method != "POST"
+                        || request.htu != expected_htu
+                        || request.access_token.is_some()
+                    {
+                        return Err(cokret_core::Error::Protocol(
+                            "unexpected DPoP kickoff request shape".to_owned(),
+                        ));
+                    }
+                    Ok(proof_jwt.clone())
+                }
+            })))
+            .build()
+            .map_err(|err| anyhow::anyhow!("agent session bootstrap HTTP client: {err}"))?;
+
+        let expires_at = Utc::now() + chrono::Duration::minutes(5);
+        let challenge = format!("savfox-agent-session-{}", Uuid::now_v7());
+        let nonce = Uuid::now_v7().to_string();
+        let agent_scope_request = if let Some(realm_id) = realm_id {
+            json!({ "realm_ids": [realm_id] })
+        } else {
+            json!({})
+        };
+        let dpop_binding_proof = SessionGrantDpopBindingProof {
+            proof_jwt: binding_proof,
+        };
+        let signing_input = cokret::agent::agent_key_proof_signing_input_for_session_grant(
+            &principal_did,
+            &requested_scope,
+            agent_key_authorization_ref,
+            &agent_scope_request,
+            &dpop_binding_proof,
+            verification_method.to_owned(),
+            challenge.clone(),
+            nonce.clone(),
+            audience.to_owned(),
+            expires_at,
+        )
+        .map_err(|err| anyhow::anyhow!("agent_key_proof signing input: {err}"))?;
+        let signature = signing_key.sign(
+            &signing_input
+                .canonical_bytes()
+                .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?,
+        );
+        let signature = cokret_core::base64url_encode(signature.to_bytes());
+        let request = cokret::agent::agent_key_proof_session_grant_request(
+            principal_did.clone(),
+            requested_scope,
+            agent_key_authorization_ref,
+            agent_scope_request,
+            dpop_binding_proof,
+            verification_method.to_owned(),
+            challenge,
+            nonce,
+            audience.to_owned(),
+            expires_at,
+            signature,
+        )
+        .map_err(|err| anyhow::anyhow!("agent_key_proof session request: {err}"))?;
+        let outcome = bootstrap
+            .auth_issue_session_grant(&request)
+            .await
+            .map_err(|err| anyhow::anyhow!("agent_key_proof session grant exchange: {err}"))?;
+
+        let session_grant = outcome.session_grant.clone();
+        let inner = ClientBuilder::new(url)
+            .auth(Auth::Dpop(DpopAuth::with_access_token(
+                session_grant.clone(),
+                {
+                    let signing_key = Arc::clone(&signing_key);
+                    move |request| {
+                        let cokret_http_client::DpopProofRequest {
+                            method,
+                            htu,
+                            access_token,
+                        } = request;
+                        build_dpop_header(&signing_key, method, htu, access_token.as_deref())
+                    }
+                },
+            )))
+            .build()
+            .map_err(|err| anyhow::anyhow!("DPoP-bound Cokret HTTP client: {err}"))?;
+        Ok((
+            Self { inner },
+            CokretSession {
+                session_grant,
+                expires_at: outcome.expires_at,
+                principal_did: outcome.principal_id,
+                device_id: outcome.device_id,
+            },
+        ))
     }
 
-    /// Phase 8 (T8.B): construct a client by running DID-proof login.
+    /// Construct an applet HTTP client by running DID-proof login.
     ///
-    /// Builds an unauthenticated underlying `Client`, runs
-    /// `AuthManager::login_did_proof` (S-2) to obtain a session grant,
-    /// then rebuilds the authenticated `Client` carrying the
-    /// `Authorization: Bearer <grant>` header. Returns both the wrapped
-    /// client and the [`CokretSession`] (so callers can track expiry).
+    /// Builds an unauthenticated underlying `Client`, runs the applet
+    /// DID-proof grant exchange, then rebuilds the authenticated `Client`
+    /// carrying the `Authorization: Bearer <grant>` header. This is not the
+    /// personal-agent runtime path.
     pub async fn login(
         base_url: &str,
         signer: &Ed25519MoveSigner,
@@ -98,17 +215,6 @@ impl CokretHttpClient {
         Ok((Self { inner }, session))
     }
 
-    /// Re-bind the bearer token in-place (after a re-login).
-    pub fn refresh_bearer(&mut self, base_url: &str, access_token: &str) -> anyhow::Result<()> {
-        let url =
-            Url::parse(base_url).with_context(|| format!("invalid Cokret base_url: {base_url}"))?;
-        self.inner = ClientBuilder::new(url)
-            .auth(Auth::Bearer(access_token.to_owned()))
-            .build()
-            .map_err(|err| anyhow::anyhow!("re-authenticated HTTP client: {err}"))?;
-        Ok(())
-    }
-
     /// `GET /api/v1/server/describe` — used at startup to verify the target
     /// server and pin the service DID.
     pub async fn server_describe(&self) -> anyhow::Result<ServerDescription> {
@@ -118,30 +224,20 @@ impl CokretHttpClient {
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
 
-    /// `GET /api/v1/account/subscribe` — returns a [`CokretFrameStream`]
-    /// that yields fully-parsed `AccountSubscribeFrame` items. Delegates
-    /// to SDK `Client::account_subscribe_frames` (S-6).
-    pub async fn account_subscribe_stream(
+    /// `GET /_cokret/self/events/subscribe` — returns a
+    /// [`CokretFrameStream`] that yields fully-parsed `EventsSubscribeFrame`
+    /// items.
+    pub async fn events_subscribe_stream(
         &self,
+        realm_id: &str,
         after: Option<&str>,
-        catchup: bool,
     ) -> anyhow::Result<CokretFrameStream> {
-        use futures_util::StreamExt;
-
-        let req = SyncRequestBody {
-            after: after.map(str::to_owned),
-            catchup: Some(catchup),
-            filter: None,
-            subscriptions: None,
-            wait_for: None,
-        };
-        let stream = self
+        let response = self
             .inner
-            .account_subscribe_frames(&req)
+            .events_subscribe_stream(realm_id, after)
             .await
-            .map_err(|err| anyhow::anyhow!("cokret account_subscribe_frames: {err}"))?;
-        let mapped = stream.map(|item| item.map_err(|err| anyhow::anyhow!("frame: {err}")));
-        Ok(Box::pin(mapped))
+            .map_err(|err| anyhow::anyhow!("cokret events_subscribe_stream: {err}"))?;
+        Ok(Box::pin(ndjson_event_frame_stream(response)))
     }
 
     /// `POST /api/v1/events` — submit one signed Event Envelope.
@@ -151,4 +247,75 @@ impl CokretHttpClient {
             .await
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
+}
+
+fn build_dpop_header(
+    signing_key: &SigningKey,
+    method: impl Into<String>,
+    htu: impl Into<String>,
+    access_token: Option<&str>,
+) -> cokret_core::Result<String> {
+    let mut request = cokret::dpop::DpopProofRequest::new(method, htu);
+    if let Some(access_token) = access_token {
+        request = request.access_token(access_token.to_owned());
+    }
+    cokret::dpop::build_dpop_proof(&request, signing_key).map(|proof| proof.header_value)
+}
+
+fn joined_htu(base_url: &Url, path: &str) -> anyhow::Result<String> {
+    let mut url = base_url
+        .join(path.trim_start_matches('/'))
+        .with_context(|| format!("invalid Cokret endpoint path: {path}"))?;
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+fn ndjson_event_frame_stream(
+    response: reqwest::Response,
+) -> impl Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send {
+    let byte_stream = response
+        .bytes_stream()
+        .map(|item| item.map_err(|err| anyhow::anyhow!("stream bytes: {err}")))
+        .boxed();
+    futures_util::stream::unfold(
+        (byte_stream, Vec::<u8>::new()),
+        |(mut byte_stream, mut buffer)| async move {
+            loop {
+                if let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+                    let line_bytes: Vec<u8> = buffer.drain(..=newline).collect();
+                    let line = String::from_utf8_lossy(&line_bytes);
+                    match EventsSubscribeFrame::from_ndjson_line(&line) {
+                        Ok(Some(frame)) => return Some((Ok(frame), (byte_stream, buffer))),
+                        Ok(None) => continue,
+                        Err(err) => {
+                            return Some((
+                                Err(anyhow::anyhow!("events subscribe frame: {err}")),
+                                (byte_stream, buffer),
+                            ));
+                        }
+                    }
+                }
+                match byte_stream.next().await {
+                    Some(Ok(bytes)) => buffer.extend_from_slice(&bytes),
+                    Some(Err(err)) => return Some((Err(err), (byte_stream, buffer))),
+                    None if buffer.is_empty() => return None,
+                    None => {
+                        let line = String::from_utf8_lossy(&buffer);
+                        let result = EventsSubscribeFrame::from_ndjson_line(&line)
+                            .map_err(|err| anyhow::anyhow!("events subscribe frame: {err}"))
+                            .and_then(|frame| {
+                                frame.ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "events subscribe stream ended with empty frame"
+                                    )
+                                })
+                            });
+                        buffer.clear();
+                        return Some((result, (byte_stream, buffer)));
+                    }
+                }
+            }
+        },
+    )
 }

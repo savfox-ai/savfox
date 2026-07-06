@@ -1,10 +1,8 @@
-//! Build a `ck.message.create` Event Envelope for an account-mode actor.
+//! Build a `ck.message.create` Event Envelope for a Cokret actor.
 //!
-//! Phase 1-7 left `proofs[]` empty. Phase 8 (T8.C) adds [`sign_outbound_event`]
-//! which wraps `cokret::signatures::sign_event` (S-1). Callers with a
-//! signer plumbed in should call it after `build_message_create_event` and
-//! before `Client::events_submit`; bearer-only callers can still submit
-//! unsigned at their own risk (production servers will reject).
+//! Callers with a signer plumbed in should call [`sign_outbound_event`] after
+//! `build_message_create_event` and before `Client::events_submit`.
+//! Production servers are expected to reject unsigned writes.
 
 use anyhow::Context;
 use cokret::Ed25519MoveSigner;

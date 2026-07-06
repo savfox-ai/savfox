@@ -1,9 +1,7 @@
-//! DID-proof login + session grant tracking.
+//! Applet DID-proof login + session grant tracking.
 //!
-//! Phase 8 (T8.B): wraps SDK `AuthManager::login_did_proof` (S-2) so the
-//! gateway runtime can boot a Cokret account / applet bot from a signer
-//! instead of a static `access_token`. Returns a [`CokretSession`] that
-//! tracks `expires_at` so callers can decide when to refresh.
+//! CKP-0008 personal agent runtime must use agent_key_proof plus DPoP and
+//! must not call this path.
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
@@ -31,11 +29,9 @@ impl CokretSession {
     }
 }
 
-/// Run `AuthManager::login_did_proof` against the given HTTP client.
+/// Run applet `AuthManager::login_did_proof` against the given HTTP client.
 ///
-/// `audience` is the Cokret server's service DID. Typically the same
-/// value as `CokretChannelConfig::cokret_server_did` (or, when missing,
-/// derived from `service_did` / `base_url`).
+/// `audience` is the Cokret server's service DID.
 pub async fn login_with_signer(
     http: &Client,
     signer: &Ed25519MoveSigner,

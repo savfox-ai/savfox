@@ -179,6 +179,9 @@ pub(crate) async fn dispatch_rpc(
         "channels.login" => handle_channels_login(&params, channel, session_store).await,
         "channels.logout" => handle_channels_logout(&params, channel).await,
         "channels.test" => handle_channels_test(&params, channel).await,
+        "channels.cokret.runtime_key_request" => {
+            handle_channels_cokret_runtime_key_request(&params, channel).await
+        }
         "channels.matrix.invites" => handle_channels_matrix_invites(&params, channel).await,
         "channels.matrix.invite.accept" => {
             handle_channels_matrix_invite_accept(&params, channel).await

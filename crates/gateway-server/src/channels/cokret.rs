@@ -1,11 +1,10 @@
-//! Cokret channel runtime — phase 1 only.
+//! Cokret personal-agent channel runtime.
 //!
 //! Owns one async task per (channel, account) pair. Each task:
 //!
-//! 1. Opens an NDJSON long-poll against `/api/v1/account/subscribe`.
-//! 2. Reads frames one at a time from the SDK-provided [`CokretFrameStream`] (Stream of
-//!    `AccountSubscribeFrame`).
-//! 3. Walks `delta` frames and extracts `ck.message.create` events.
+//! 1. Mints a short-lived `agent_key_proof` session grant bound to DPoP.
+//! 2. Opens `/_cokret/self/events/subscribe` for the configured Realm.
+//! 3. Extracts dispatchable `ck.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
 //! Outbound sends go through [`send_to_cokret_account`].
@@ -17,14 +16,13 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret_core::AccountSubscribeFrameKind;
-use cokret_identifiers::{DeviceId, Did};
+use cokret_core::EventsSubscribeFrameKind;
+use cokret_identifiers::Did;
 use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
     CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
     CokretInboundSkipReason, CokretInboundSkippedEvent, FileCokretCryptoStore,
-    MessageCreateRequest, build_message_create_event, load_ed25519_signer,
-    parse_delta_frame_for_account, parse_notification_delta_for_account,
+    MessageCreateRequest, build_message_create_event, parse_event_frame_for_account,
     resolve_cokret_outbound_account,
 };
 use serde_json::Value;
@@ -42,7 +40,7 @@ struct CokretRuntimeState {
 
 const ACCOUNT_EVENT_DEDUPE_MAX: usize = 4096;
 
-/// Refresh a DID-proof session grant this many seconds before it expires.
+/// Refresh an agent session grant this many seconds before it expires.
 const SESSION_REFRESH_SKEW_SECS: i64 = 60;
 
 struct EventDedupe {
@@ -212,10 +210,6 @@ async fn run_account_subscribe_loop(
         );
     }
 
-    // Phase 8 (T8.D): if `key_ref` is configured, run DID-proof login to
-    // obtain a session grant; otherwise fall back to bare-bearer mode
-    // (Phase 1-7 behavior). Login failure is fatal — we don't silently
-    // downgrade.
     let (mut client, mut session_expiry) = match construct_account_client(&channel, &account).await
     {
         Ok(pair) => pair,
@@ -227,12 +221,19 @@ async fn run_account_subscribe_loop(
             return;
         }
     };
+    let Some(stream_realm_id) = account.default_realm_id.clone() else {
+        warn!(
+            "cokret: account '{}' on channel '{}' has listen=true but no defaultRealmId",
+            account.id, channel.id
+        );
+        return;
+    };
 
     loop {
         runtime::record_channel_probe("cokret", "tick").await;
 
-        // Proactively refresh the DID-proof session grant before it expires so a
-        // long-lived stream doesn't have to wait for an Unauthorized to recover.
+        // Proactively refresh the agent session grant before it expires so a
+        // long-lived stream does not wait for Unauthorized to recover.
         if let Some(expiry) = session_expiry
             && Utc::now() >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)
         {
@@ -254,9 +255,8 @@ async fn run_account_subscribe_loop(
             }
         }
 
-        let initial = cursor.is_none();
         match client
-            .account_subscribe_stream(cursor.as_deref(), initial)
+            .events_subscribe_stream(&stream_realm_id, cursor.as_deref())
             .await
         {
             Ok(stream) => {
@@ -281,11 +281,10 @@ async fn run_account_subscribe_loop(
                         backoff = Duration::from_secs(1);
                     }
                     StreamOutcome::Unauthorized => {
-                        // The session grant/bearer expired or was revoked. Rather
-                        // than killing the channel permanently, back off and try a
-                        // fresh login (re-running DID-proof S-2 if `key_ref` is set).
+                        // The agent session grant expired or was revoked. Back
+                        // off and try a fresh agent_key_proof session exchange.
                         warn!(
-                            "cokret: account '{}' became unauthorized mid-stream — re-logging in",
+                            "cokret: account '{}' became unauthorized mid-stream — refreshing agent session",
                             account.id
                         );
                         sleep_with_backoff(&mut backoff).await;
@@ -296,11 +295,14 @@ async fn run_account_subscribe_loop(
                                 cursor = None;
                                 dedupe.clear();
                                 backoff = Duration::from_secs(1);
-                                info!("cokret: account '{}' re-login succeeded", account.id);
+                                info!(
+                                    "cokret: account '{}' agent session refresh succeeded",
+                                    account.id
+                                );
                             }
                             Err(err) => {
                                 warn!(
-                                    "cokret: account '{}' re-login failed: {err:#}; will retry with backoff",
+                                    "cokret: account '{}' agent session refresh failed: {err:#}; will retry with backoff",
                                     account.id
                                 );
                             }
@@ -353,78 +355,52 @@ async fn consume_stream(
             }
         };
         if let Some(new_cursor) = frame.cursor.clone() {
-            *cursor = Some(new_cursor);
+            *cursor = Some(new_cursor.as_str().to_owned());
         }
         match frame.kind {
-            AccountSubscribeFrameKind::Delta => {
-                if let Some(realms) = &frame.realms {
-                    let realms_value = serde_json::to_value(realms).unwrap_or_default();
-                    match crypto_store.update_realm_policies_from_sync(&realms_value) {
-                        Ok(updated) if updated > 0 => {
-                            debug!(
-                                "cokret: '{}/{}' updated {updated} realm crypto policy record(s)",
-                                channel.id, account.id
-                            );
-                        }
-                        Ok(_) => {}
-                        Err(err) => warn!(
-                            "cokret: '{}/{}' failed to update realm crypto policy: {err:#}",
-                            channel.id, account.id
-                        ),
-                    }
-                    let parsed = parse_delta_frame_for_account(&realms_value, account);
-                    handle_parsed_account_events(
-                        parsed,
-                        channel,
-                        account,
-                        crypto_store,
-                        dedupe,
-                        gateway_channel,
-                        session_store,
-                    )
-                    .await;
-                }
-                if let Some(notifications) = &frame.notifications {
-                    let parsed = parse_notification_delta_for_account(notifications, account);
-                    handle_parsed_account_events(
-                        parsed,
-                        channel,
-                        account,
-                        crypto_store,
-                        dedupe,
-                        gateway_channel,
-                        session_store,
-                    )
-                    .await;
-                }
+            EventsSubscribeFrameKind::Event => {
+                let parsed = parse_event_frame_for_account(&frame.payload, account);
+                handle_parsed_account_events(
+                    parsed,
+                    channel,
+                    account,
+                    crypto_store,
+                    dedupe,
+                    gateway_channel,
+                    session_store,
+                )
+                .await;
             }
-            AccountSubscribeFrameKind::CatchupComplete => {
+            EventsSubscribeFrameKind::CatchupComplete => {
                 debug!("cokret: '{}/{}' catchup complete", channel.id, account.id);
             }
-            AccountSubscribeFrameKind::Frontier => {
+            EventsSubscribeFrameKind::Frontier => {
                 // cursor already updated above
             }
-            AccountSubscribeFrameKind::Heartbeat => {}
-            AccountSubscribeFrameKind::Dropped => {
+            EventsSubscribeFrameKind::Heartbeat => {}
+            EventsSubscribeFrameKind::EpochRotation => {
+                return StreamOutcome::ResetCursor;
+            }
+            EventsSubscribeFrameKind::Dropped => {
                 warn!(
                     "cokret: '{}/{}' stream dropped — resyncing",
                     channel.id, account.id
                 );
                 return StreamOutcome::ResetCursor;
             }
-            AccountSubscribeFrameKind::ResyncRequired => {
+            EventsSubscribeFrameKind::ResyncRequired => {
                 warn!(
                     "cokret: '{}/{}' resync required — resetting cursor",
                     channel.id, account.id
                 );
                 return StreamOutcome::ResetCursor;
             }
-            AccountSubscribeFrameKind::Unauthorized => {
+            EventsSubscribeFrameKind::Unauthorized => {
                 return StreamOutcome::Unauthorized;
             }
             _ => {
                 debug!(
-                    "cokret: '{}/{}' ignored unknown account subscribe frame kind",
+                    "cokret: '{}/{}' ignored unknown events subscribe frame kind",
                     channel.id, account.id
                 );
             }
@@ -690,65 +666,58 @@ async fn sleep_with_backoff(backoff: &mut Duration) {
     *backoff = Duration::from_secs(next.max(1));
 }
 
-/// Phase 8 (T8.D): build an authenticated `CokretHttpClient` for one
-/// account. If `account.key_ref` is set, runs DID-proof login (S-2) to
-/// obtain a `ck.session.grant`; otherwise builds a bare-bearer client
-/// from the static `access_token`.
-///
-/// Returns the client and, for DID-proof logins, the session grant's
-/// `expires_at` so the caller can refresh proactively (bare-bearer has no
-/// expiry and returns `None`).
+/// Build an authenticated DPoP-bound `CokretHttpClient` for one agent runtime.
 async fn construct_account_client(
     channel: &CokretChannelConfig,
     account: &CokretAccountConfig,
 ) -> anyhow::Result<(CokretHttpClient, Option<DateTime<Utc>>)> {
-    if let Some(key_ref) = &account.key_ref {
-        let vm = account
-            .verification_method
-            .clone()
-            .unwrap_or_else(|| format!("{}#key-1", account.principal_id));
-        let audience = account
-            .cokret_server_did
-            .clone()
-            .or_else(|| channel.service_did.clone())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "cokret account '{}' has key_ref but no cokret_server_did or \
-                     channel.service_did for login audience",
-                    account.id
-                )
-            })?;
-        let challenge = account.login_challenge.as_deref().ok_or_else(|| {
+    let key_ref = account
+        .key_ref
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Cokret agent '{}' missing runtimeKeyRef", account.id))?;
+    let verification_method = account.verification_method.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cokret agent '{}' missing authorized verificationMethod",
+            account.id
+        )
+    })?;
+    let authorization_ref = account.authorized_event_ref.as_deref().ok_or_else(|| {
+        anyhow::anyhow!("Cokret agent '{}' missing authorizedEventRef", account.id)
+    })?;
+    let audience = account
+        .cokret_server_did
+        .clone()
+        .or_else(|| channel.service_did.clone())
+        .or_else(|| {
+            account
+                .yougen_bootstrap
+                .as_ref()
+                .and_then(|bootstrap| bootstrap.service_did.clone())
+        })
+        .ok_or_else(|| {
             anyhow::anyhow!(
-                "cokret account '{}' has key_ref but no login_challenge / loginChallenge",
+                "Cokret agent '{}' missing serviceDid/cokretServerDid for agent_key_proof audience",
                 account.id
             )
         })?;
-        let signer = load_ed25519_signer(key_ref, &account.principal_id, &vm)?;
-        let principal = Did::new(account.principal_id.clone())
-            .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
-        let device = DeviceId::new(account.device_id.clone())
-            .map_err(|err| anyhow::anyhow!("invalid device_id: {err}"))?;
-        let (client, session) = CokretHttpClient::login(
-            &channel.base_url,
-            &signer,
-            principal,
-            device,
-            challenge,
-            &audience,
-        )
-        .await?;
-        info!(
-            "cokret: account '{}' logged in via DID-proof; audience='{}' expires_at='{}'",
-            account.id, audience, session.expires_at
-        );
-        Ok((client, Some(session.expires_at)))
-    } else {
-        Ok((
-            CokretHttpClient::new(&channel.base_url, &account.access_token)?,
-            None,
-        ))
-    }
+    let principal = Did::new(account.principal_id.clone())
+        .map_err(|err| anyhow::anyhow!("invalid principal_id: {err}"))?;
+    let (client, session) = CokretHttpClient::login_agent(
+        &channel.base_url,
+        key_ref,
+        principal,
+        verification_method,
+        authorization_ref,
+        account.requested_scope.clone(),
+        &audience,
+        account.default_realm_id.as_deref(),
+    )
+    .await?;
+    info!(
+        "cokret: agent '{}' obtained DPoP-bound session; audience='{}' expires_at='{}'",
+        account.id, audience, session.expires_at
+    );
+    Ok((client, Some(session.expires_at)))
 }
 
 /// Build the restart-safe monotonic `actor_seq` allocator for an outbound
@@ -809,9 +778,8 @@ pub(crate) async fn send_to_cokret_account(
             )
         })?;
 
-    // Phase 8 (T8.D): same auth flow as the sync loop — login when
-    // key_ref is set, bare bearer otherwise. (One-shot send: the session
-    // expiry isn't tracked here.)
+    // One-shot send uses the same agent_key_proof + DPoP session exchange as
+    // the listener. The short grant is not cached on this path.
     let (client, _session_expiry) = construct_account_client(&channel, &account).await?;
     // Monotonic, restart-safe actor sequence (parity with the applet path).
     let actor_seq = build_account_seq_allocator(savfox_home, &account.id)?

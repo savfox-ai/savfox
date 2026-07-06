@@ -555,38 +555,47 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 ConfigField {
                     key: "mode".into(),
                     label: "Connection Type".into(),
-                    field_type: FieldType::Select(vec!["account".into(), "applet".into()]),
-                    placeholder: "account".into(),
+                    field_type: FieldType::Select(vec!["agent".into(), "applet".into()]),
+                    placeholder: "agent".into(),
                     secret: false,
                     required: true,
-                    help: "Account connects a Yougen-created AI agent. Applet exposes Savfox as a registered Cokret Applet endpoint.",
+                    help: "Agent consumes a Yougen bootstrap and uses a local runtime key. Applet exposes Savfox as a registered Cokret Applet endpoint.",
+                },
+                ConfigField {
+                    key: "yougenBootstrap".into(),
+                    label: "Yougen Bootstrap JSON".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"base_url":"https://cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","requested_scope":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit","ck.event.read","ck.message.create"]}"#.into(),
+                    secret: false,
+                    required: false,
+                    help: "Paste the Savfox bootstrap from Yougen My Agents. It must not contain private keys or long-lived session grants.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
-                    label: "Cokret / Applet URL".into(),
+                    label: "Cokret Base URL".into(),
                     field_type: FieldType::Text,
-                    placeholder: "Account: https://cokret.example.org; Applet: https://savfox.example/appservices/cokret/cokret-default".into(),
+                    placeholder: "https://cokret.example.org".into(),
                     secret: false,
-                    required: true,
-                    help: "Account mode uses the Cokret server URL. Applet mode uses the public Savfox callback URL registered in Cokret.",
+                    required: false,
+                    help: "Cokret server URL. Agent mode normally derives this from the Yougen bootstrap.",
                 },
                 ConfigField {
                     key: "serviceDid".into(),
-                    label: "Service / Audience DID".into(),
+                    label: "Cokret Service DID".into(),
                     field_type: FieldType::Text,
-                    placeholder: "did:webvh:cokret.example.org or did:web:savfox.example".into(),
+                    placeholder: "did:webvh:cokret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Applet service DID, or the DID-proof login audience when account advanced auth is enabled.",
+                    help: "Cokret service DID used as the agent_key_proof audience and DPoP-bound self endpoint service identity.",
                 },
                 ConfigField {
                     key: "accessToken".into(),
-                    label: "Session Grant / Bearer Token".into(),
+                    label: "Applet Bearer Token".into(),
                     field_type: FieldType::Password,
-                    placeholder: "ck.session.grant or applet bearer token".into(),
+                    placeholder: "applet bearer token".into(),
                     secret: true,
                     required: false,
-                    help: "Session grant produced by Cokret/Yougen pairing, or the inbound applet bearer token. Device IDs are generated automatically.",
+                    help: "Inbound applet bearer token configured in Cokret. Agent mode does not store a static session grant here.",
                 },
                 ConfigField {
                     key: "deviceId".into(),
@@ -608,12 +617,12 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "defaultRealmId".into(),
-                    label: "Realm ID".into(),
+                    label: "Realm Filter".into(),
                     field_type: FieldType::Text,
                     placeholder: "ck:realm:...".into(),
                     secret: false,
                     required: false,
-                    help: "Realm where this AI agent reads and writes. Required when outbound replies are enabled.",
+                    help: "Optional account filter or fallback realm. Normal replies use the Realm carried by the incoming Cokret event.",
                 },
                 ConfigField {
                     key: "defaultFlowId".into(),
@@ -658,16 +667,16 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: String::new(),
                     secret: false,
                     required: false,
-                    help: "Show low-level Cokret auth, scope, signing, and applet runtime fields.",
+                    help: "Show low-level Cokret scope, signing, and applet runtime fields.",
                 },
                 ConfigField {
-                    key: "scopes".into(),
-                    label: "Permission Scopes".into(),
+                    key: "requestedScope".into(),
+                    label: "Requested Runtime Scope".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: "ck.message.create\nck.message.read".into(),
+                    placeholder: "ck.self.events.stream.subscribe\nck.self.events.query.scan\nck.self.events.command.submit\nck.event.read\nck.message.create".into(),
                     secret: false,
                     required: false,
-                    help: "Optional account scopes, one per line or comma-separated.",
+                    help: "Typed agent runtime scope saved into requestedScope[]. Service scopes grant endpoint access; content actions still require content grants.",
                 },
                 ConfigField {
                     key: "appletId".into(),
@@ -712,7 +721,7 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     placeholder: "did:webvh:cokret.example.org".into(),
                     secret: false,
                     required: false,
-                    help: "Trusted Cokret server DID for DID-proof login and HTTP Message Signature verification.",
+                    help: "Trusted Cokret server DID for applet outbound authentication and HTTP Message Signature verification.",
                 },
                 ConfigField {
                     key: "protocols".into(),
@@ -824,21 +833,39 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "loginChallenge".into(),
-                    label: "Login Challenge".into(),
+                    label: "Applet DID-proof Challenge".into(),
                     field_type: FieldType::Text,
                     placeholder: "challenge-from-cokret".into(),
                     secret: false,
                     required: false,
-                    help: "Server-issued challenge required when keyRef is used for DID-proof login",
+                    help: "Applet outbound DID-proof challenge. Personal agent runtime uses agent_key_proof instead.",
                 },
                 ConfigField {
                     key: "verificationMethod".into(),
-                    label: "Signing Verification Method".into(),
+                    label: "Runtime Verification Method".into(),
                     field_type: FieldType::Text,
                     placeholder: "did:web:agent.example#key-1".into(),
                     secret: false,
                     required: false,
-                    help: "Verification method id for the local Ed25519 signer",
+                    help: "DID URL for the local runtime key. Yougen authorizes this exact value in ck.agent.key.authorize.",
+                },
+                ConfigField {
+                    key: "authorizedEventRef".into(),
+                    label: "Authorized Event Ref".into(),
+                    field_type: FieldType::Text,
+                    placeholder: "ck:event:...".into(),
+                    secret: false,
+                    required: false,
+                    help: "ck.agent.key.authorize event reference produced after controller approval.",
+                },
+                ConfigField {
+                    key: "runtimeKeyRequest".into(),
+                    label: "Runtime Key Request JSON".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"pairing_request_id":"...","agent_principal_id":"did:...","verification_method":"did:...#runtime-1","public_key":{"kty":"OKP","kid":"did:...#runtime-1","alg":"Ed25519","key":"..."},"proof_of_possession":{"challenge":"...","audience":"did:...","request_canonical_digest":"sha256:...","expires_at":"...","signature":"..."}}"#.into(),
+                    secret: false,
+                    required: false,
+                    help: "Read-only status for the Yougen approval paste. The signed request is generated locally from runtimeKeyRef; it is not saved as channel config.",
                 },
                 ConfigField {
                     key: "grantEventPath".into(),
@@ -851,12 +878,12 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "keyRef".into(),
-                    label: "Key Ref JSON".into(),
+                    label: "Runtime Key Ref JSON".into(),
                     field_type: FieldType::Textarea,
                     placeholder: r#"{"kind":"env","var":"SAVFOX_COKRET_BOT_KEY"}"#.into(),
                     secret: true,
                     required: false,
-                    help: "Optional signer key reference for DID-proof login and event signing",
+                    help: "Local runtime key reference. Savfox must own the private key; Yougen bootstrap never carries it.",
                 },
             ],
         },
@@ -1593,13 +1620,12 @@ fn restore_cokret_derived_values(
         }
     }
 
-    for key in ["keyRef", "trustedVerificationMethods"] {
+    for key in ["yougenBootstrap", "keyRef", "trustedVerificationMethods"] {
         if let Some(raw) = config_obj.get(key) {
             let rendered = serde_json::to_string_pretty(raw).unwrap_or_else(|_| raw.to_string());
             restored.insert(field_value_key(channel_id, key), rendered);
         }
     }
-
     if cokret_config_has_advanced_values(config_obj) {
         restored.insert(field_value_key(channel_id, "advanced"), "true".to_string());
     }
@@ -1610,14 +1636,14 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         .get("mode")
         .and_then(Value::as_str)
         .map(str::to_ascii_lowercase)
-        .unwrap_or_else(|| "account".to_string());
+        .unwrap_or_else(|| "agent".to_string());
     let account_advanced = [
         "serviceDid",
         "cokretServerDid",
         "defaultFlowId",
-        "scopes",
-        "loginChallenge",
+        "requestedScope",
         "verificationMethod",
+        "authorizedEventRef",
         "grantEventPath",
         "keyRef",
     ];
@@ -1982,7 +2008,7 @@ fn current_cokret_mode(
         .get(&field_value_key(channel_id, "mode"))
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| value == "applet")
-        .unwrap_or_else(|| "account".to_string())
+        .unwrap_or_else(|| "agent".to_string())
 }
 
 fn cokret_advanced_enabled(
@@ -1999,16 +2025,111 @@ fn is_cokret_internal_field(field_key: &str) -> bool {
     matches!(field_key, "deviceId")
 }
 
+fn field_display_label(
+    ch_id: &str,
+    field: &ConfigField,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    if ch_id == "cokret" {
+        let mode = current_cokret_mode(ch_id, values);
+        match (field.key.as_str(), mode.as_str()) {
+            ("baseUrl", "applet") => return "Applet URL".to_string(),
+            ("baseUrl", _) => return "Cokret Base URL".to_string(),
+            ("serviceDid", "applet") => return "Applet Service DID".to_string(),
+            ("serviceDid", _) => return "Cokret Service DID".to_string(),
+            ("accessToken", "applet") => return "Bearer Token".to_string(),
+            _ => {}
+        }
+    }
+    field.label.clone()
+}
+
+fn field_display_placeholder(
+    ch_id: &str,
+    field: &ConfigField,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    if ch_id == "cokret" {
+        let mode = current_cokret_mode(ch_id, values);
+        match (field.key.as_str(), mode.as_str()) {
+            ("baseUrl", "applet") => {
+                return "https://savfox.example/appservices/cokret/cokret-default".to_string();
+            }
+            ("baseUrl", _) => return "https://cokret.example.org".to_string(),
+            ("serviceDid", "applet") => return "did:web:savfox.example".to_string(),
+            ("serviceDid", _) => return "did:webvh:cokret.example.org".to_string(),
+            ("accessToken", "applet") => return "applet bearer token".to_string(),
+            _ => {}
+        }
+    }
+    field.placeholder.clone()
+}
+
+fn field_display_help(
+    ch_id: &str,
+    field: &ConfigField,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    if ch_id == "cokret" {
+        let mode = current_cokret_mode(ch_id, values);
+        match (field.key.as_str(), mode.as_str()) {
+            ("baseUrl", "applet") => {
+                return "Public Savfox callback URL registered as the Cokret Applet endpoint."
+                    .to_string();
+            }
+            ("baseUrl", _) => {
+                return "Cokret server URL, normally parsed from the Yougen bootstrap.".to_string();
+            }
+            ("serviceDid", "applet") => {
+                return "Applet service DID registered with Cokret.".to_string();
+            }
+            ("serviceDid", _) => {
+                return "Cokret service DID used as the agent_key_proof audience.".to_string();
+            }
+            ("accessToken", "applet") => {
+                return "Inbound applet bearer token configured in Cokret.".to_string();
+            }
+            _ => {}
+        }
+    }
+    field.help.to_string()
+}
+
+fn field_display_required(
+    ch_id: &str,
+    field: &ConfigField,
+    values: &std::collections::HashMap<String, String>,
+) -> bool {
+    if ch_id == "cokret" {
+        let mode = current_cokret_mode(ch_id, values);
+        if field.key == "serviceDid" {
+            return mode == "applet";
+        }
+        if mode != "applet"
+            && matches!(
+                field.key.as_str(),
+                "yougenBootstrap" | "keyRef" | "verificationMethod" | "authorizedEventRef"
+            )
+        {
+            return true;
+        }
+    }
+    field.required
+}
+
 fn is_cokret_account_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
-        "principalId"
+        "yougenBootstrap"
+            | "principalId"
             | "defaultRealmId"
             | "defaultFlowId"
             | "agentId"
             | "listen"
             | "send"
-            | "scopes"
+            | "requestedScope"
+            | "authorizedEventRef"
+            | "runtimeKeyRequest"
     )
 }
 
@@ -2018,6 +2139,8 @@ fn is_cokret_applet_only_field(field_key: &str) -> bool {
         "appletId"
             | "controllerDid"
             | "botActorId"
+            | "accessToken"
+            | "loginChallenge"
             | "cokretServerUrl"
             | "protocols"
             | "requestedScopes"
@@ -2037,15 +2160,25 @@ fn is_cokret_applet_only_field(field_key: &str) -> bool {
 fn is_cokret_helper_field(field_key: &str) -> bool {
     matches!(
         field_key,
-        "advanced" | "namespaceActors" | "namespaceRealms" | "namespaceHandles"
+        "advanced"
+            | "namespaceActors"
+            | "namespaceRealms"
+            | "namespaceHandles"
+            | "runtimeKeyRequest"
     )
 }
 
 fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
-    matches!(
-        field_key,
-        "cokretServerDid" | "loginChallenge" | "verificationMethod" | "grantEventPath" | "keyRef"
-    ) || (mode != "applet" && matches!(field_key, "serviceDid" | "defaultFlowId" | "scopes"))
+    matches!(field_key, "cokretServerDid")
+        || (mode != "applet"
+            && matches!(
+                field_key,
+                "serviceDid"
+                    | "defaultRealmId"
+                    | "defaultFlowId"
+                    | "requestedScope"
+                    | "grantEventPath"
+            ))
         || (mode == "applet"
             && matches!(
                 field_key,
@@ -2058,6 +2191,10 @@ fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
                     | "authorizationGrantId"
                     | "registrationEpoch"
                     | "trustedVerificationMethods"
+                    | "loginChallenge"
+                    | "verificationMethod"
+                    | "grantEventPath"
+                    | "keyRef"
             ))
 }
 
@@ -2176,9 +2313,16 @@ fn build_cokret_channel_patch(
 
         match field.key.as_str() {
             "keyRef" => {
-                let parsed = parse_json_config_field("Key Ref JSON", value)?;
+                let parsed = parse_json_config_field("Runtime Key Ref JSON", value)?;
                 if !parsed.is_object() {
-                    return Err("Key Ref JSON must be a JSON object.".to_string());
+                    return Err("Runtime Key Ref JSON must be a JSON object.".to_string());
+                }
+                patch[&field.key] = parsed;
+            }
+            "yougenBootstrap" => {
+                let parsed = parse_json_config_field("Yougen Bootstrap JSON", value)?;
+                if !parsed.is_object() {
+                    return Err("Yougen Bootstrap JSON must be a JSON object.".to_string());
                 }
                 patch[&field.key] = parsed;
             }
@@ -2190,6 +2334,9 @@ fn build_cokret_channel_patch(
                     );
                 }
                 patch[&field.key] = parsed;
+            }
+            "requestedScope" | "requestedScopes" => {
+                patch[&field.key] = json!(split_config_list(value));
             }
             _ if matches!(field.field_type, FieldType::Toggle) => {
                 patch[&field.key] = json!(value == "true");
@@ -2224,9 +2371,145 @@ fn build_cokret_channel_patch(
         }
     } else {
         patch["namespaces"] = Value::Null;
+        apply_cokret_bootstrap_defaults(&mut patch);
+        validate_cokret_agent_runtime_request_inputs(&patch)?;
     }
 
     Ok(patch)
+}
+
+fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
+    if !patch
+        .get("yougenBootstrap")
+        .and_then(Value::as_object)
+        .is_some_and(|object| !object.is_empty())
+    {
+        return Err(
+            "Cokret agent mode requires Yougen Bootstrap JSON before runtime key approval."
+                .to_string(),
+        );
+    }
+    if !patch
+        .get("keyRef")
+        .and_then(Value::as_object)
+        .is_some_and(|object| !object.is_empty())
+    {
+        return Err(
+            "Cokret agent mode requires Runtime Key Ref JSON for the local runtime key."
+                .to_string(),
+        );
+    }
+    if patch
+        .get("verificationMethod")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_none_or(str::is_empty)
+    {
+        return Err(
+            "Cokret agent mode requires Runtime Verification Method before generating the approval request."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
+    let Some(bootstrap) = patch.get("yougenBootstrap").and_then(Value::as_object) else {
+        return;
+    };
+    let base_url = first_non_empty_json_string(
+        bootstrap,
+        &[
+            "baseUrl",
+            "base_url",
+            "cokretBaseUrl",
+            "cokret_base_url",
+            "yougenBaseUrl",
+            "yougen_base_url",
+        ],
+    );
+    let service_did = first_non_empty_json_string(
+        bootstrap,
+        &["serviceDid", "service_did", "cokretServiceDid"],
+    );
+    let principal_id = first_non_empty_json_string(
+        bootstrap,
+        &[
+            "agentPrincipalId",
+            "agent_principal_id",
+            "principalId",
+            "principal_id",
+            "agentDid",
+            "agent_did",
+        ],
+    );
+    let requested_scope = bootstrap
+        .get("requestedScope")
+        .or_else(|| bootstrap.get("requested_scope"))
+        .or_else(|| bootstrap.get("requestedServiceScope"))
+        .or_else(|| bootstrap.get("requested_service_scope"))
+        .or_else(|| bootstrap.get("serviceScope"))
+        .or_else(|| bootstrap.get("service_scope"))
+        .map(json_string_list);
+
+    if patch_value_empty(patch.get("baseUrl"))
+        && let Some(value) = base_url
+    {
+        patch["baseUrl"] = json!(value);
+    }
+    if patch_value_empty(patch.get("serviceDid"))
+        && let Some(value) = service_did
+    {
+        patch["serviceDid"] = json!(value);
+    }
+    if patch_value_empty(patch.get("principalId"))
+        && let Some(value) = principal_id
+    {
+        patch["principalId"] = json!(value);
+    }
+    if patch_value_empty(patch.get("requestedScope"))
+        && let Some(scope) = requested_scope
+        && !scope.is_empty()
+    {
+        patch["requestedScope"] = json!(scope);
+    }
+}
+
+fn first_non_empty_json_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+fn json_string_list(value: &Value) -> Vec<String> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        Value::String(text) => split_config_list(text),
+        _ => Vec::new(),
+    }
+}
+
+fn patch_value_empty(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => true,
+        Some(Value::String(text)) => text.trim().is_empty(),
+        Some(Value::Array(items)) => items.is_empty(),
+        Some(Value::Object(map)) => map.is_empty(),
+        Some(Value::Bool(_)) | Some(Value::Number(_)) => false,
+    }
 }
 
 fn default_channel_values(
@@ -2235,7 +2518,7 @@ fn default_channel_values(
 ) -> std::collections::HashMap<String, String> {
     let mut values = std::collections::HashMap::new();
     if is_cokret_channel(fields) {
-        values.insert(field_value_key(channel_id, "mode"), "account".to_string());
+        values.insert(field_value_key(channel_id, "mode"), "agent".to_string());
         values.insert(field_value_key(channel_id, "listen"), "true".to_string());
         values.insert(field_value_key(channel_id, "send"), "true".to_string());
         values.insert(
@@ -3262,7 +3545,7 @@ fn ChannelConfigModal(
                 }
 
                 // Render fields
-                { render_config_fields(&ch_id, &fields_vec, inline_values, revealed) }
+                { render_config_fields(&ch_id, &fields_vec, inline_values, revealed, ws.clone()) }
 
                 // Discord callback URL section
                 if ch_id == "discord" {
@@ -3490,6 +3773,22 @@ fn discord_callback_url() -> String {
         .unwrap_or_else(|| "/_discord/callback".to_string())
 }
 
+async fn copy_text_to_clipboard(text: String) {
+    if let Some(window) = web_sys::window()
+        && let Ok(nav) =
+            js_sys::Reflect::get(&window, &wasm_bindgen::JsValue::from_str("navigator"))
+        && let Ok(clipboard) =
+            js_sys::Reflect::get(&nav, &wasm_bindgen::JsValue::from_str("clipboard"))
+        && let Ok(write_fn) =
+            js_sys::Reflect::get(&clipboard, &wasm_bindgen::JsValue::from_str("writeText"))
+    {
+        let func: js_sys::Function = write_fn.into();
+        if let Ok(promise) = func.call1(&clipboard, &wasm_bindgen::JsValue::from_str(&text)) {
+            let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await;
+        }
+    }
+}
+
 /// Renders the Discord OAuth callback URL section with a copy button.
 fn render_discord_callback_url() -> Element {
     let url = discord_callback_url();
@@ -3515,33 +3814,7 @@ fn render_discord_callback_url() -> Element {
                         onclick: move |_| {
                             let text = url_for_copy.clone();
                             spawn(async move {
-                                if let Some(window) = web_sys::window() {
-                                    if let Ok(nav) = js_sys::Reflect::get(
-                                        &window,
-                                        &wasm_bindgen::JsValue::from_str("navigator"),
-                                    ) {
-                                        if let Ok(clipboard) = js_sys::Reflect::get(
-                                            &nav,
-                                            &wasm_bindgen::JsValue::from_str("clipboard"),
-                                        ) {
-                                            if let Ok(write_fn) = js_sys::Reflect::get(
-                                                &clipboard,
-                                                &wasm_bindgen::JsValue::from_str("writeText"),
-                                            ) {
-                                                let func: js_sys::Function = write_fn.into();
-                                                if let Ok(p) = func.call1(
-                                                    &clipboard,
-                                                    &wasm_bindgen::JsValue::from_str(&text),
-                                                ) {
-                                                    let _ = wasm_bindgen_futures::JsFuture::from(
-                                                        js_sys::Promise::from(p),
-                                                    )
-                                                    .await;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                copy_text_to_clipboard(text).await;
                                 copied.set(true);
                                 let promise = js_sys::Promise::new(&mut |resolve, _| {
                                     if let Some(win) = web_sys::window() {
@@ -3571,11 +3844,12 @@ fn render_config_fields(
     fields: &[ConfigField],
     mut values: Signal<std::collections::HashMap<String, String>>,
     mut revealed: Signal<std::collections::HashSet<String>>,
+    ws: WsRpc,
 ) -> Element {
     rsx! {
         div { class: "channels-cfg__fields",
             for field in fields.iter() {
-                { render_single_field(ch_id, field, values, revealed) }
+                { render_single_field(ch_id, field, fields, values, revealed, ws.clone()) }
             }
         }
     }
@@ -3585,42 +3859,147 @@ fn render_config_fields(
 fn render_single_field(
     ch_id: &str,
     field: &ConfigField,
+    fields: &[ConfigField],
     mut values: Signal<std::collections::HashMap<String, String>>,
     mut revealed: Signal<std::collections::HashSet<String>>,
+    ws: WsRpc,
 ) -> Element {
-    let should_render = {
-        let value_map = values.read();
-        field_is_visible(ch_id, field, &value_map)
-    };
+    let value_map = values.read();
+    let should_render = field_is_visible(ch_id, field, &value_map);
     if !should_render {
         return rsx! {};
     }
 
     let key = format!("{}.{}", ch_id, field.key);
-    let current_val = values.read().get(&key).cloned().unwrap_or_default();
+    let current_val = value_map.get(&key).cloned().unwrap_or_default();
+    let display_label = field_display_label(ch_id, field, &value_map);
+    let display_placeholder = field_display_placeholder(ch_id, field, &value_map);
+    let help_text = field_display_help(ch_id, field, &value_map);
+    let is_required = field_display_required(ch_id, field, &value_map);
+    if ch_id == "cokret" && field.key == "runtimeKeyRequest" {
+        let status_text = cokret_runtime_key_request_status(ch_id, &value_map);
+        let current_result = current_val.trim().to_owned();
+        let display_text = if current_result.is_empty() {
+            status_text
+        } else {
+            current_result.clone()
+        };
+        let ch_id_for_generate = ch_id.to_owned();
+        let fields_for_generate = fields.to_vec();
+        let key_for_generate = key.clone();
+        let ws_generate = ws.clone();
+        let key_for_copy = key.clone();
+        drop(value_map);
+        return rsx! {
+            div { class: "channels-cfg__field",
+                label { class: "channels-field__label",
+                    "{display_label}"
+                    if !help_text.is_empty() {
+                        HelpTip { text: help_text.clone() }
+                    }
+                }
+                textarea {
+                    placeholder: "{display_placeholder}",
+                    value: "{display_text}",
+                    class: "channels-field__input channels-cfg__textarea channels-field__input--readonly",
+                    readonly: true,
+                    rows: "13",
+                }
+                div { class: "channels-cfg__row-actions",
+                    button {
+                        class: "channels-action-btn channels-action-btn--primary",
+                        r#type: "button",
+                        onclick: move |_| {
+                            let ch_id = ch_id_for_generate.clone();
+                            let fields = fields_for_generate.clone();
+                            let key = key_for_generate.clone();
+                            let ws = ws_generate.clone();
+                            let snapshot = values.read().clone();
+                            let patch = match build_channel_patch(&ch_id, &fields, &snapshot) {
+                                Ok(patch) => patch,
+                                Err(err) => {
+                                    values.write().insert(
+                                        key,
+                                        format!("Runtime key request generation failed: {err}"),
+                                    );
+                                    return;
+                                }
+                            };
+                            spawn(async move {
+                                let result = ws
+                                    .call::<serde_json::Value>(
+                                        "channels.cokret.runtime_key_request",
+                                        Some(json!({
+                                            "platform": "cokret",
+                                            "config": patch,
+                                        })),
+                                    )
+                                    .await;
+                                match result {
+                                    Ok(payload) => {
+                                        let request = payload
+                                            .get("runtime_key_request")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let text = serde_json::to_string_pretty(&request)
+                                            .unwrap_or_else(|_| request.to_string());
+                                        copy_text_to_clipboard(text.clone()).await;
+                                        values.write().insert(key, text);
+                                    }
+                                    Err(err) => {
+                                        values.write().insert(
+                                            key,
+                                            format!("Runtime key request generation failed: {err}"),
+                                        );
+                                    }
+                                }
+                            });
+                        },
+                        "Generate"
+                    }
+                    button {
+                        class: "channels-action-btn",
+                        r#type: "button",
+                        disabled: current_result.is_empty(),
+                        onclick: move |_| {
+                            let text = values
+                                .read()
+                                .get(&key_for_copy)
+                                .cloned()
+                                .unwrap_or_default();
+                            if !text.trim().is_empty() {
+                                spawn(async move {
+                                    copy_text_to_clipboard(text).await;
+                                });
+                            }
+                        },
+                        "Copy"
+                    }
+                }
+            }
+        };
+    }
+    drop(value_map);
     let key_input = key.clone();
     let key_reveal = key.clone();
     let is_revealed = revealed.read().contains(&key);
-
-    let help_text = field.help;
-    let is_required = field.required;
 
     match &field.field_type {
         FieldType::Text => {
             rsx! {
                 div { class: "channels-cfg__field",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if is_required {
                             span { class: "channels-field__required", " *" }
                         }
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     input {
                         r#type: "text",
-                        placeholder: "{field.placeholder}",
+                        placeholder: "{display_placeholder}",
                         value: "{current_val}",
                         oninput: move |e| { values.write().insert(key_input.clone(), e.value()); },
                         class: "channels-field__input",
@@ -3634,19 +4013,19 @@ fn render_single_field(
             rsx! {
                 div { class: "channels-cfg__field",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if is_required {
                             span { class: "channels-field__required", " *" }
                         }
                         span { class: "channels-field__secret-badge", "secret" }
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     div { class: "channels-cfg__password-wrap",
                         input {
                             r#type: "{input_type}",
-                            placeholder: "{field.placeholder}",
+                            placeholder: "{display_placeholder}",
                             value: "{current_val}",
                             oninput: move |e| { values.write().insert(key_input.clone(), e.value()); },
                             class: "channels-field__input channels-cfg__password-input",
@@ -3672,17 +4051,17 @@ fn render_single_field(
             rsx! {
                 div { class: "channels-cfg__field",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if is_required {
                             span { class: "channels-field__required", " *" }
                         }
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     input {
                         r#type: "number",
-                        placeholder: "{field.placeholder}",
+                        placeholder: "{display_placeholder}",
                         value: "{current_val}",
                         oninput: move |e| { values.write().insert(key_input.clone(), e.value()); },
                         class: "channels-field__input",
@@ -3695,7 +4074,7 @@ fn render_single_field(
             rsx! {
                 div { class: "channels-cfg__field",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if is_required {
                             span { class: "channels-field__required", " *" }
                         }
@@ -3703,11 +4082,11 @@ fn render_single_field(
                             span { class: "channels-field__secret-badge", "secret" }
                         }
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     textarea {
-                        placeholder: "{field.placeholder}",
+                        placeholder: "{display_placeholder}",
                         value: "{current_val}",
                         oninput: move |e| { values.write().insert(key_input.clone(), e.value()); },
                         class: "channels-field__input channels-cfg__textarea",
@@ -3722,9 +4101,9 @@ fn render_single_field(
             rsx! {
                 div { class: "channels-cfg__field channels-cfg__toggle-row",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     button {
@@ -3745,12 +4124,12 @@ fn render_single_field(
             rsx! {
                 div { class: "channels-cfg__field",
                     label { class: "channels-field__label",
-                        "{field.label}"
+                        "{display_label}"
                         if is_required {
                             span { class: "channels-field__required", " *" }
                         }
                         if !help_text.is_empty() {
-                            HelpTip { text: help_text.to_string() }
+                            HelpTip { text: help_text.clone() }
                         }
                     }
                     select {
@@ -3774,6 +4153,111 @@ fn render_single_field(
             }
         }
     }
+}
+
+fn cokret_runtime_key_request_status(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> String {
+    let bootstrap_raw = values
+        .get(&field_value_key(channel_id, "yougenBootstrap"))
+        .map(|value| value.trim())
+        .unwrap_or_default();
+    let key_ref_raw = values
+        .get(&field_value_key(channel_id, "keyRef"))
+        .map(|value| value.trim())
+        .unwrap_or_default();
+    let verification_method = values
+        .get(&field_value_key(channel_id, "verificationMethod"))
+        .map(|value| value.trim())
+        .unwrap_or_default();
+
+    let mut missing = Vec::new();
+    let mut bootstrap = None;
+    if bootstrap_raw.is_empty() {
+        missing.push("yougenBootstrap");
+    } else {
+        match serde_json::from_str::<Value>(bootstrap_raw) {
+            Ok(Value::Object(object)) => bootstrap = Some(object),
+            Ok(_) => missing.push("yougenBootstrap object"),
+            Err(_) => missing.push("valid yougenBootstrap JSON"),
+        }
+    }
+    if key_ref_raw.is_empty() {
+        missing.push("keyRef");
+    } else if serde_json::from_str::<Value>(key_ref_raw)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .is_none()
+    {
+        missing.push("valid keyRef JSON object");
+    }
+    if verification_method.is_empty() {
+        missing.push("verificationMethod");
+    }
+
+    let audience = bootstrap
+        .as_ref()
+        .and_then(|object| first_non_empty_json_string(object, &["serviceDid", "service_did"]))
+        .or_else(|| {
+            values
+                .get(&field_value_key(channel_id, "serviceDid"))
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        });
+
+    if audience.is_none() {
+        missing.push("serviceDid");
+    }
+
+    if !missing.is_empty() {
+        return format!(
+            "Runtime key request is not ready.\nMissing or invalid: {}.\n\nSavfox will not treat this Cokret agent as runnable without a local runtime key ref and controller authorization.",
+            missing.join(", ")
+        );
+    }
+
+    let agent_principal_id = bootstrap
+        .as_ref()
+        .and_then(|object| {
+            first_non_empty_json_string(
+                object,
+                &[
+                    "agentPrincipalId",
+                    "agent_principal_id",
+                    "principalId",
+                    "principal_id",
+                    "agentDid",
+                    "agent_did",
+                ],
+            )
+        })
+        .or_else(|| {
+            values
+                .get(&field_value_key(channel_id, "principalId"))
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default();
+    let pairing_request_id = bootstrap
+        .as_ref()
+        .and_then(|object| {
+            first_non_empty_json_string(
+                object,
+                &[
+                    "pairingRequestId",
+                    "pairing_request_id",
+                    "requestId",
+                    "request_id",
+                ],
+            )
+        })
+        .unwrap_or_default();
+
+    format!(
+        "Ready for gateway-side runtime key request generation from runtimeKeyRef.\n\nThe generated JSON for Yougen approval uses:\n{{\n  \"pairing_request_id\": \"{pairing_request_id}\",\n  \"agent_principal_id\": \"{agent_principal_id}\",\n  \"verification_method\": \"{verification_method}\",\n  \"public_key\": {{ \"kty\": \"OKP\", \"kid\": \"{verification_method}\", \"alg\": \"Ed25519\", \"key\": \"<base64url raw Ed25519 public key>\" }},\n  \"proof_of_possession\": {{ \"challenge\": \"{pairing_request_id}\", \"audience\": \"{}\", \"request_canonical_digest\": \"sha256:...\", \"expires_at\": \"...\", \"signature\": \"...\" }}\n}}\n\nThis browser form does not read or store the private key; only the gateway host can sign the request from keyRef.",
+        audience.unwrap_or_default()
+    )
 }
 
 fn render_router_fields(
@@ -4112,7 +4596,7 @@ fn render_add_modal(
                                 }
                             }
                         }
-                        { render_config_fields(&ch_type.id, &ch_type.config_fields, config_values, revealed) }
+                        { render_config_fields(&ch_type.id, &ch_type.config_fields, config_values, revealed, ws.clone()) }
                         { render_router_fields(&ch_type.id, config_values) }
                         { render_policy_fields(&ch_type.id, config_values) }
 
@@ -4323,6 +4807,12 @@ mod tests {
                 .iter()
                 .any(|field| field.key == "advanced")
         );
+        assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "runtimeKeyRequest")
+        );
     }
 
     #[test]
@@ -4334,14 +4824,20 @@ mod tests {
             field_is_visible("cokret", field, &values)
         };
 
+        assert!(visible("yougenBootstrap"));
         assert!(visible("principalId"));
-        assert!(visible("defaultRealmId"));
         assert!(visible("agentId"));
+        assert!(visible("keyRef"));
+        assert!(visible("verificationMethod"));
+        assert!(visible("authorizedEventRef"));
+        assert!(visible("runtimeKeyRequest"));
         assert!(visible("advanced"));
+        assert!(!visible("accessToken"));
+        assert!(!visible("loginChallenge"));
+        assert!(!visible("defaultRealmId"));
         assert!(!visible("deviceId"));
         assert!(!visible("serviceDid"));
-        assert!(!visible("keyRef"));
-        assert!(!visible("scopes"));
+        assert!(!visible("requestedScope"));
     }
 
     #[test]
@@ -4356,10 +4852,49 @@ mod tests {
 
         assert!(visible("serviceDid"));
         assert!(visible("keyRef"));
-        assert!(visible("loginChallenge"));
-        assert!(visible("grantEventPath"));
-        assert!(visible("scopes"));
+        assert!(visible("authorizedEventRef"));
+        assert!(visible("defaultRealmId"));
+        assert!(visible("requestedScope"));
         assert!(!visible("deviceId"));
+        assert!(!visible("loginChallenge"));
+    }
+
+    #[test]
+    fn cokret_url_label_tracks_connection_type() {
+        let fields = cokret_fields();
+        let base_url_field = fields
+            .iter()
+            .find(|field| field.key == "baseUrl")
+            .expect("baseUrl");
+        let service_did_field = fields
+            .iter()
+            .find(|field| field.key == "serviceDid")
+            .expect("serviceDid");
+        let mut values = default_channel_values("cokret", &fields);
+
+        assert_eq!(
+            field_display_label("cokret", base_url_field, &values),
+            "Cokret Base URL"
+        );
+        assert_eq!(
+            field_display_placeholder("cokret", base_url_field, &values),
+            "https://cokret.example.org"
+        );
+
+        values.insert(field_value_key("cokret", "mode"), "applet".to_owned());
+        assert_eq!(
+            field_display_label("cokret", base_url_field, &values),
+            "Applet URL"
+        );
+        assert_eq!(
+            field_display_placeholder("cokret", base_url_field, &values),
+            "https://savfox.example/appservices/cokret/cokret-default"
+        );
+        assert_eq!(
+            field_display_label("cokret", service_did_field, &values),
+            "Applet Service DID"
+        );
+        assert!(field_display_required("cokret", service_did_field, &values));
     }
 
     #[test]
@@ -4368,13 +4903,19 @@ mod tests {
         let saved = json!({
             "name": "Cokret",
             "config": {
-                "mode": "account",
+                "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
+                "yougenBootstrap": {
+                    "base_url": "https://cokret.example.org",
+                    "agent_principal_id": "did:webvh:example.org:agents:support",
+                    "pairing_request_id": "pair-123",
+                    "pairing_code": "123456",
+                    "requested_scope": ["ck.self.events.stream.subscribe", "ck.event.read"]
+                },
                 "principalId": "did:webvh:example.org:agents:support",
-                "accessToken": "token-1",
                 "defaultRealmId": "ck:realm:abc",
-                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_BOT_KEY" },
-                "loginChallenge": "challenge-from-cokret"
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099"
             }
         });
 
@@ -4386,14 +4927,65 @@ mod tests {
         );
         assert_eq!(
             restored.get(&field_value_key("cokret", "keyRef")),
-            Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_COKRET_BOT_KEY\"\n}".to_owned())
+            Some(&"{\n  \"kind\": \"env\",\n  \"var\": \"SAVFOX_COKRET_AGENT_KEY\"\n}".to_owned())
         );
+    }
+
+    #[test]
+    fn cokret_runtime_key_request_status_uses_spec_public_key_shape() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let status = cokret_runtime_key_request_status("cokret", &values);
+
+        assert!(status.contains("\"public_key\""));
+        assert!(status.contains("\"kty\": \"OKP\""));
+        assert!(status.contains("\"kid\": \"did:webvh:example.org:agents:support#runtime-1\""));
+        assert!(status.contains("\"alg\": \"Ed25519\""));
+        assert!(status.contains("\"key\": \"<base64url raw Ed25519 public key>\""));
+        assert!(status.contains("\"proof_of_possession\""));
+        assert!(!status.contains("inline_seed_base64"));
+    }
+
+    #[test]
+    fn cokret_agent_patch_rejects_missing_runtime_key_ref() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let err = build_channel_patch("cokret", &fields, &values).expect_err("missing keyRef");
+
+        assert!(err.contains("Runtime Key Ref JSON"));
     }
 
     #[test]
     fn cokret_account_patch_builds_flat_account_config() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
+        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            r#"{"base_url":"https://cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+        );
         values.insert(
             field_value_key("cokret", "baseUrl"),
             "https://cokret.example.org".to_owned(),
@@ -4407,37 +4999,83 @@ mod tests {
             "did:webvh:example.org:agents:support".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "deviceId"),
-            "ck:device:01904100-0000-7000-8000-000000000001".to_owned(),
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "accessToken"),
-            "token-1".to_owned(),
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "defaultRealmId"),
-            "ck:realm:abc".to_owned(),
+            field_value_key("cokret", "authorizedEventRef"),
+            "ck:event:01904100-0000-7000-8000-000000000099".to_owned(),
         );
         values.insert(
-            field_value_key("cokret", "scopes"),
-            "ck.message.create\nck.message.read".to_owned(),
+            field_value_key("cokret", "requestedScope"),
+            "ck.self.events.stream.subscribe\nck.event.read".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "runtimeKeyRequest"),
+            r#"{"must":"not be saved"}"#.to_owned(),
         );
 
         let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
 
-        assert_eq!(patch["mode"], json!("account"));
+        assert_eq!(patch["mode"], json!("agent"));
         assert_eq!(patch["listen"], json!(true));
         assert_eq!(patch["send"], json!(true));
         assert!(patch["deviceId"].is_null());
-        assert!(patch["serviceDid"].is_null());
-        assert!(patch["scopes"].is_null());
+        assert!(patch["defaultRealmId"].is_null());
+        assert_eq!(
+            patch["requestedScope"],
+            json!(["ck.self.events.stream.subscribe", "ck.event.read"])
+        );
+        assert_eq!(
+            patch["yougenBootstrap"]["pairing_request_id"],
+            json!("pair-123")
+        );
+        assert_eq!(
+            patch["keyRef"],
+            json!({"kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY"})
+        );
+        assert!(patch["runtimeKeyRequest"].is_null());
         assert_eq!(
             patch["principalId"],
             json!("did:webvh:example.org:agents:support")
         );
-        assert_eq!(patch["defaultRealmId"], json!("ck:realm:abc"));
         assert!(patch["appletId"].is_null());
         assert!(patch["namespaces"].is_null());
+    }
+
+    #[test]
+    fn cokret_bootstrap_defaults_fill_visible_agent_fields() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            r#"{"base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"pair-123","pairing_code":"123456","requested_service_scope":["ck.self.events.stream.subscribe","ck.event.read"]}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
+
+        assert_eq!(patch["baseUrl"], json!("https://cokret.example.org"));
+        assert_eq!(patch["serviceDid"], json!("did:webvh:cokret.example.org"));
+        assert_eq!(
+            patch["principalId"],
+            json!("did:webvh:example.org:agents:support")
+        );
+        assert_eq!(
+            patch["requestedScope"],
+            json!(["ck.self.events.stream.subscribe", "ck.event.read"])
+        );
     }
 
     #[test]
@@ -5396,6 +6034,13 @@ const CHANNELS_STYLES: &str = r#"
         font-family: var(--font-mono);
         font-size: 12px;
         line-height: 1.5;
+    }
+
+    .channels-cfg__row-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
     }
 
     /* ---- Select ---- */

@@ -45,7 +45,7 @@ pub struct CokretAppletConfig {
     pub device_id: Option<String>,
     /// Cokret server base URL where outbound events are POSTed.
     pub cokret_server_url: String,
-    /// Cokret server service DID used as DID-proof login audience.
+    /// Cokret server service DID used by applet outbound authentication.
     pub cokret_server_did: Option<String>,
     /// Static server verification methods accepted for inbound applet HTTP
     /// Message Signatures and event pushes.

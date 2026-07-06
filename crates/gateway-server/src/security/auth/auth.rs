@@ -719,6 +719,10 @@ mod tests {
     fn channels_methods_require_write() {
         assert_eq!(required_scope("channels.list"), Scope::Write);
         assert_eq!(required_scope("channels.create"), Scope::Write);
+        assert_eq!(
+            required_scope("channels.cokret.runtime_key_request"),
+            Scope::Write
+        );
     }
 
     #[test]

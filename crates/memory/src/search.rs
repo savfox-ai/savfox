@@ -182,4 +182,3 @@ pub enum SearchError {
     #[error("Storage error: {0}")]
     StorageError(String),
 }
-

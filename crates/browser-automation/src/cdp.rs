@@ -43,11 +43,7 @@ impl CdpClient {
                                 let mut pending = pending_clone.lock().await;
                                 if let Some(tx) = pending.remove(&id) {
                                     let result = if let Some(error) = response.error {
-                                        Err(anyhow!(
-                                            "CDP error {}: {}",
-                                            error.code,
-                                            error.message
-                                        ))
+                                        Err(anyhow!("CDP error {}: {}", error.code, error.message))
                                     } else {
                                         Ok(response.result.unwrap_or(Value::Null))
                                     };

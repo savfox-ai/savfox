@@ -1,13 +1,11 @@
-//! Load an Ed25519 signer for a Cokret principal / applet bot.
+//! Load an Ed25519 signer for a Cokret runtime or applet bot.
 //!
-//! Phase 8 (T8.A): replace the static `access_token` of Phase 1-7 with a
-//! real cryptographic identity. The 32-byte ed25519 seed is loaded from a
-//! [`CokretKeyRef`] location (env var, file, or — debug only —
-//! inline base64). The resulting [`cokret::Ed25519MoveSigner`] then
-//! drives both:
+//! The 32-byte ed25519 seed is loaded from a [`CokretKeyRef`] location (env
+//! var, file, or — debug only — inline base64). The resulting
+//! [`cokret::Ed25519MoveSigner`] is the savfox-owned runtime key in
+//! personal-agent mode, and also supports applet signer flows:
 //!
-//! * **DID-proof login** (`AuthManager::login_did_proof`) at startup to obtain a
-//!   `ck.session.grant`.
+//! * **Applet DID-proof login** for applet outbound authentication.
 //! * **Event signing** (`cokret_signatures::sign_event`) before every outbound submit.
 //!
 //! Security: seed material is wiped with `zeroize` after the signer is
@@ -22,10 +20,11 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use cokret::Ed25519MoveSigner;
 use cokret_identifiers::Did;
+use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-/// How to find the ed25519 seed for a Cokret principal / applet bot.
+/// How to find the ed25519 seed for a Cokret runtime or applet bot.
 ///
 /// Tagged on `kind` so the JSON config form is:
 /// ```jsonc
@@ -85,6 +84,13 @@ pub fn load_ed25519_seed_hex(key_ref: &CokretKeyRef) -> anyhow::Result<String> {
     let encoded = hex::encode(seed);
     seed.zeroize();
     Ok(encoded)
+}
+
+pub(crate) fn load_ed25519_signing_key(key_ref: &CokretKeyRef) -> anyhow::Result<SigningKey> {
+    let mut seed = load_seed_array(key_ref)?;
+    let signing_key = SigningKey::from_bytes(&seed);
+    seed.zeroize();
+    Ok(signing_key)
 }
 
 fn load_seed_array(key_ref: &CokretKeyRef) -> anyhow::Result<[u8; 32]> {

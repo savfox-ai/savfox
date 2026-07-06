@@ -1,13 +1,13 @@
 //! Cokret v1 channel adapter.
 //!
 //! Supports two modes:
-//! * **account** — login as already-existing controlled accounts and exchange messages with the
-//!   savfox agent.
+//! * **agent** — personal agent runtime configuration seeded from a Yougen bootstrap. Runtime keys
+//!   use `agent_key_proof` to mint short-lived DPoP-bound `ck.session.grant` credentials for
+//!   protected self endpoints.
 //! * **applet** — register this node as a Cokret Applet (the Matrix-AppService equivalent), with
 //!   Ghost Actor minting and Ed25519 event signing (see the [`applet`] and [`signer`] submodules).
 //!
-//! Still out of scope: provisioning new Cokret principals, A2A/ACP agent
-//! protocol session upgrade, MLS E2EE.
+//! Still out of scope: provisioning new Cokret principals and MLS E2EE.
 //!
 //! Layered like the other channel modules:
 //!
@@ -17,11 +17,10 @@
 //!   (typically produced by `AccountSubscribeFrame::Delta` traversal) into a savfox
 //!   `CokretInboundEvent` ready for the agent pipeline. Frame parsing itself lives in the Cokret
 //!   SDK (`AccountSubscribeFrame::from_ndjson_line`).
-//! * [`client`] — thin wrapper around [`cokret_http_client::Client`] with the bearer token
-//!   attached.
+//! * [`client`] — thin wrapper around [`cokret_http_client::Client`]. Agent mode must use a
+//!   DPoP-bound client.
 //! * [`outbound`] — build a `ck.message.create` Event from `(realm_id, flow_id, body, actor)`. When
-//!   the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`]; otherwise
-//!   the bearer `ck.session.grant` is the auth credential.
+//!   the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`].
 //! * [`signer`] — load an Ed25519 signing key and attach detached-JWS proofs to outbound events.
 
 pub mod applet;
@@ -47,7 +46,8 @@ pub use applet::{
 };
 pub use client::{CokretFrameStream, CokretHttpClient};
 pub use config::{
-    CokretAccountConfig, CokretChannelConfig, derive_cokret_device_id, load_cokret_channel_configs,
+    CokretAccountConfig, CokretAccountMode, CokretChannelConfig, CokretYougenBootstrap,
+    build_cokret_runtime_key_request_json, derive_cokret_device_id, load_cokret_channel_configs,
     resolve_cokret_outbound_account,
 };
 pub use crypto_state::{
@@ -61,8 +61,8 @@ pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbou
 pub use parse::{
     CokretInboundEvent, CokretInboundEventOutcome, CokretInboundParseResult,
     CokretInboundSkipReason, CokretInboundSkippedEvent, classify_message_event,
-    extract_message_event, parse_delta_frame_for_account, parse_notification_delta_for_account,
-    should_dispatch_event,
+    extract_message_event, parse_delta_frame_for_account, parse_event_frame_for_account,
+    parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use seq_store::FileSeqStore;
 pub use session::{CokretSession, login_with_signer};

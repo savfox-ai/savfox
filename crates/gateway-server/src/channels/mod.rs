@@ -222,13 +222,14 @@ pub(crate) async fn initialize_and_start_channels(
             "cokret" => {
                 // Branch on the inner `mode` discriminator: `"applet"` runs as
                 // a registered Applet (≈ Matrix Appservice), anything else
-                // (default `"account"`) runs as a controlled-account client.
+                // (default `"agent"`, plus legacy `"account"`) runs through
+                // the personal-agent/legacy account listener path.
                 let mode = config
                     .config
                     .get("mode")
                     .and_then(|v| v.as_str())
                     .map(|m| m.to_ascii_lowercase())
-                    .unwrap_or_else(|| "account".to_owned());
+                    .unwrap_or_else(|| "agent".to_owned());
                 if mode == "applet" {
                     crate::channels::cokret_applet::start_cokret_applet_channel(
                         &config,

@@ -160,11 +160,7 @@ impl Policy {
 /// `\` separators so the same logic applies to POSIX and Windows paths.
 fn program_basename(program: &str) -> Option<&str> {
     let base = program.rsplit(['/', '\\']).next().unwrap_or(program);
-    if base.is_empty() {
-        None
-    } else {
-        Some(base)
-    }
+    if base.is_empty() { None } else { Some(base) }
 }
 
 fn render_pattern_token(token: &PatternToken) -> String {

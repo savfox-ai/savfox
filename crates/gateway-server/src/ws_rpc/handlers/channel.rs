@@ -152,10 +152,16 @@ fn channel_config_collection_len(
 }
 
 fn cokret_mode_from_config_obj(map: &serde_json::Map<String, Value>) -> String {
-    first_non_empty_channel_config_string(map, &["mode"])
+    match first_non_empty_channel_config_string(map, &["mode"])
         .map(|value| value.to_ascii_lowercase())
-        .filter(|value| value == "applet")
-        .unwrap_or_else(|| "account".to_owned())
+        .as_deref()
+    {
+        Some("applet") => "applet".to_owned(),
+        Some("agent" | "personal_agent" | "personal-agent" | "account") | None => {
+            "agent".to_owned()
+        }
+        Some(_) => "agent".to_owned(),
+    }
 }
 
 fn cokret_namespace_count(map: &serde_json::Map<String, Value>) -> Option<u32> {
@@ -1909,7 +1915,7 @@ async fn handle_cokret_channel_test(
         .config
         .as_object()
         .map(cokret_mode_from_config_obj)
-        .unwrap_or_else(|| "account".to_owned());
+        .unwrap_or_else(|| "agent".to_owned());
 
     if mode == "applet" {
         let parsed =
@@ -1942,7 +1948,7 @@ async fn handle_cokret_channel_test(
         .ok_or_else(|| {
             (
                 INVALID_REQUEST,
-                "Cokret account channel config must include baseUrl plus at least one account auth path"
+                "Cokret agent channel config must include a Yougen bootstrap plus completed runtime key pairing"
                     .to_owned(),
             )
         })?;
@@ -1952,12 +1958,64 @@ async fn handle_cokret_channel_test(
     Ok(json!({
         "platform": "cokret",
         "ok": true,
-        "mode": "account",
+        "mode": "agent",
         "base_url": parsed.base_url.as_str(),
         "service_did": parsed.service_did.as_deref(),
         "account_count": parsed.accounts.len(),
         "listener_count": parsed.accounts.iter().filter(|account| account.listen).count(),
-        "message": "Cokret account configuration is valid",
+        "message": "Cokret agent configuration is valid",
+    }))
+}
+
+pub(crate) async fn handle_channels_cokret_runtime_key_request(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let saved_configs = load_saved_channel_configs(channel).await;
+    let Some(raw_config) = cokret_test_channel_config(params, &saved_configs) else {
+        return Err((
+            INVALID_REQUEST,
+            "Cokret agent channel config is required".to_owned(),
+        ));
+    };
+    let parsed = savfox_channels::cokret::CokretChannelConfig::from_channel_config(&raw_config)
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "Cokret agent channel config must include a Yougen bootstrap and runtime key ref"
+                    .to_owned(),
+            )
+        })?;
+    let account_id = params
+        .get("account_id")
+        .or_else(|| params.get("accountId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let account = if let Some(account_id) = account_id {
+        parsed
+            .accounts
+            .iter()
+            .find(|account| account.id == account_id)
+    } else {
+        parsed.accounts.first()
+    }
+    .ok_or_else(|| {
+        (
+            INVALID_REQUEST,
+            "Cokret agent channel config has no runtime account to pair".to_owned(),
+        )
+    })?;
+    let request =
+        savfox_channels::cokret::build_cokret_runtime_key_request_json(account, chrono::Utc::now())
+            .map_err(|err| (INVALID_REQUEST, err.to_string()))?;
+    Ok(json!({
+        "platform": "cokret",
+        "ok": true,
+        "mode": "agent",
+        "account_id": account.id.as_str(),
+        "runtime_key_request": request,
+        "message": "Cokret runtime key request generated",
     }))
 }
 
@@ -2950,33 +3008,57 @@ mod tests {
     }
 
     #[test]
-    fn cokret_account_ready_requires_valid_account_config() {
+    fn cokret_agent_ready_requires_completed_runtime_pairing() {
         let ready = channel_config(
             "cokret",
             json!({
-                "mode": "account",
+                "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
+                "yougenBootstrap": {
+                    "base_url": "https://cokret.example.org",
+                    "service_did": "did:webvh:cokret.example.org",
+                    "agent_principal_id": "did:webvh:example.org:agents:support",
+                    "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
+                    "pairing_code": "12345678",
+                    "expires_at": "2999-01-01T00:00:00.000Z",
+                    "requested_scope": [
+                        "ck.self.events.stream.subscribe",
+                        "ck.self.events.query.scan",
+                        "ck.self.events.command.submit",
+                        "ck.event.read",
+                        "ck.message.create"
+                    ]
+                },
                 "principalId": "did:webvh:example.org:agents:support",
-                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
-                "accessToken": "token-1",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
                 "defaultRealmId": "ck:realm:abc"
             }),
         );
-        let missing_realm = channel_config(
+        let missing_authorization = channel_config(
             "cokret",
             json!({
-                "mode": "account",
+                "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
+                "yougenBootstrap": {
+                    "base_url": "https://cokret.example.org",
+                    "service_did": "did:webvh:cokret.example.org",
+                    "agent_principal_id": "did:webvh:example.org:agents:support",
+                    "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
+                    "pairing_code": "12345678",
+                    "requested_scope": ["ck.self.events.stream.subscribe"]
+                },
                 "principalId": "did:webvh:example.org:agents:support",
-                "deviceId": "ck:device:01904100-0000-7000-8000-000000000001",
-                "accessToken": "token-1",
-                "send": true
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+                "defaultRealmId": "ck:realm:abc"
             }),
         );
 
         assert!(saved_channel_config_ready(&ready));
-        assert!(!saved_channel_config_ready(&missing_realm));
+        assert!(!saved_channel_config_ready(&missing_authorization));
     }
 
     #[test]
