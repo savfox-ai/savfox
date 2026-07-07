@@ -2565,7 +2565,7 @@ dependencies = [
 [[package]]
 name = "dingtalk-sdk"
 version = "0.1.2"
-source = "git+https://github.com/palpo-im/dingtalk-sdk?branch=main#14ba4f9d784e1dd2e8830108529a1c968be7f3b7"
+source = "git+https://github.com/palpo-im/dingtalk-sdk?rev=14ba4f9d784e1dd2e8830108529a1c968be7f3b7#14ba4f9d784e1dd2e8830108529a1c968be7f3b7"
 dependencies = [
  "aes",
  "async-trait",
@@ -3509,7 +3509,7 @@ dependencies = [
 [[package]]
 name = "eventsource-stream"
 version = "0.2.3"
-source = "git+https://github.com/chrislearn/eventsource-stream.git?branch=next#bab35d7d572564b6a531c4c11f33df977ff964cf"
+source = "git+https://github.com/chrislearn/eventsource-stream.git?rev=bab35d7d572564b6a531c4c11f33df977ff964cf#bab35d7d572564b6a531c4c11f33df977ff964cf"
 dependencies = [
  "futures-core",
  "nom 7.1.3",
