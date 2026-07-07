@@ -42,9 +42,6 @@ impl ChannelStatusView for CokretStatus {
         if let Some(principal_id) = &self.principal_id {
             stats.push(("Principal".into(), principal_id.clone()));
         }
-        if let Some(realm_id) = &self.default_realm_id {
-            stats.push(("Default Realm".into(), realm_id.clone()));
-        }
         if let Some(applet_id) = &self.applet_id {
             stats.push(("Applet".into(), applet_id.clone()));
         }

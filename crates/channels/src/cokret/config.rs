@@ -65,12 +65,6 @@ pub struct CokretAccountConfig {
     pub authorized_event_ref: Option<String>,
     /// Requested service/content runtime scope saved as typed list.
     pub requested_scope: Vec<String>,
-    /// Optional Savfox-side external AI endpoint/provider configuration for
-    /// this personal agent runtime.
-    pub external_ai_endpoint_config: Option<Value>,
-    pub default_realm_id: Option<String>,
-    pub default_flow_id: Option<String>,
-    pub agent_id: Option<String>,
     pub listen: bool,
     pub send: bool,
 }
@@ -155,19 +149,12 @@ impl CokretChannelConfig {
         self.accounts.iter().find(|a| a.id == account_id)
     }
 
-    /// Pick the account that should send to the given realm. Preference:
-    /// 1. An account whose `default_realm_id == realm_id`.
-    /// 2. The first account with `send == true`.
+    /// Pick the account that should send to the given realm.
+    ///
+    /// Personal-agent accounts are user-scoped, not Realm-scoped, so the
+    /// Cokret realm supplied by the incoming event is only the outbound target.
     #[must_use]
-    pub fn select_send_account(&self, realm_id: &str) -> Option<&CokretAccountConfig> {
-        if let Some(account) = self.accounts.iter().find(|a| {
-            a.send
-                && a.default_realm_id
-                    .as_deref()
-                    .is_some_and(|r| r.eq_ignore_ascii_case(realm_id))
-        }) {
-            return Some(account);
-        }
+    pub fn select_send_account(&self, _realm_id: &str) -> Option<&CokretAccountConfig> {
         self.accounts.iter().find(|a| a.send)
     }
 }
@@ -216,7 +203,7 @@ impl CokretAccountConfig {
         }
         if self.yougen_bootstrap.is_none() {
             anyhow::bail!(
-                "Cokret agent '{}' missing yougenBootstrap; paste the Yougen Savfox bootstrap instead of a static session grant",
+                "Cokret agent '{}' missing yougenBootstrap; paste the Yougen pairing link or resolved bootstrap instead of a static session grant",
                 self.id
             );
         }
@@ -263,28 +250,6 @@ impl CokretAccountConfig {
         if self.send && !self.has_requested_scope("ck.self.events.command.submit") {
             anyhow::bail!(
                 "Cokret agent '{}' send=true requires service scope ck.self.events.command.submit; content grants alone must not call the submit endpoint",
-                self.id
-            );
-        }
-        if self
-            .external_ai_endpoint_config
-            .as_ref()
-            .is_some_and(|value| !value.is_object())
-        {
-            anyhow::bail!(
-                "Cokret agent '{}' externalAiEndpointConfig must be a JSON object",
-                self.id
-            );
-        }
-        if self.listen
-            && self
-                .default_realm_id
-                .as_deref()
-                .map(str::trim)
-                .is_none_or(str::is_empty)
-        {
-            anyhow::bail!(
-                "Cokret agent '{}' listen=true requires defaultRealmId for ck.self.events.stream.subscribe",
                 self.id
             );
         }
@@ -339,18 +304,11 @@ fn parse_account_entry(
     let id = first_non_empty(map, &["id"]).unwrap_or_else(|| principal_id.clone());
     let device_id = first_non_empty(map, &["deviceId"])
         .unwrap_or_else(|| derive_cokret_device_id(&[channel_id, &id, &principal_id]));
-    let default_realm_id = first_non_empty(map, &["defaultRealmId"]);
-    let default_flow_id = first_non_empty(map, &["defaultFlowId"]);
-    let agent_id = first_non_empty(map, &["agentId"]);
     let verification_method = first_non_empty(map, &["verificationMethod"]);
     let cokret_server_did = first_non_empty(map, &["cokretServerDid"]);
     let login_challenge = first_non_empty(map, &["loginChallenge"]);
     let grant_event_path = first_non_empty(map, &["grantEventPath"]).map(PathBuf::from);
     let authorized_event_ref = first_non_empty(map, &["authorizedEventRef"]);
-    let external_ai_endpoint_config = map
-        .get("externalAiEndpointConfig")
-        .filter(|value| !value.is_null())
-        .cloned();
 
     let listen = map.get("listen").and_then(Value::as_bool).unwrap_or(true);
     let send = map.get("send").and_then(Value::as_bool).unwrap_or(true);
@@ -376,10 +334,6 @@ fn parse_account_entry(
         yougen_bootstrap: bootstrap.cloned(),
         authorized_event_ref,
         requested_scope,
-        external_ai_endpoint_config,
-        default_realm_id,
-        default_flow_id,
-        agent_id,
         listen,
         send,
     })
@@ -623,9 +577,6 @@ mod tests {
                     "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_SUPPORT_KEY" },
                     "verificationMethod": "did:webvh:example.org:agents:support-1#runtime-1",
                     "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000001",
-                    "defaultRealmId": "ck:realm:abc",
-                    "defaultFlowId": "ck:flow:def",
-                    "agentId": "support",
                     "listen": true,
                     "send": true
                 },
@@ -641,7 +592,6 @@ mod tests {
                     "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_BILLING_KEY" },
                     "verificationMethod": "did:webvh:example.org:agents:billing-1#runtime-1",
                     "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000002",
-                    "defaultRealmId": "ck:realm:billing",
                     "listen": true,
                     "send": false
                 }
@@ -672,8 +622,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:bot#runtime-1",
-            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000010",
-            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001"
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000010"
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
         assert_eq!(parsed.accounts.len(), 1);
@@ -701,11 +650,8 @@ mod tests {
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
-            "externalAiEndpointConfig": {
-                "provider": "external",
-                "model": "agent-model"
-            },
             "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001",
+            "defaultFlowId": "ck:flow:legacy",
             "agentId": "support"
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
@@ -735,44 +681,12 @@ mod tests {
                 .contains(&"ck.event.read".to_owned())
         );
         assert_eq!(
-            account
-                .external_ai_endpoint_config
-                .as_ref()
-                .and_then(|value| value.get("provider"))
-                .and_then(Value::as_str),
-            Some("external")
-        );
-        assert_eq!(
             account.yougen_bootstrap.as_ref().map(|bootstrap| bootstrap
                 .pairing_expires_at
                 .to_rfc3339_opts(SecondsFormat::Secs, true)),
             Some("2026-07-06T12:00:00Z".to_owned())
         );
         parsed.validate().expect("validate");
-    }
-
-    #[test]
-    fn agent_runtime_rejects_non_object_external_ai_endpoint_config() {
-        let cfg = make_channel_config(json!({
-            "mode": "agent",
-            "yougenBootstrap": sdk_yougen_bootstrap(
-                "https://cokret.example.org",
-                "did:webvh:cokret.example.org",
-                "did:webvh:example.org:agents:support",
-                "pair-123",
-                "123456"
-            ),
-            "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
-            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
-            "externalAiEndpointConfig": "not-json-object",
-            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001"
-        }));
-        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
-        let err = parsed
-            .validate()
-            .expect_err("external AI endpoint config must be object");
-        assert!(format!("{err:#}").contains("externalAiEndpointConfig"));
     }
 
     #[test]
@@ -803,8 +717,7 @@ mod tests {
             ),
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:bot#runtime-1",
-            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000010",
-            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001"
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000010"
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
         let again = CokretChannelConfig::from_channel_config(&cfg).expect("parse again");
@@ -891,7 +804,6 @@ mod tests {
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
-            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001",
             "requestedScope": ["ck.event.read", "ck.message.create"],
             "listen": true,
             "send": false
@@ -967,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn select_send_account_prefers_default_realm_match() {
+    fn select_send_account_uses_first_sending_user_agent() {
         let cfg = make_channel_config(json!({
             "baseUrl": "https://x.example",
             "accounts": [
@@ -982,8 +894,7 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_A_KEY" },
                     "verificationMethod": "did:webvh:a#runtime-1",
-                    "authorizedEventRef": "ck:event:01904100-0000-7000-8000-0000000000a1",
-                    "defaultRealmId":"ck:realm:1"
+                    "authorizedEventRef": "ck:event:01904100-0000-7000-8000-0000000000a1"
                 },
                 {
                     "id":"b",
@@ -996,14 +907,13 @@ mod tests {
                     ),
                     "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_B_KEY" },
                     "verificationMethod": "did:webvh:b#runtime-1",
-                    "authorizedEventRef": "ck:event:01904100-0000-7000-8000-0000000000b2",
-                    "defaultRealmId":"ck:realm:2"
+                    "authorizedEventRef": "ck:event:01904100-0000-7000-8000-0000000000b2"
                 }
             ]
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
         let chosen = parsed.select_send_account("ck:realm:2").expect("match");
-        assert_eq!(chosen.id, "b");
+        assert_eq!(chosen.id, "a");
     }
 
     #[test]
@@ -1020,8 +930,7 @@ mod tests {
             ),
             "keyRef": { "kind": "inline_seed_base64", "value": seed },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
-            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001"
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099"
         }));
         let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
         let request = build_cokret_runtime_key_request_json(

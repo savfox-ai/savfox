@@ -49,7 +49,6 @@ pub enum CokretInboundSkipReason {
     UnsupportedContentKind(String),
     UnsupportedNotificationType(String),
     LoopbackFromAccount,
-    RealmNotAllowed,
     ContentReadNotGranted,
     EmptyBody,
 }
@@ -178,8 +177,6 @@ pub fn classify_message_event(event: &Value, account_id: &str) -> CokretInboundE
 ///
 /// Rules:
 /// * Drop messages sent by the listening account itself (loop guard).
-/// * Drop messages whose realm is not in the account's allow set (when the account specifies one
-///   via `default_realm_id`); accounts without a `default_realm_id` accept any realm.
 #[must_use]
 pub fn should_dispatch_event(event: &CokretInboundEvent, account: &CokretAccountConfig) -> bool {
     dispatch_skip_reason(event, account).is_none()
@@ -199,11 +196,6 @@ fn dispatch_skip_reason(
 ) -> Option<CokretInboundSkipReason> {
     if event.sender_did.eq_ignore_ascii_case(&account.principal_id) {
         return Some(CokretInboundSkipReason::LoopbackFromAccount);
-    }
-    if let Some(allowed) = account.default_realm_id.as_deref()
-        && !event.realm_id.eq_ignore_ascii_case(allowed)
-    {
-        return Some(CokretInboundSkipReason::RealmNotAllowed);
     }
     if !account_allows_event_read(account) {
         return Some(CokretInboundSkipReason::ContentReadNotGranted);
@@ -536,7 +528,7 @@ mod tests {
 
     use super::*;
 
-    fn make_account(realm: Option<&str>) -> CokretAccountConfig {
+    fn make_account(_realm: Option<&str>) -> CokretAccountConfig {
         CokretAccountConfig {
             mode: crate::cokret::CokretAccountMode::Agent,
             id: "support".into(),
@@ -551,10 +543,6 @@ mod tests {
             yougen_bootstrap: None,
             authorized_event_ref: None,
             requested_scope: vec!["ck.event.read".into()],
-            external_ai_endpoint_config: None,
-            default_realm_id: realm.map(str::to_owned),
-            default_flow_id: None,
-            agent_id: Some("support".into()),
             listen: true,
             send: true,
         }
@@ -672,12 +660,12 @@ mod tests {
     }
 
     #[test]
-    fn should_dispatch_filters_non_allowed_realm() {
+    fn should_dispatch_accepts_any_realm_for_user_agent() {
         let account = make_account(Some("ck:realm:other"));
         let event = message_event("did:webvh:other", "hi");
         let parsed =
             extract_message_event(&event, &account.id).expect("message event should parse");
-        assert!(!should_dispatch_event(&parsed, &account));
+        assert!(should_dispatch_event(&parsed, &account));
     }
 
     #[test]
@@ -720,10 +708,17 @@ mod tests {
             }
         });
         let result = parse_delta_frame_for_account(&realms, &account);
-        assert_eq!(result.events.len(), 1);
-        assert_eq!(result.events[0].sender_did, "did:webvh:bob");
-        assert_eq!(result.events[0].body, "hello bob");
-        assert_eq!(result.skipped.len(), 3);
+        assert_eq!(result.events.len(), 2);
+        assert!(
+            result
+                .events
+                .iter()
+                .any(|event| { event.sender_did == "did:webvh:bob" && event.body == "hello bob" })
+        );
+        assert!(result.events.iter().any(|event| {
+            event.sender_did == "did:webvh:dan" && event.body == "from other realm"
+        }));
+        assert_eq!(result.skipped.len(), 2);
         assert!(
             result
                 .skipped
@@ -735,12 +730,6 @@ mod tests {
                 .skipped
                 .iter()
                 .any(|event| event.reason == CokretInboundSkipReason::EmptyBody)
-        );
-        assert!(
-            result
-                .skipped
-                .iter()
-                .any(|event| event.reason == CokretInboundSkipReason::RealmNotAllowed)
         );
     }
 
@@ -871,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_notification_delta_applies_realm_filter() {
+    fn parse_notification_delta_accepts_any_realm_for_user_agent() {
         let account = make_account(Some("ck:realm:allowed"));
         let notifications = json!({
             "events": [{
@@ -885,11 +874,8 @@ mod tests {
 
         let result = parse_notification_delta_for_account(&notifications, &account);
 
-        assert!(result.events.is_empty());
-        assert_eq!(result.skipped.len(), 1);
-        assert_eq!(
-            result.skipped[0].reason,
-            CokretInboundSkipReason::RealmNotAllowed
-        );
+        assert_eq!(result.events.len(), 1);
+        assert!(result.skipped.is_empty());
+        assert_eq!(result.events[0].realm_id, "ck:realm:other");
     }
 }

@@ -161,7 +161,6 @@ pub struct CokretStatus {
     pub service_did: Option<String>,
     pub account_id: Option<String>,
     pub principal_id: Option<String>,
-    pub default_realm_id: Option<String>,
     pub applet_id: Option<String>,
     pub bot_actor_id: Option<String>,
     pub protocol_count: Option<u32>,

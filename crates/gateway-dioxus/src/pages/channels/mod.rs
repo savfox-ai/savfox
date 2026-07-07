@@ -72,14 +72,6 @@ enum FieldType {
     Select(Vec<String>),
 }
 
-const DEFAULT_COKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
-    "ck.self.events.stream.subscribe",
-    "ck.self.events.query.scan",
-    "ck.self.events.command.submit",
-    "ck.event.read",
-    "ck.message.create",
-];
-
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgentPairingBootstrap {
@@ -628,69 +620,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Internal Cokret runtime device id. Savfox derives this automatically.",
                 },
                 ConfigField {
-                    key: "principalId".into(),
-                    label: "Agent DID".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "did:web:agent.example".into(),
-                    secret: false,
-                    required: false,
-                    help: "Derived from the Yougen bootstrap. Override only when inspecting a low-level config.",
-                },
-                ConfigField {
-                    key: "defaultRealmId".into(),
-                    label: "Realm Filter".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "ck:realm:...".into(),
-                    secret: false,
-                    required: false,
-                    help: "Optional account filter or fallback realm. Normal replies use the Realm carried by the incoming Cokret event.",
-                },
-                ConfigField {
-                    key: "defaultFlowId".into(),
-                    label: "Flow ID".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "ck:flow:...".into(),
-                    secret: false,
-                    required: false,
-                    help: "Optional flow id attached to outbound account messages.",
-                },
-                ConfigField {
-                    key: "agentId".into(),
-                    label: "Savfox Agent".into(),
-                    field_type: FieldType::Text,
-                    placeholder: "default".into(),
-                    secret: false,
-                    required: false,
-                    help: "Savfox agent that handles inbound Cokret messages.",
-                },
-                ConfigField {
-                    key: "externalAiEndpointConfig".into(),
-                    label: "External AI Endpoint Config".into(),
-                    field_type: FieldType::Textarea,
-                    placeholder: r#"{"provider":"external","model":"agent-model","base_url":"https://ai.example/v1"}"#.into(),
-                    secret: false,
-                    required: false,
-                    help: "Optional Savfox-side external AI endpoint/provider JSON for this personal agent runtime.",
-                },
-                ConfigField {
-                    key: "listen".into(),
-                    label: "Receive messages".into(),
-                    field_type: FieldType::Toggle,
-                    placeholder: String::new(),
-                    secret: false,
-                    required: false,
-                    help: "Start the account listener for incoming Cokret events.",
-                },
-                ConfigField {
-                    key: "send".into(),
-                    label: "Send replies".into(),
-                    field_type: FieldType::Toggle,
-                    placeholder: String::new(),
-                    secret: false,
-                    required: false,
-                    help: "Allow Savfox to send replies through this account.",
-                },
-                ConfigField {
                     key: "advanced".into(),
                     label: "Advanced settings".into(),
                     field_type: FieldType::Toggle,
@@ -698,15 +627,6 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     secret: false,
                     required: false,
                     help: "Show low-level Cokret scope, signing, and applet runtime fields.",
-                },
-                ConfigField {
-                    key: "requestedScope".into(),
-                    label: "Requested Runtime Scope".into(),
-                    field_type: FieldType::Textarea,
-                    placeholder: "ck.self.events.stream.subscribe\nck.self.events.query.scan\nck.self.events.command.submit\nck.event.read\nck.message.create".into(),
-                    secret: false,
-                    required: false,
-                    help: "Typed agent runtime scope saved into requestedScope[]. Service scopes grant endpoint access; content actions still require content grants.",
                 },
                 ConfigField {
                     key: "appletId".into(),
@@ -1688,17 +1608,9 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         .and_then(Value::as_str)
         .map(str::to_ascii_lowercase)
         .unwrap_or_else(|| "agent".to_string());
-    let account_advanced = [
-        "serviceDid",
-        "cokretServerDid",
-        "defaultFlowId",
-        "externalAiEndpointConfig",
-        "requestedScope",
-        "verificationMethod",
-        "authorizedEventRef",
-        "grantEventPath",
-        "keyRef",
-    ];
+    if mode != "applet" {
+        return false;
+    }
     let applet_advanced = [
         "botActorId",
         "cokretServerDid",
@@ -1715,12 +1627,8 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         "grantEventPath",
         "keyRef",
     ];
-    let keys: &[&str] = if mode == "applet" {
-        &applet_advanced
-    } else {
-        &account_advanced
-    };
-    keys.iter()
+    applet_advanced
+        .iter()
         .any(|key| config_obj.get(*key).is_some_and(cokret_value_is_present))
 }
 
@@ -2007,7 +1915,8 @@ fn is_matrix_channel(fields: &[ConfigField]) -> bool {
 fn is_cokret_channel(fields: &[ConfigField]) -> bool {
     fields.iter().any(|field| field.key == "mode")
         && fields.iter().any(|field| field.key == "appletId")
-        && fields.iter().any(|field| field.key == "principalId")
+        && fields.iter().any(|field| field.key == "yougenBootstrap")
+        && fields.iter().any(|field| field.key == "keyRef")
 }
 
 fn current_matrix_mode(
@@ -2186,6 +2095,25 @@ fn is_cokret_account_only_field(field_key: &str) -> bool {
     )
 }
 
+fn is_cokret_agent_hidden_field(field_key: &str) -> bool {
+    matches!(
+        field_key,
+        "advanced"
+            | "baseUrl"
+            | "serviceDid"
+            | "cokretServerDid"
+            | "principalId"
+            | "defaultRealmId"
+            | "defaultFlowId"
+            | "agentId"
+            | "externalAiEndpointConfig"
+            | "listen"
+            | "send"
+            | "requestedScope"
+            | "grantEventPath"
+    )
+}
+
 fn is_cokret_applet_only_field(field_key: &str) -> bool {
     matches!(
         field_key,
@@ -2223,18 +2151,6 @@ fn is_cokret_helper_field(field_key: &str) -> bool {
 
 fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
     matches!(field_key, "cokretServerDid")
-        || (mode != "applet"
-            && matches!(
-                field_key,
-                "baseUrl"
-                    | "serviceDid"
-                    | "principalId"
-                    | "defaultRealmId"
-                    | "defaultFlowId"
-                    | "externalAiEndpointConfig"
-                    | "requestedScope"
-                    | "grantEventPath"
-            ))
         || (mode == "applet"
             && matches!(
                 field_key,
@@ -2278,6 +2194,9 @@ fn field_is_visible(
     if channel_id == "cokret" {
         let cokret_mode = current_cokret_mode(channel_id, values);
         if is_cokret_internal_field(&field.key) {
+            return false;
+        }
+        if cokret_mode != "applet" && is_cokret_agent_hidden_field(&field.key) {
             return false;
         }
         if is_cokret_account_only_field(&field.key) && cokret_mode == "applet" {
@@ -2386,15 +2305,6 @@ fn build_cokret_channel_patch(
                 parse_cokret_agent_pairing_bootstrap(parsed.clone())?;
                 patch[&field.key] = parsed;
             }
-            "externalAiEndpointConfig" => {
-                let parsed = parse_json_config_field("External AI Endpoint Config JSON", value)?;
-                if !parsed.is_object() {
-                    return Err(
-                        "External AI Endpoint Config JSON must be a JSON object.".to_string()
-                    );
-                }
-                patch[&field.key] = parsed;
-            }
             "trustedVerificationMethods" => {
                 let parsed = parse_json_config_field("Trusted Verification Methods JSON", value)?;
                 if !parsed.is_array() {
@@ -2404,7 +2314,7 @@ fn build_cokret_channel_patch(
                 }
                 patch[&field.key] = parsed;
             }
-            "requestedScope" | "requestedScopes" => {
+            "requestedScopes" => {
                 patch[&field.key] = json!(split_config_list(value));
             }
             _ if matches!(field.field_type, FieldType::Toggle) => {
@@ -2440,6 +2350,7 @@ fn build_cokret_channel_patch(
         }
     } else {
         patch["namespaces"] = Value::Null;
+        clear_cokret_agent_obsolete_fields(&mut patch);
         apply_cokret_bootstrap_defaults(&mut patch);
         validate_cokret_agent_runtime_request_inputs(&patch)?;
     }
@@ -2491,16 +2402,39 @@ fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
     };
 
     if patch_value_empty(patch.get("baseUrl")) {
-        patch["baseUrl"] = json!(bootstrap.cokret_base_url);
+        patch["baseUrl"] = Value::Null;
     }
     if patch_value_empty(patch.get("serviceDid")) {
-        patch["serviceDid"] = json!(bootstrap.service_did.to_string());
+        patch["serviceDid"] = Value::Null;
     }
     if patch_value_empty(patch.get("principalId")) {
-        patch["principalId"] = json!(bootstrap.agent_principal_id.to_string());
+        patch["principalId"] = Value::Null;
     }
     if patch_value_empty(patch.get("requestedScope")) {
-        patch["requestedScope"] = json!(DEFAULT_COKRET_AGENT_RUNTIME_SCOPE);
+        patch["requestedScope"] = Value::Null;
+    }
+    if patch_value_empty(patch.get("verificationMethod")) {
+        patch["verificationMethod"] = json!(format!("{}#runtime-1", bootstrap.agent_principal_id));
+    }
+}
+
+fn clear_cokret_agent_obsolete_fields(patch: &mut Value) {
+    for key in [
+        "baseUrl",
+        "serviceDid",
+        "cokretServerDid",
+        "deviceId",
+        "principalId",
+        "defaultRealmId",
+        "defaultFlowId",
+        "agentId",
+        "externalAiEndpointConfig",
+        "listen",
+        "send",
+        "requestedScope",
+        "grantEventPath",
+    ] {
+        patch[key] = Value::Null;
     }
 }
 
@@ -3976,7 +3910,8 @@ fn render_single_field(
                             let key = key_for_resolve.clone();
                             let status_key = status_key_for_resolve.clone();
                             let ws = ws_resolve.clone();
-                            let _ch_id = ch_id_for_resolve.clone();
+                            let verification_method_key =
+                                field_value_key(&ch_id_for_resolve, "verificationMethod");
                             values.write().insert(
                                 status_key.clone(),
                                 "Resolving pairing link...".to_string(),
@@ -3999,8 +3934,27 @@ fn render_single_field(
                                             .unwrap_or(serde_json::Value::Null);
                                         let text = serde_json::to_string_pretty(&bootstrap)
                                             .unwrap_or_else(|_| bootstrap.to_string());
-                                        values.write().insert(key, text);
-                                        values.write().insert(
+                                        let default_verification_method = bootstrap
+                                            .get("agent_principal_id")
+                                            .and_then(serde_json::Value::as_str)
+                                            .map(str::trim)
+                                            .filter(|value| !value.is_empty())
+                                            .map(|value| format!("{value}#runtime-1"));
+                                        let mut values = values.write();
+                                        values.insert(key, text);
+                                        if let Some(default_verification_method) =
+                                            default_verification_method
+                                            && values
+                                                .get(&verification_method_key)
+                                                .map(|value| value.trim().is_empty())
+                                                .unwrap_or(true)
+                                        {
+                                            values.insert(
+                                                verification_method_key,
+                                                default_verification_method,
+                                            );
+                                        }
+                                        values.insert(
                                             status_key,
                                             "Pairing link resolved to bootstrap JSON.".to_string(),
                                         );
@@ -5080,7 +5034,7 @@ mod tests {
                 .any(|field| field.key == "runtimeKeyRequest")
         );
         assert!(
-            cokret
+            !cokret
                 .config_fields
                 .iter()
                 .any(|field| field.key == "externalAiEndpointConfig")
@@ -5103,46 +5057,57 @@ mod tests {
         let fields = cokret_fields();
         let values = default_channel_values("cokret", &fields);
         let visible = |key: &str| {
-            let field = fields.iter().find(|field| field.key == key).expect(key);
-            field_is_visible("cokret", field, &values)
+            fields
+                .iter()
+                .find(|field| field.key == key)
+                .is_some_and(|field| field_is_visible("cokret", field, &values))
         };
 
         assert!(visible("yougenBootstrap"));
-        assert!(visible("agentId"));
         assert!(visible("keyRef"));
         assert!(visible("verificationMethod"));
         assert!(visible("authorizedEventRef"));
         assert!(visible("runtimeKeyRequest"));
-        assert!(visible("advanced"));
+        assert!(!visible("advanced"));
         assert!(!visible("baseUrl"));
+        assert!(!visible("serviceDid"));
+        assert!(!visible("cokretServerDid"));
         assert!(!visible("principalId"));
         assert!(!visible("externalAiEndpointConfig"));
         assert!(!visible("accessToken"));
         assert!(!visible("loginChallenge"));
         assert!(!visible("defaultRealmId"));
+        assert!(!visible("defaultFlowId"));
+        assert!(!visible("agentId"));
+        assert!(!visible("listen"));
+        assert!(!visible("send"));
         assert!(!visible("deviceId"));
-        assert!(!visible("serviceDid"));
         assert!(!visible("requestedScope"));
     }
 
     #[test]
-    fn cokret_advanced_account_reveals_auth_fields() {
+    fn cokret_agent_hides_legacy_fields_even_when_advanced_is_set() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
         let visible = |key: &str| {
-            let field = fields.iter().find(|field| field.key == key).expect(key);
-            field_is_visible("cokret", field, &values)
+            fields
+                .iter()
+                .find(|field| field.key == key)
+                .is_some_and(|field| field_is_visible("cokret", field, &values))
         };
 
-        assert!(visible("baseUrl"));
-        assert!(visible("serviceDid"));
-        assert!(visible("principalId"));
-        assert!(visible("externalAiEndpointConfig"));
+        assert!(!visible("advanced"));
+        assert!(!visible("baseUrl"));
+        assert!(!visible("serviceDid"));
+        assert!(!visible("principalId"));
+        assert!(!visible("defaultRealmId"));
+        assert!(!visible("defaultFlowId"));
+        assert!(!visible("agentId"));
+        assert!(!visible("externalAiEndpointConfig"));
+        assert!(!visible("requestedScope"));
         assert!(visible("keyRef"));
         assert!(visible("authorizedEventRef"));
-        assert!(visible("defaultRealmId"));
-        assert!(visible("requestedScope"));
         assert!(!visible("deviceId"));
         assert!(!visible("loginChallenge"));
     }
@@ -5160,14 +5125,8 @@ mod tests {
             .expect("serviceDid");
         let mut values = default_channel_values("cokret", &fields);
 
-        assert_eq!(
-            field_display_label("cokret", base_url_field, &values),
-            "Cokret Base URL"
-        );
-        assert_eq!(
-            field_display_placeholder("cokret", base_url_field, &values),
-            "https://cokret.example.org"
-        );
+        assert!(!field_is_visible("cokret", base_url_field, &values));
+        assert!(!field_is_visible("cokret", service_did_field, &values));
 
         values.insert(field_value_key("cokret", "mode"), "applet".to_owned());
         assert_eq!(
@@ -5186,7 +5145,7 @@ mod tests {
     }
 
     #[test]
-    fn cokret_saved_advanced_config_restores_advanced_toggle() {
+    fn cokret_saved_agent_config_does_not_restore_advanced_toggle() {
         let fields = cokret_fields();
         let saved = json!({
             "name": "Cokret",
@@ -5203,9 +5162,10 @@ mod tests {
 
         let restored = restore_channel_values("cokret", &fields, &saved);
 
-        assert_eq!(
-            restored.get(&field_value_key("cokret", "advanced")),
-            Some(&"true".to_owned())
+        assert!(
+            restored
+                .get(&field_value_key("cokret", "advanced"))
+                .is_none()
         );
         assert_eq!(
             restored.get(&field_value_key("cokret", "keyRef")),
@@ -5347,22 +5307,21 @@ mod tests {
     fn cokret_account_patch_builds_flat_account_config() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
-        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
             sdk_yougen_bootstrap_json(),
         );
         values.insert(
             field_value_key("cokret", "baseUrl"),
-            "https://cokret.example.org".to_owned(),
+            "https://stale.example.org".to_owned(),
         );
         values.insert(
             field_value_key("cokret", "serviceDid"),
-            "did:webvh:cokret.example.org".to_owned(),
+            "did:webvh:stale.example.org".to_owned(),
         );
         values.insert(
             field_value_key("cokret", "principalId"),
-            "did:webvh:example.org:agents:support".to_owned(),
+            "did:webvh:example.org:agents:stale".to_owned(),
         );
         values.insert(
             field_value_key("cokret", "keyRef"),
@@ -5381,6 +5340,15 @@ mod tests {
             "ck.self.events.stream.subscribe\nck.event.read".to_owned(),
         );
         values.insert(
+            field_value_key("cokret", "defaultRealmId"),
+            "ck:realm:legacy".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "defaultFlowId"),
+            "ck:flow:legacy".to_owned(),
+        );
+        values.insert(field_value_key("cokret", "agentId"), "legacy".to_owned());
+        values.insert(
             field_value_key("cokret", "externalAiEndpointConfig"),
             r#"{"provider":"external","model":"agent-model","base_url":"https://ai.example/v1"}"#
                 .to_owned(),
@@ -5393,14 +5361,13 @@ mod tests {
         let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
 
         assert_eq!(patch["mode"], json!("agent"));
-        assert_eq!(patch["listen"], json!(true));
-        assert_eq!(patch["send"], json!(true));
+        assert!(patch["listen"].is_null());
+        assert!(patch["send"].is_null());
         assert!(patch["deviceId"].is_null());
         assert!(patch["defaultRealmId"].is_null());
-        assert_eq!(
-            patch["requestedScope"],
-            json!(["ck.self.events.stream.subscribe", "ck.event.read"])
-        );
+        assert!(patch["defaultFlowId"].is_null());
+        assert!(patch["agentId"].is_null());
+        assert!(patch["requestedScope"].is_null());
         assert_eq!(
             patch["yougenBootstrap"]["pairing_request_id"],
             json!("pair-123")
@@ -5409,21 +5376,17 @@ mod tests {
             patch["keyRef"],
             json!({"kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY"})
         );
-        assert_eq!(
-            patch["externalAiEndpointConfig"]["provider"],
-            json!("external")
-        );
+        assert!(patch["externalAiEndpointConfig"].is_null());
         assert!(patch["runtimeKeyRequest"].is_null());
-        assert_eq!(
-            patch["principalId"],
-            json!("did:webvh:example.org:agents:support")
-        );
+        assert!(patch["principalId"].is_null());
+        assert!(patch["baseUrl"].is_null());
+        assert!(patch["serviceDid"].is_null());
         assert!(patch["appletId"].is_null());
         assert!(patch["namespaces"].is_null());
     }
 
     #[test]
-    fn cokret_account_patch_rejects_non_object_external_ai_endpoint_config() {
+    fn cokret_account_patch_ignores_hidden_external_ai_endpoint_config() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
@@ -5444,14 +5407,13 @@ mod tests {
             r#""not-object""#.to_owned(),
         );
 
-        let err = build_channel_patch("cokret", &fields, &values)
-            .expect_err("external endpoint config must be object");
+        let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
 
-        assert!(err.contains("External AI Endpoint Config JSON"));
+        assert!(patch["externalAiEndpointConfig"].is_null());
     }
 
     #[test]
-    fn cokret_bootstrap_defaults_fill_visible_agent_fields() {
+    fn cokret_bootstrap_defaults_fill_runtime_verification_method() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
         values.insert(
@@ -5462,22 +5424,16 @@ mod tests {
             field_value_key("cokret", "keyRef"),
             r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
         );
-        values.insert(
-            field_value_key("cokret", "verificationMethod"),
-            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
-        );
 
         let patch = build_channel_patch("cokret", &fields, &values).expect("patch");
 
-        assert_eq!(patch["baseUrl"], json!("https://cokret.example.org"));
-        assert_eq!(patch["serviceDid"], json!("did:webvh:cokret.example.org"));
+        assert!(patch["baseUrl"].is_null());
+        assert!(patch["serviceDid"].is_null());
+        assert!(patch["principalId"].is_null());
+        assert!(patch["requestedScope"].is_null());
         assert_eq!(
-            patch["principalId"],
-            json!("did:webvh:example.org:agents:support")
-        );
-        assert_eq!(
-            patch["requestedScope"],
-            json!(DEFAULT_COKRET_AGENT_RUNTIME_SCOPE)
+            patch["verificationMethod"],
+            json!("did:webvh:example.org:agents:support#runtime-1")
         );
     }
 

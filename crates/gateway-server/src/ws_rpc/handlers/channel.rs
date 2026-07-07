@@ -708,9 +708,6 @@ fn insert_saved_channel_metadata(
                             account.requested_scope.len()
                         };
                         info.insert("runtime_scope_count".to_owned(), json!(runtime_scope_count));
-                        if let Some(default_realm_id) = account.default_realm_id.as_deref() {
-                            info.insert("default_realm_id".to_owned(), json!(default_realm_id));
-                        }
                     }
                 }
             }
@@ -3514,8 +3511,7 @@ mod tests {
                     "ck.self.events.stream.subscribe",
                     "ck.self.events.command.submit",
                     "ck.event.read"
-                ],
-                "defaultRealmId": "ck:realm:abc"
+                ]
             }),
         );
         let missing_authorization = channel_config(
@@ -3526,8 +3522,7 @@ mod tests {
                 "yougenBootstrap": sdk_yougen_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
-                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
-                "defaultRealmId": "ck:realm:abc"
+                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1"
             }),
         );
 
@@ -3556,7 +3551,6 @@ mod tests {
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
                 "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
                 "requestedScope": ["ck.event.read", "ck.message.create"],
-                "defaultRealmId": "ck:realm:abc",
                 "listen": true,
                 "send": false
             }),
@@ -3583,8 +3577,7 @@ mod tests {
                     "ck.self.events.stream.subscribe",
                     "ck.self.events.command.submit",
                     "ck.event.read"
-                ],
-                "defaultRealmId": "ck:realm:abc"
+                ]
             }),
         );
         let state = SavedChannelState {

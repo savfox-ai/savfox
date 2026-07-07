@@ -46,7 +46,7 @@ pub use applet::{
     build_registration_payload, classify_inbound_event, load_cokret_applet_configs, mint_ghost_did,
     namespace_pattern_matches,
 };
-pub use client::{CokretFrameStream, CokretHttpClient};
+pub use client::{CokretAccountFrameStream, CokretFrameStream, CokretHttpClient};
 pub use config::{
     CokretAccountConfig, CokretAccountMode, CokretChannelConfig,
     build_cokret_runtime_key_request_json, derive_cokret_device_id, load_cokret_channel_configs,

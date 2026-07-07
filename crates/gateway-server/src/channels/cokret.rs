@@ -3,7 +3,7 @@
 //! Owns one async task per (channel, account) pair. Each task:
 //!
 //! 1. Mints a short-lived `agent_key_proof` session grant bound to DPoP.
-//! 2. Opens `/_cokret/self/events/subscribe` for the configured Realm.
+//! 2. Opens `/_cokret/self/account/subscribe` for the owning user account.
 //! 3. Extracts dispatchable `ck.message.create` events.
 //! 4. Dispatches each event to the agent pipeline.
 //!
@@ -16,13 +16,14 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret::{Did, EventsSubscribeFrameKind};
+use cokret::{AccountSubscribeFrameKind, AccountSubscribeRealms, Did};
 use savfox_channels::cokret::{
-    CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
-    CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
+    CokretAccountConfig, CokretAccountFrameStream, CokretChannelConfig, CokretDecryptOutcome,
+    CokretEncryptOutcome, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
     CokretInboundSkipReason, CokretInboundSkippedEvent, FileCokretCryptoStore,
     MessageCreateRequest, account_allows_event_read, build_message_create_event,
-    parse_event_frame_for_account, resolve_cokret_outbound_account,
+    parse_delta_frame_for_account, parse_notification_delta_for_account,
+    resolve_cokret_outbound_account,
 };
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -231,14 +232,6 @@ async fn run_account_subscribe_loop(
         }
     };
     runtime::record_channel_probe("cokret", "ok").await;
-    let Some(stream_realm_id) = account.default_realm_id.clone() else {
-        warn!(
-            "cokret: account '{}' on channel '{}' has listen=true but no defaultRealmId",
-            account.id, channel.id
-        );
-        runtime::record_channel_probe("cokret", "error").await;
-        return;
-    };
 
     loop {
         runtime::record_channel_probe("cokret", "ok").await;
@@ -269,12 +262,9 @@ async fn run_account_subscribe_loop(
             }
         }
 
-        match client
-            .events_subscribe_stream(&stream_realm_id, cursor.as_deref())
-            .await
-        {
+        match client.account_subscribe_stream(cursor.as_deref()).await {
             Ok(stream) => {
-                let outcome = consume_stream(
+                let outcome = consume_account_stream(
                     stream,
                     &channel,
                     &account,
@@ -354,24 +344,33 @@ fn session_grant_needs_refresh(session_expiry: Option<DateTime<Utc>>, now: DateT
         .is_some_and(|expiry| now >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS))
 }
 
-fn stream_outcome_for_terminal_control_frame(
-    kind: EventsSubscribeFrameKind,
+fn stream_outcome_for_account_control_frame(
+    kind: AccountSubscribeFrameKind,
 ) -> Option<StreamOutcome> {
     match kind {
-        EventsSubscribeFrameKind::EpochRotation
-        | EventsSubscribeFrameKind::Dropped
-        | EventsSubscribeFrameKind::ResyncRequired => Some(StreamOutcome::ResetCursor),
-        EventsSubscribeFrameKind::Unauthorized => Some(StreamOutcome::Unauthorized),
-        EventsSubscribeFrameKind::Event
-        | EventsSubscribeFrameKind::Frontier
-        | EventsSubscribeFrameKind::Heartbeat
-        | EventsSubscribeFrameKind::CatchupComplete => None,
+        AccountSubscribeFrameKind::Dropped | AccountSubscribeFrameKind::ResyncRequired => {
+            Some(StreamOutcome::ResetCursor)
+        }
+        AccountSubscribeFrameKind::Unauthorized => Some(StreamOutcome::Unauthorized),
+        AccountSubscribeFrameKind::Delta
+        | AccountSubscribeFrameKind::Frontier
+        | AccountSubscribeFrameKind::Heartbeat
+        | AccountSubscribeFrameKind::CatchupComplete => None,
         _ => None,
     }
 }
 
-async fn consume_stream(
-    mut stream: CokretFrameStream,
+fn account_realms_to_value(realms: &AccountSubscribeRealms) -> Value {
+    let object: serde_json::Map<String, Value> = realms
+        .entries
+        .iter()
+        .map(|(realm_id, body)| (realm_id.clone(), body.clone()))
+        .collect();
+    Value::Object(object)
+}
+
+async fn consume_account_stream(
+    mut stream: CokretAccountFrameStream,
     channel: &CokretChannelConfig,
     account: &CokretAccountConfig,
     crypto_store: &FileCokretCryptoStore,
@@ -393,65 +392,75 @@ async fn consume_stream(
                 return StreamOutcome::Backoff;
             }
         };
-        if let Some(new_cursor) = frame.cursor.clone() {
-            *cursor = Some(new_cursor.as_str().to_owned());
+        if let Some(new_cursor) = frame.cursor.as_deref() {
+            *cursor = Some(new_cursor.to_owned());
         }
         match frame.kind {
-            EventsSubscribeFrameKind::Event => {
-                let parsed = parse_event_frame_for_account(&frame.payload, account);
-                handle_parsed_account_events(
-                    parsed,
-                    channel,
-                    account,
-                    crypto_store,
-                    dedupe,
-                    gateway_channel,
-                    session_store,
-                )
-                .await;
+            AccountSubscribeFrameKind::Delta => {
+                if let Some(realms) = frame.realms.as_ref() {
+                    let realms_value = account_realms_to_value(realms);
+                    let parsed = parse_delta_frame_for_account(&realms_value, account);
+                    handle_parsed_account_events(
+                        parsed,
+                        channel,
+                        account,
+                        crypto_store,
+                        dedupe,
+                        gateway_channel,
+                        session_store,
+                    )
+                    .await;
+                }
+                if let Some(notifications) = frame.notifications.as_ref() {
+                    let parsed = parse_notification_delta_for_account(notifications, account);
+                    handle_parsed_account_events(
+                        parsed,
+                        channel,
+                        account,
+                        crypto_store,
+                        dedupe,
+                        gateway_channel,
+                        session_store,
+                    )
+                    .await;
+                }
             }
-            EventsSubscribeFrameKind::CatchupComplete => {
+            AccountSubscribeFrameKind::CatchupComplete => {
                 debug!("cokret: '{}/{}' catchup complete", channel.id, account.id);
             }
-            EventsSubscribeFrameKind::Frontier => {
+            AccountSubscribeFrameKind::Frontier => {
                 // cursor already updated above
             }
-            EventsSubscribeFrameKind::Heartbeat => {}
-            EventsSubscribeFrameKind::EpochRotation => {
-                return stream_outcome_for_terminal_control_frame(
-                    EventsSubscribeFrameKind::EpochRotation,
-                )
-                .expect("epoch_rotation has a stream outcome");
-            }
-            EventsSubscribeFrameKind::Dropped => {
+            AccountSubscribeFrameKind::Heartbeat => {}
+            AccountSubscribeFrameKind::Dropped => {
                 warn!(
                     "cokret: '{}/{}' stream dropped — resyncing",
                     channel.id, account.id
                 );
-                return stream_outcome_for_terminal_control_frame(
-                    EventsSubscribeFrameKind::Dropped,
+                return stream_outcome_for_account_control_frame(
+                    AccountSubscribeFrameKind::Dropped,
                 )
                 .expect("dropped has a stream outcome");
             }
-            EventsSubscribeFrameKind::ResyncRequired => {
+            AccountSubscribeFrameKind::ResyncRequired => {
                 warn!(
                     "cokret: '{}/{}' resync required — resetting cursor",
                     channel.id, account.id
                 );
-                return stream_outcome_for_terminal_control_frame(
-                    EventsSubscribeFrameKind::ResyncRequired,
+                return stream_outcome_for_account_control_frame(
+                    AccountSubscribeFrameKind::ResyncRequired,
                 )
                 .expect("resync_required has a stream outcome");
             }
-            EventsSubscribeFrameKind::Unauthorized => {
-                return stream_outcome_for_terminal_control_frame(
-                    EventsSubscribeFrameKind::Unauthorized,
+            AccountSubscribeFrameKind::Unauthorized => {
+                return stream_outcome_for_account_control_frame(
+                    AccountSubscribeFrameKind::Unauthorized,
                 )
                 .expect("unauthorized has a stream outcome");
             }
             _ => {
                 debug!(
-                    "cokret: '{}/{}' ignored unknown events subscribe frame kind",
+                    "cokret: '{}/{}' ignored unknown account subscribe frame kind",
                     channel.id, account.id
                 );
             }
@@ -523,7 +532,6 @@ async fn dispatch_to_agent(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
-    let agent_id = account.agent_id.clone();
     let config_id = channel.id.clone();
     let sender = event.sender_did.clone();
     let realm_id = event.realm_id.clone();
@@ -554,7 +562,6 @@ async fn dispatch_to_agent(
                 reply_target: flow_id,
                 chat_type: Some("group".to_owned()),
                 saved_channel_config_id: Some(config_id),
-                forced_agent_id: agent_id,
                 sender_kind,
                 ..runtime::StartThreadMeta::default()
             }),
@@ -769,7 +776,7 @@ async fn construct_account_client(
         authorization_ref,
         account.requested_scope.clone(),
         &audience,
-        account.default_realm_id.as_deref(),
+        None,
     )
     .await?;
     info!(
@@ -814,9 +821,9 @@ fn build_account_seq_allocator(
 /// Send a `ck.message.create` event as one of the channel's configured
 /// outbound accounts.
 ///
-/// `realm_id` selects the account via
-/// [`CokretChannelConfig::select_send_account`]. `flow_id` falls back to the
-/// account's `default_flow_id` if `None`.
+/// `realm_id` selects the outbound Cokret realm. `flow_id` must come from the
+/// inbound Cokret context that triggered the reply; it is not configured on the
+/// channel.
 pub(crate) async fn send_to_cokret_account(
     savfox_home: &std::path::PathBuf,
     realm_id: &str,
@@ -833,15 +840,12 @@ pub(crate) async fn send_to_cokret_account(
             account.id
         );
     }
-    let flow = flow_id
-        .map(str::to_owned)
-        .or_else(|| account.default_flow_id.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Cokret account '{}' has no default_flow_id and caller did not supply one",
-                account.id
-            )
-        })?;
+    let flow = flow_id.map(str::to_owned).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cokret account '{}' cannot send without an inbound Cokret flow id",
+            account.id
+        )
+    })?;
 
     // One-shot send uses the same agent_key_proof + DPoP session exchange as
     // the listener. The short grant is not cached on this path.
@@ -864,19 +868,16 @@ pub(crate) async fn send_to_cokret_account(
 
     // Phase 8 (T8.E): attach capability grant event_id when configured.
     if let Some(grant_path) = &account.grant_event_path {
-        let grant = savfox_channels::cokret::load_and_verify_grant(
-            grant_path,
-            &account.principal_id,
-            account.default_realm_id.as_deref(),
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "Cokret account '{}' failed to load capability grant {}",
-                account.id,
-                grant_path.display()
-            )
-        })?;
+        let grant =
+            savfox_channels::cokret::load_and_verify_grant(grant_path, &account.principal_id, None)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Cokret account '{}' failed to load capability grant {}",
+                        account.id,
+                        grant_path.display()
+                    )
+                })?;
         if !grant.covers_action("ck.message.create") {
             anyhow::bail!(
                 "Cokret account '{}' capability grant {} does not cover ck.message.create",
@@ -978,25 +979,21 @@ mod tests {
     }
 
     #[test]
-    fn terminal_control_frames_refresh_session_only_when_unauthorized() {
+    fn account_control_frames_refresh_session_only_when_unauthorized() {
         assert_eq!(
-            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::Unauthorized),
+            stream_outcome_for_account_control_frame(AccountSubscribeFrameKind::Unauthorized),
             Some(StreamOutcome::Unauthorized)
         );
         assert_eq!(
-            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::Dropped),
+            stream_outcome_for_account_control_frame(AccountSubscribeFrameKind::Dropped),
             Some(StreamOutcome::ResetCursor)
         );
         assert_eq!(
-            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::ResyncRequired),
+            stream_outcome_for_account_control_frame(AccountSubscribeFrameKind::ResyncRequired),
             Some(StreamOutcome::ResetCursor)
         );
         assert_eq!(
-            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::EpochRotation),
-            Some(StreamOutcome::ResetCursor)
-        );
-        assert_eq!(
-            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::CatchupComplete),
+            stream_outcome_for_account_control_frame(AccountSubscribeFrameKind::CatchupComplete),
             None
         );
     }

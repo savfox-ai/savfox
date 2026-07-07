@@ -15,8 +15,8 @@ use anyhow::Context;
 use chrono::Utc;
 use cokret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
 use cokret::{
-    DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome, EventsSubscribeFrame,
-    ServerDescription, SessionGrantDpopBindingProof,
+    AccountSubscribeFrame, DeviceId, Did, Ed25519MoveSigner, Event, EventsSubmitOutcome,
+    EventsSubscribeFrame, ServerDescription, SessionGrantDpopBindingProof, SyncRequestBody,
 };
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
@@ -43,6 +43,11 @@ pub struct CokretHttpClient {
 /// [`futures_util::StreamExt::next`] to pull frames.
 pub type CokretFrameStream =
     Pin<Box<dyn Stream<Item = Result<EventsSubscribeFrame, anyhow::Error>> + Send>>;
+
+/// Stream of account-level subscribe frames yielded by
+/// [`CokretHttpClient::account_subscribe_stream`].
+pub type CokretAccountFrameStream =
+    Pin<Box<dyn Stream<Item = Result<AccountSubscribeFrame, anyhow::Error>> + Send>>;
 
 impl CokretHttpClient {
     #[must_use]
@@ -236,6 +241,30 @@ impl CokretHttpClient {
             .await
             .map_err(|err| anyhow::anyhow!("cokret events_subscribe_stream: {err}"))?;
         Ok(Box::pin(ndjson_event_frame_stream(response)))
+    }
+
+    /// `GET /_cokret/self/account/subscribe` — returns a user-scoped account
+    /// stream. Personal-agent runtimes consume this instead of binding the
+    /// listener to a configured Realm.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn account_subscribe_stream(
+        &self,
+        after: Option<&str>,
+    ) -> anyhow::Result<CokretAccountFrameStream> {
+        let request = SyncRequestBody {
+            after: after.map(str::to_owned),
+            catchup: None,
+            filter: None,
+            subscriptions: None,
+            wait_for: None,
+        };
+        let stream = self
+            .inner
+            .account_subscribe_frames(&request)
+            .await
+            .map_err(|err| anyhow::anyhow!("cokret account_subscribe: {err}"))?
+            .map(|frame| frame.map_err(|err| anyhow::anyhow!("cokret account_subscribe: {err}")));
+        Ok(Box::pin(stream))
     }
 
     /// `POST /api/v1/events` — submit one signed Event Envelope.
