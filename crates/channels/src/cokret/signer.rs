@@ -19,7 +19,7 @@ use anyhow::Context as _;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use cokret::Ed25519MoveSigner;
-use cokret_identifiers::Did;
+use cokret::Did;
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;

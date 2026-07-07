@@ -10,7 +10,7 @@
 //! `$SAVFOX_HOME/cokret/grants/<account_id>.json` (or wherever
 //! `grant_event_path` points). On startup we:
 //!
-//! 1. Deserialize the JSON into a [`cokret_core::Event`].
+//! 1. Deserialize the JSON into a [`cokret::Event`].
 //! 2. Deserialize `event.content` into a [`cokret::CapabilityGrant`].
 //! 3. Require production-shaped proofs and validate proof bindings (digest matches content).
 //! 4. Sanity-check subject / realm / expiry against expected values.
@@ -20,7 +20,7 @@ use std::path::Path;
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use cokret_core::{CapabilityGrant, CapabilitySubject, Event};
+use cokret::{CapabilityGrant, CapabilitySubject, Event};
 use serde_json::Value;
 
 /// Loaded capability grant ready for use as `authorization_ref` on
@@ -197,7 +197,7 @@ fn capability_subject_did(subject: &CapabilitySubject) -> Option<&str> {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use cokret_core::Hash;
+    use cokret::Hash;
     use serde_json::json;
 
     use super::*;

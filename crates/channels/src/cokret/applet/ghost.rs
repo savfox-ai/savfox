@@ -16,8 +16,8 @@
 
 use anyhow::Context as _;
 use cokret::ProfileCreateBuilder;
-use cokret_core::Event;
-use cokret_identifiers::{AppletId, Did, Hlc, RealmId};
+use cokret::Event;
+use cokret::{AppletId, Did, Hlc, RealmId};
 use serde_json::{Value, json};
 
 /// Mint a stable ghost DID for an external user.

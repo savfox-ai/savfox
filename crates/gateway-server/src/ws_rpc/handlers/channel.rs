@@ -3161,38 +3161,14 @@ mod tests {
     }
 
     #[cfg(feature = "cokret")]
-    fn sdk_yougen_bootstrap(actions: &[&str]) -> serde_json::Value {
-        let service_scope: Vec<&str> = actions
-            .iter()
-            .copied()
-            .filter(|action| action.starts_with("ck.self."))
-            .collect();
-        let content_actions: Vec<&str> = actions
-            .iter()
-            .copied()
-            .filter(|action| !action.starts_with("ck.self."))
-            .collect();
+    fn sdk_yougen_bootstrap() -> serde_json::Value {
         json!({
-            "schema": "ck.schema.agent_pairing_bootstrap.v1",
             "cokret_base_url": "https://cokret.example.org",
             "service_did": "did:webvh:cokret.example.org",
             "agent_principal_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
             "pairing_code": "12345678",
-            "pairing_expires_at": "2999-01-01T00:00:00Z",
-            "requested_scope": {
-                "actions": actions,
-                "resources": [{
-                    "kind": "realm",
-                    "realm_id": "ck:realm:01904100-0000-7000-8000-000000000001"
-                }],
-                "constraints": []
-            },
-            "service_scope": service_scope,
-            "content_grant_summary": {
-                "actions": content_actions,
-                "grant_refs": []
-            }
+            "pairing_expires_at": "2999-01-01T00:00:00Z"
         })
     }
 
@@ -3291,13 +3267,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(&[
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.query.scan",
-                    "ck.self.events.command.submit",
-                    "ck.event.read",
-                    "ck.message.create"
-                ]),
+                "yougenBootstrap": sdk_yougen_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3315,11 +3285,7 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(&[
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.command.submit",
-                    "ck.event.read"
-                ]),
+                "yougenBootstrap": sdk_yougen_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3346,10 +3312,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(&[
-                    "ck.event.read",
-                    "ck.message.create"
-                ]),
+                "yougenBootstrap": sdk_yougen_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3373,11 +3336,7 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": sdk_yougen_bootstrap(&[
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.command.submit",
-                    "ck.event.read"
-                ]),
+                "yougenBootstrap": sdk_yougen_bootstrap(),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",

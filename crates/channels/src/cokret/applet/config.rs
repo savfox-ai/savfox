@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use cokret::signatures::PublicKeyMaterial;
-use cokret_identifiers::{DeviceId, Did};
+use cokret::{DeviceId, Did};
 use serde_json::Value;
 
 use super::namespace::{AppletNamespaces, NamespacePattern};

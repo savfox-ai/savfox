@@ -20,7 +20,10 @@ discord = ["dep:serenity"]
 telegram = ["dep:teloxide"]
 dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
-cokret = []
+cokret = [
+    "dep:cokret",
+    "dep:cokret-bridge-runtime",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -50,3 +53,5 @@ bytes = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
+cokret = { workspace = true, optional = true }
+cokret-bridge-runtime = { workspace = true, optional = true }

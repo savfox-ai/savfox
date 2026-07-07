@@ -72,22 +72,23 @@ enum FieldType {
     Select(Vec<String>),
 }
 
-const AGENT_PAIRING_BOOTSTRAP_SCHEMA: &str = "ck.schema.agent_pairing_bootstrap.v1";
+const DEFAULT_COKRET_AGENT_RUNTIME_SCOPE: &[&str] = &[
+    "ck.self.events.stream.subscribe",
+    "ck.self.events.query.scan",
+    "ck.self.events.command.submit",
+    "ck.event.read",
+    "ck.message.create",
+];
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AgentPairingBootstrap {
-    schema: String,
     cokret_base_url: String,
     service_did: String,
     agent_principal_id: String,
     pairing_request_id: String,
-    requested_scope: AgentPairingScope,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct AgentPairingScope {
-    #[serde(default)]
-    actions: Vec<String>,
+    pairing_code: String,
+    pairing_expires_at: String,
 }
 
 /// Cached channel metadata. The full set of channel descriptors is fully
@@ -585,10 +586,10 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     key: "yougenBootstrap".into(),
                     label: "Yougen Bootstrap JSON".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"{"schema":"ck.schema.agent_pairing_bootstrap.v1","cokret_base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","pairing_expires_at":"...","requested_scope":{"actions":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit","ck.event.read","ck.message.create"],"resources":[],"constraints":[]},"service_scope":["ck.self.events.stream.subscribe","ck.self.events.query.scan","ck.self.events.command.submit"],"content_grant_summary":{"actions":["ck.event.read","ck.message.create"],"grant_refs":[]}}"#.into(),
+                    placeholder: r#"{"cokret_base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","pairing_expires_at":"..."}"#.into(),
                     secret: false,
                     required: false,
-                    help: "Paste the Savfox bootstrap from Yougen My Agents. It must not contain private keys or long-lived session grants.",
+                    help: "Paste the CKP-0008 pairing bootstrap from Yougen My Agents. It carries pairing metadata only, not scopes, private keys, or session grants.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
@@ -632,8 +633,8 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     field_type: FieldType::Text,
                     placeholder: "did:web:agent.example".into(),
                     secret: false,
-                    required: true,
-                    help: "AI agent principal DID created in Yougen.",
+                    required: false,
+                    help: "Derived from the Yougen bootstrap. Override only when inspecting a low-level config.",
                 },
                 ConfigField {
                     key: "defaultRealmId".into(),
@@ -1517,13 +1518,22 @@ fn parse_json_config_field(label: &str, value: &str) -> Result<Value, String> {
 }
 
 fn parse_cokret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBootstrap, String> {
-    let bootstrap: AgentPairingBootstrap = serde_json::from_value(value)
-        .map_err(|err| format!("Yougen Bootstrap JSON must match AgentPairingBootstrap: {err}"))?;
-    if bootstrap.schema != AGENT_PAIRING_BOOTSTRAP_SCHEMA {
-        return Err(format!(
-            "Yougen Bootstrap JSON schema must be {}.",
-            AGENT_PAIRING_BOOTSTRAP_SCHEMA
-        ));
+    let bootstrap: AgentPairingBootstrap = serde_json::from_value(value).map_err(|err| {
+        format!("Yougen Bootstrap JSON must match CKP-0008 AgentPairingBootstrap: {err}")
+    })?;
+    for (name, value) in [
+        ("cokret_base_url", bootstrap.cokret_base_url.as_str()),
+        ("service_did", bootstrap.service_did.as_str()),
+        ("agent_principal_id", bootstrap.agent_principal_id.as_str()),
+        ("pairing_request_id", bootstrap.pairing_request_id.as_str()),
+        ("pairing_code", bootstrap.pairing_code.as_str()),
+        ("pairing_expires_at", bootstrap.pairing_expires_at.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!(
+                "Yougen Bootstrap JSON field {name} must not be empty."
+            ));
+        }
     }
     Ok(bootstrap)
 }
@@ -1682,6 +1692,7 @@ fn cokret_config_has_advanced_values(config_obj: &serde_json::Map<String, Value>
         "serviceDid",
         "cokretServerDid",
         "defaultFlowId",
+        "externalAiEndpointConfig",
         "requestedScope",
         "verificationMethod",
         "authorizedEventRef",
@@ -2215,9 +2226,12 @@ fn is_cokret_advanced_field(field_key: &str, mode: &str) -> bool {
         || (mode != "applet"
             && matches!(
                 field_key,
-                "serviceDid"
+                "baseUrl"
+                    | "serviceDid"
+                    | "principalId"
                     | "defaultRealmId"
                     | "defaultFlowId"
+                    | "externalAiEndpointConfig"
                     | "requestedScope"
                     | "grantEventPath"
             ))
@@ -2479,10 +2493,8 @@ fn apply_cokret_bootstrap_defaults(patch: &mut Value) {
     if patch_value_empty(patch.get("principalId")) {
         patch["principalId"] = json!(bootstrap.agent_principal_id.to_string());
     }
-    if patch_value_empty(patch.get("requestedScope"))
-        && !bootstrap.requested_scope.actions.is_empty()
-    {
-        patch["requestedScope"] = json!(bootstrap.requested_scope.actions);
+    if patch_value_empty(patch.get("requestedScope")) {
+        patch["requestedScope"] = json!(DEFAULT_COKRET_AGENT_RUNTIME_SCOPE);
     }
 }
 
@@ -4910,23 +4922,12 @@ mod tests {
 
     fn sdk_yougen_bootstrap_value() -> Value {
         json!({
-            "schema": AGENT_PAIRING_BOOTSTRAP_SCHEMA,
             "cokret_base_url": "https://cokret.example.org",
             "service_did": "did:webvh:cokret.example.org",
             "agent_principal_id": "did:webvh:example.org:agents:support",
             "pairing_request_id": "pair-123",
             "pairing_code": "123456",
-            "pairing_expires_at": "2026-07-06T12:00:00Z",
-            "requested_scope": {
-                "actions": ["ck.self.events.stream.subscribe", "ck.event.read"],
-                "resources": [],
-                "constraints": []
-            },
-            "service_scope": ["ck.self.events.stream.subscribe"],
-            "content_grant_summary": {
-                "actions": ["ck.event.read"],
-                "grant_refs": []
-            }
+            "pairing_expires_at": "2026-07-06T12:00:00Z"
         })
     }
 
@@ -4975,6 +4976,17 @@ mod tests {
     }
 
     #[test]
+    fn cokret_bootstrap_parser_rejects_old_scope_payload_fields() {
+        let mut value = sdk_yougen_bootstrap_value();
+        value["requested_scope"] = json!({"actions": ["ck.event.read"]});
+
+        let err = parse_cokret_agent_pairing_bootstrap(value)
+            .expect_err("legacy scope payload must be rejected");
+
+        assert!(err.contains("unknown field"));
+    }
+
+    #[test]
     fn cokret_simple_account_hides_low_level_fields() {
         let fields = cokret_fields();
         let values = default_channel_values("cokret", &fields);
@@ -4984,14 +4996,15 @@ mod tests {
         };
 
         assert!(visible("yougenBootstrap"));
-        assert!(visible("principalId"));
         assert!(visible("agentId"));
-        assert!(visible("externalAiEndpointConfig"));
         assert!(visible("keyRef"));
         assert!(visible("verificationMethod"));
         assert!(visible("authorizedEventRef"));
         assert!(visible("runtimeKeyRequest"));
         assert!(visible("advanced"));
+        assert!(!visible("baseUrl"));
+        assert!(!visible("principalId"));
+        assert!(!visible("externalAiEndpointConfig"));
         assert!(!visible("accessToken"));
         assert!(!visible("loginChallenge"));
         assert!(!visible("defaultRealmId"));
@@ -5010,7 +5023,10 @@ mod tests {
             field_is_visible("cokret", field, &values)
         };
 
+        assert!(visible("baseUrl"));
         assert!(visible("serviceDid"));
+        assert!(visible("principalId"));
+        assert!(visible("externalAiEndpointConfig"));
         assert!(visible("keyRef"));
         assert!(visible("authorizedEventRef"));
         assert!(visible("defaultRealmId"));
@@ -5250,6 +5266,7 @@ mod tests {
     fn cokret_account_patch_rejects_non_object_external_ai_endpoint_config() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
+        values.insert(field_value_key("cokret", "advanced"), "true".to_owned());
         values.insert(
             field_value_key("cokret", "yougenBootstrap"),
             sdk_yougen_bootstrap_json(),
@@ -5300,7 +5317,7 @@ mod tests {
         );
         assert_eq!(
             patch["requestedScope"],
-            json!(["ck.self.events.stream.subscribe", "ck.event.read"])
+            json!(DEFAULT_COKRET_AGENT_RUNTIME_SCOPE)
         );
     }
 

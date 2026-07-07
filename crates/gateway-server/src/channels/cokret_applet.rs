@@ -35,7 +35,7 @@ use cokret::http_signature::{
     parse_signature_input, public_key_from_bytes, verify_signed_http_message,
 };
 use cokret::{IdempotencyClaim, IdempotencyDirection, IdempotencyIdentity, IdempotencyWindow};
-use cokret_core::{
+use cokret::{
     AppletActorView, AppletDescription, AppletPingOutcome, AppletProtocolMetadata, AppletRealmView,
     AppletTransactionOutcome, AppletTransactionRequestBody, Did, Hash, canonical,
 };
@@ -946,7 +946,7 @@ fn map_http_signature_error(err: HttpMessageVerificationError) -> anyhow::Error 
 
 fn try_decrypt_applet_event(
     state: &AppletChannelState,
-    event: &cokret_core::Event,
+    event: &cokret::Event,
 ) -> Option<AppletInboundCommand> {
     let payload = extract_encrypted_payload_from_message_content(&event.content)?;
     if let Some(device_id) = state.config.device_id.as_deref() {
@@ -1040,8 +1040,8 @@ fn try_decrypt_applet_event(
 
 fn record_applet_unable_to_decrypt(
     state: &AppletChannelState,
-    event: &cokret_core::Event,
-    payload: cokret_core::EncryptedPayload,
+    event: &cokret::Event,
+    payload: cokret::EncryptedPayload,
     reason: cokret::crypto_protocol::UnableToDecryptReason,
 ) {
     if let Err(err) = state.crypto_store.record_unable_to_decrypt(
@@ -1118,7 +1118,7 @@ async fn applet_realm(req: &mut Request, res: &mut Response) {
     }
     let body = AppletRealmView {
         exists: true,
-        realm_id: cokret_identifiers::RealmId::new(realm).ok(),
+        realm_id: cokret::RealmId::new(realm).ok(),
         title: None,
         external_ref: Value::Null,
     };
@@ -1469,7 +1469,7 @@ pub(crate) async fn send_via_applet(
 fn apply_applet_outbound_encryption(
     crypto_store: &FileCokretCryptoStore,
     realm_id: &str,
-    event: &mut cokret_core::Event,
+    event: &mut cokret::Event,
 ) -> anyhow::Result<()> {
     let Some(content_block) = event.content.get("content").cloned() else {
         return Ok(());
@@ -1506,7 +1506,7 @@ async fn emit_bridge_error(
     external_ref: Option<Value>,
 ) -> anyhow::Result<()> {
     use cokret::{AppletBridgeErrorBuilder, AppletBridgeErrorClass, AppletBridgeErrorVisibility};
-    use cokret_identifiers::{Hlc, RealmId};
+    use cokret::{Hlc, RealmId};
 
     let cfg = &state.config;
     let realm = RealmId::new(realm_id.to_owned())
@@ -1582,12 +1582,12 @@ async fn construct_applet_client(
             )
         })?;
         let signer = savfox_channels::cokret::load_ed25519_signer(key_ref, &cfg.bot_actor_id, &vm)?;
-        let principal = cokret_identifiers::Did::new(cfg.bot_actor_id.clone())
+        let principal = cokret::Did::new(cfg.bot_actor_id.clone())
             .map_err(|err| anyhow::anyhow!("invalid bot DID: {err}"))?;
         // Applet configs keep the bot device optional for bearer-only mode.
         // DID-proof login still needs a protocol-valid runtime device id.
         let device =
-            cokret_identifiers::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
+            cokret::DeviceId::new(cfg.device_id.clone().unwrap_or_else(|| {
                 savfox_channels::cokret::derive_cokret_device_id(&[
                     "applet",
                     &cfg.id,
@@ -1622,7 +1622,7 @@ async fn construct_applet_client(
 async fn sign_applet_event_if_keyed(
     cfg: &savfox_channels::cokret::CokretAppletConfig,
     actor_did: &str,
-    event: &mut cokret_core::Event,
+    event: &mut cokret::Event,
 ) -> anyhow::Result<()> {
     let Some(key_ref) = &cfg.key_ref else {
         // No signer configured: the event goes out with empty `proofs[]`, which

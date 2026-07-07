@@ -19,7 +19,7 @@
 //!   (typically produced by `AccountSubscribeFrame::Delta` traversal) into a savfox
 //!   `CokretInboundEvent` ready for the agent pipeline. Frame parsing itself lives in the Cokret
 //!   SDK (`AccountSubscribeFrame::from_ndjson_line`).
-//! * [`client`] — thin wrapper around [`cokret_http_client::Client`]. Agent mode must use a
+//! * [`client`] — thin wrapper around [`cokret::http_client::Client`]. Agent mode must use a
 //!   DPoP-bound client.
 //! * [`outbound`] — build a `ck.message.create` Event from `(realm_id, flow_id, body, actor)`. When
 //!   the account/applet has an `ed25519` `key_ref`, the event is signed via [`signer`].

@@ -3,7 +3,7 @@
 //!
 //! Frame-level parsing (NDJSON `Delta` / `CatchupComplete` / etc.) is provided
 //! by the Cokret SDK
-//! (`cokret_core::AccountSubscribeFrame` / [`AccountSubscribeFrame::from_ndjson_line`]).
+//! (`cokret::AccountSubscribeFrame` / [`AccountSubscribeFrame::from_ndjson_line`]).
 //! This module owns the "given an Event or Notification payload, decide whether
 //! to dispatch and how" logic.
 
@@ -37,7 +37,7 @@ pub struct CokretInboundSkippedEvent {
     pub event_id: Option<String>,
     pub realm_id: Option<String>,
     pub sender_did: Option<String>,
-    pub encrypted_payload: Option<cokret_core::EncryptedPayload>,
+    pub encrypted_payload: Option<cokret::EncryptedPayload>,
     pub reason: CokretInboundSkipReason,
 }
 

@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cokret_core::EventsSubscribeFrameKind;
-use cokret_identifiers::Did;
+use cokret::EventsSubscribeFrameKind;
+use cokret::Did;
 use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
     CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
@@ -683,7 +683,7 @@ async fn try_handle_encrypted_account_skip(
 fn record_account_unable_to_decrypt(
     crypto_store: &FileCokretCryptoStore,
     skipped: &CokretInboundSkippedEvent,
-    payload: cokret_core::EncryptedPayload,
+    payload: cokret::EncryptedPayload,
     reason: cokret::crypto_protocol::UnableToDecryptReason,
 ) {
     let (Some(event_id), Some(realm_id), Some(sender)) = (
@@ -929,7 +929,7 @@ pub(crate) async fn send_to_cokret_account(
 fn apply_account_outbound_encryption(
     crypto_store: &FileCokretCryptoStore,
     realm_id: &str,
-    event: &mut cokret_core::Event,
+    event: &mut cokret::Event,
 ) -> anyhow::Result<()> {
     let Some(content_block) = event.content.get("content").cloned() else {
         return Ok(());

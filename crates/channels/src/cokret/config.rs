@@ -3,12 +3,20 @@ use std::path::PathBuf;
 use anyhow::Context;
 use chrono::{DateTime, SecondsFormat, Utc};
 use cokret::AgentPairingBootstrap;
-use cokret_identifiers::{DeviceId, Did};
+use cokret::{DeviceId, Did};
 use ed25519_dalek::Signer as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::signer::{CokretKeyRef, load_ed25519_signing_key};
+
+const DEFAULT_AGENT_RUNTIME_SCOPE: &[&str] = &[
+    "ck.self.events.stream.subscribe",
+    "ck.self.events.query.scan",
+    "ck.self.events.command.submit",
+    "ck.event.read",
+    "ck.message.create",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CokretAccountMode {
@@ -347,20 +355,13 @@ fn parse_account_entry(
 
     let listen = map.get("listen").and_then(Value::as_bool).unwrap_or(true);
     let send = map.get("send").and_then(Value::as_bool).unwrap_or(true);
-    let requested_scope = parse_string_list(map.get("requestedScope"))
-        .into_iter()
-        .chain(
-            bootstrap
-                .map(|value| value.requested_scope.clone())
-                .map(|scope| scope.actions)
-                .unwrap_or_default(),
-        )
-        .fold(Vec::<String>::new(), |mut acc, item| {
-            if !acc.iter().any(|seen| seen == &item) {
-                acc.push(item);
-            }
-            acc
-        });
+    let mut requested_scope = parse_string_list(map.get("requestedScope"));
+    if requested_scope.is_empty() {
+        requested_scope = DEFAULT_AGENT_RUNTIME_SCOPE
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect();
+    }
 
     Some(CokretAccountConfig {
         mode,
@@ -523,7 +524,7 @@ pub fn build_cokret_runtime_key_request_json(
         "kty": "OKP",
         "kid": verification_method,
         "alg": "Ed25519",
-        "key": cokret_core::base64url_encode(signing_key.verifying_key().to_bytes()),
+        "key": cokret::base64url_encode(signing_key.verifying_key().to_bytes()),
     });
     let request_canonical_digest = cokret::agent::agent_key_pair_proof_request_binding_digest(
         &bootstrap.pairing_request_id,
@@ -546,7 +547,7 @@ pub fn build_cokret_runtime_key_request_json(
             .canonical_bytes()
             .map_err(|err| anyhow::anyhow!("agent key pair proof canonical bytes: {err}"))?,
     );
-    let signature = cokret_core::base64url_encode(signature.to_bytes());
+    let signature = cokret::base64url_encode(signature.to_bytes());
 
     Ok(serde_json::json!({
         "pairing_request_id": bootstrap.pairing_request_id,
@@ -596,50 +597,13 @@ mod tests {
         pairing_code: &str,
     ) -> Value {
         json!({
-            "schema": cokret::AGENT_PAIRING_BOOTSTRAP_SCHEMA,
             "cokret_base_url": base_url,
             "service_did": service_did,
             "agent_principal_id": agent_principal_id,
             "pairing_request_id": pairing_request_id,
             "pairing_code": pairing_code,
-            "pairing_expires_at": "2026-07-06T12:00:00Z",
-            "requested_scope": {
-                "actions": [
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.query.scan",
-                    "ck.self.events.command.submit",
-                    "ck.event.read",
-                    "ck.message.create"
-                ],
-                "resources": [{
-                    "kind": "realm",
-                    "realm_id": "ck:realm:01904100-0000-7000-8000-000000000001"
-                }],
-                "constraints": []
-            },
-            "service_scope": [
-                "ck.self.events.stream.subscribe",
-                "ck.self.events.query.scan",
-                "ck.self.events.command.submit"
-            ],
-            "content_grant_summary": {
-                "actions": ["ck.event.read", "ck.message.create"],
-                "grant_refs": []
-            }
+            "pairing_expires_at": "2026-07-06T12:00:00Z"
         })
-    }
-
-    fn sdk_yougen_content_only_bootstrap() -> Value {
-        let mut bootstrap = sdk_yougen_bootstrap(
-            "https://cokret.example.org",
-            "did:webvh:cokret.example.org",
-            "did:webvh:example.org:agents:support",
-            "pair-123",
-            "123456",
-        );
-        bootstrap["requested_scope"]["actions"] = json!(["ck.event.read", "ck.message.create"]);
-        bootstrap["service_scope"] = json!([]);
-        bootstrap
     }
 
     #[test]
@@ -719,7 +683,7 @@ mod tests {
             parsed.accounts[0].principal_id,
             "did:webvh:example.org:agents:bot"
         );
-        assert!(cokret_identifiers::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
+        assert!(cokret::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
         parsed.validate().expect("validate");
     }
 
@@ -728,36 +692,12 @@ mod tests {
         let cfg = make_channel_config(json!({
             "mode": "agent",
             "yougenBootstrap": {
-                "schema": "ck.schema.agent_pairing_bootstrap.v1",
                 "cokret_base_url": "https://cokret.example.org",
                 "service_did": "did:webvh:cokret.example.org",
                 "agent_principal_id": "did:webvh:example.org:agents:support",
                 "pairing_request_id": "pair-123",
                 "pairing_code": "123456",
-                "pairing_expires_at": "2026-07-06T12:00:00Z",
-                "requested_scope": {
-                    "actions": [
-                        "ck.self.events.stream.subscribe",
-                        "ck.self.events.query.scan",
-                        "ck.self.events.command.submit",
-                        "ck.event.read",
-                        "ck.message.create"
-                    ],
-                    "resources": [{
-                        "kind": "realm",
-                        "realm_id": "ck:realm:01904100-0000-7000-8000-000000000001"
-                    }],
-                    "constraints": []
-                },
-                "service_scope": [
-                    "ck.self.events.stream.subscribe",
-                    "ck.self.events.query.scan",
-                    "ck.self.events.command.submit"
-                ],
-                "content_grant_summary": {
-                    "actions": ["ck.event.read", "ck.message.create"],
-                    "grant_refs": []
-                }
+                "pairing_expires_at": "2026-07-06T12:00:00Z"
             },
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -871,7 +811,7 @@ mod tests {
         let again = CokretChannelConfig::from_channel_config(&cfg).expect("parse again");
 
         assert_eq!(parsed.accounts[0].device_id, again.accounts[0].device_id);
-        assert!(cokret_identifiers::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
+        assert!(cokret::DeviceId::new(parsed.accounts[0].device_id.clone()).is_ok());
     }
 
     #[test]
@@ -941,12 +881,19 @@ mod tests {
     fn agent_runtime_rejects_listen_without_stream_service_scope() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_content_only_bootstrap(),
+            "yougenBootstrap": sdk_yougen_bootstrap(
+                "https://cokret.example.org",
+                "did:webvh:cokret.example.org",
+                "did:webvh:example.org:agents:support",
+                "pair-123",
+                "123456"
+            ),
             "principalId": "did:webvh:example.org:agents:support",
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
             "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001",
+            "requestedScope": ["ck.event.read", "ck.message.create"],
             "listen": true,
             "send": false
         }));
@@ -960,11 +907,18 @@ mod tests {
     fn agent_runtime_rejects_send_without_submit_service_scope() {
         let cfg = make_channel_config(json!({
             "mode": "agent",
-            "yougenBootstrap": sdk_yougen_content_only_bootstrap(),
+            "yougenBootstrap": sdk_yougen_bootstrap(
+                "https://cokret.example.org",
+                "did:webvh:cokret.example.org",
+                "did:webvh:example.org:agents:support",
+                "pair-123",
+                "123456"
+            ),
             "principalId": "did:webvh:example.org:agents:support",
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+            "requestedScope": ["ck.event.read", "ck.message.create"],
             "listen": false,
             "send": true
         }));

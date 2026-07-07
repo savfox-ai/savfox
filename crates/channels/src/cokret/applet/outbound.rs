@@ -19,8 +19,8 @@
 use anyhow::Context;
 use cokret::Ed25519MoveSigner;
 use cokret::signatures::{SignEventOptions, sign_event};
-use cokret_core::Event;
-use cokret_identifiers::{Did, Hlc, RealmId, new_prefixed_uuid7};
+use cokret::Event;
+use cokret::{Did, Hlc, RealmId, new_prefixed_uuid7};
 use serde_json::{Value, json};
 
 /// Inputs for an applet-attributed `ck.message.create` event.

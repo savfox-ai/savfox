@@ -1,4 +1,4 @@
-//! Thin wrapper around [`cokret_http_client::Client`] for Cokret agent traffic.
+//! Thin wrapper around [`cokret::http_client::Client`] for Cokret agent traffic.
 //!
 //! All HTTP / retry / canonical-bytes / NDJSON line splitting logic lives in
 //! the upstream SDK; this type only exists so the gateway runtime never has
@@ -14,12 +14,12 @@ use std::sync::Arc;
 use anyhow::Context;
 use chrono::Utc;
 use cokret::Ed25519MoveSigner;
-use cokret_core::{
+use cokret::{
     Event, EventsSubmitOutcome, EventsSubscribeFrame, ServerDescription,
     SessionGrantDpopBindingProof,
 };
-use cokret_http_client::{Auth, Client, ClientBuilder, DpopAuth};
-use cokret_identifiers::{DeviceId, Did};
+use cokret::http_client::{Auth, Client, ClientBuilder, DpopAuth};
+use cokret::{DeviceId, Did};
 use ed25519_dalek::{Signer as _, SigningKey};
 use futures_util::{Stream, StreamExt};
 use serde_json::json;
@@ -92,7 +92,7 @@ impl CokretHttpClient {
                         || request.htu != expected_htu
                         || request.access_token.is_some()
                     {
-                        return Err(cokret_core::Error::Protocol(
+                        return Err(cokret::Error::Protocol(
                             "unexpected DPoP kickoff request shape".to_owned(),
                         ));
                     }
@@ -131,7 +131,7 @@ impl CokretHttpClient {
                 .canonical_bytes()
                 .map_err(|err| anyhow::anyhow!("agent_key_proof canonical bytes: {err}"))?,
         );
-        let signature = cokret_core::base64url_encode(signature.to_bytes());
+        let signature = cokret::base64url_encode(signature.to_bytes());
         let request = cokret::agent::agent_key_proof_session_grant_request(
             principal_did.clone(),
             requested_scope,
@@ -158,7 +158,7 @@ impl CokretHttpClient {
                 {
                     let signing_key = Arc::clone(&signing_key);
                     move |request| {
-                        let cokret_http_client::DpopProofRequest {
+                        let cokret::http_client::DpopProofRequest {
                             method,
                             htu,
                             access_token,
@@ -254,7 +254,7 @@ fn build_dpop_header(
     method: impl Into<String>,
     htu: impl Into<String>,
     access_token: Option<&str>,
-) -> cokret_core::Result<String> {
+) -> cokret::Result<String> {
     let mut request = cokret::dpop::DpopProofRequest::new(method, htu);
     if let Some(access_token) = access_token {
         request = request.access_token(access_token.to_owned());
@@ -343,9 +343,9 @@ mod tests {
         assert_eq!(parts.len(), 3);
 
         let protected: Value =
-            serde_json::from_slice(&cokret_core::base64url_decode(parts[0]).unwrap()).unwrap();
+            serde_json::from_slice(&cokret::base64url_decode(parts[0]).unwrap()).unwrap();
         let payload: Value =
-            serde_json::from_slice(&cokret_core::base64url_decode(parts[1]).unwrap()).unwrap();
+            serde_json::from_slice(&cokret::base64url_decode(parts[1]).unwrap()).unwrap();
 
         assert_eq!(protected["typ"], "dpop+jwt");
         assert_eq!(protected["alg"], "EdDSA");

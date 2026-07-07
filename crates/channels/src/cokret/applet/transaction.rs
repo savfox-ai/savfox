@@ -6,7 +6,7 @@
 //! contained Event into a savfox-side [`AppletInboundCommand`] when it
 //! matches the configured namespaces and looks dispatchable.
 
-use cokret_core::Event;
+use cokret::Event;
 
 use super::super::crypto_state::message_content_has_encrypted_carrier;
 use super::config::CokretAppletConfig;
@@ -133,7 +133,7 @@ pub fn classify_inbound_event(cfg: &CokretAppletConfig, event: &Event) -> Applet
 
 #[cfg(test)]
 mod tests {
-    use cokret_identifiers::{Did, Hlc, RealmId, new_prefixed_uuid7};
+    use cokret::{Did, Hlc, RealmId, new_prefixed_uuid7};
     use serde_json::json;
 
     use super::*;
@@ -194,7 +194,7 @@ mod tests {
             Event::new(kind, realm(realm_id), did(actor), 1, hlc(), content).expect("event new");
         // Replace event_id with a predictable one for tests by minting a fresh uuidv7.
         let ev_id_s = new_prefixed_uuid7("ck:event:");
-        ev.event_id = cokret_identifiers::EventId::new(ev_id_s).expect("event id");
+        ev.event_id = cokret::EventId::new(ev_id_s).expect("event id");
         ev
     }
 
