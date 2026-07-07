@@ -13,14 +13,9 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["cokret"]
+default = []
 cokret = [
     "savfox-channels/cokret",
-    "dep:cokret-http-client",
-    "dep:cokret-core",
-    "dep:cokret-identifiers",
-    "dep:cokret",
-    "dep:cokret-bridge-runtime",
 ]
 
 [dependencies]
@@ -43,11 +38,6 @@ savfox-memory = { workspace = true }
 savfox-model = { workspace = true }
 savfox-channels = { workspace = true }
 feishu-sdk = { workspace = true }
-cokret-http-client = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-http-client", optional = true, default-features = false }
-cokret-core = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-core", optional = true, default-features = false, features = ["client"] }
-cokret-identifiers = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-identifiers", optional = true, default-features = false }
-cokret = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret", optional = true, default-features = false, features = ["client", "applet-runtime", "device-runtime", "full-surface", "mls", "signer"] }
-cokret-bridge-runtime = { git = "https://github.com/cokret/bridges.git", rev = "fce5a9150518c8f94414ec7d52d505ef727fe685", package = "cokret-bridge-runtime", optional = true, default-features = false, features = ["edge"] }
 chrono = { workspace = true }
 dirs = { workspace = true }
 dotenvy = { workspace = true }

@@ -154,7 +154,7 @@ fn terminal_event_body(event: &ChatTerminalEvent) -> String {
 
 #[component]
 pub fn ChatMessageBubble(
-    message: ReadOnlySignal<ChatMessage>,
+    message: ReadSignal<ChatMessage>,
     show_thinking: Option<bool>,
     verbose_mode: Option<String>,
     is_last: Option<bool>,

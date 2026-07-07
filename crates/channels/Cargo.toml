@@ -13,30 +13,25 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["discord", "telegram", "dingtalk", "feishu", "cokret"]
+default = ["discord", "telegram", "dingtalk", "feishu"]
 # Streaming/polling SDK adapters per platform. Disable to skip the heavy
 # upstream SDK and the corresponding `<platform>` module.
 discord = ["dep:serenity"]
 telegram = ["dep:teloxide"]
 dingtalk = ["dep:dingtalk-sdk"]
 feishu = ["dep:feishu-sdk"]
-cokret = ["dep:cokret-http-client", "dep:cokret-core", "dep:cokret-identifiers", "dep:cokret", "dep:cokret-bridge-runtime", "dep:parking_lot"]
+cokret = []
 
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true }
-cokret-http-client = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-http-client", optional = true, default-features = false }
-cokret-core = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-core", optional = true, default-features = false, features = ["client"] }
-cokret-identifiers = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret-identifiers", optional = true, default-features = false }
-cokret = { git = "https://github.com/cokret/cokret-rust-sdk.git", rev = "5bdb3fe0f88139c241b171b87b86f091fe46d4cb", package = "cokret", optional = true, default-features = false, features = ["client", "applet-runtime", "device-runtime", "full-surface", "mls", "signer"] }
-cokret-bridge-runtime = { git = "https://github.com/cokret/bridges.git", rev = "fce5a9150518c8f94414ec7d52d505ef727fe685", package = "cokret-bridge-runtime", optional = true, default-features = false, features = ["edge"] }
 dingtalk-sdk = { workspace = true, optional = true }
 feishu-sdk = { workspace = true, optional = true }
 form_urlencoded = { workspace = true }
 futures-util = { workspace = true, features = ["alloc"] }
-parking_lot = { workspace = true, optional = true }
+parking_lot = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true, features = ["alloc"] }
 hmac = { workspace = true }

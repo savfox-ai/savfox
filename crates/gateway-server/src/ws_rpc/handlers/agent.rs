@@ -1186,7 +1186,7 @@ fn legacy_fallback_models(config: &Value) -> Option<Value> {
                 .filter(|model| !model.is_empty())
                 .map(|model| json!(model))
                 .collect();
-            (!models.is_empty()).then(|| Value::Array(models))
+            (!models.is_empty()).then_some(Value::Array(models))
         }
         Value::String(model) => {
             let model = model.trim();
@@ -1217,7 +1217,7 @@ fn normalize_native_agent_config(config: &mut Value) {
             .map(str::to_owned)
             .or_else(|| legacy_model.clone())
             .unwrap_or_else(|| "default".to_owned());
-        native.insert("model".to_owned(), json!(model.clone()));
+        native.insert("model".to_owned(), json!(model));
 
         let provider_missing = native
             .get("provider")
@@ -1303,10 +1303,9 @@ pub(crate) fn normalize_agent_config(config: &mut Value, fallback_id: &str, buil
         normalize_native_agent_config(config);
     } else if kind == "terminal"
         && let Some(terminal) = config.get_mut("terminal").and_then(Value::as_object_mut)
+        && !terminal.contains_key("runtime")
     {
-        if !terminal.contains_key("runtime") {
-            terminal.insert("runtime".to_owned(), json!("codex"));
-        }
+        terminal.insert("runtime".to_owned(), json!("codex"));
     }
 
     if builtin
@@ -1847,25 +1846,22 @@ pub(crate) async fn handle_agents_create(
         "created_at": chrono::Utc::now().to_rfc3339(),
     });
 
-    match kind {
-        "terminal" => {
-            let terminal = params.get("terminal").ok_or_else(|| {
-                (
-                    INVALID_REQUEST,
-                    "missing 'terminal' configuration for terminal agent".to_owned(),
-                )
-            })?;
-            agent_config["terminal"] = terminal.clone();
-        }
-        _ => {
-            let native = params.get("native").ok_or_else(|| {
-                (
-                    INVALID_REQUEST,
-                    "missing 'native' configuration for native agent".to_owned(),
-                )
-            })?;
-            agent_config["native"] = native.clone();
-        }
+    if kind == "terminal" {
+        let terminal = params.get("terminal").ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "missing 'terminal' configuration for terminal agent".to_owned(),
+            )
+        })?;
+        agent_config["terminal"] = terminal.clone();
+    } else {
+        let native = params.get("native").ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "missing 'native' configuration for native agent".to_owned(),
+            )
+        })?;
+        agent_config["native"] = native.clone();
     }
     validate_agent_shape(&agent_config).map_err(|message| (INVALID_REQUEST, message))?;
 
