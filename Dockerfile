@@ -2,13 +2,14 @@
 # Stage 1: Build the Dioxus web UI (WASM)
 # ---------------------------------------------------------------------------
 FROM rust:1.94-bookworm AS web-builder
+ARG DIOXUS_CLI_VERSION=0.7.9
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         clang lld && \
     rm -rf /var/lib/apt/lists/*
 
-RUN cargo install dioxus-cli
+RUN cargo install dioxus-cli --version "${DIOXUS_CLI_VERSION}" --locked
 
 WORKDIR /src
 COPY .cargo/ .cargo/
