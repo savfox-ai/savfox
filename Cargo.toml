@@ -134,7 +134,7 @@ env-flags = "0.1.1"
 env_logger = "0.11.10"
 enumflags2 = "0.7"
 etag = "4"
-eventsource-stream = { version = "0.2", git = "https://github.com/chrislearn/eventsource-stream.git", branch = "next" }
+eventsource-stream = { version = "0.2", git = "https://github.com/chrislearn/eventsource-stream.git", rev = "bab35d7d572564b6a531c4c11f33df977ff964cf" }
 eyre = "0.6"
 fastrand = "2"
 filedescriptor = "0.8.3"
@@ -231,7 +231,7 @@ rcgen = "0.14"
 regex = "1"
 regex-lite = "0.1.9"
 reqwest = { version = "0.13", default-features = false }
-reqwest-eventsource = { version = "0.6", git = "https://github.com/chrislearn/reqwest-eventsource", branch = "next" }
+reqwest-eventsource = { version = "0.6", git = "https://github.com/chrislearn/reqwest-eventsource", rev = "c1765e95f5dcd3677fd5ea12c806f1098a228b0c" }
 ring = "0.17"
 rmcp = { version = "1.3.0", default-features = false }
 serenity = { version = "0.12", default-features = false, features = [
@@ -332,7 +332,7 @@ zeroize = "1.8.2"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 scraper = "0.26.0"
 feishu-sdk = { version = "0.1.2", features = ["websocket"] }
-dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", branch = "main" }
+dingtalk-sdk = { version = "0.1.2", git = "https://github.com/palpo-im/dingtalk-sdk", rev = "14ba4f9d784e1dd2e8830108529a1c968be7f3b7" }
 
 # WASM dependencies for gateway-dioxus
 dioxus = { version = "0.7", default-features = false, features = [
@@ -423,4 +423,3 @@ opt-level = 1
 # Faster debug builds: fewer codegen units = faster linking
 [profile.dev]
 debug = "line-tables-only"
-
