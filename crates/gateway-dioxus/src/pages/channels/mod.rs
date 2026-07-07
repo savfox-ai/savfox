@@ -644,6 +644,15 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                     help: "Savfox agent that handles inbound Cokret messages.",
                 },
                 ConfigField {
+                    key: "externalAiEndpointConfig".into(),
+                    label: "External AI Endpoint Config".into(),
+                    field_type: FieldType::Textarea,
+                    placeholder: r#"{"provider":"external","model":"agent-model","base_url":"https://ai.example/v1"}"#.into(),
+                    secret: false,
+                    required: false,
+                    help: "Optional Savfox-side external AI endpoint/provider JSON for this personal agent runtime.",
+                },
+                ConfigField {
                     key: "listen".into(),
                     label: "Receive messages".into(),
                     field_type: FieldType::Toggle,
@@ -2138,6 +2147,7 @@ fn is_cokret_account_only_field(field_key: &str) -> bool {
             | "defaultRealmId"
             | "defaultFlowId"
             | "agentId"
+            | "externalAiEndpointConfig"
             | "listen"
             | "send"
             | "requestedScope"
@@ -2337,6 +2347,15 @@ fn build_cokret_channel_patch(
                 let bootstrap = parse_cokret_agent_pairing_bootstrap(parsed)?;
                 patch[&field.key] = serde_json::to_value(bootstrap)
                     .map_err(|err| format!("Yougen Bootstrap JSON is invalid: {err}"))?;
+            }
+            "externalAiEndpointConfig" => {
+                let parsed = parse_json_config_field("External AI Endpoint Config JSON", value)?;
+                if !parsed.is_object() {
+                    return Err(
+                        "External AI Endpoint Config JSON must be a JSON object.".to_string()
+                    );
+                }
+                patch[&field.key] = parsed;
             }
             "trustedVerificationMethods" => {
                 let parsed = parse_json_config_field("Trusted Verification Methods JSON", value)?;
@@ -3083,11 +3102,31 @@ fn render_channel_card(
     let relay_count = channel_data
         .and_then(|c| c.get("relay_count"))
         .and_then(|v| v.as_u64());
+    let cokret_pairing_state = channel_data
+        .and_then(|c| c.get("runtime_pairing_state"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let cokret_pairing_label = cokret_pairing_state.as_deref().map(|state| match state {
+        "active" => "Active".to_owned(),
+        "pending_authorization" => "Pending authorization".to_owned(),
+        "pending_runtime_key" => "Pending runtime key".to_owned(),
+        other => other.to_owned(),
+    });
+    let cokret_authorized_event_ref = channel_data
+        .and_then(|c| c.get("authorized_event_ref"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let cokret_verification_method = channel_data
+        .and_then(|c| c.get("verification_method"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let (status_variant, status_text) = if is_running && is_connected {
         (ChipVariant::Success, "Connected")
     } else if is_running {
         (ChipVariant::Warning, "Running")
+    } else if ch_type.id == "cokret" && cokret_pairing_state.as_deref() == Some("active") {
+        (ChipVariant::Success, "Active")
     } else if is_configured {
         (ChipVariant::Info, "Configured")
     } else {
@@ -3149,7 +3188,10 @@ fn render_channel_card(
             {
                 let has_platform_info = bot_username.is_some() || guild_count.is_some()
                     || matrix_user_id.is_some() || room_count.is_some()
-                    || nostr_public_key.is_some() || relay_count.is_some();
+                    || nostr_public_key.is_some() || relay_count.is_some()
+                    || cokret_pairing_label.is_some()
+                    || cokret_authorized_event_ref.is_some()
+                    || cokret_verification_method.is_some();
                 rsx! {
                     if has_platform_info {
                         div { class: "channels-card__platform-info",
@@ -3187,6 +3229,24 @@ fn render_channel_card(
                                 span { class: "channels-card__pinfo-item",
                                     span { class: "channels-card__pinfo-label", "Relays" }
                                     span { class: "channels-card__pinfo-value", "{count}" }
+                                }
+                            }
+                            if let Some(label) = cokret_pairing_label {
+                                span { class: "channels-card__pinfo-item",
+                                    span { class: "channels-card__pinfo-label", "Pairing" }
+                                    span { class: "channels-card__pinfo-value", "{label}" }
+                                }
+                            }
+                            if let Some(ref event_ref) = cokret_authorized_event_ref {
+                                span { class: "channels-card__pinfo-item",
+                                    span { class: "channels-card__pinfo-label", "Auth ref" }
+                                    span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{event_ref}" }
+                                }
+                            }
+                            if let Some(ref verification_method) = cokret_verification_method {
+                                span { class: "channels-card__pinfo-item",
+                                    span { class: "channels-card__pinfo-label", "VM" }
+                                    span { class: "channels-card__pinfo-value channels-card__pinfo-value--truncate", "{verification_method}" }
                                 }
                             }
                         }
@@ -3926,6 +3986,95 @@ fn render_single_field(
             }
         };
     }
+    if ch_id == "cokret" && field.key == "keyRef" {
+        let ch_id_for_generate = ch_id.to_owned();
+        let key_for_generate = key.clone();
+        let status_key_for_generate = field_value_key(ch_id, "runtimeKeyRequest");
+        let ws_generate = ws.clone();
+        let key_for_copy = key.clone();
+        let key_input = key.clone();
+        let current_result = current_val.trim().to_owned();
+        drop(value_map);
+        return rsx! {
+            div { class: "channels-cfg__field",
+                label { class: "channels-field__label",
+                    "{display_label}"
+                    if is_required {
+                        span { class: "channels-field__required", " *" }
+                    }
+                    span { class: "channels-field__secret-badge", "secret" }
+                    if !help_text.is_empty() {
+                        HelpTip { text: help_text.clone() }
+                    }
+                }
+                textarea {
+                    placeholder: "{display_placeholder}",
+                    value: "{current_val}",
+                    oninput: move |e| { values.write().insert(key_input.clone(), e.value()); },
+                    class: "channels-field__input channels-cfg__textarea",
+                    rows: "6",
+                }
+                div { class: "channels-cfg__row-actions",
+                    button {
+                        class: "channels-action-btn channels-action-btn--primary",
+                        r#type: "button",
+                        onclick: move |_| {
+                            let ch_id = ch_id_for_generate.clone();
+                            let key = key_for_generate.clone();
+                            let status_key = status_key_for_generate.clone();
+                            let ws = ws_generate.clone();
+                            let snapshot = values.read().clone();
+                            let params = cokret_runtime_key_ref_generation_params(&ch_id, &snapshot);
+                            spawn(async move {
+                                let result = ws
+                                    .call::<serde_json::Value>(
+                                        "channels.cokret.generate_runtime_key_ref",
+                                        Some(params),
+                                    )
+                                    .await;
+                                match result {
+                                    Ok(payload) => {
+                                        let key_ref = payload
+                                            .get("key_ref")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let text = serde_json::to_string_pretty(&key_ref)
+                                            .unwrap_or_else(|_| key_ref.to_string());
+                                        values.write().insert(key, text);
+                                    }
+                                    Err(err) => {
+                                        values.write().insert(
+                                            status_key,
+                                            format!("Runtime key generation failed: {err}"),
+                                        );
+                                    }
+                                }
+                            });
+                        },
+                        "Generate File Key"
+                    }
+                    button {
+                        class: "channels-action-btn",
+                        r#type: "button",
+                        disabled: current_result.is_empty(),
+                        onclick: move |_| {
+                            let text = values
+                                .read()
+                                .get(&key_for_copy)
+                                .cloned()
+                                .unwrap_or_default();
+                            if !text.trim().is_empty() {
+                                spawn(async move {
+                                    copy_text_to_clipboard(text).await;
+                                });
+                            }
+                        },
+                        "Copy"
+                    }
+                }
+            }
+        };
+    }
     drop(value_map);
     let key_input = key.clone();
     let key_reveal = key.clone();
@@ -4185,6 +4334,39 @@ fn cokret_runtime_key_request_status(
         "Ready for gateway-side runtime key request generation from keyRef.\n\nThe generated JSON for Yougen approval uses:\n{{\n  \"pairing_request_id\": \"{pairing_request_id}\",\n  \"agent_principal_id\": \"{agent_principal_id}\",\n  \"verification_method\": \"{verification_method}\",\n  \"public_key\": {{ \"kty\": \"OKP\", \"kid\": \"{verification_method}\", \"alg\": \"Ed25519\", \"key\": \"<base64url raw Ed25519 public key>\" }},\n  \"proof_of_possession\": {{ \"challenge\": \"{pairing_request_id}\", \"audience\": \"{}\", \"request_canonical_digest\": \"sha256:...\", \"expires_at\": \"...\", \"signature\": \"...\" }}\n}}\n\nThis browser form does not read or store the private key; only the gateway host can sign the request from keyRef.",
         audience.unwrap_or_default()
     )
+}
+
+fn cokret_runtime_key_ref_generation_params(
+    channel_id: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> Value {
+    let bootstrap_principal = values
+        .get(&field_value_key(channel_id, "yougenBootstrap"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .and_then(|value| serde_json::from_str::<Value>(value).ok())
+        .and_then(|value| parse_cokret_agent_pairing_bootstrap(value).ok())
+        .map(|bootstrap| bootstrap.agent_principal_id.to_string());
+    let principal_id = bootstrap_principal.or_else(|| {
+        values
+            .get(&field_value_key(channel_id, "principalId"))
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    });
+    let verification_method = values
+        .get(&field_value_key(channel_id, "verificationMethod"))
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+
+    let mut params = serde_json::Map::new();
+    params.insert("platform".to_owned(), json!("cokret"));
+    if let Some(principal_id) = principal_id {
+        params.insert("agent_principal_id".to_owned(), json!(principal_id));
+    }
+    if let Some(verification_method) = verification_method {
+        params.insert("verification_method".to_owned(), json!(verification_method));
+    }
+    Value::Object(params)
 }
 
 fn render_router_fields(
@@ -4766,6 +4948,12 @@ mod tests {
                 .iter()
                 .any(|field| field.key == "runtimeKeyRequest")
         );
+        assert!(
+            cokret
+                .config_fields
+                .iter()
+                .any(|field| field.key == "externalAiEndpointConfig")
+        );
     }
 
     #[test]
@@ -4780,6 +4968,7 @@ mod tests {
         assert!(visible("yougenBootstrap"));
         assert!(visible("principalId"));
         assert!(visible("agentId"));
+        assert!(visible("externalAiEndpointConfig"));
         assert!(visible("keyRef"));
         assert!(visible("verificationMethod"));
         assert!(visible("authorizedEventRef"));
@@ -4907,6 +5096,42 @@ mod tests {
     }
 
     #[test]
+    fn cokret_runtime_key_ref_generation_params_use_bootstrap_principal_only() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            sdk_yougen_bootstrap_json(),
+        );
+        values.insert(
+            field_value_key("cokret", "principalId"),
+            "did:webvh:example.org:agents:stale".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"inline_seed_base64","value":"secret"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let params = cokret_runtime_key_ref_generation_params("cokret", &values);
+
+        assert_eq!(params["platform"], "cokret");
+        assert_eq!(
+            params["agent_principal_id"],
+            "did:webvh:example.org:agents:support"
+        );
+        assert_eq!(
+            params["verification_method"],
+            "did:webvh:example.org:agents:support#runtime-1"
+        );
+        assert!(params.get("keyRef").is_none());
+        assert!(params.get("value").is_none());
+    }
+
+    #[test]
     fn cokret_agent_patch_rejects_missing_key_ref() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
@@ -4962,6 +5187,11 @@ mod tests {
             "ck.self.events.stream.subscribe\nck.event.read".to_owned(),
         );
         values.insert(
+            field_value_key("cokret", "externalAiEndpointConfig"),
+            r#"{"provider":"external","model":"agent-model","base_url":"https://ai.example/v1"}"#
+                .to_owned(),
+        );
+        values.insert(
             field_value_key("cokret", "runtimeKeyRequest"),
             r#"{"must":"not be saved"}"#.to_owned(),
         );
@@ -4985,6 +5215,10 @@ mod tests {
             patch["keyRef"],
             json!({"kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY"})
         );
+        assert_eq!(
+            patch["externalAiEndpointConfig"]["provider"],
+            json!("external")
+        );
         assert!(patch["runtimeKeyRequest"].is_null());
         assert_eq!(
             patch["principalId"],
@@ -4992,6 +5226,33 @@ mod tests {
         );
         assert!(patch["appletId"].is_null());
         assert!(patch["namespaces"].is_null());
+    }
+
+    #[test]
+    fn cokret_account_patch_rejects_non_object_external_ai_endpoint_config() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            sdk_yougen_bootstrap_json(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "externalAiEndpointConfig"),
+            r#""not-object""#.to_owned(),
+        );
+
+        let err = build_channel_patch("cokret", &fields, &values)
+            .expect_err("external endpoint config must be object");
+
+        assert!(err.contains("External AI Endpoint Config JSON"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
@@ -644,6 +645,48 @@ fn insert_saved_channel_metadata(
                     if let Some(account) = parsed.accounts.first() {
                         info.insert("account_id".to_owned(), json!(&account.id));
                         info.insert("principal_id".to_owned(), json!(&account.principal_id));
+                        if let Some(verification_method) = account.verification_method.as_deref() {
+                            info.insert(
+                                "verification_method".to_owned(),
+                                json!(verification_method),
+                            );
+                        }
+                        if let Some(authorized_event_ref) = account.authorized_event_ref.as_deref()
+                        {
+                            info.insert(
+                                "authorized_event_ref".to_owned(),
+                                json!(authorized_event_ref),
+                            );
+                        }
+                        let runtime_pairing_state = if account
+                            .authorized_event_ref
+                            .as_deref()
+                            .is_some_and(|value| !value.trim().is_empty())
+                            && account
+                                .verification_method
+                                .as_deref()
+                                .is_some_and(|value| !value.trim().is_empty())
+                        {
+                            "active"
+                        } else if account.key_ref.is_some() {
+                            "pending_authorization"
+                        } else {
+                            "pending_runtime_key"
+                        };
+                        info.insert(
+                            "runtime_pairing_state".to_owned(),
+                            json!(runtime_pairing_state),
+                        );
+                        let runtime_scope_count = if account.requested_scope.is_empty() {
+                            channel_config_collection_len(
+                                config_obj,
+                                &["requestedScope", "requested_scope"],
+                            )
+                            .unwrap_or(0) as usize
+                        } else {
+                            account.requested_scope.len()
+                        };
+                        info.insert("runtime_scope_count".to_owned(), json!(runtime_scope_count));
                         if let Some(default_realm_id) = account.default_realm_id.as_deref() {
                             info.insert("default_realm_id".to_owned(), json!(default_realm_id));
                         }
@@ -2019,6 +2062,90 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
     }))
 }
 
+pub(crate) async fn handle_channels_cokret_generate_runtime_key_ref(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let label = params
+        .get("account_id")
+        .or_else(|| params.get("accountId"))
+        .or_else(|| params.get("agent_principal_id"))
+        .or_else(|| params.get("agentPrincipalId"))
+        .or_else(|| params.get("principalId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let key_ref = generate_cokret_runtime_file_key_ref(&channel.config().savfox_home, label)
+        .await
+        .map_err(|err| (INTERNAL_ERROR, err.to_string()))?;
+    let key_ref_json = serde_json::to_value(&key_ref)
+        .map_err(|err| (INTERNAL_ERROR, format!("serialize Cokret keyRef: {err}")))?;
+    Ok(json!({
+        "platform": "cokret",
+        "ok": true,
+        "mode": "agent",
+        "key_ref": key_ref_json,
+        "message": "Cokret runtime key generated as a local file keyRef",
+    }))
+}
+
+async fn generate_cokret_runtime_file_key_ref(
+    savfox_home: &Path,
+    label: Option<&str>,
+) -> anyhow::Result<savfox_channels::cokret::CokretKeyRef> {
+    use tokio::io::AsyncWriteExt as _;
+
+    let key_dir = crate::home_paths::gateway_dir(savfox_home).join("cokret-runtime-keys");
+    tokio::fs::create_dir_all(&key_dir)
+        .await
+        .map_err(|err| anyhow::anyhow!("create Cokret runtime key directory: {err}"))?;
+    let safe_label = sanitize_cokret_runtime_key_label(label.unwrap_or("agent"));
+    let path = key_dir.join(format!(
+        "runtime-{safe_label}-{}.seed",
+        uuid::Uuid::now_v7()
+    ));
+    let mut seed: [u8; 32] = rand::random();
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .await
+        .map_err(|err| anyhow::anyhow!("create Cokret runtime key file: {err}"))?;
+    let write_result = async {
+        file.write_all(&seed).await?;
+        file.flush().await
+    }
+    .await;
+    seed.fill(0);
+    write_result.map_err(|err| anyhow::anyhow!("write Cokret runtime key file: {err}"))?;
+    Ok(savfox_channels::cokret::CokretKeyRef::File { path })
+}
+
+fn sanitize_cokret_runtime_key_label(label: &str) -> String {
+    let mut sanitized = String::new();
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            sanitized.push(ch);
+        } else if !sanitized.ends_with('-') {
+            sanitized.push('-');
+        }
+        if sanitized.len() >= 64 {
+            break;
+        }
+    }
+    let sanitized = sanitized.trim_matches('-');
+    if sanitized.is_empty() {
+        "agent".to_owned()
+    } else {
+        sanitized.to_owned()
+    }
+}
+
 fn matrix_test_channel_config(
     params: &Value,
     saved_configs: &[savfox_core::config::channel_store::ChannelConfig],
@@ -2933,9 +3060,14 @@ pub(crate) async fn handle_directory_groups_members(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::json;
 
-    use super::saved_channel_config_ready;
+    use super::{
+        SavedChannelState, generate_cokret_runtime_file_key_ref, insert_saved_channel_metadata,
+        sanitize_cokret_runtime_key_label, saved_channel_config_ready,
+    };
 
     fn channel_config(
         kind: &str,
@@ -2956,6 +3088,41 @@ mod tests {
         }
     }
 
+    fn sdk_yougen_bootstrap(actions: &[&str]) -> serde_json::Value {
+        let service_scope: Vec<&str> = actions
+            .iter()
+            .copied()
+            .filter(|action| action.starts_with("ck.self."))
+            .collect();
+        let content_actions: Vec<&str> = actions
+            .iter()
+            .copied()
+            .filter(|action| !action.starts_with("ck.self."))
+            .collect();
+        json!({
+            "schema": cokret::AGENT_PAIRING_BOOTSTRAP_SCHEMA,
+            "cokret_base_url": "https://cokret.example.org",
+            "service_did": "did:webvh:cokret.example.org",
+            "agent_principal_id": "did:webvh:example.org:agents:support",
+            "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
+            "pairing_code": "12345678",
+            "pairing_expires_at": "2999-01-01T00:00:00Z",
+            "requested_scope": {
+                "actions": actions,
+                "resources": [{
+                    "kind": "realm",
+                    "realm_id": "ck:realm:01904100-0000-7000-8000-000000000001"
+                }],
+                "constraints": []
+            },
+            "service_scope": service_scope,
+            "content_grant_summary": {
+                "actions": content_actions,
+                "grant_refs": []
+            }
+        })
+    }
+
     #[test]
     fn line_ready_accepts_channel_access_token_alias() {
         let config = channel_config(
@@ -2967,6 +3134,39 @@ mod tests {
         );
 
         assert!(saved_channel_config_ready(&config));
+    }
+
+    #[test]
+    fn cokret_runtime_key_label_is_filesystem_safe() {
+        assert_eq!(
+            sanitize_cokret_runtime_key_label("did:webvh:example.org:agents/support"),
+            "did-webvh-example.org-agents-support"
+        );
+        assert_eq!(sanitize_cokret_runtime_key_label(""), "agent");
+    }
+
+    #[tokio::test]
+    async fn generated_cokret_runtime_key_ref_writes_local_file_without_returning_seed() {
+        let home = tempfile::tempdir().expect("temp home");
+        let key_ref = generate_cokret_runtime_file_key_ref(
+            home.path(),
+            Some("did:webvh:example.org:agents/support"),
+        )
+        .await
+        .expect("generate keyRef");
+        let key_ref_json = serde_json::to_value(&key_ref).expect("serialize keyRef");
+
+        assert_eq!(key_ref_json["kind"], "file");
+        assert!(key_ref_json.get("value").is_none());
+        assert!(key_ref_json.get("seed").is_none());
+        let path = key_ref_json["path"].as_str().expect("file path");
+        let path = Path::new(path);
+        assert!(path.starts_with(home.path().join("gateway").join("cokret-runtime-keys")));
+        assert_eq!(std::fs::read(path).expect("read seed").len(), 32);
+
+        let seed_hex = savfox_channels::cokret::load_ed25519_seed_hex(&key_ref)
+            .expect("generated file keyRef must load");
+        assert_eq!(seed_hex.len(), 64);
     }
 
     #[test]
@@ -3015,25 +3215,22 @@ mod tests {
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
                 "serviceDid": "did:webvh:cokret.example.org",
-                "yougenBootstrap": {
-                    "base_url": "https://cokret.example.org",
-                    "service_did": "did:webvh:cokret.example.org",
-                    "agent_principal_id": "did:webvh:example.org:agents:support",
-                    "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
-                    "pairing_code": "12345678",
-                    "expires_at": "2999-01-01T00:00:00.000Z",
-                    "requested_scope": [
-                        "ck.self.events.stream.subscribe",
-                        "ck.self.events.query.scan",
-                        "ck.self.events.command.submit",
-                        "ck.event.read",
-                        "ck.message.create"
-                    ]
-                },
+                "yougenBootstrap": sdk_yougen_bootstrap(&[
+                    "ck.self.events.stream.subscribe",
+                    "ck.self.events.query.scan",
+                    "ck.self.events.command.submit",
+                    "ck.event.read",
+                    "ck.message.create"
+                ]),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
                 "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+                "requestedScope": [
+                    "ck.self.events.stream.subscribe",
+                    "ck.self.events.command.submit",
+                    "ck.event.read"
+                ],
                 "defaultRealmId": "ck:realm:abc"
             }),
         );
@@ -3042,14 +3239,11 @@ mod tests {
             json!({
                 "mode": "agent",
                 "baseUrl": "https://cokret.example.org",
-                "yougenBootstrap": {
-                    "base_url": "https://cokret.example.org",
-                    "service_did": "did:webvh:cokret.example.org",
-                    "agent_principal_id": "did:webvh:example.org:agents:support",
-                    "pairing_request_id": "agent_pairing_request:01904100-0000-7000-8000-000000000001",
-                    "pairing_code": "12345678",
-                    "requested_scope": ["ck.self.events.stream.subscribe"]
-                },
+                "yougenBootstrap": sdk_yougen_bootstrap(&[
+                    "ck.self.events.stream.subscribe",
+                    "ck.self.events.command.submit",
+                    "ck.event.read"
+                ]),
                 "principalId": "did:webvh:example.org:agents:support",
                 "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
                 "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
@@ -3057,8 +3251,89 @@ mod tests {
             }),
         );
 
+        let parsed_ready =
+            savfox_channels::cokret::CokretChannelConfig::from_channel_config(&ready)
+                .expect("ready Cokret config should parse");
+        parsed_ready
+            .validate()
+            .expect("ready Cokret config should validate");
         assert!(saved_channel_config_ready(&ready));
         assert!(!saved_channel_config_ready(&missing_authorization));
+    }
+
+    #[test]
+    fn cokret_agent_ready_rejects_content_scope_without_service_scope() {
+        let content_only = channel_config(
+            "cokret",
+            json!({
+                "mode": "agent",
+                "baseUrl": "https://cokret.example.org",
+                "serviceDid": "did:webvh:cokret.example.org",
+                "yougenBootstrap": sdk_yougen_bootstrap(&[
+                    "ck.event.read",
+                    "ck.message.create"
+                ]),
+                "principalId": "did:webvh:example.org:agents:support",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+                "requestedScope": ["ck.event.read", "ck.message.create"],
+                "defaultRealmId": "ck:realm:abc",
+                "listen": true,
+                "send": false
+            }),
+        );
+
+        assert!(!saved_channel_config_ready(&content_only));
+    }
+
+    #[test]
+    fn cokret_metadata_exposes_active_runtime_pairing() {
+        let config = channel_config(
+            "cokret",
+            json!({
+                "mode": "agent",
+                "baseUrl": "https://cokret.example.org",
+                "serviceDid": "did:webvh:cokret.example.org",
+                "yougenBootstrap": sdk_yougen_bootstrap(&[
+                    "ck.self.events.stream.subscribe",
+                    "ck.self.events.command.submit",
+                    "ck.event.read"
+                ]),
+                "principalId": "did:webvh:example.org:agents:support",
+                "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+                "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+                "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+                "requestedScope": [
+                    "ck.self.events.stream.subscribe",
+                    "ck.self.events.command.submit",
+                    "ck.event.read"
+                ],
+                "defaultRealmId": "ck:realm:abc"
+            }),
+        );
+        let state = SavedChannelState {
+            exists: true,
+            enabled: true,
+            ready: true,
+            channel_name: Some("Cokret".to_owned()),
+            channel_slug: Some("cokret".to_owned()),
+            config: Some(config),
+        };
+        let mut info = serde_json::Map::new();
+
+        insert_saved_channel_metadata(&mut info, "cokret", &state);
+
+        assert_eq!(info["runtime_pairing_state"], "active");
+        assert_eq!(
+            info["authorized_event_ref"],
+            "ck:event:01904100-0000-7000-8000-000000000099"
+        );
+        assert_eq!(
+            info["verification_method"],
+            "did:webvh:example.org:agents:support#runtime-1"
+        );
+        assert_eq!(info["runtime_scope_count"], 3);
     }
 
     #[test]

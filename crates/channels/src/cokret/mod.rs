@@ -62,9 +62,9 @@ pub use grant::{CokretGrant, load_and_verify_grant};
 pub use outbound::{MessageCreateRequest, build_message_create_event, sign_outbound_event};
 pub use parse::{
     CokretInboundEvent, CokretInboundEventOutcome, CokretInboundParseResult,
-    CokretInboundSkipReason, CokretInboundSkippedEvent, classify_message_event,
-    extract_message_event, parse_delta_frame_for_account, parse_event_frame_for_account,
-    parse_notification_delta_for_account, should_dispatch_event,
+    CokretInboundSkipReason, CokretInboundSkippedEvent, account_allows_event_read,
+    classify_message_event, extract_message_event, parse_delta_frame_for_account,
+    parse_event_frame_for_account, parse_notification_delta_for_account, should_dispatch_event,
 };
 pub use seq_store::FileSeqStore;
 pub use session::{CokretSession, login_with_signer};

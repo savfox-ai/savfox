@@ -58,6 +58,9 @@ pub struct CokretAccountConfig {
     pub authorized_event_ref: Option<String>,
     /// Requested service/content runtime scope saved as typed list.
     pub requested_scope: Vec<String>,
+    /// Optional Savfox-side external AI endpoint/provider configuration for
+    /// this personal agent runtime.
+    pub external_ai_endpoint_config: Option<Value>,
     pub default_realm_id: Option<String>,
     pub default_flow_id: Option<String>,
     pub agent_id: Option<String>,
@@ -163,6 +166,13 @@ impl CokretChannelConfig {
 }
 
 impl CokretAccountConfig {
+    #[must_use]
+    pub fn has_requested_scope(&self, action: &str) -> bool {
+        self.requested_scope
+            .iter()
+            .any(|scope| scope.trim() == action)
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.id.trim().is_empty() {
             anyhow::bail!("Cokret account missing id");
@@ -237,6 +247,28 @@ impl CokretAccountConfig {
                 self.id
             );
         }
+        if self.listen && !self.has_requested_scope("ck.self.events.stream.subscribe") {
+            anyhow::bail!(
+                "Cokret agent '{}' listen=true requires service scope ck.self.events.stream.subscribe; content grants alone must not open the subscribe endpoint",
+                self.id
+            );
+        }
+        if self.send && !self.has_requested_scope("ck.self.events.command.submit") {
+            anyhow::bail!(
+                "Cokret agent '{}' send=true requires service scope ck.self.events.command.submit; content grants alone must not call the submit endpoint",
+                self.id
+            );
+        }
+        if self
+            .external_ai_endpoint_config
+            .as_ref()
+            .is_some_and(|value| !value.is_object())
+        {
+            anyhow::bail!(
+                "Cokret agent '{}' externalAiEndpointConfig must be a JSON object",
+                self.id
+            );
+        }
         if self.listen
             && self
                 .default_realm_id
@@ -308,6 +340,10 @@ fn parse_account_entry(
     let login_challenge = first_non_empty(map, &["loginChallenge"]);
     let grant_event_path = first_non_empty(map, &["grantEventPath"]).map(PathBuf::from);
     let authorized_event_ref = first_non_empty(map, &["authorizedEventRef"]);
+    let external_ai_endpoint_config = map
+        .get("externalAiEndpointConfig")
+        .filter(|value| !value.is_null())
+        .cloned();
 
     let listen = map.get("listen").and_then(Value::as_bool).unwrap_or(true);
     let send = map.get("send").and_then(Value::as_bool).unwrap_or(true);
@@ -340,6 +376,7 @@ fn parse_account_entry(
         yougen_bootstrap: bootstrap.cloned(),
         authorized_event_ref,
         requested_scope,
+        external_ai_endpoint_config,
         default_realm_id,
         default_flow_id,
         agent_id,
@@ -592,6 +629,19 @@ mod tests {
         })
     }
 
+    fn sdk_yougen_content_only_bootstrap() -> Value {
+        let mut bootstrap = sdk_yougen_bootstrap(
+            "https://cokret.example.org",
+            "did:webvh:cokret.example.org",
+            "did:webvh:example.org:agents:support",
+            "pair-123",
+            "123456",
+        );
+        bootstrap["requested_scope"]["actions"] = json!(["ck.event.read", "ck.message.create"]);
+        bootstrap["service_scope"] = json!([]);
+        bootstrap
+    }
+
     #[test]
     fn parses_multi_account_array() {
         let cfg = make_channel_config(json!({
@@ -712,6 +762,10 @@ mod tests {
             "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
             "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
             "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+            "externalAiEndpointConfig": {
+                "provider": "external",
+                "model": "agent-model"
+            },
             "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001",
             "agentId": "support"
         }));
@@ -742,12 +796,44 @@ mod tests {
                 .contains(&"ck.event.read".to_owned())
         );
         assert_eq!(
+            account
+                .external_ai_endpoint_config
+                .as_ref()
+                .and_then(|value| value.get("provider"))
+                .and_then(Value::as_str),
+            Some("external")
+        );
+        assert_eq!(
             account.yougen_bootstrap.as_ref().map(|bootstrap| bootstrap
                 .pairing_expires_at
                 .to_rfc3339_opts(SecondsFormat::Secs, true)),
             Some("2026-07-06T12:00:00Z".to_owned())
         );
         parsed.validate().expect("validate");
+    }
+
+    #[test]
+    fn agent_runtime_rejects_non_object_external_ai_endpoint_config() {
+        let cfg = make_channel_config(json!({
+            "mode": "agent",
+            "yougenBootstrap": sdk_yougen_bootstrap(
+                "https://cokret.example.org",
+                "did:webvh:cokret.example.org",
+                "did:webvh:example.org:agents:support",
+                "pair-123",
+                "123456"
+            ),
+            "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+            "externalAiEndpointConfig": "not-json-object",
+            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001"
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed
+            .validate()
+            .expect_err("external AI endpoint config must be object");
+        assert!(format!("{err:#}").contains("externalAiEndpointConfig"));
     }
 
     #[test]
@@ -849,6 +935,43 @@ mod tests {
             .validate()
             .expect_err("missing runtime key should fail");
         assert!(format!("{err:#}").contains("keyRef"));
+    }
+
+    #[test]
+    fn agent_runtime_rejects_listen_without_stream_service_scope() {
+        let cfg = make_channel_config(json!({
+            "mode": "agent",
+            "yougenBootstrap": sdk_yougen_content_only_bootstrap(),
+            "principalId": "did:webvh:example.org:agents:support",
+            "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+            "defaultRealmId": "ck:realm:01904100-0000-7000-8000-000000000001",
+            "listen": true,
+            "send": false
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed.validate().expect_err("missing stream service scope");
+
+        assert!(format!("{err:#}").contains("ck.self.events.stream.subscribe"));
+    }
+
+    #[test]
+    fn agent_runtime_rejects_send_without_submit_service_scope() {
+        let cfg = make_channel_config(json!({
+            "mode": "agent",
+            "yougenBootstrap": sdk_yougen_content_only_bootstrap(),
+            "principalId": "did:webvh:example.org:agents:support",
+            "keyRef": { "kind": "env", "var": "SAVFOX_COKRET_AGENT_KEY" },
+            "verificationMethod": "did:webvh:example.org:agents:support#runtime-1",
+            "authorizedEventRef": "ck:event:01904100-0000-7000-8000-000000000099",
+            "listen": false,
+            "send": true
+        }));
+        let parsed = CokretChannelConfig::from_channel_config(&cfg).expect("parse");
+        let err = parsed.validate().expect_err("missing submit service scope");
+
+        assert!(format!("{err:#}").contains("ck.self.events.command.submit"));
     }
 
     #[test]

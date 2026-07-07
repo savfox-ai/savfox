@@ -50,6 +50,7 @@ pub enum CokretInboundSkipReason {
     UnsupportedNotificationType(String),
     LoopbackFromAccount,
     RealmNotAllowed,
+    ContentReadNotGranted,
     EmptyBody,
 }
 
@@ -184,6 +185,14 @@ pub fn should_dispatch_event(event: &CokretInboundEvent, account: &CokretAccount
     dispatch_skip_reason(event, account).is_none()
 }
 
+#[must_use]
+pub fn account_allows_event_read(account: &CokretAccountConfig) -> bool {
+    account
+        .requested_scope
+        .iter()
+        .any(|action| action == "ck.event.read")
+}
+
 fn dispatch_skip_reason(
     event: &CokretInboundEvent,
     account: &CokretAccountConfig,
@@ -195,6 +204,9 @@ fn dispatch_skip_reason(
         && !event.realm_id.eq_ignore_ascii_case(allowed)
     {
         return Some(CokretInboundSkipReason::RealmNotAllowed);
+    }
+    if !account_allows_event_read(account) {
+        return Some(CokretInboundSkipReason::ContentReadNotGranted);
     }
     if event.body.trim().is_empty() {
         return Some(CokretInboundSkipReason::EmptyBody);
@@ -538,7 +550,8 @@ mod tests {
             grant_event_path: None,
             yougen_bootstrap: None,
             authorized_event_ref: None,
-            requested_scope: vec![],
+            requested_scope: vec!["ck.event.read".into()],
+            external_ai_endpoint_config: None,
             default_realm_id: realm.map(str::to_owned),
             default_flow_id: None,
             agent_id: Some("support".into()),
@@ -677,6 +690,17 @@ mod tests {
     }
 
     #[test]
+    fn should_dispatch_filters_missing_event_read_scope() {
+        let mut account = make_account(Some("ck:realm:r1"));
+        account.requested_scope = vec!["ck.self.events.stream.subscribe".into()];
+        let event = message_event("did:webvh:other", "secret");
+        let parsed =
+            extract_message_event(&event, &account.id).expect("message event should parse");
+
+        assert!(!should_dispatch_event(&parsed, &account));
+    }
+
+    #[test]
     fn parse_delta_frame_walks_realms() {
         let account = make_account(Some("ck:realm:r1"));
         let realms = json!({
@@ -717,6 +741,28 @@ mod tests {
                 .skipped
                 .iter()
                 .any(|event| event.reason == CokretInboundSkipReason::RealmNotAllowed)
+        );
+    }
+
+    #[test]
+    fn parse_delta_without_event_read_does_not_dispatch_plaintext() {
+        let mut account = make_account(Some("ck:realm:r1"));
+        account.requested_scope = vec!["ck.self.events.stream.subscribe".into()];
+        let realms = json!({
+            "ck:realm:r1": {
+                "timeline": {
+                    "events": [message_event("did:webvh:bob", "plain text")]
+                }
+            }
+        });
+
+        let result = parse_delta_frame_for_account(&realms, &account);
+
+        assert!(result.events.is_empty());
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(
+            result.skipped[0].reason,
+            CokretInboundSkipReason::ContentReadNotGranted
         );
     }
 

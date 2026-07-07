@@ -22,8 +22,8 @@ use savfox_channels::cokret::{
     CokretAccountConfig, CokretChannelConfig, CokretDecryptOutcome, CokretEncryptOutcome,
     CokretFrameStream, CokretHttpClient, CokretInboundEvent, CokretInboundParseResult,
     CokretInboundSkipReason, CokretInboundSkippedEvent, FileCokretCryptoStore,
-    MessageCreateRequest, build_message_create_event, parse_event_frame_for_account,
-    resolve_cokret_outbound_account,
+    MessageCreateRequest, account_allows_event_read, build_message_create_event,
+    parse_event_frame_for_account, resolve_cokret_outbound_account,
 };
 use serde_json::Value;
 use tracing::{debug, info, warn};
@@ -196,6 +196,15 @@ async fn run_account_subscribe_loop(
     gateway_channel: Arc<GatewayChannel>,
     session_store: Arc<SessionStore>,
 ) {
+    if !account.has_requested_scope("ck.self.events.stream.subscribe") {
+        warn!(
+            "cokret: account '{}' listen=true but missing ck.self.events.stream.subscribe; refusing to open subscribe endpoint",
+            account.id
+        );
+        runtime::record_channel_probe("cokret", "error").await;
+        return;
+    }
+
     let mut backoff = Duration::from_secs(1);
     let mut cursor: Option<String> = None;
     let mut dedupe = EventDedupe::new(ACCOUNT_EVENT_DEDUPE_MAX);
@@ -218,24 +227,27 @@ async fn run_account_subscribe_loop(
                 "cokret: account '{}' on channel '{}' failed to construct HTTP client: {err:#}",
                 account.id, channel.id
             );
+            runtime::record_channel_probe("cokret", "error").await;
             return;
         }
     };
+    runtime::record_channel_probe("cokret", "ok").await;
     let Some(stream_realm_id) = account.default_realm_id.clone() else {
         warn!(
             "cokret: account '{}' on channel '{}' has listen=true but no defaultRealmId",
             account.id, channel.id
         );
+        runtime::record_channel_probe("cokret", "error").await;
         return;
     };
 
     loop {
-        runtime::record_channel_probe("cokret", "tick").await;
+        runtime::record_channel_probe("cokret", "ok").await;
 
         // Proactively refresh the agent session grant before it expires so a
         // long-lived stream does not wait for Unauthorized to recover.
         if let Some(expiry) = session_expiry
-            && Utc::now() >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)
+            && session_grant_needs_refresh(Some(expiry), Utc::now())
         {
             info!(
                 "cokret: account '{}' session grant near expiry ({expiry}) — refreshing",
@@ -245,12 +257,15 @@ async fn run_account_subscribe_loop(
                 Ok((fresh, fresh_expiry)) => {
                     client = fresh;
                     session_expiry = fresh_expiry;
+                    runtime::record_channel_probe("cokret", "ok").await;
                 }
                 Err(err) => {
                     warn!(
-                        "cokret: account '{}' proactive refresh failed: {err:#}; continuing until Unauthorized",
+                        "cokret: account '{}' proactive refresh failed: {err:#}; stopping listener",
                         account.id
                     );
+                    runtime::record_channel_probe("cokret", "error").await;
+                    return;
                 }
             }
         }
@@ -295,6 +310,7 @@ async fn run_account_subscribe_loop(
                                 cursor = None;
                                 dedupe.clear();
                                 backoff = Duration::from_secs(1);
+                                runtime::record_channel_probe("cokret", "ok").await;
                                 info!(
                                     "cokret: account '{}' agent session refresh succeeded",
                                     account.id
@@ -302,9 +318,11 @@ async fn run_account_subscribe_loop(
                             }
                             Err(err) => {
                                 warn!(
-                                    "cokret: account '{}' agent session refresh failed: {err:#}; will retry with backoff",
+                                    "cokret: account '{}' agent session refresh failed: {err:#}; stopping listener",
                                     account.id
                                 );
+                                runtime::record_channel_probe("cokret", "error").await;
+                                return;
                             }
                         }
                     }
@@ -324,11 +342,33 @@ async fn run_account_subscribe_loop(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StreamOutcome {
     Reconnect,
     ResetCursor,
     Unauthorized,
     Backoff,
+}
+
+fn session_grant_needs_refresh(session_expiry: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
+    session_expiry
+        .is_some_and(|expiry| now >= expiry - chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS))
+}
+
+fn stream_outcome_for_terminal_control_frame(
+    kind: EventsSubscribeFrameKind,
+) -> Option<StreamOutcome> {
+    match kind {
+        EventsSubscribeFrameKind::EpochRotation
+        | EventsSubscribeFrameKind::Dropped
+        | EventsSubscribeFrameKind::ResyncRequired => Some(StreamOutcome::ResetCursor),
+        EventsSubscribeFrameKind::Unauthorized => Some(StreamOutcome::Unauthorized),
+        EventsSubscribeFrameKind::Event
+        | EventsSubscribeFrameKind::Frontier
+        | EventsSubscribeFrameKind::Heartbeat
+        | EventsSubscribeFrameKind::CatchupComplete => None,
+        _ => None,
+    }
 }
 
 async fn consume_stream(
@@ -379,24 +419,36 @@ async fn consume_stream(
             }
             EventsSubscribeFrameKind::Heartbeat => {}
             EventsSubscribeFrameKind::EpochRotation => {
-                return StreamOutcome::ResetCursor;
+                return stream_outcome_for_terminal_control_frame(
+                    EventsSubscribeFrameKind::EpochRotation,
+                )
+                .expect("epoch_rotation has a stream outcome");
             }
             EventsSubscribeFrameKind::Dropped => {
                 warn!(
                     "cokret: '{}/{}' stream dropped — resyncing",
                     channel.id, account.id
                 );
-                return StreamOutcome::ResetCursor;
+                return stream_outcome_for_terminal_control_frame(
+                    EventsSubscribeFrameKind::Dropped,
+                )
+                .expect("dropped has a stream outcome");
             }
             EventsSubscribeFrameKind::ResyncRequired => {
                 warn!(
                     "cokret: '{}/{}' resync required — resetting cursor",
                     channel.id, account.id
                 );
-                return StreamOutcome::ResetCursor;
+                return stream_outcome_for_terminal_control_frame(
+                    EventsSubscribeFrameKind::ResyncRequired,
+                )
+                .expect("resync_required has a stream outcome");
             }
             EventsSubscribeFrameKind::Unauthorized => {
-                return StreamOutcome::Unauthorized;
+                return stream_outcome_for_terminal_control_frame(
+                    EventsSubscribeFrameKind::Unauthorized,
+                )
+                .expect("unauthorized has a stream outcome");
             }
             _ => {
                 debug!(
@@ -523,6 +575,14 @@ async fn try_handle_encrypted_account_skip(
     let Some(payload) = skipped.encrypted_payload.as_ref() else {
         return false;
     };
+    if !account_allows_event_read(account) {
+        warn!(
+            account_id = %account.id,
+            event_id = skipped.event_id.as_deref().unwrap_or("<unknown>"),
+            "cokret: encrypted account event skipped because ck.event.read is not granted"
+        );
+        return false;
+    }
     match crypto_store.plan_bootstrap_for_payload(
         &account.principal_id,
         &account.device_id,
@@ -768,6 +828,12 @@ pub(crate) async fn send_to_cokret_account(
     else {
         anyhow::bail!("no Cokret channel configured for realm {realm_id}");
     };
+    if !account.has_requested_scope("ck.self.events.command.submit") {
+        anyhow::bail!(
+            "Cokret account '{}' send=true but missing service scope ck.self.events.command.submit; refusing to call submit endpoint",
+            account.id
+        );
+    }
     let flow = flow_id
         .map(str::to_owned)
         .or_else(|| account.default_flow_id.clone())
@@ -884,5 +950,55 @@ fn apply_account_outbound_encryption(
                 "Cokret realm '{realm_id}' requires E2EE but no local MLS group state exists for group '{group_id}'"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    #[test]
+    fn session_grant_refreshes_when_expired_or_inside_skew() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 7, 12, 0, 0).unwrap();
+
+        assert!(!session_grant_needs_refresh(None, now));
+        assert!(!session_grant_needs_refresh(
+            Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS + 1)),
+            now
+        ));
+        assert!(session_grant_needs_refresh(
+            Some(now + chrono::Duration::seconds(SESSION_REFRESH_SKEW_SECS)),
+            now
+        ));
+        assert!(session_grant_needs_refresh(
+            Some(now - chrono::Duration::seconds(1)),
+            now
+        ));
+    }
+
+    #[test]
+    fn terminal_control_frames_refresh_session_only_when_unauthorized() {
+        assert_eq!(
+            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::Unauthorized),
+            Some(StreamOutcome::Unauthorized)
+        );
+        assert_eq!(
+            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::Dropped),
+            Some(StreamOutcome::ResetCursor)
+        );
+        assert_eq!(
+            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::ResyncRequired),
+            Some(StreamOutcome::ResetCursor)
+        );
+        assert_eq!(
+            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::EpochRotation),
+            Some(StreamOutcome::ResetCursor)
+        );
+        assert_eq!(
+            stream_outcome_for_terminal_control_frame(EventsSubscribeFrameKind::CatchupComplete),
+            None
+        );
     }
 }

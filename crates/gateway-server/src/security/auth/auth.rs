@@ -723,6 +723,10 @@ mod tests {
             required_scope("channels.cokret.runtime_key_request"),
             Scope::Write
         );
+        assert_eq!(
+            required_scope("channels.cokret.generate_runtime_key_ref"),
+            Scope::Write
+        );
     }
 
     #[test]
