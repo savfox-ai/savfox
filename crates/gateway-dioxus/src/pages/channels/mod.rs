@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 pub mod cokret;
 pub mod common;
 pub mod dingtalk;
@@ -22,7 +24,6 @@ pub mod webhook;
 pub mod whatsapp;
 pub mod zalo;
 
-use cokret_core::AgentPairingBootstrap;
 use dioxus::prelude::*;
 use savfox_utils::string::normalize_slug;
 use serde_json::{Value, json};
@@ -69,6 +70,24 @@ enum FieldType {
     Textarea,
     Toggle,
     Select(Vec<String>),
+}
+
+const AGENT_PAIRING_BOOTSTRAP_SCHEMA: &str = "ck.schema.agent_pairing_bootstrap.v1";
+
+#[derive(Debug, serde::Deserialize)]
+struct AgentPairingBootstrap {
+    schema: String,
+    cokret_base_url: String,
+    service_did: String,
+    agent_principal_id: String,
+    pairing_request_id: String,
+    requested_scope: AgentPairingScope,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AgentPairingScope {
+    #[serde(default)]
+    actions: Vec<String>,
 }
 
 /// Cached channel metadata. The full set of channel descriptors is fully
@@ -1500,10 +1519,10 @@ fn parse_json_config_field(label: &str, value: &str) -> Result<Value, String> {
 fn parse_cokret_agent_pairing_bootstrap(value: Value) -> Result<AgentPairingBootstrap, String> {
     let bootstrap: AgentPairingBootstrap = serde_json::from_value(value)
         .map_err(|err| format!("Yougen Bootstrap JSON must match AgentPairingBootstrap: {err}"))?;
-    if bootstrap.schema != cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA {
+    if bootstrap.schema != AGENT_PAIRING_BOOTSTRAP_SCHEMA {
         return Err(format!(
             "Yougen Bootstrap JSON schema must be {}.",
-            cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA
+            AGENT_PAIRING_BOOTSTRAP_SCHEMA
         ));
     }
     Ok(bootstrap)
@@ -2344,9 +2363,8 @@ fn build_cokret_channel_patch(
             }
             "yougenBootstrap" => {
                 let parsed = parse_json_config_field("Yougen Bootstrap JSON", value)?;
-                let bootstrap = parse_cokret_agent_pairing_bootstrap(parsed)?;
-                patch[&field.key] = serde_json::to_value(bootstrap)
-                    .map_err(|err| format!("Yougen Bootstrap JSON is invalid: {err}"))?;
+                parse_cokret_agent_pairing_bootstrap(parsed.clone())?;
+                patch[&field.key] = parsed;
             }
             "externalAiEndpointConfig" => {
                 let parsed = parse_json_config_field("External AI Endpoint Config JSON", value)?;
@@ -2410,20 +2428,20 @@ fn build_cokret_channel_patch(
 }
 
 fn validate_cokret_agent_runtime_request_inputs(patch: &Value) -> Result<(), String> {
-    if !patch
+    if patch
         .get("yougenBootstrap")
         .and_then(Value::as_object)
-        .is_some_and(|object| !object.is_empty())
+        .is_none_or(|object| object.is_empty())
     {
         return Err(
             "Cokret agent mode requires Yougen Bootstrap JSON before runtime key approval."
                 .to_string(),
         );
     }
-    if !patch
+    if patch
         .get("keyRef")
         .and_then(Value::as_object)
-        .is_some_and(|object| !object.is_empty())
+        .is_none_or(|object| object.is_empty())
     {
         return Err(
             "Cokret agent mode requires Runtime Key Ref JSON for the local runtime key."
@@ -4892,7 +4910,7 @@ mod tests {
 
     fn sdk_yougen_bootstrap_value() -> Value {
         json!({
-            "schema": cokret_core::AGENT_PAIRING_BOOTSTRAP_SCHEMA,
+            "schema": AGENT_PAIRING_BOOTSTRAP_SCHEMA,
             "cokret_base_url": "https://cokret.example.org",
             "service_did": "did:webvh:cokret.example.org",
             "agent_principal_id": "did:webvh:example.org:agents:support",

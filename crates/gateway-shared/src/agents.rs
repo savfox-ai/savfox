@@ -19,6 +19,7 @@ macro_rules! terminal_string_enum {
         }
 
         impl $name {
+            #[must_use]
             pub fn as_str(&self) -> &str {
                 match self {
                     $(Self::$variant => $value,)+
@@ -64,6 +65,7 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Native => "native",
@@ -80,6 +82,7 @@ pub enum TerminalAgentRuntime {
 }
 
 impl TerminalAgentRuntime {
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Codex => "codex",

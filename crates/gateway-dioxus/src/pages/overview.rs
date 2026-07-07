@@ -868,7 +868,7 @@ pub fn Overview() -> Element {
 /// Live uptime stat card. Owns its own 1s tick so that the per-second
 /// re-render is isolated to this small subtree instead of the whole Overview.
 #[component]
-fn UptimeCounter(base_uptime_ms: ReadOnlySignal<u64>) -> Element {
+fn UptimeCounter(base_uptime_ms: ReadSignal<u64>) -> Element {
     // Live uptime counter (seconds added client-side)
     let mut uptime_offset_secs = use_signal(|| 0u64);
 

@@ -884,21 +884,21 @@ async fn load_terminal_context_history(
             continue;
         };
         match line.item {
-            RolloutItem::EventMsg(EventMsg::UserMessage(message)) => {
-                if !message.message.trim().is_empty() {
-                    messages.push(TerminalContextMessage {
-                        role: "user".to_owned(),
-                        text: message.message,
-                    });
-                }
+            RolloutItem::EventMsg(EventMsg::UserMessage(message))
+                if !message.message.trim().is_empty() =>
+            {
+                messages.push(TerminalContextMessage {
+                    role: "user".to_owned(),
+                    text: message.message,
+                });
             }
-            RolloutItem::EventMsg(EventMsg::AgentMessage(message)) => {
-                if !message.message.trim().is_empty() {
-                    messages.push(TerminalContextMessage {
-                        role: "assistant".to_owned(),
-                        text: message.message,
-                    });
-                }
+            RolloutItem::EventMsg(EventMsg::AgentMessage(message))
+                if !message.message.trim().is_empty() =>
+            {
+                messages.push(TerminalContextMessage {
+                    role: "assistant".to_owned(),
+                    text: message.message,
+                });
             }
             _ => {}
         }

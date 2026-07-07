@@ -390,7 +390,7 @@ fn channel_replies_payload(rows: &[ChannelReplyFormRow]) -> Option<Value> {
             }))
         })
         .collect::<Vec<_>>();
-    (!payload.is_empty()).then(|| Value::Array(payload))
+    (!payload.is_empty()).then_some(Value::Array(payload))
 }
 
 fn channel_config_options(configs: &[Value]) -> Vec<ChannelConfigOption> {
