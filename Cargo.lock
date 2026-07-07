@@ -9271,7 +9271,7 @@ dependencies = [
 [[package]]
 name = "salvo"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "salvo-oapi",
  "salvo_core 0.93.0",
@@ -9324,7 +9324,7 @@ dependencies = [
 [[package]]
 name = "salvo-oapi"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "anyhow",
  "base64",
@@ -9358,7 +9358,7 @@ dependencies = [
 [[package]]
 name = "salvo-oapi-macros"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -9413,7 +9413,7 @@ dependencies = [
 [[package]]
 name = "salvo-serde-util"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9518,7 +9518,7 @@ dependencies = [
 [[package]]
 name = "salvo_core"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "async-trait",
  "base64",
@@ -9610,7 +9610,7 @@ dependencies = [
 [[package]]
 name = "salvo_macros"
 version = "0.93.0"
-source = "git+https://github.com/salvo-rs/salvo.git?branch=main#2e6d181f0facae2f4cf3cef42708f3039dd5fb81"
+source = "git+https://github.com/salvo-rs/salvo.git?rev=d1365f0d0e8e0f35ed3a04fb2faec861881c9863#d1365f0d0e8e0f35ed3a04fb2faec861881c9863"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
