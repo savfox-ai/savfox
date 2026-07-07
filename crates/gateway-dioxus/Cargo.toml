@@ -73,4 +73,7 @@ savfox-utils = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true, features = ["v4", "js"] }
 base64 = { workspace = true }
+hex = { workspace = true, features = ["alloc"] }
+hmac = { workspace = true }
 lucide-dioxus = { workspace = true }
+sha2 = { workspace = true }
