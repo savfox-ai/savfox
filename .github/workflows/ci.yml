@@ -176,6 +176,11 @@ jobs:
       - name: Core matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
+      - name: Check config schema freshness
+        if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.core == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: |
+          cargo run -p savfox-core --bin savfox-write-config-schema
+          git diff --exit-code -- crates/core/config.schema.json
       - name: Protocol matrix
         if: needs.changes.outputs.workspace == 'true' || needs.changes.outputs.protocol == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         run: cargo nextest run --profile ci -p savfox-protocol -p savfox-app-server-protocol -p savfox-app-server -p savfox-mcp-server

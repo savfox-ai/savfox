@@ -72,6 +72,10 @@ fmt-check:
 test:
     cargo test --workspace
 
+# Regenerate the config JSON schema fixture
+write-config-schema:
+    cargo run -p savfox-core --bin savfox-write-config-schema
+
 # Targeted tests: core/runtime crates
 test-core:
     cargo test -p savfox-core -p savfox-config -p savfox-model -p savfox-http-client -p savfox-api-client
