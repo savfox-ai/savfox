@@ -584,12 +584,12 @@ fn build_channel_types() -> Vec<ChannelTypeInfo> {
                 },
                 ConfigField {
                     key: "yougenBootstrap".into(),
-                    label: "Yougen Bootstrap JSON".into(),
+                    label: "Yougen Pairing Link / Bootstrap JSON".into(),
                     field_type: FieldType::Textarea,
-                    placeholder: r#"{"cokret_base_url":"https://cokret.example.org","service_did":"did:webvh:cokret.example.org","agent_principal_id":"did:webvh:example.org:agents:support","pairing_request_id":"...","pairing_code":"...","pairing_expires_at":"..."}"#.into(),
+                    placeholder: "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=...".into(),
                     secret: false,
                     required: false,
-                    help: "Paste the CKP-0008 pairing bootstrap from Yougen My Agents. It carries pairing metadata only, not scopes, private keys, or session grants.",
+                    help: "Paste the short Yougen pairing link and click Resolve link, or paste the resolved CKP-0008 bootstrap JSON. The stored bootstrap carries pairing metadata only, not scopes, private keys, or session grants.",
                 },
                 ConfigField {
                     key: "baseUrl".into(),
@@ -2376,6 +2376,12 @@ fn build_cokret_channel_patch(
                 patch[&field.key] = parsed;
             }
             "yougenBootstrap" => {
+                if !value.starts_with('{') {
+                    return Err(
+                        "Resolve the Yougen pairing link before saving the Cokret agent channel."
+                            .to_string(),
+                    );
+                }
                 let parsed = parse_json_config_field("Yougen Bootstrap JSON", value)?;
                 parse_cokret_agent_pairing_bootstrap(parsed.clone())?;
                 patch[&field.key] = parsed;
@@ -3913,6 +3919,110 @@ fn render_single_field(
     let display_placeholder = field_display_placeholder(ch_id, field, &value_map);
     let help_text = field_display_help(ch_id, field, &value_map);
     let is_required = field_display_required(ch_id, field, &value_map);
+    if ch_id == "cokret" && field.key == "yougenBootstrap" {
+        let status_key = format!("{ch_id}.yougenBootstrap.__status");
+        let status_text = value_map.get(&status_key).cloned().unwrap_or_default();
+        let ch_id_for_resolve = ch_id.to_owned();
+        let key_for_resolve = key.clone();
+        let key_for_input = key.clone();
+        let status_key_for_resolve = status_key.clone();
+        let status_key_for_input = status_key.clone();
+        let base_url_key_for_resolve = field_value_key(ch_id, "baseUrl");
+        let ws_resolve = ws.clone();
+        drop(value_map);
+        return rsx! {
+            div { class: "channels-cfg__field",
+                label { class: "channels-field__label",
+                    "{display_label}"
+                    if is_required {
+                        span { class: "channels-field__required", " *" }
+                    }
+                    if !help_text.is_empty() {
+                        HelpTip { text: help_text.clone() }
+                    }
+                }
+                textarea {
+                    placeholder: "{display_placeholder}",
+                    value: "{current_val}",
+                    oninput: move |e| {
+                        values.write().insert(key_for_input.clone(), e.value());
+                        values.write().remove(&status_key_for_input);
+                    },
+                    class: "channels-field__input channels-cfg__textarea",
+                    rows: "6",
+                }
+                div { class: "channels-cfg__row-actions",
+                    button {
+                        class: "channels-action-btn channels-action-btn--primary",
+                        r#type: "button",
+                        disabled: current_val.trim().is_empty(),
+                        onclick: move |_| {
+                            let snapshot = values.read().clone();
+                            let input = snapshot
+                                .get(&key_for_resolve)
+                                .cloned()
+                                .unwrap_or_default();
+                            if input.trim().is_empty() {
+                                values.write().insert(
+                                    status_key_for_resolve.clone(),
+                                    "Paste a Yougen pairing link or token first.".to_string(),
+                                );
+                                return;
+                            }
+                            let base_url = snapshot
+                                .get(&base_url_key_for_resolve)
+                                .cloned()
+                                .unwrap_or_default();
+                            let key = key_for_resolve.clone();
+                            let status_key = status_key_for_resolve.clone();
+                            let ws = ws_resolve.clone();
+                            let _ch_id = ch_id_for_resolve.clone();
+                            values.write().insert(
+                                status_key.clone(),
+                                "Resolving pairing link...".to_string(),
+                            );
+                            spawn(async move {
+                                let result = ws
+                                    .call::<serde_json::Value>(
+                                        "channels.cokret.resolve_pairing_bootstrap",
+                                        Some(json!({
+                                            "input": input,
+                                            "base_url": base_url,
+                                        })),
+                                    )
+                                    .await;
+                                match result {
+                                    Ok(payload) => {
+                                        let bootstrap = payload
+                                            .get("yougen_bootstrap")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null);
+                                        let text = serde_json::to_string_pretty(&bootstrap)
+                                            .unwrap_or_else(|_| bootstrap.to_string());
+                                        values.write().insert(key, text);
+                                        values.write().insert(
+                                            status_key,
+                                            "Pairing link resolved to bootstrap JSON.".to_string(),
+                                        );
+                                    }
+                                    Err(err) => {
+                                        values.write().insert(
+                                            status_key,
+                                            format!("Pairing link resolve failed: {err}"),
+                                        );
+                                    }
+                                }
+                            });
+                        },
+                        "Resolve link"
+                    }
+                }
+                if !status_text.is_empty() {
+                    div { class: "channels-field__hint", "{status_text}" }
+                }
+            }
+        };
+    }
     if ch_id == "cokret" && field.key == "runtimeKeyRequest" {
         let status_text = cokret_runtime_key_request_status(ch_id, &value_map);
         let current_result = current_val.trim().to_owned();
@@ -4302,6 +4412,8 @@ fn cokret_runtime_key_request_status(
     let mut bootstrap = None;
     if bootstrap_raw.is_empty() {
         missing.push("yougenBootstrap");
+    } else if !bootstrap_raw.starts_with('{') {
+        missing.push("resolved Yougen bootstrap JSON (click Resolve link)");
     } else {
         match serde_json::from_str::<Value>(bootstrap_raw) {
             Ok(value) => match parse_cokret_agent_pairing_bootstrap(value) {
@@ -5130,6 +5242,30 @@ mod tests {
     }
 
     #[test]
+    fn cokret_runtime_key_request_status_requires_resolved_pairing_link() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
+                .to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let status = cokret_runtime_key_request_status("cokret", &values);
+
+        assert!(status.contains("Resolve link"));
+        assert!(status.contains("resolved Yougen bootstrap JSON"));
+    }
+
+    #[test]
     fn cokret_runtime_key_ref_generation_params_use_bootstrap_principal_only() {
         let fields = cokret_fields();
         let mut values = default_channel_values("cokret", &fields);
@@ -5181,6 +5317,30 @@ mod tests {
         let err = build_channel_patch("cokret", &fields, &values).expect_err("missing keyRef");
 
         assert!(err.contains("Runtime Key Ref JSON"));
+    }
+
+    #[test]
+    fn cokret_agent_patch_rejects_unresolved_pairing_link() {
+        let fields = cokret_fields();
+        let mut values = default_channel_values("cokret", &fields);
+        values.insert(
+            field_value_key("cokret", "yougenBootstrap"),
+            "https://cokret.example.org/_cokret/open/agent-pairing/resolve#token=abcdefghijklmnopqrstuvwxyz"
+                .to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "keyRef"),
+            r#"{"kind":"env","var":"SAVFOX_COKRET_AGENT_KEY"}"#.to_owned(),
+        );
+        values.insert(
+            field_value_key("cokret", "verificationMethod"),
+            "did:webvh:example.org:agents:support#runtime-1".to_owned(),
+        );
+
+        let err = build_channel_patch("cokret", &fields, &values)
+            .expect_err("unresolved pairing link must not be saved");
+
+        assert!(err.contains("Resolve the Yougen pairing link"));
     }
 
     #[test]

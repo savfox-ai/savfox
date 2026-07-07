@@ -3,7 +3,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(feature = "cokret")]
+use reqwest::header::CONTENT_TYPE;
 use serde_json::{Value, json};
+#[cfg(feature = "cokret")]
+use url::Url;
 
 use super::super::types::{INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, RpcResult};
 use super::channel_management::{load_nostr_profile, save_nostr_profile};
@@ -2118,6 +2122,184 @@ pub(crate) async fn handle_channels_cokret_runtime_key_request(
 }
 
 #[cfg(not(feature = "cokret"))]
+pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
+    _params: &Value,
+    _channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    Err((
+        INVALID_REQUEST,
+        "Cokret support is not enabled in this build".to_owned(),
+    ))
+}
+
+#[cfg(feature = "cokret")]
+pub(crate) async fn handle_channels_cokret_resolve_pairing_bootstrap(
+    params: &Value,
+    channel: &Arc<GatewayChannel>,
+) -> RpcResult {
+    let input = params
+        .get("input")
+        .or_else(|| params.get("pairing_link"))
+        .or_else(|| params.get("pairingLink"))
+        .or_else(|| params.get("pairing_token"))
+        .or_else(|| params.get("pairingToken"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            (
+                INVALID_REQUEST,
+                "Cokret pairing link or token is required".to_owned(),
+            )
+        })?;
+    if input.starts_with('{') {
+        let value = serde_json::from_str::<Value>(input)
+            .map_err(|err| (INVALID_REQUEST, format!("invalid bootstrap JSON: {err}")))?;
+        let bootstrap =
+            validate_cokret_pairing_bootstrap_value(value).map_err(|err| (INVALID_REQUEST, err))?;
+        return Ok(json!({
+            "platform": "cokret",
+            "ok": true,
+            "mode": "agent",
+            "yougen_bootstrap": bootstrap,
+            "message": "Cokret pairing bootstrap is already resolved",
+        }));
+    }
+
+    let base_url = params
+        .get("base_url")
+        .or_else(|| params.get("baseUrl"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (resolve_url, pairing_token) =
+        cokret_pairing_resolve_target(input, base_url).map_err(|err| (INVALID_REQUEST, err))?;
+    let bootstrap = fetch_cokret_pairing_bootstrap(
+        channel.http_client(),
+        resolve_url.as_str(),
+        pairing_token.as_str(),
+    )
+    .await
+    .map_err(|err| (INVALID_REQUEST, err))?;
+    Ok(json!({
+        "platform": "cokret",
+        "ok": true,
+        "mode": "agent",
+        "yougen_bootstrap": bootstrap,
+        "message": "Cokret pairing link resolved",
+    }))
+}
+
+#[cfg(feature = "cokret")]
+fn cokret_pairing_resolve_target(
+    input: &str,
+    base_url: Option<&str>,
+) -> Result<(String, String), String> {
+    let input = input.trim();
+    if let Ok(mut url) = Url::parse(input) {
+        let path = url.path().trim_end_matches('/');
+        if path != "/_cokret/open/agent-pairing/resolve" {
+            return Err(
+                "Cokret pairing link must target /_cokret/open/agent-pairing/resolve".to_owned(),
+            );
+        }
+        if url.query().is_some() {
+            return Err("Cokret pairing token must be in the URL fragment, not query".to_owned());
+        }
+        let token = url
+            .fragment()
+            .and_then(cokret_pairing_token_from_fragment)
+            .ok_or_else(|| "Cokret pairing link fragment must contain token".to_owned())?;
+        if !is_cokret_pairing_token_shape(&token) {
+            return Err("Cokret pairing token shape is invalid".to_owned());
+        }
+        url.set_fragment(None);
+        return Ok((url.to_string(), token));
+    }
+
+    let token = input
+        .strip_prefix("token=")
+        .unwrap_or(input)
+        .trim()
+        .to_owned();
+    if !is_cokret_pairing_token_shape(&token) {
+        return Err(
+            "Cokret pairing input must be a resolver link or a base64url pairing token".to_owned(),
+        );
+    }
+    let base_url =
+        base_url.ok_or_else(|| "Cokret Base URL is required for token-only input".to_owned())?;
+    let resolve_url = format!(
+        "{}/_cokret/open/agent-pairing/resolve",
+        base_url.trim_end_matches('/')
+    );
+    Url::parse(&resolve_url).map_err(|err| format!("Cokret Base URL is invalid: {err}"))?;
+    Ok((resolve_url, token))
+}
+
+#[cfg(feature = "cokret")]
+fn cokret_pairing_token_from_fragment(fragment: &str) -> Option<String> {
+    form_urlencoded::parse(fragment.as_bytes())
+        .find(|(key, _)| key == "token")
+        .map(|(_, value)| value.into_owned())
+}
+
+#[cfg(feature = "cokret")]
+fn is_cokret_pairing_token_shape(value: &str) -> bool {
+    (22..=512).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+#[cfg(feature = "cokret")]
+async fn fetch_cokret_pairing_bootstrap(
+    client: &reqwest::Client,
+    resolve_url: &str,
+    pairing_token: &str,
+) -> Result<Value, String> {
+    let body = serde_json::to_vec(&json!({ "pairing_token": pairing_token }))
+        .map_err(|err| format!("serialize pairing resolver request: {err}"))?;
+    let response = client
+        .post(resolve_url)
+        .header(CONTENT_TYPE, "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|err| format!("resolve Cokret pairing link failed: {err}"))?;
+    let status = response.status();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|err| format!("read Cokret pairing resolver response failed: {err}"))?;
+    if !status.is_success() {
+        let detail = String::from_utf8_lossy(&bytes);
+        let detail = detail.chars().take(240).collect::<String>();
+        return Err(format!(
+            "Cokret pairing resolver returned HTTP {status}: {detail}"
+        ));
+    }
+    let value = serde_json::from_slice::<Value>(&bytes)
+        .map_err(|err| format!("Cokret pairing resolver returned invalid JSON: {err}"))?;
+    validate_cokret_pairing_bootstrap_value(value)
+}
+
+#[cfg(feature = "cokret")]
+fn validate_cokret_pairing_bootstrap_value(value: Value) -> Result<Value, String> {
+    let bootstrap: cokret::AgentPairingBootstrap =
+        serde_json::from_value(value.clone()).map_err(|err| {
+            format!("Cokret pairing resolver returned invalid AgentPairingBootstrap: {err}")
+        })?;
+    if bootstrap.pairing_request_id.trim().is_empty()
+        || bootstrap.pairing_code.trim().is_empty()
+        || bootstrap.cokret_base_url.trim().is_empty()
+    {
+        return Err("Cokret pairing bootstrap contains empty required fields".to_owned());
+    }
+    Ok(value)
+}
+
+#[cfg(not(feature = "cokret"))]
 pub(crate) async fn handle_channels_cokret_generate_runtime_key_ref(
     _params: &Value,
     _channel: &Arc<GatewayChannel>,
@@ -3137,8 +3319,9 @@ mod tests {
     use super::saved_channel_config_ready;
     #[cfg(feature = "cokret")]
     use super::{
-        SavedChannelState, generate_cokret_runtime_file_key_ref, insert_saved_channel_metadata,
-        sanitize_cokret_runtime_key_label,
+        SavedChannelState, cokret_pairing_resolve_target, generate_cokret_runtime_file_key_ref,
+        insert_saved_channel_metadata, sanitize_cokret_runtime_key_label,
+        validate_cokret_pairing_bootstrap_value,
     };
 
     fn channel_config(
@@ -3170,6 +3353,61 @@ mod tests {
             "pairing_code": "12345678",
             "pairing_expires_at": "2999-01-01T00:00:00Z"
         })
+    }
+
+    #[cfg(feature = "cokret")]
+    #[test]
+    fn cokret_pairing_resolver_target_accepts_fragment_link() {
+        let token = "abcdefghijklmnopqrstuvwxyz_123456";
+        let link = format!("https://local.host/_cokret/open/agent-pairing/resolve#token={token}");
+
+        let (resolve_url, parsed_token) =
+            cokret_pairing_resolve_target(&link, None).expect("resolve target");
+
+        assert_eq!(
+            resolve_url,
+            "https://local.host/_cokret/open/agent-pairing/resolve"
+        );
+        assert_eq!(parsed_token, token);
+    }
+
+    #[cfg(feature = "cokret")]
+    #[test]
+    fn cokret_pairing_resolver_target_rejects_query_token() {
+        let token = "abcdefghijklmnopqrstuvwxyz_123456";
+        let link = format!("https://local.host/_cokret/open/agent-pairing/resolve?token={token}");
+
+        let err = cokret_pairing_resolve_target(&link, None).expect_err("query token must fail");
+
+        assert!(err.contains("fragment"));
+    }
+
+    #[cfg(feature = "cokret")]
+    #[test]
+    fn cokret_pairing_resolver_target_accepts_token_with_base_url() {
+        let token = "abcdefghijklmnopqrstuvwxyz_123456";
+
+        let (resolve_url, parsed_token) =
+            cokret_pairing_resolve_target(token, Some("https://local.host/"))
+                .expect("resolve target");
+
+        assert_eq!(
+            resolve_url,
+            "https://local.host/_cokret/open/agent-pairing/resolve"
+        );
+        assert_eq!(parsed_token, token);
+    }
+
+    #[cfg(feature = "cokret")]
+    #[test]
+    fn cokret_pairing_bootstrap_validation_rejects_legacy_scope_payload() {
+        let mut value = sdk_yougen_bootstrap();
+        value["requested_scope"] = json!({ "actions": ["ck.event.read"] });
+
+        let err = validate_cokret_pairing_bootstrap_value(value)
+            .expect_err("legacy bootstrap fields must fail validation");
+
+        assert!(err.contains("unknown field"));
     }
 
     #[test]

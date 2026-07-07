@@ -182,6 +182,9 @@ pub(crate) async fn dispatch_rpc(
         "channels.cokret.runtime_key_request" => {
             handle_channels_cokret_runtime_key_request(&params, channel).await
         }
+        "channels.cokret.resolve_pairing_bootstrap" => {
+            handle_channels_cokret_resolve_pairing_bootstrap(&params, channel).await
+        }
         "channels.cokret.generate_runtime_key_ref" => {
             handle_channels_cokret_generate_runtime_key_ref(&params, channel).await
         }
