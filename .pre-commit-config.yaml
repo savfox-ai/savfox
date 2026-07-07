@@ -19,8 +19,8 @@ repos:
   - repo: local
     hooks:
       - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt --all --
+        name: cargo fmt (nightly)
+        entry: cargo +nightly fmt --all --
         language: system
         types: [rust]
         pass_filenames: false
